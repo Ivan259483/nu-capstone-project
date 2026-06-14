@@ -3,9 +3,26 @@ import { getSharedSocket } from './useRealtimeSync';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import { compressImageForTrackerUpload } from '@/lib/compress-image-for-upload';
-import { isGatePhotoStage } from '@/lib/tracker-gate-photo-slots';
+import { isGatePhotoStage, normalizeStaffGateSlot } from '@/lib/tracker-gate-photo-slots';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+export type QCTrackerStageMedia = {
+  stage: string;
+  slot?: string;
+  photoUrl?: string;
+  description?: string;
+  uploadedAt?: string;
+  uploadedBy?: string;
+  hasPhoto?: boolean;
+};
+
+export type QCStagePhotoUploadResult = {
+  success: boolean;
+  photoUrl?: string;
+  trackerStageMedia?: QCTrackerStageMedia[];
+  savedMedia?: QCTrackerStageMedia;
+};
 
 export interface QCJob {
   id: string;
@@ -30,15 +47,7 @@ export interface QCJob {
   aiFlag: boolean;
   priority: string;
   photos?: { before: string[]; after: string[] };
-  trackerStageMedia?: {
-    stage: string;
-    slot?: string;
-    photoUrl?: string;
-    description?: string;
-    uploadedAt?: string;
-    uploadedBy?: string;
-    hasPhoto?: boolean;
-  }[];
+  trackerStageMedia?: QCTrackerStageMedia[];
   staffNotes?: { content: string; detailerName: string; createdAt: string }[];
   qcChecklist?: { item: string; passed: boolean; note?: string }[];
   damageAnnotations?: unknown[];
@@ -111,7 +120,7 @@ const REQUEST_DEDUPE_MS = 5_000;
 let qcSocketJobsRefetchPausedUntil = 0;
 
 function pauseQcSocketJobsRefetch(ms = 4500) {
-  qcSocketJobsRefetchPausedUntil = Date.now() + ms;
+  qcSocketJobsRefetchPausedUntil = Math.max(qcSocketJobsRefetchPausedUntil, Date.now() + ms);
 }
 
 /** Pause socket/list refetch while the file picker or upload is active (Live Tracker). */
@@ -130,6 +139,62 @@ let lastKnownNonEmptyQcJobs: QCJob[] = [];
 
 function invalidateQcJobsRequestCache() {
   qcRequestCache.delete(QC_JOBS_REQUEST_KEY);
+}
+
+function normalizeQcTrackerMediaEntry(entry: any): QCTrackerStageMedia | null {
+  const stage = String(entry?.stage || '').trim();
+  if (!stage) return null;
+
+  const rawPhotoUrl = String(entry?.photoUrl || '').trim();
+  const photoUrl = rawPhotoUrl && !rawPhotoUrl.startsWith('data:') ? rawPhotoUrl : undefined;
+  const slot = String(entry?.slot || '').trim() || undefined;
+
+  return {
+    stage,
+    ...(slot ? { slot } : {}),
+    ...(photoUrl ? { photoUrl } : {}),
+    ...(typeof entry?.description === 'string' && entry.description.trim()
+      ? { description: entry.description.trim() }
+      : {}),
+    ...(entry?.uploadedAt ? { uploadedAt: String(entry.uploadedAt) } : {}),
+    ...(entry?.uploadedBy ? { uploadedBy: String(entry.uploadedBy) } : {}),
+    hasPhoto: Boolean(entry?.hasPhoto || rawPhotoUrl || stage !== 'confirmed'),
+  };
+}
+
+function normalizeQcTrackerMediaList(media: unknown): QCTrackerStageMedia[] {
+  if (!Array.isArray(media)) return [];
+  return media
+    .map(normalizeQcTrackerMediaEntry)
+    .filter((entry): entry is QCTrackerStageMedia => Boolean(entry));
+}
+
+function trackerMediaMatches(
+  media: QCTrackerStageMedia,
+  stage: string,
+  slot?: string
+): boolean {
+  if (media.stage !== stage) return false;
+  if (!slot) return !media.slot;
+  return normalizeStaffGateSlot(media.slot, media.stage) === normalizeStaffGateSlot(slot, stage);
+}
+
+function findSavedTrackerMedia(
+  media: QCTrackerStageMedia[],
+  stage: string,
+  slot?: string
+): QCTrackerStageMedia | undefined {
+  return [...media].reverse().find((entry) => trackerMediaMatches(entry, stage, slot));
+}
+
+function upsertTrackerMediaList(
+  current: QCTrackerStageMedia[],
+  incoming: QCTrackerStageMedia
+): QCTrackerStageMedia[] {
+  return [
+    ...current.filter((entry) => !trackerMediaMatches(entry, incoming.stage, incoming.slot)),
+    incoming,
+  ];
 }
 
 function readPersistedQcJobsSnapshot(): QCJob[] {
@@ -361,8 +426,54 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
 
   const summaryPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const jobsRef = useRef<QCJob[]>(jobs);
+  const mediaSocketPatchedUntilRef = useRef(new Map<string, number>());
   /** After first successful /qc/jobs response, never toggle jobsLoading again (silent refetches only). */
   const qcJobsHydratedRef = useRef((initialJobsRef.current?.length ?? 0) > 0);
+
+  const patchJobTrackerMedia = useCallback(
+    (
+      orderId: string,
+      media: QCTrackerStageMedia[],
+      payload?: {
+        status?: string;
+        serviceTrackingStage?: string | null;
+        paymentStatus?: string | null;
+        invoiceId?: string | null;
+        updatedAt?: string;
+      }
+    ) => {
+      if (!orderId || media.length === 0) return;
+
+      setJobs((current) => {
+        let changed = false;
+        const next = current.map((job) => {
+          if (String(job.id) !== orderId) return job;
+          changed = true;
+          return {
+            ...job,
+            trackerStageMedia: media,
+            ...(payload?.status !== undefined ? { orderStatus: payload.status } : {}),
+            ...(payload?.serviceTrackingStage !== undefined
+              ? { serviceTrackingStage: payload.serviceTrackingStage }
+              : {}),
+            ...(payload?.paymentStatus !== undefined ? { paymentStatus: payload.paymentStatus || undefined } : {}),
+            ...(payload?.invoiceId !== undefined ? { invoiceId: payload.invoiceId } : {}),
+            ...(payload?.updatedAt ? { serviceTrackingUpdatedAt: payload.updatedAt } : {}),
+          } as QCJob;
+        });
+
+        if (!changed) return current;
+        jobsRef.current = next;
+        rememberNonEmptyQcJobs(next);
+        qcRequestCache.set(QC_JOBS_REQUEST_KEY, {
+          data: next,
+          updatedAt: Date.now(),
+        });
+        return next;
+      });
+    },
+    []
+  );
 
   // ── Fetchers ────────────────────────────────────────────────────────────────
 
@@ -516,20 +627,39 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
 
     // db_change fires from MongoDB Change Streams via the backend
     const handleDbChange = (payload: any) => {
-      if (payload.collection === 'orders') {
-        scheduleSocketRefetch();
+      if (payload.collection !== 'orders') return;
+      const orderId = String(payload.fullDocument?._id || payload.documentKey?._id || '').trim();
+      const patchedUntil = orderId ? mediaSocketPatchedUntilRef.current.get(orderId) || 0 : 0;
+      if (patchedUntil > Date.now()) {
+        mediaSocketPatchedUntilRef.current.delete(orderId);
+        return;
       }
+      scheduleSocketRefetch();
+    };
+    const handleOrderUpdated = (payload: any) => {
+      const orderId = String(payload?.orderId || payload?.id || payload?._id || '').trim();
+      const media = normalizeQcTrackerMediaList(payload?.trackerStageMedia);
+      if (orderId && media.length > 0) {
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+          debounceTimer = null;
+        }
+        mediaSocketPatchedUntilRef.current.set(orderId, Date.now() + 5000);
+        patchJobTrackerMedia(orderId, media, payload);
+        return;
+      }
+      scheduleSocketRefetch();
     };
     socket.on('db_change', handleDbChange);
     // Legacy event name used by some controllers
-    socket.on('orderUpdated', scheduleSocketRefetch);
+    socket.on('orderUpdated', handleOrderUpdated);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       socket.off('db_change', handleDbChange);
-      socket.off('orderUpdated', scheduleSocketRefetch);
+      socket.off('orderUpdated', handleOrderUpdated);
     };
-  }, [fetchJobs]);
+  }, [fetchJobs, patchJobTrackerMedia]);
 
   // ── Actions ──────────────────────────────────────────────────────────────────
 
@@ -594,29 +724,20 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
     async (
       orderId: string,
       payload: { stage: string; slot?: string; description?: string; file?: File | null },
-      opts?: { skipJobsRefresh?: boolean }
-    ): Promise<{ success: boolean; photoUrl?: string; trackerStageMedia?: unknown[] }> => {
+      _opts?: { skipJobsRefresh?: boolean }
+    ): Promise<QCStagePhotoUploadResult> => {
       pauseQcSocketJobsRefetch(15_000);
-      let loadingId: string | number | undefined;
       try {
         if (payload.file) {
           if (isGatePhotoStage(payload.stage) && !payload.slot) {
             toast.error('Missing photo slot');
             return { success: false };
           }
-          loadingId = toast.loading('Preparing photo…', { duration: 120_000 });
+
           let file = payload.file;
           try {
-            const compressed = await compressImageForTrackerUpload(file);
-            const shrunk = compressed !== file && compressed.size < file.size;
-            toast.loading(shrunk ? 'Uploading optimized photo…' : 'Uploading…', {
-              id: loadingId,
-              duration: 120_000,
-            });
-            file = compressed;
-          } catch {
-            toast.loading('Uploading…', { id: loadingId, duration: 120_000 });
-          }
+            file = await compressImageForTrackerUpload(file);
+          } catch {}
 
           const form = new FormData();
           form.append('stage', payload.stage);
@@ -631,24 +752,40 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
             meta: { suppressErrorToast: true },
           } as any);
           const postData = postRes?.data?.data;
+          let trackerStageMedia = normalizeQcTrackerMediaList(postData?.trackerStageMedia);
+          let savedMedia = findSavedTrackerMedia(trackerStageMedia, payload.stage, payload.slot);
+
+          if (!savedMedia) {
+            try {
+              const reconcileRes = await api.get(`/orders/${orderId}/tracker-media`, {
+                meta: { suppressErrorToast: true, suppressExpectedErrorLog: true },
+              } as any);
+              trackerStageMedia = normalizeQcTrackerMediaList(reconcileRes?.data?.data?.trackerStageMedia);
+              savedMedia = findSavedTrackerMedia(trackerStageMedia, payload.stage, payload.slot);
+            } catch {
+              // The upload itself succeeded. Socket delivery remains the final reconciliation fallback.
+            }
+          }
+
+          if (trackerStageMedia.length > 0) {
+            patchJobTrackerMedia(orderId, trackerStageMedia);
+          } else if (savedMedia) {
+            const currentJob = jobsRef.current.find((job) => String(job.id) === String(orderId));
+            const nextMedia = upsertTrackerMediaList(currentJob?.trackerStageMedia || [], savedMedia);
+            patchJobTrackerMedia(orderId, nextMedia);
+            trackerStageMedia = nextMedia;
+          }
+
           toast.success('Stage photo saved', {
-            id: loadingId,
             description: 'Shown on the customer live tracker.',
           });
-          pauseQcSocketJobsRefetch();
-          if (!opts?.skipJobsRefresh) {
-            invalidateQcJobsRequestCache();
-            void fetchJobs(true);
-          }
           return {
             success: true,
-            photoUrl: typeof postData?.photoUrl === 'string' ? postData.photoUrl : undefined,
-            trackerStageMedia: Array.isArray(postData?.trackerStageMedia)
-              ? postData.trackerStageMedia
-              : undefined,
+            photoUrl: savedMedia?.photoUrl,
+            trackerStageMedia,
+            savedMedia,
           };
         } else if (payload.stage === 'confirmed' && payload.description?.trim()) {
-          loadingId = toast.loading('Saving note…');
           await api.patch(
             `/orders/${orderId}/stage-photo`,
             {
@@ -666,21 +803,16 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
           return { success: false };
         }
         toast.success('Stage photo saved', {
-          id: loadingId,
           description: 'Shown on the customer live tracker.',
         });
-        if (!opts?.skipJobsRefresh) {
-          invalidateQcJobsRequestCache();
-          void fetchJobs(true);
-        }
         return { success: true };
       } catch (err: any) {
         const msg = err?.response?.data?.message || err?.message || 'Upload failed';
-        toast.error('Stage photo upload failed', { id: loadingId, description: msg });
+        toast.error('Stage photo upload failed', { description: msg });
         return { success: false };
       }
     },
-    [fetchJobs]
+    [patchJobTrackerMedia]
   );
 
   const deleteTrackerStagePhoto = useCallback(

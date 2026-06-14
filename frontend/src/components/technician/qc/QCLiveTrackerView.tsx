@@ -23,7 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { QCJob } from '@/hooks/useQCData';
+import type { QCJob, QCStagePhotoUploadResult } from '@/hooks/useQCData';
 import { OrderService } from '@/lib/order-service';
 import type { ServiceStage } from './QCServiceControlPanel';
 import {
@@ -1211,7 +1211,6 @@ function CurrentGateCard({
   onUploadStagePhoto,
   onDeleteTrackerStagePhoto,
   onLocalStageMedia,
-  onPhotoUploadSuccess,
   onUploadInteractionChange,
 }: {
   job: QCJob;
@@ -1224,14 +1223,13 @@ function CurrentGateCard({
     orderId: string,
     payload: { stage: string; slot?: string; description?: string; file?: File | null },
     opts?: { skipJobsRefresh?: boolean }
-  ) => Promise<{ success: boolean; photoUrl?: string; trackerStageMedia?: unknown[] }>;
+  ) => Promise<QCStagePhotoUploadResult>;
   onDeleteTrackerStagePhoto: (
     orderId: string,
     payload: { stage: string; slot: string },
     opts?: { skipJobsRefresh?: boolean }
   ) => Promise<boolean>;
   onLocalStageMedia: (id: string, media: TrackerMedia) => void;
-  onPhotoUploadSuccess?: () => void;
   onUploadInteractionChange?: (active: boolean) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1239,7 +1237,11 @@ function CurrentGateCard({
   const filePickerFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const filePickerFocusListenerRef = useRef<(() => void) | null>(null);
   const pendingSlotRef = useRef<StaffGateSlotKey | null>(null);
+  const inFlightSlotsRef = useRef<Partial<Record<string, boolean>>>({});
+  const previewUrlsRef = useRef<Partial<Record<string, string>>>({});
+  const uploadInteractionHeldRef = useRef(false);
   const [pendingSlot, setPendingSlot] = useState<StaffGateSlotKey | null>(null);
+  const [previewUrls, setPreviewUrls] = useState<Partial<Record<string, string>>>({});
   const [uploadingSlots, setUploadingSlots] = useState<Partial<Record<string, boolean>>>({});
   const [removingSlots, setRemovingSlots] = useState<Partial<Record<string, boolean>>>({});
   const [successfulSlots, setSuccessfulSlots] = useState<Partial<Record<string, boolean>>>({});
@@ -1266,14 +1268,62 @@ function CurrentGateCard({
     }
   }, []);
 
+  const beginUploadInteraction = useCallback(() => {
+    if (uploadInteractionHeldRef.current) return;
+    uploadInteractionHeldRef.current = true;
+    onUploadInteractionChange?.(true);
+  }, [onUploadInteractionChange]);
+
+  const endUploadInteraction = useCallback(() => {
+    if (!uploadInteractionHeldRef.current) return;
+    uploadInteractionHeldRef.current = false;
+    onUploadInteractionChange?.(false);
+  }, [onUploadInteractionChange]);
+
+  const setSlotPreview = useCallback((slot: StaffGateSlotKey, nextUrl?: string) => {
+    const previousUrl = previewUrlsRef.current[slot];
+    if (previousUrl && previousUrl !== nextUrl) {
+      URL.revokeObjectURL(previousUrl);
+    }
+
+    if (nextUrl) {
+      previewUrlsRef.current = { ...previewUrlsRef.current, [slot]: nextUrl };
+    } else {
+      const next = { ...previewUrlsRef.current };
+      delete next[slot];
+      previewUrlsRef.current = next;
+    }
+    setPreviewUrls(previewUrlsRef.current);
+  }, []);
+
+  useEffect(() => {
+    Object.values(previewUrlsRef.current).forEach((url) => {
+      if (url) URL.revokeObjectURL(url);
+    });
+    previewUrlsRef.current = {};
+    inFlightSlotsRef.current = {};
+    pendingSlotRef.current = null;
+    setPreviewUrls({});
+    setUploadingSlots({});
+    setPendingSlot(null);
+    clearFilePickerFallback();
+    endUploadInteraction();
+  }, [clearFilePickerFallback, currentStage, endUploadInteraction, job.id]);
+
   useEffect(() => {
     return () => {
       Object.values(successTimersRef.current).forEach((timer) => {
         if (timer) clearTimeout(timer);
       });
+      Object.values(previewUrlsRef.current).forEach((url) => {
+        if (url) URL.revokeObjectURL(url);
+      });
+      previewUrlsRef.current = {};
+      inFlightSlotsRef.current = {};
       clearFilePickerFallback();
+      endUploadInteraction();
     };
-  }, [clearFilePickerFallback]);
+  }, [clearFilePickerFallback, endUploadInteraction]);
 
   const clearSlotSuccess = (slot: StaffGateSlotKey) => {
     const timer = successTimersRef.current[slot];
@@ -1301,17 +1351,18 @@ function CurrentGateCard({
   };
 
   const triggerUpload = (slot: StaffGateSlotKey) => {
+    if (pendingSlotRef.current || inFlightSlotsRef.current[slot]) return;
     clearFilePickerFallback();
     pendingSlotRef.current = slot;
     setPendingSlot(slot);
-    onUploadInteractionChange?.(true);
+    beginUploadInteraction();
     const clearAfterPickerReturns = () => {
       filePickerFocusListenerRef.current = null;
       filePickerFallbackTimerRef.current = setTimeout(() => {
         if (pendingSlotRef.current !== slot) return;
         pendingSlotRef.current = null;
         setPendingSlot(null);
-        onUploadInteractionChange?.(false);
+        endUploadInteraction();
       }, 8000);
     };
     filePickerFocusListenerRef.current = clearAfterPickerReturns;
@@ -1327,57 +1378,45 @@ function CurrentGateCard({
     pendingSlotRef.current = null;
     setPendingSlot(null);
     if (!file || !slot) {
-      onUploadInteractionChange?.(false);
+      endUploadInteraction();
+      return;
+    }
+    if (inFlightSlotsRef.current[slot]) {
+      endUploadInteraction();
       return;
     }
 
     const previewUrl = URL.createObjectURL(file);
+    inFlightSlotsRef.current[slot] = true;
+    setSlotPreview(slot, previewUrl);
     setUploadingSlots((current) => ({ ...current, [slot]: true }));
-    onLocalStageMedia(job.id, {
-      stage: currentStage,
-      slot,
-      photoUrl: previewUrl,
-      uploadedAt: new Date().toISOString(),
-    });
 
-    let ok = false;
+    let result: QCStagePhotoUploadResult = { success: false };
     try {
       await waitForNextPaint();
-      const result = await onUploadStagePhoto(
+      result = await onUploadStagePhoto(
         job.id,
         { stage: currentStage, slot, file },
         { skipJobsRefresh: true }
       );
-      ok = Boolean(result?.success);
-      const savedUrl = typeof result?.photoUrl === 'string' ? result.photoUrl.trim() : '';
-      const isRemoteSavedUrl =
-        savedUrl.startsWith('http://') || savedUrl.startsWith('https://') || savedUrl.startsWith('/');
-      if (ok && isRemoteSavedUrl) {
-        URL.revokeObjectURL(previewUrl);
-        onLocalStageMedia(job.id, {
-          stage: currentStage,
-          slot,
-          photoUrl: savedUrl,
-          uploadedAt: new Date().toISOString(),
-        });
-      }
+    } catch {
+      result = { success: false };
     } finally {
+      delete inFlightSlotsRef.current[slot];
       setUploadingSlots((current) => {
         const next = { ...current };
         delete next[slot];
         return next;
       });
-      window.setTimeout(() => onUploadInteractionChange?.(false), 2800);
+      endUploadInteraction();
     }
 
-    if (!ok) {
-      onLocalStageMedia(job.id, { stage: currentStage, slot, photoUrl: '' });
-      URL.revokeObjectURL(previewUrl);
+    if (!result.success) {
+      setSlotPreview(slot);
       return;
     }
 
     markSlotSuccess(slot);
-    // Avoid focus() here — it can scroll the modal and feel like a page reload after file picker.
   };
 
   const removeSlot = async (slot: StaffGateSlotKey) => {
@@ -1386,6 +1425,7 @@ function CurrentGateCard({
     try {
       const ok = await onDeleteTrackerStagePhoto(job.id, { stage: currentStage, slot });
       if (ok) {
+        setSlotPreview(slot);
         onLocalStageMedia(job.id, { stage: currentStage, slot, photoUrl: '' });
       }
     } finally {
@@ -1477,7 +1517,10 @@ function CurrentGateCard({
           const isQcForm = slot === TRACKER_QC_FORM_SLOT_KEY;
           const entry = getMediaForSlot(mediaList, currentStage, slot);
           const filled = mediaRepresentsSavedPhoto(entry);
-          const canRenderImage = mediaHasRenderablePhotoUrl(entry);
+          const previewUrl = previewUrls[slot];
+          const displayUrl = previewUrl || String(entry?.photoUrl || '').trim();
+          const canRenderImage = Boolean(displayUrl);
+          const hasVisual = filled || Boolean(previewUrl);
           const uploading = !!uploadingSlots[slot];
           const removing = !!removingSlots[slot];
           const saved = !!successfulSlots[slot];
@@ -1527,10 +1570,10 @@ function CurrentGateCard({
                   </button>
                 ) : null}
               </div>
-              {filled ? (
+              {hasVisual ? (
                 <div className="relative aspect-[4/3] w-full">
                   {canRenderImage ? (
-                    <img src={entry!.photoUrl} alt="" className="h-full w-full object-cover" />
+                    <img src={displayUrl} alt="" className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-50 px-3 text-center text-slate-500">
                       {detailsLoading ? (
@@ -1841,7 +1884,7 @@ type SelectedOrderPanelProps = {
     orderId: string,
     payload: { stage: string; slot?: string; description?: string; file?: File | null },
     opts?: { skipJobsRefresh?: boolean }
-  ) => Promise<{ success: boolean; photoUrl?: string; trackerStageMedia?: unknown[] }>;
+  ) => Promise<QCStagePhotoUploadResult>;
   onDeleteTrackerStagePhoto: (
     orderId: string,
     payload: { stage: string; slot: string },
@@ -1858,7 +1901,6 @@ type SelectedOrderPanelProps = {
     items: { item: string; passed: boolean; note?: string }[]
   ) => Promise<boolean>;
   onClose?: () => void;
-  onPhotoUploadSuccess?: () => void;
   onUploadInteractionChange?: (active: boolean) => void;
   titleId?: string;
 };
@@ -1878,7 +1920,6 @@ function SelectedOrderPanel({
   onLocalHandoffPatch,
   onPersistQcChecklist,
   onClose,
-  onPhotoUploadSuccess,
   onUploadInteractionChange,
   titleId,
 }: SelectedOrderPanelProps) {
@@ -2044,7 +2085,6 @@ function SelectedOrderPanel({
               onUploadStagePhoto={onUploadStagePhoto}
               onDeleteTrackerStagePhoto={onDeleteTrackerStagePhoto}
               onLocalStageMedia={onLocalStageMedia}
-              onPhotoUploadSuccess={onPhotoUploadSuccess}
               onUploadInteractionChange={onUploadInteractionChange}
             />
             <ShopFloorLogCard job={job} onAddStaffNote={onAddStaffNote} onLocalStaffNote={onLocalStaffNote} />
@@ -2093,12 +2133,6 @@ function LiveTrackerOrderModal({ onClose, isUploadInteractionActive = false, ...
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = 'live-tracker-order-modal-title';
 
-  const focusDialog = useCallback(() => {
-    requestAnimationFrame(() => {
-      dialogRef.current?.focus({ preventScroll: true });
-    });
-  }, []);
-
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -2137,7 +2171,6 @@ function LiveTrackerOrderModal({ onClose, isUploadInteractionActive = false, ...
         <SelectedOrderPanel
           {...panelProps}
           onClose={onClose}
-          onPhotoUploadSuccess={focusDialog}
           titleId={titleId}
         />
       </div>
@@ -2164,7 +2197,7 @@ export default function QCLiveTrackerView({
     orderId: string,
     payload: { stage: string; slot?: string; description?: string; file?: File | null },
     opts?: { skipJobsRefresh?: boolean }
-  ) => Promise<{ success: boolean; photoUrl?: string; trackerStageMedia?: unknown[] }>;
+  ) => Promise<QCStagePhotoUploadResult>;
   onDeleteTrackerStagePhoto: (
     orderId: string,
     payload: { stage: string; slot: string },
@@ -2484,23 +2517,12 @@ export default function QCLiveTrackerView({
       opts?: { skipJobsRefresh?: boolean }
     ) => {
       const result = await onUploadStagePhoto(orderId, payload, { ...opts, skipJobsRefresh: true });
-      const savedUrl = typeof result?.photoUrl === 'string' ? result.photoUrl.trim() : '';
-      const isRemoteSavedUrl =
-        savedUrl.startsWith('http://') || savedUrl.startsWith('https://') || savedUrl.startsWith('/');
-      // Only refetch order detail when we have no URL at all (wait for Cloudinary backfill via socket).
-      if (result?.success && !savedUrl) {
-        scheduleSilentDetailRefresh(orderId);
-      } else if (result?.success && isRemoteSavedUrl) {
-        upsertLocalMedia(orderId, {
-          stage: payload.stage,
-          slot: payload.slot,
-          photoUrl: savedUrl,
-          uploadedAt: new Date().toISOString(),
-        });
+      if (result?.success && result.savedMedia) {
+        upsertLocalMedia(orderId, sanitizeTrackerMediaEntry(result.savedMedia));
       }
       return result;
     },
-    [onUploadStagePhoto, scheduleSilentDetailRefresh, upsertLocalMedia]
+    [onUploadStagePhoto, upsertLocalMedia]
   );
 
   const handleDeleteTrackerStagePhoto = useCallback(

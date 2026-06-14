@@ -33,6 +33,7 @@ import {
 import { getLiveTrackerStepIndex } from '@/lib/customer-live-tracker-step';
 import { getTrackerPipelineProgressPct } from '@/lib/tracker-pipeline-progress';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '@/lib/cloudinary-delivery-url';
+import { resolveProfileImage } from '@/lib/profile-image';
 
 const BRAND_ORANGE = '#F97316';
 const LUXURY_EASE = [0.22, 1, 0.36, 1] as const;
@@ -422,6 +423,7 @@ function getBayAssignment(booking: Booking | null) {
 export default function CustomerLiveTrackerPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const profileImage = resolveProfileImage(user as unknown as Record<string, unknown>);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -977,8 +979,8 @@ export default function CustomerLiveTrackerPage() {
                   className="relative w-9 h-9 rounded-full bg-[#eff6ff] border border-[#bfdbfe] flex items-center justify-center text-[#1d4ed8] font-bold text-sm ml-2 hover:ring-2 hover:ring-[#bfdbfe] transition-all overflow-visible"
                 >
                   <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
-                    {user?.avatar ? (
-                      <img src={user.avatar} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    {profileImage ? (
+                      <img src={profileImage} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       (user?.name || 'C').charAt(0).toUpperCase()
                     )}
@@ -997,8 +999,8 @@ export default function CustomerLiveTrackerPage() {
                       <div className="p-4 border-b border-slate-100">
                         <div className="flex items-center gap-3">
                           <div className="w-12 h-12 rounded-full bg-[#eff6ff] flex items-center justify-center text-[#1d4ed8] font-bold text-[17px] shrink-0 overflow-hidden">
-                            {user?.avatar ? (
-                              <img src={user.avatar} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            {profileImage ? (
+                              <img src={profileImage} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                             ) : (
                               (user?.name || 'C').charAt(0).toUpperCase()
                             )}

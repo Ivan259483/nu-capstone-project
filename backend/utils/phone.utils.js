@@ -3,11 +3,13 @@
  * Accepts: 09XXXXXXXXX (11 digits) or +639XXXXXXXXX / 639XXXXXXXXX
  * Stored form: 09XXXXXXXXX
  */
+const compactPhoneInput = (input) => String(input).trim().replace(/[\s().-]/g, '');
+
 export function normalizePhilippineMobile(input) {
   if (input == null || typeof input !== 'string') {
     return { ok: false, phone: '', message: 'Invalid phone number.' };
   }
-  const compact = input.trim().replace(/\s/g, '');
+  const compact = compactPhoneInput(input);
   if (!compact) {
     return { ok: false, phone: '', message: 'Phone number is required.' };
   }
@@ -43,7 +45,7 @@ export function parseRegisterPhone(input) {
   if (input == null || String(input).trim() === '') {
     return { ok: false, phone: '', message: 'Phone number is required.' };
   }
-  const compact = String(input).trim().replace(/\s/g, '');
+  const compact = compactPhoneInput(input);
 
   if (/^\+639\d{9}$/.test(compact)) {
     return { ok: true, phone: compact };
@@ -72,4 +74,12 @@ export function parseRegisterPhone(input) {
     phone: compact,
     message: 'Invalid phone number format.',
   };
+}
+
+/** Optional profile/admin updates — blank means "leave the existing phone unchanged". */
+export function parseOptionalProfilePhone(input) {
+  if (input == null || String(input).trim() === '') {
+    return { ok: true, phone: undefined };
+  }
+  return parseRegisterPhone(input);
 }

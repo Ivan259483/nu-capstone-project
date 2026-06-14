@@ -3,6 +3,7 @@ import { cachedGet, TTL, invalidate } from './queryCache';
 import type { Booking } from '@/types';
 import { db } from '@/config/firebase';
 import { collection, query, where, onSnapshot, orderBy, doc, setDoc } from 'firebase/firestore';
+import { resolveReceiptPhone } from './receipt-phone';
 
 export type OrderAvailabilityErrorCode =
     | 'EMERGENCY_CLOSED'
@@ -81,10 +82,14 @@ export const normalizeBooking = (raw: any): Booking => {
         || raw?.customer?.name
         || 'Customer';
 
-    const customerPhone =
-        raw?.customerPhone
-        || raw?.customer?.phone
-        || '';
+    const customerPhone = resolveReceiptPhone(
+        raw?.invoiceRecord?.snapshot,
+        raw,
+        raw?.customer,
+        raw?.user,
+        raw?.payment,
+        raw?.receipt
+    ) || '';
 
     const booking = {
         // Required booking fields for UI components
@@ -100,6 +105,12 @@ export const normalizeBooking = (raw: any): Booking => {
         date: String(date || ''),
         time: String(time || ''),
         status: raw?.status || 'pending',
+        subtotal: raw?.subtotal,
+        discountAmount: raw?.discountAmount,
+        taxVatAmount: raw?.taxVatAmount,
+        additionalFees: raw?.additionalFees,
+        serviceTotal: raw?.serviceTotal,
+        amountCollected: raw?.amountCollected,
         totalPrice: raw?.totalPrice,
         totalAmount: raw?.totalAmount,
         invoiceId: raw?.invoiceId,
@@ -115,10 +126,26 @@ export const normalizeBooking = (raw: any): Booking => {
         _id: raw?._id,
         customer: raw?.customer,
         items: raw?.items,
+        latestPayment: raw?.latestPayment,
+        invoiceRecord: raw?.invoiceRecord,
         vehicleYear: raw?.vehicleYear,
         vehicleMake: raw?.vehicleMake,
         vehicleModel: raw?.vehicleModel,
-        vehicleColor: raw?.vehicleColor,
+        vehicleColor:
+            raw?.vehicleColor
+            || raw?.vehicle?.color
+            || raw?.vehicle?.colorName
+            || raw?.vehicle?.paintColor
+            || raw?.vehicle?.details?.color
+            || raw?.color,
+        vehicleType:
+            raw?.vehicleType
+            || raw?.vehicle?.type
+            || raw?.vehicle?.vehicleType
+            || raw?.vehicle?.class
+            || raw?.vehicle?.category,
+        vehicleClass: raw?.vehicleClass,
+        vehicleCategory: raw?.vehicleCategory,
         vehiclePlate: raw?.vehiclePlate,
         bookingDate: raw?.bookingDate,
         bookingTime: raw?.bookingTime,

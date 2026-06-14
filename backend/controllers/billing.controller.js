@@ -10,6 +10,14 @@ import { buildInvoicePdfBuffer } from '../utils/pdf.utils.js';
 import { notifyCustomerReceiptReady } from '../utils/customerReceiptNotification.utils.js';
 import { resolvePlainVehiclePlate } from '../utils/vehiclePlate.utils.js';
 import { isCustomerRole, isPosManagerRole } from '../constants/roles.js';
+import {
+  resolveReceiptPhoneForClient,
+  USER_PHONE_SELECT_FIELDS,
+} from '../utils/phone-client.utils.js';
+import { hydrateReceiptSnapshot } from '../utils/receiptSnapshot.utils.js';
+
+const RECEIPT_CUSTOMER_SELECT = `name email ${USER_PHONE_SELECT_FIELDS}`;
+const RECEIPT_VEHICLE_SELECT = 'year make model color plateNumber vehicleType';
 
 function mapLineItem(raw) {
   let serviceId = null;
@@ -100,6 +108,7 @@ function applyBillingBody(billing, body) {
 async function syncOrderItemsFromBilling(order, billing) {
   order.items = billing.lineItems.map((li) => ({
     product: li.serviceId || undefined,
+    name: li.name,
     quantity: li.quantity,
     price: li.unitPrice,
   }));
@@ -123,6 +132,9 @@ async function generateUniqueInvoiceNumber() {
 }
 
 function buildInvoiceSnapshot({ invoiceNumber, order, billing, computed }) {
+  const linkedVehicle =
+    order.vehicle && typeof order.vehicle === 'object' ? order.vehicle : {};
+
   return {
     invoiceNumber,
     billingVersion: billing.version,
@@ -130,12 +142,18 @@ function buildInvoiceSnapshot({ invoiceNumber, order, billing, computed }) {
     orderNumber: order.orderNumber,
     bookingReference: order.bookingReference,
     customerName: order.customerName,
-    customerPhone: order.customerPhone,
+    customerPhone: resolveReceiptPhoneForClient(order),
     vehicle: {
-      year: order.vehicleYear,
-      make: order.vehicleMake,
-      model: order.vehicleModel,
-      plate: resolvePlainVehiclePlate(order.vehiclePlate),
+      year: order.vehicleYear || linkedVehicle.year,
+      make: order.vehicleMake || linkedVehicle.make,
+      model: order.vehicleModel || linkedVehicle.model,
+      plate: resolvePlainVehiclePlate(order.vehiclePlate || linkedVehicle.plateNumber),
+      color: order.vehicleColor || linkedVehicle.color,
+      type:
+        order.vehicleType ||
+        order.vehicleClass ||
+        order.vehicleCategory ||
+        linkedVehicle.vehicleType,
     },
     lineItems: billing.lineItems.map((li) => ({
       name: li.name,
@@ -272,7 +290,9 @@ export const checkoutBilling = async (req, res, next) => {
       splitPayments = [],
     } = req.body || {};
 
-    const order = await Order.findById(orderId).populate('customer', 'name email phone');
+    const order = await Order.findById(orderId)
+      .populate('customer', RECEIPT_CUSTOMER_SELECT)
+      .populate('vehicle', RECEIPT_VEHICLE_SELECT);
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
@@ -367,6 +387,14 @@ export const checkoutBilling = async (req, res, next) => {
         posInvoiceId: invoiceId,
         method: payment.method || paymentMethod,
         status: payment.status || 'succeeded',
+        subtotal: receiptData.subtotal,
+        discountAmount: receiptData.discountAmount,
+        taxVatAmount: receiptData.taxVatAmount,
+        additionalFees: receiptData.additionalFees,
+        downpayment: receiptData.downpayment,
+        grandTotal: receiptData.grandTotal,
+        serviceTotal: receiptData.serviceTotal,
+        totalAmount: receiptData.totalAmount,
         amountCollected: receiptData.amountCollected,
         cashReceived: receiptData.cashReceived,
         changeGiven: receiptData.changeGiven,
@@ -454,12 +482,19 @@ export const getOrderReceiptPdf = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
-    const order = await Order.findById(orderId).select('customer').lean();
+    const order = await Order.findById(orderId)
+      .select(
+        'customer customerPhone vehicle vehicleYear vehicleMake vehicleModel vehicleColor vehiclePlate ' +
+        'vehicleType vehicleClass vehicleCategory'
+      )
+      .populate('customer', RECEIPT_CUSTOMER_SELECT)
+      .populate('vehicle', RECEIPT_VEHICLE_SELECT)
+      .lean();
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    const ownerId = order.customer?.toString?.() || '';
+    const ownerId = order.customer?._id?.toString?.() || order.customer?.toString?.() || '';
     if (isCustomerRole(role) && ownerId !== String(req.user.id)) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
@@ -472,7 +507,8 @@ export const getOrderReceiptPdf = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Receipt not available yet' });
     }
 
-    const buf = buildInvoicePdfBuffer(inv.snapshot);
+    const snapshot = hydrateReceiptSnapshot(inv.snapshot, order);
+    const buf = buildInvoicePdfBuffer(snapshot);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="receipt-${encodeURIComponent(orderId)}.pdf"`);
     return res.send(buf);

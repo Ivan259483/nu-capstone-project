@@ -31,7 +31,24 @@ export const UserService = {
         return response.data;
     },
 
-    async patchMyProfile(userData: { name?: string; email?: string; avatar?: string; phone?: string; address?: string }) {
+    async patchMyProfile(
+        userData: { name?: string; email?: string; avatar?: string; phone?: string; address?: string },
+        profilePhoto?: File | null,
+    ) {
+        if (profilePhoto) {
+            const formData = new FormData();
+            Object.entries(userData).forEach(([key, value]) => {
+                if (value !== undefined) formData.append(key, value);
+            });
+            formData.append('photo', profilePhoto);
+
+            const response = await api.patch('/users/profile', formData, {
+                timeout: 60_000,
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            return response.data;
+        }
+
         const response = await api.patch('/users/profile', userData, { timeout: 10000 });
         return response.data;
     },

@@ -55,10 +55,17 @@ export interface Transaction {
   customerEmail?: string;
   vehiclePlate: string;
   vehicleInfo: string;
+  vehicleColor?: string;
+  vehicleClass?: string;
   services: { name: string; price: number; qty: number }[];
   subtotal: number;
   discount: number;
   tax: number;
+  additionalFees?: number;
+  downpayment?: number;
+  serviceTotal?: number;
+  amountCollected?: number;
+  balanceRemaining?: number;
   total: number;
   paymentMethod: PaymentMethod;
   /** Normalized for filters, KPIs, and badge colors */

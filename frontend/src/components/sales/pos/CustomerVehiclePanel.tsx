@@ -19,6 +19,7 @@ import {
 } from '@/lib/vehicle-service';
 import { normalizePlateNumber } from '@/lib/plate';
 import { contactDirectorySubtitle, sanitizePhoneForDisplay } from '@/lib/pii-display';
+import { resolveReceiptPhone } from '@/lib/receipt-phone';
 import { toast } from 'sonner';
 
 interface Props {
@@ -79,7 +80,7 @@ function mapUserRecordToCustomer(u: any): Customer {
   return {
     id: String(u._id || u.id),
     name: u.name || 'Customer',
-    phone: sanitizePhoneForDisplay(u.phone || ''),
+    phone: sanitizePhoneForDisplay(resolveReceiptPhone(u) || ''),
     email: u.email || '',
     vehicles: [],
     totalSpent: 0,

@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
 import { DEFAULT_SPF_ADDON_PRICES } from '@/lib/service-pricing';
+import { resolveReceiptPhone } from '@/lib/receipt-phone';
 
 // Map vehicle.type string → VehicleType key
 const VEHICLE_TYPE_MAP: Record<string, VehicleType> = {
@@ -387,6 +388,7 @@ export default function POSWorkspace({
     vatAmount: number;
     total: number;
     paymentMethod: string;
+    customerPhone?: string;
     /** Reservation / GCash credited before this POS payment (for receipt line item). */
     reservationApplied?: number;
   } | null>(null);
@@ -627,7 +629,7 @@ export default function POSWorkspace({
       const syntheticCustomer: Customer = {
         id: String(o.customer || o._id || ''),
         name: o.customerName || 'Customer',
-        phone: o.customerPhone || '',
+        phone: resolveReceiptPhone(o) || '',
         email: o.customerEmail || '',
         tier: 'bronze',
         visitCount: 0,
@@ -670,7 +672,7 @@ export default function POSWorkspace({
       const syntheticCustomer: Customer = {
         id: String(b.customer || b._id || ''),
         name: b.customerName || 'Customer',
-        phone: b.customerPhone || '',
+        phone: resolveReceiptPhone(b) || '',
         email: b.customerEmail || '',
         tier: 'bronze',
         visitCount: 0,
@@ -860,13 +862,15 @@ export default function POSWorkspace({
       orderNumber: o?.orderNumber,
       bookingReference: o?.bookingReference,
       customerName: selectedCustomer?.name || o?.customerName,
-      customerPhone: selectedCustomer?.phone || o?.customerPhone,
+      customerPhone: resolveReceiptPhone(selectedCustomer, o),
       vehicle: selectedVehicle
         ? {
             year: selectedVehicle.year,
             make: selectedVehicle.make,
             model: selectedVehicle.model,
             plate: sanitizeVehiclePlate(selectedVehicle.plate) || selectedVehicle.plate,
+            color: selectedVehicle.color,
+            type: selectedVehicle.type,
           }
         : o
           ? {
@@ -874,6 +878,8 @@ export default function POSWorkspace({
               make: o.vehicleMake,
               model: o.vehicleModel,
               plate: sanitizeVehiclePlate(o.vehiclePlate) || o.vehiclePlate,
+              color: o.vehicleColor,
+              type: o.vehicleType || o.vehicleClass || o.vehicleCategory,
             }
           : undefined,
       lineItems: lineItems.map((li) => ({
@@ -976,6 +982,7 @@ export default function POSWorkspace({
             vatAmount: Number(savedReceipt.taxVatAmount ?? billingCharges.taxVatAmount),
             total: Number(savedReceipt.amountCollected ?? savedReceipt.total ?? balanceDue),
             paymentMethod: String(savedReceipt.paymentMethod || paymentMethod),
+            customerPhone: resolveReceiptPhone(savedReceipt),
             reservationApplied: Number(savedReceipt.downpayment ?? billingCharges.downpayment),
           });
           setCompletedTxnId(txnId);
@@ -1015,7 +1022,7 @@ export default function POSWorkspace({
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
         customerEmail: selectedCustomer.email,
-        customerPhone: selectedCustomer.phone,
+        customerPhone: resolveReceiptPhone(selectedCustomer) || '',
         vehicle: selectedVehicle.id,
         vehicleYear: selectedVehicle.year ? String(selectedVehicle.year) : '',
         vehiclePlate: selectedVehicle.plate,
@@ -1082,6 +1089,7 @@ export default function POSWorkspace({
         vatAmount: Number(savedReceipt.taxVatAmount ?? billingCharges.taxVatAmount),
         total: Number(savedReceipt.amountCollected ?? savedReceipt.total ?? balanceDue),
         paymentMethod: String(savedReceipt.paymentMethod || paymentMethod),
+        customerPhone: resolveReceiptPhone(savedReceipt),
         reservationApplied: Number(savedReceipt.downpayment ?? 0),
       });
       setCompletedTxnId(txnId);
@@ -1137,6 +1145,9 @@ export default function POSWorkspace({
   const receiptTotal = receiptSnap?.total ?? total;
   const receiptTxnId = receiptSnap?.txnId ?? completedTxnId;
   const receiptPm = receiptSnap?.paymentMethod ?? paymentMethod;
+  const receiptCustomer = selectedCustomer && receiptSnap?.customerPhone
+    ? { ...selectedCustomer, phone: receiptSnap.customerPhone }
+    : selectedCustomer;
 
   return (
     <>
@@ -1321,10 +1332,10 @@ export default function POSWorkspace({
           </div>
         )}
 
-        {showReceipt && selectedCustomer && selectedVehicle && (
+        {showReceipt && receiptCustomer && selectedVehicle && (
           <ReceiptModal
             txnId={receiptTxnId}
-            customer={selectedCustomer}
+            customer={receiptCustomer}
             vehicle={selectedVehicle}
             cartItems={receiptCartItems}
             subtotal={receiptSubtotal}

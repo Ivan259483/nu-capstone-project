@@ -33,6 +33,7 @@ import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
 import type { Vehicle } from '@/types';
+import { resolveProfileImage } from '@/lib/profile-image';
 
 interface SettingsProps {
     onUpdateProfile: (data: { name: string; email: string; phone?: string }) => Promise<void>;
@@ -52,6 +53,7 @@ export const Settings: React.FC<SettingsProps> = ({
     onDeleteVehicle
 }) => {
     const { user, logout, deleteAccount } = useAuth();
+    const profileImage = resolveProfileImage(user as unknown as Record<string, unknown>);
     const navigate = useNavigate();
 
     // Profile State
@@ -146,7 +148,7 @@ export const Settings: React.FC<SettingsProps> = ({
                             
                             <div className="relative group/avatar cursor-pointer z-10">
                                 <Avatar className="w-24 h-24 ring-2 ring-[var(--gold-primary)]/30 ring-offset-2 ring-offset-black">
-                                    <AvatarImage src={user?.avatar || user?.photoURL} />
+                                    <AvatarImage src={profileImage} />
                                     <AvatarFallback className="bg-gradient-to-br from-[var(--gold-primary)] to-amber-600 text-black text-2xl font-bold">
                                         {user?.name?.charAt(0) || 'U'}
                                     </AvatarFallback>

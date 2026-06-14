@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { COMPANY_BRANDING, companyContactLine } from '@/lib/company-branding';
 import { formatPeso } from '@/lib/salesData';
+import { resolveReceiptPhone } from '@/lib/receipt-phone';
 
 export type InvoiceA4Snapshot = {
   invoiceNumber?: string;
@@ -9,7 +10,20 @@ export type InvoiceA4Snapshot = {
   bookingReference?: string;
   customerName?: string;
   customerPhone?: string;
-  vehicle?: { year?: string; make?: string; model?: string; plate?: string };
+  vehicle?: {
+    year?: string;
+    make?: string;
+    model?: string;
+    plate?: string;
+    color?: string;
+    colorName?: string;
+    paintColor?: string;
+    details?: { color?: string };
+    type?: string;
+    class?: string;
+    vehicleType?: string;
+    category?: string;
+  };
   lineItems?: Array<{
     name: string;
     quantity?: number;
@@ -48,6 +62,9 @@ export default function InvoiceA4({
   const lines = snapshot?.lineItems || [];
   const c = snapshot?.computed;
   const v = snapshot?.vehicle || {};
+  const customerPhone = resolveReceiptPhone(snapshot);
+  const vehicleColor = v.color || v.colorName || v.paintColor || v.details?.color || '';
+  const vehicleClass = v.type || v.class || v.vehicleType || v.category || '';
 
   const printCss = useMemo(
     () => `
@@ -105,7 +122,7 @@ export default function InvoiceA4({
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Bill to</p>
             <p className="font-semibold">{snapshot.customerName || '—'}</p>
-            {snapshot.customerPhone && <p className="text-slate-600">{snapshot.customerPhone}</p>}
+            {customerPhone && <p className="text-slate-600">Phone: {customerPhone}</p>}
           </div>
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Order</p>
@@ -122,6 +139,16 @@ export default function InvoiceA4({
             {[v.year, v.make, v.model].filter(Boolean).join(' ') || '—'}
             {v.plate ? ` · ${v.plate}` : ''}
           </p>
+          {(vehicleColor || vehicleClass) && (
+            <p className="mt-0.5 text-xs text-slate-500">
+              {[
+                vehicleColor ? `Color: ${vehicleColor}` : '',
+                vehicleClass ? `Class: ${vehicleClass}` : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          )}
         </div>
 
         <table className="w-full mt-8 text-xs border-collapse">

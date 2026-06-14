@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import bcryptjs from 'bcryptjs';
+import sharp from 'sharp';
 import User from '../models/user.model.js';
 import { encrypt, decrypt } from '../utils/encryption.utils.js';
 import Order from '../models/order.model.js';
@@ -22,8 +23,9 @@ import {
   isValidUserRole,
   normalizeToCanonical,
 } from '../constants/roles.js';
-import { parseOptionalPhilippineMobile } from '../utils/phone.utils.js';
-import { serializeUserForClient } from '../utils/phone-client.utils.js';
+import { parseOptionalProfilePhone } from '../utils/phone.utils.js';
+import { serializeUserForClient, resolvePhoneForClient, USER_PHONE_FIELDS } from '../utils/phone-client.utils.js';
+import { uploadBufferToCloudinary } from '../utils/cloudinaryStorage.utils.js';
 
 const getQueryByIdOrFirebaseUid = (id) => {
   // If it's a 24-character hex string, assume it's a valid ObjectId
@@ -36,6 +38,15 @@ const isSelfUser = (req, user) => Boolean(req.user?.id) && String(user?._id) ===
 const canViewUser = (req, user) => {
   if (isSelfUser(req, user)) return true;
   return canManageUserRole(req.user?.role, user.role);
+};
+
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+
+const getIncomingPhoneValue = (body = {}) => {
+  for (const field of USER_PHONE_FIELDS) {
+    if (hasOwn(body, field)) return { provided: true, value: body[field] };
+  }
+  return { provided: false, value: undefined };
 };
 
 /**
@@ -74,7 +85,9 @@ export const getAllUsers = async (req, res, next) => {
           avatar: 0,
           photoURL: 0,
           profileImage: 0,
+          profilePhoto: 0,
           image: 0,
+          photo: 0,
           expoPushTokens: 0,
           pushTokens: 0,
           refreshTokens: 0,
@@ -82,10 +95,9 @@ export const getAllUsers = async (req, res, next) => {
       })
       .toArray();
 
-    // Ensure PII is decrypted in JSON (.lean() skips post-init hooks; decrypt here).
+    // Ensure PII is decrypted/resolved in JSON (.lean() skips post-init hooks; decrypt here).
     const data = users.map((doc) => {
-      const u = doc.toObject ? doc.toObject() : doc;
-      if (u.phone) u.phone = decrypt(u.phone);
+      const u = serializeUserForClient(doc);
       if (u.address) u.address = decrypt(u.address);
       return u;
     });
@@ -139,7 +151,7 @@ export const getUserById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: user,
+      data: serializeUserForClient(user),
     });
   } catch (error) {
     next(error);
@@ -151,7 +163,8 @@ export const getUserById = async (req, res, next) => {
  */
 export const updateUser = async (req, res, next) => {
   try {
-    const { name, email, role, avatar, phone, address, status, isActive } = req.body;
+    const { name, email, role, avatar, address, status, isActive } = req.body;
+    const incomingPhone = getIncomingPhoneValue(req.body);
     const requestedId = req.params.id;
     const actorRole = req.user?.role;
 
@@ -183,15 +196,15 @@ export const updateUser = async (req, res, next) => {
     if (typeof email !== 'undefined') updatePayload.email = email;
     if (typeof role !== 'undefined') updatePayload.role = role;
     if (typeof avatar !== 'undefined') updatePayload.avatar = avatar;
-    if (typeof phone !== 'undefined') {
-      const p = parseOptionalPhilippineMobile(phone);
+    if (incomingPhone.provided) {
+      const p = parseOptionalProfilePhone(incomingPhone.value);
       if (!p.ok) {
         return res.status(400).json({
           success: false,
           message: p.message || 'Invalid phone number.',
         });
       }
-      updatePayload.phone = p.phone === undefined ? '' : p.phone;
+      if (p.phone) updatePayload.phone = p.phone;
     }
     if (typeof address !== 'undefined') updatePayload.address = address;
     if (typeof status !== 'undefined') updatePayload.status = status;
@@ -257,6 +270,10 @@ export const updateUser = async (req, res, next) => {
          isVerified: true
       };
 
+      if (updatePayload.phone) {
+         newUserData.phone = updatePayload.phone;
+      }
+
       if (isFirebaseUid) {
          newUserData.firebaseUid = requestedId;
       }
@@ -267,7 +284,7 @@ export const updateUser = async (req, res, next) => {
       return res.json({
         success: true,
         message: 'User created and updated successfully',
-        data: user,
+        data: serializeUserForClient(user),
       });
     }
 
@@ -303,6 +320,12 @@ export const updateUser = async (req, res, next) => {
         success: false,
         message: 'Access denied',
       });
+    }
+
+    const canonicalPhone = resolvePhoneForClient({ phone: user.phone });
+    const resolvedExistingPhone = resolvePhoneForClient(user);
+    if (!updatePayload.phone && !canonicalPhone && resolvedExistingPhone) {
+      updatePayload.phone = resolvedExistingPhone;
     }
 
     // Manually encrypt PII fields before update (findByIdAndUpdate bypasses pre-save hooks)
@@ -380,8 +403,46 @@ export const updateUser = async (req, res, next) => {
  * PATCH /api/users/profile — update own profile (same rules as PUT /users/:id for self)
  */
 export const updateMyProfile = async (req, res, next) => {
-  req.params.id = String(req.user.id);
-  return updateUser(req, res, next);
+  try {
+    if (req.file) {
+      let metadata;
+      try {
+        metadata = await sharp(req.file.buffer).metadata();
+      } catch {
+        return res.status(400).json({
+          success: false,
+          message: 'Upload a valid JPG or PNG image.',
+        });
+      }
+
+      if (!['jpeg', 'png'].includes(metadata.format)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Upload a valid JPG or PNG image.',
+        });
+      }
+
+      const extension = metadata.format === 'png' ? 'png' : 'jpg';
+      const contentType = metadata.format === 'png' ? 'image/png' : 'image/jpeg';
+      const avatarUrl = await uploadBufferToCloudinary(req.file.buffer, {
+        folder: 'profile-photos',
+        publicId: `user_${req.user.id}_${Date.now()}`,
+        filename: `profile.${extension}`,
+        contentType,
+      });
+
+      req.body.avatar = avatarUrl;
+    }
+
+    req.params.id = String(req.user.id);
+    return updateUser(req, res, next);
+  } catch (error) {
+    console.error('Profile photo upload failed:', error);
+    const message = error?.code === 'CLOUDINARY_NOT_CONFIGURED'
+      ? 'Profile photo storage is unavailable. Please contact support.'
+      : 'Profile photo upload failed. Please try again.';
+    return res.status(502).json({ success: false, message });
+  }
 };
 
 /**
@@ -653,6 +714,7 @@ function getAdminCreatePasswordErrors(password) {
 export const createUser = async (req, res, next) => {
   try {
     const { name, email, password, role, avatar, firebaseUid } = req.body;
+    const incomingPhone = getIncomingPhoneValue(req.body);
     const requestedRole = role || 'customer';
 
     if (typeof role !== 'undefined' && !isValidUserRole(role)) {
@@ -674,6 +736,17 @@ export const createUser = async (req, res, next) => {
         success: false,
         message: 'The Administrator role cannot be assigned. Use OFFICE ADMIN for full oversight.',
       });
+    }
+
+    let parsedPhone;
+    if (incomingPhone.provided) {
+      parsedPhone = parseOptionalProfilePhone(incomingPhone.value);
+      if (!parsedPhone.ok) {
+        return res.status(400).json({
+          success: false,
+          message: parsedPhone.message || 'Invalid phone number.',
+        });
+      }
     }
 
     const passwordErrors = getAdminCreatePasswordErrors(password);
@@ -707,6 +780,7 @@ export const createUser = async (req, res, next) => {
               deletedAt: null,
               password: hashedPassword,
               isFirstLogin: false,
+              ...(parsedPhone?.phone ? { phone: encrypt(parsedPhone.phone) } : {}),
               ...(firebaseUid ? { firebaseUid } : {}),
             }
           },
@@ -729,6 +803,7 @@ export const createUser = async (req, res, next) => {
             email: restored.email,
             role: restored.role,
             avatar: restored.avatar,
+            phone: resolvePhoneForClient(restored),
           },
         });
       }
@@ -755,6 +830,10 @@ export const createUser = async (req, res, next) => {
       payload.firebaseUid = firebaseUid;
     }
 
+    if (parsedPhone?.phone) {
+      payload.phone = parsedPhone.phone;
+    }
+
     const user = await User.create(payload);
 
     logActivity({
@@ -773,6 +852,7 @@ export const createUser = async (req, res, next) => {
         email: user.email,
         role: user.role,
         avatar: user.avatar,
+        phone: resolvePhoneForClient(user),
       },
     });
   } catch (error) {

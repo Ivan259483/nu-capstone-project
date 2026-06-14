@@ -8,6 +8,7 @@ import {
   printDetailedReceipt,
   receiptFromTransaction,
 } from '@/lib/receipt-document';
+import { resolveReceiptPhone } from '@/lib/receipt-phone';
 
 interface Props {
   txn: Transaction;
@@ -50,6 +51,7 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
   const statusCfg = STATUS_CONFIG[txn.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG['pending'];
   const StatusIcon = statusCfg.icon;
   const receipt = receiptFromTransaction(txn);
+  const customerPhone = resolveReceiptPhone(txn);
 
   const handleConfirmPayment = () => {
     // integration logic goes here (e.g., update txn status to 'completed')
@@ -127,16 +129,28 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5">Customer & Vehicle</p>
               <p className="text-sm font-bold text-slate-900 mb-1">{txn.customerName}</p>
               <div className="space-y-1">
-                <div className="flex items-center gap-1.5">
-                  <Phone size={10} className="text-slate-400 shrink-0" />
-                  <span className="text-xs text-slate-600">{txn.customerPhone}</span>
-                </div>
+                {customerPhone && (
+                  <div className="flex items-center gap-1.5">
+                    <Phone size={10} className="text-slate-400 shrink-0" />
+                    <span className="text-xs text-slate-600">{customerPhone}</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-1.5">
                   <Car size={10} className="text-slate-400 shrink-0" />
                   <span className="text-xs text-slate-600">
                     <span className="font-bold font-mono">{txn.vehiclePlate}</span> — {txn.vehicleInfo}
                   </span>
                 </div>
+                {(txn.vehicleColor || txn.vehicleClass) && (
+                  <div className="flex items-center gap-1.5 pl-4">
+                    <span className="text-xs text-slate-500">
+                      {[
+                        txn.vehicleColor ? `Color: ${txn.vehicleColor}` : '',
+                        txn.vehicleClass ? `Class: ${txn.vehicleClass}` : '',
+                      ].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -173,14 +187,30 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
                 </div>
               )}
               <div className="flex justify-between text-xs text-slate-500">
-                <span>VAT (0% — VAT-exempt)</span>
-                <span className="font-tabular">₱0.00</span>
+                <span>VAT / Tax</span>
+                <span className="font-tabular">{formatPeso(txn.tax)}</span>
               </div>
+              {(txn.additionalFees ?? 0) > 0 && (
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>Additional Fees</span>
+                  <span className="font-tabular">{formatPeso(txn.additionalFees ?? 0)}</span>
+                </div>
+              )}
               <div className="flex justify-between items-center pt-2 border-t border-slate-200">
-                <span className="text-sm font-bold text-slate-900">Total</span>
+                <span className="text-sm font-bold text-slate-900">Service Total</span>
                 <span className={`text-xl font-bold font-tabular ${txn.status === 'voided' ? 'text-slate-400 line-through' : 'text-blue-700'}`}>
-                  {formatPeso(txn.total)}
+                  {formatPeso(txn.serviceTotal ?? txn.total)}
                 </span>
+              </div>
+              {(txn.downpayment ?? 0) > 0 && (
+                <div className="flex justify-between text-xs text-amber-700 font-medium">
+                  <span>Less Reservation / Downpayment</span>
+                  <span className="font-tabular">−{formatPeso(txn.downpayment ?? 0)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-xs font-semibold text-blue-700">
+                <span>Amount Collected Today</span>
+                <span className="font-tabular">{formatPeso(txn.amountCollected ?? txn.total)}</span>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-slate-500">Payment Method</span>

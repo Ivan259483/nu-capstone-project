@@ -16,10 +16,16 @@ import emailService from '../utils/emailService.utils.js';
 import { normalizeMoney, computeDiscountAmount, computeBillingTotals } from '../utils/billingTotals.js';
 import { countGatePhotos, REQUIRED_GATE_PHOTOS } from '../utils/trackerGatePhotos.utils.js';
 import { isSlotConsumingStatus, releaseBookingSlot } from '../services/slot.service.js';
+import {
+  resolveReceiptPhoneForClient,
+  USER_PHONE_SELECT_FIELDS,
+} from '../utils/phone-client.utils.js';
 
 const LOW_STOCK_THRESHOLD = 10;
 const LOCAL_PAYMENTS_PROVIDER = (process.env.LOCAL_PAYMENTS_PROVIDER || 'paymongo').toLowerCase();
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const RECEIPT_CUSTOMER_SELECT = `name email ${USER_PHONE_SELECT_FIELDS}`;
+const RECEIPT_VEHICLE_SELECT = 'year make model color plateNumber vehicleType';
 
 const getStripeClient = () => {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -1014,6 +1020,13 @@ export const runPosCheckoutCore = async ({
   order.paymentMethod = paymentMethod;
   order.paymentProvider = paymentMethod === 'card' ? 'stripe' : 'pos';
   order.paidAt = new Date();
+  order.subtotal = subtotal;
+  order.discountAmount = discountAmount;
+  order.taxVatAmount = taxVat;
+  order.additionalFees = fees;
+  order.serviceTotal = grandTotal;
+  order.amountCollected = amountCollected;
+  order.finalPaymentAmount = amountCollected;
   order.totalPrice = grandTotal;
   order.totalAmount = grandTotal;
   const prevPosStatus = order.status;
@@ -1154,29 +1167,41 @@ export const runPosCheckoutCore = async ({
     console.warn('Socket not initialized for POS notification:', socketError.message);
   }
 
+  const linkedVehicle =
+    order.vehicle && typeof order.vehicle === 'object' ? order.vehicle : {};
   const receiptData = {
     transactionId: invoiceId,
     paymentId: payment._id,
     customerName: order.customer?.name || order.customerName || 'Walk-in Customer',
     customerEmail: order.customer?.email || '',
-    customerPhone: order.customer?.phone || '',
+    customerPhone: resolveReceiptPhoneForClient(order),
     vehicle: {
-      year: order.vehicleYear || '',
-      make: order.vehicleMake || '',
-      model: order.vehicleModel || '',
-      color: order.vehicleColor || '',
-      plate: order.vehiclePlate || '',
+      year: order.vehicleYear || linkedVehicle.year || '',
+      make: order.vehicleMake || linkedVehicle.make || '',
+      model: order.vehicleModel || linkedVehicle.model || '',
+      color: order.vehicleColor || linkedVehicle.color || '',
+      type:
+        order.vehicleType ||
+        order.vehicleClass ||
+        order.vehicleCategory ||
+        linkedVehicle.vehicleType ||
+        '',
+      plate: order.vehiclePlate || linkedVehicle.plateNumber || '',
     },
     items: allItems,
     subtotal,
+    discountAmount,
     discount:
       discount && discountAmount > 0
         ? { type: discount.discountType, value: discount.value, amount: discountAmount, reason: discount.reason }
         : null,
     taxVatAmount: taxVat,
+    taxAmount: taxVat,
     additionalFees: fees,
     downpayment: dp,
     grandTotal,
+    serviceTotal: grandTotal,
+    totalAmount: grandTotal,
     amountCollected,
     balanceRemaining,
     total: amountCollected,
@@ -1256,7 +1281,9 @@ export const createPOSTransaction = async (req, res, next) => {
       }
     }
 
-    const order = await Order.findById(orderId).populate('customer', 'name email phone');
+    const order = await Order.findById(orderId)
+      .populate('customer', RECEIPT_CUSTOMER_SELECT)
+      .populate('vehicle', RECEIPT_VEHICLE_SELECT);
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
@@ -1336,6 +1363,12 @@ export const createPOSTransaction = async (req, res, next) => {
           _id: payment._id,
           invoiceId: payment.invoiceId,
           amount: payment.amount,
+          subtotal: payment.subtotal,
+          discountAmount: payment.discountAmount,
+          taxVatAmount: payment.taxVatAmount,
+          additionalFees: payment.additionalFees,
+          grandTotal: payment.grandTotal,
+          amountPaid: payment.amountPaid,
           method: payment.method,
           status: payment.status,
           createdAt: payment.createdAt,
@@ -1359,8 +1392,13 @@ export const getReceiptData = async (req, res, next) => {
   try {
     const { id } = req.params;
     const payment = await Payment.findById(id)
-      .populate('order', 'orderNumber customerName vehicleYear vehicleMake vehicleModel vehicleColor vehiclePlate serviceType photos')
-      .populate('customer', 'name email phone')
+      .populate(
+        'order',
+        'orderNumber customerName customerPhone vehicle vehicleYear vehicleMake vehicleModel vehicleColor ' +
+        'vehiclePlate vehicleType vehicleClass vehicleCategory serviceType photos'
+      )
+      .populate('customer', RECEIPT_CUSTOMER_SELECT)
+      .populate('vehicle', RECEIPT_VEHICLE_SELECT)
       .populate('staffAssigned', 'name email')
       .lean();
 
@@ -1368,13 +1406,21 @@ export const getReceiptData = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Payment not found' });
     }
 
+    const linkedPaymentVehicle =
+      payment.vehicle && typeof payment.vehicle === 'object' ? payment.vehicle : {};
     const vehicle = payment.order
       ? {
-          year: payment.order.vehicleYear || '',
-          make: payment.order.vehicleMake || '',
-          model: payment.order.vehicleModel || '',
-          color: payment.order.vehicleColor || '',
-          plate: payment.order.vehiclePlate || '',
+          year: payment.order.vehicleYear || linkedPaymentVehicle.year || '',
+          make: payment.order.vehicleMake || linkedPaymentVehicle.make || '',
+          model: payment.order.vehicleModel || linkedPaymentVehicle.model || '',
+          color: payment.order.vehicleColor || linkedPaymentVehicle.color || '',
+          type:
+            payment.order.vehicleType ||
+            payment.order.vehicleClass ||
+            payment.order.vehicleCategory ||
+            linkedPaymentVehicle.vehicleType ||
+            '',
+          plate: payment.order.vehiclePlate || linkedPaymentVehicle.plateNumber || '',
         }
       : {};
 
@@ -1383,10 +1429,11 @@ export const getReceiptData = async (req, res, next) => {
       paymentId: payment._id,
       customerName: payment.customer?.name || payment.order?.customerName || 'Walk-in Customer',
       customerEmail: payment.customer?.email || '',
-      customerPhone: payment.customer?.phone || '',
+      customerPhone: resolveReceiptPhoneForClient(payment.order, payment.customer, payment),
       vehicle,
       items: payment.items || [],
-      subtotal: payment.subtotal || payment.amount,
+      subtotal: payment.subtotal ?? payment.amount,
+      discountAmount: payment.discountAmount || 0,
       discount: payment.discount && payment.discountAmount > 0
         ? {
             type: payment.discount.discountType,
@@ -1395,7 +1442,16 @@ export const getReceiptData = async (req, res, next) => {
             reason: payment.discount.reason,
           }
         : null,
-      total: payment.amount,
+      taxVatAmount: payment.taxVatAmount || 0,
+      taxAmount: payment.taxVatAmount || 0,
+      additionalFees: payment.additionalFees || 0,
+      downpayment: payment.downpayment || 0,
+      grandTotal: payment.grandTotal ?? payment.amount,
+      serviceTotal: payment.grandTotal ?? payment.amount,
+      totalAmount: payment.grandTotal ?? payment.amount,
+      amountCollected: payment.amountPaid ?? payment.amount,
+      balanceRemaining: payment.balanceRemaining || 0,
+      total: payment.amountPaid ?? payment.amount,
       paymentMethod: payment.method,
       splitPayments: payment.splitPayments || [],
       cashReceived: payment.cashReceived,

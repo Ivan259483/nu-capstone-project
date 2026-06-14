@@ -10,9 +10,10 @@ import mockOtpStore from '../utils/mockOtpStore.utils.js';
 import { getInvalidUserRoleMessage, isValidUserRole, STAFF_ASSIGNABLE_ROLES } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { admin } from '../config/firebaseAdmin.js';
-import { parseRegisterPhone } from '../utils/phone.utils.js';
+import { parseRegisterPhone, parseOptionalProfilePhone } from '../utils/phone.utils.js';
 import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
 import { attachPhoneForClient } from '../utils/phone-client.utils.js';
+import { attachProfileImageForClient } from '../utils/profile-image.utils.js';
 import { startChatRegistrationForCustomer } from '../services/chatRegistration.service.js';
 import {
   EMAIL_OTP_PURPOSE,
@@ -93,6 +94,7 @@ function serializeUserForAuthResponse(user) {
   delete userObject._id;
   delete userObject.__v;
   attachPhoneForClient(user, userObject);
+  attachProfileImageForClient(user, userObject);
   return userObject;
 }
 
@@ -905,6 +907,7 @@ export const completePasswordSetup = async (req, res) => {
     delete userObject.password;
     delete userObject.__v;
     attachPhoneForClient(user, userObject);
+    attachProfileImageForClient(user, userObject);
 
     logActivity({
       userId: user._id,
@@ -1413,6 +1416,7 @@ export const login = async (req, res, next) => {
         delete userObject._id;
         delete userObject.__v;
         attachPhoneForClient(user, userObject);
+        attachProfileImageForClient(user, userObject);
 
         logActivity({
           userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
@@ -1503,6 +1507,7 @@ export const login = async (req, res, next) => {
     delete userObject._id;
     delete userObject.__v;
     attachPhoneForClient(user, userObject);
+    attachProfileImageForClient(user, userObject);
 
     logActivity({
       userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
@@ -1576,6 +1581,7 @@ export const getCurrentUser = async (req, res, next) => {
     delete userObject._id;
     delete userObject.__v;
     attachPhoneForClient(user, userObject);
+    attachProfileImageForClient(user, userObject);
 
     res.json({
       success: true,
@@ -1701,6 +1707,7 @@ export const socialLogin = async (req, res, next) => {
      // The Mongoose virtual 'id' (string) is also present via virtuals: true.
      delete userObject.__v;
      attachPhoneForClient(user, userObject);
+     attachProfileImageForClient(user, userObject);
 
     logActivity({
       userId: user._id, userName: user.name || email, userRole: user.role,
@@ -1992,6 +1999,7 @@ export const verifyLoginOtp = async (req, res) => {
     delete userObject._id;
     delete userObject.__v;
     attachPhoneForClient(user, userObject);
+    attachProfileImageForClient(user, userObject);
 
     logActivity({
       userId: user._id, userName: user.name || user.email, userRole: user.role,
@@ -2130,12 +2138,20 @@ export const createStaff = async (req, res) => {
       return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
     }
 
+    const phoneParsed = parseOptionalProfilePhone(phone);
+    if (!phoneParsed.ok) {
+      return res.status(400).json({
+        success: false,
+        message: phoneParsed.message || 'Invalid phone number.',
+      });
+    }
+
     const user = new User({
       name,
       email,
       password, // hashed by pre-save hook
       role,
-      phone: phone || undefined,
+      phone: phoneParsed.phone || undefined,
       isVerified: false,
       isActive: true,
       status: 'pending',
@@ -2152,6 +2168,8 @@ export const createStaff = async (req, res) => {
     const userObject = user.toObject({ virtuals: true });
     delete userObject.password;
     delete userObject.__v;
+    attachPhoneForClient(user, userObject);
+    attachProfileImageForClient(user, userObject);
 
     res.status(201).json({
       success: true,
@@ -2213,6 +2231,8 @@ export const setPassword = async (req, res) => {
     delete userObject.password;
     delete userObject._id;
     delete userObject.__v;
+    attachPhoneForClient(user, userObject);
+    attachProfileImageForClient(user, userObject);
 
     logActivity({
       userId: user._id, userName: user.name || user.email, userRole: user.role,

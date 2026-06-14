@@ -10,6 +10,7 @@ import {
   getHourInTz,
   getPrimaryKpiDayTransactions,
 } from '@/lib/dashboard-time';
+import { resolveReceiptPhone } from '@/lib/receipt-phone';
 
 export type { Transaction, TransactionStatus, PaymentMethod };
 
@@ -29,6 +30,20 @@ function normalizePaymentMethod(raw: string | undefined): PaymentMethod {
   }
   return 'cash';
 }
+
+const asRecord = (value: unknown): Record<string, any> =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, any>
+    : {};
+
+const firstFiniteNumber = (...values: unknown[]): number | undefined => {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '') continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+};
 
 /**
  * Order line items reference `Product`, but many bookings store a Service `_id` there,
@@ -88,7 +103,13 @@ function pickAnalyticsInstant(o: any): string {
 }
 
 function buildTransactionServices(o: any): Transaction['services'] {
-  const items = Array.isArray(o.items) ? o.items : [];
+  const invoiceRecord = asRecord(o.invoiceRecord);
+  const snapshot = asRecord(invoiceRecord.snapshot);
+  const latestPayment = asRecord(o.latestPayment);
+  const items =
+    (Array.isArray(snapshot.lineItems) && snapshot.lineItems) ||
+    (Array.isArray(latestPayment.items) && latestPayment.items) ||
+    (Array.isArray(o.items) ? o.items : []);
   const fb = String(o.serviceName || o.serviceType || '').trim();
 
   if (items.length === 0) {
@@ -98,8 +119,8 @@ function buildTransactionServices(o: any): Transaction['services'] {
 
   const lines = items.map((i: any) => ({
     name: resolveLineItemName(i, o),
-    price: Number(i.price) || 0,
-    qty: Number(i.quantity) || 1,
+    price: Number(i.unitPrice ?? i.price) || 0,
+    qty: Number(i.quantity ?? i.qty) || 1,
   }));
 
   const allGeneric = lines.every((l) => l.name === 'Service');
@@ -133,9 +154,75 @@ export function useSalesAnalytics() {
           const rawStatus = typeof o.status === 'string' ? o.status : '';
           const plateRaw = String(o.vehiclePlate || 'N/A').trim() || 'N/A';
           const vehiclePlate = isEncryptedPlateToken(plateRaw) ? '—' : plateRaw.toUpperCase();
+          const paymentStatus = String(o.paymentStatus || '').toLowerCase();
+          const isSettled =
+            paymentStatus === 'paid' ||
+            ['paid', 'released', 'completed'].includes(rawStatus.toLowerCase());
 
           const created = pickOrderDateTime(o);
           const analyticsDateTime = pickAnalyticsInstant(o);
+          const invoiceRecord = asRecord(o.invoiceRecord);
+          const snapshot = asRecord(invoiceRecord.snapshot);
+          const snapshotVehicle = asRecord(snapshot.vehicle);
+          const snapshotVehicleDetails = asRecord(snapshotVehicle.details);
+          const orderVehicle = asRecord(o.vehicle);
+          const orderVehicleDetails = asRecord(orderVehicle.details);
+          const computed = asRecord(snapshot.computed);
+          const payment = asRecord(snapshot.payment);
+          const latestPayment = asRecord(o.latestPayment);
+          const subtotal = firstFiniteNumber(
+            computed.subtotal,
+            latestPayment.subtotal,
+            o.subtotal,
+            o.totalAmount
+          ) ?? 0;
+          const discount = Math.max(0, firstFiniteNumber(
+            computed.discountTotal,
+            latestPayment.discountAmount,
+            o.discountAmount
+          ) ?? 0);
+          const tax = Math.max(0, firstFiniteNumber(
+            computed.taxVatTotal,
+            latestPayment.taxVatAmount,
+            o.taxVatAmount
+          ) ?? 0);
+          const additionalFees = Math.max(0, firstFiniteNumber(
+            computed.additionalFeesTotal,
+            latestPayment.additionalFees,
+            o.additionalFees
+          ) ?? 0);
+          const downpayment = Math.max(0, firstFiniteNumber(
+            snapshot.downpayment,
+            latestPayment.downpayment,
+            o.downPaymentAmount
+          ) ?? 0);
+          const serviceTotal = Math.max(0, firstFiniteNumber(
+            computed.grandTotal,
+            latestPayment.grandTotal,
+            o.serviceTotal,
+            o.totalPrice,
+            o.totalAmount
+          ) ?? 0);
+          const recordedAmountCollected = firstFiniteNumber(
+            payment.amountCollected,
+            latestPayment.amountPaid,
+            latestPayment.amount,
+            o.amountCollected,
+            o.finalPaymentAmount
+          );
+          const amountCollected = Math.max(
+            0,
+            recordedAmountCollected && recordedAmountCollected > 0
+              ? recordedAmountCollected
+              : isSettled
+                ? serviceTotal - downpayment
+                : 0
+          );
+          const balanceRemaining = Math.max(0, firstFiniteNumber(
+            payment.balanceRemaining,
+            latestPayment.balanceRemaining,
+            serviceTotal - downpayment - amountCollected
+          ) ?? 0);
 
           return {
             id: o.bookingReference || o.id,
@@ -145,16 +232,56 @@ export function useSalesAnalytics() {
             invoiceId: o.invoiceId,
             customerId: o.customer?._id || o.customerId || 'unknown',
             customerName: o.customerName || 'Walk-in Customer',
-            customerPhone: o.customerPhone || '',
+            customerPhone: resolveReceiptPhone(
+              snapshot,
+              o,
+              o.customer,
+              o.user,
+              latestPayment,
+              o.payment,
+              o.receipt
+            ) || '',
             customerEmail: o.customer?.email || '',
             vehiclePlate,
             vehicleInfo: o.vehicleInfo || '',
+            vehicleColor:
+              snapshotVehicle.color ||
+              snapshotVehicle.colorName ||
+              snapshotVehicle.paintColor ||
+              snapshotVehicleDetails.color ||
+              orderVehicle.color ||
+              orderVehicle.colorName ||
+              orderVehicle.paintColor ||
+              orderVehicleDetails.color ||
+              o.vehicleColor ||
+              o.color ||
+              undefined,
+            vehicleClass:
+              snapshotVehicle.type ||
+              snapshotVehicle.class ||
+              snapshotVehicle.vehicleType ||
+              snapshotVehicle.category ||
+              orderVehicle.type ||
+              orderVehicle.class ||
+              orderVehicle.vehicleType ||
+              orderVehicle.category ||
+              o.vehicleType ||
+              o.vehicleClass ||
+              o.vehicleCategory ||
+              undefined,
             services: buildTransactionServices(o),
-            subtotal: o.totalAmount || 0,
-            discount: 0,
-            tax: 0,
-            total: o.totalPrice || o.totalAmount || 0,
-            paymentMethod: normalizePaymentMethod(o.paymentMethod),
+            subtotal,
+            discount,
+            tax,
+            additionalFees,
+            downpayment,
+            serviceTotal,
+            amountCollected,
+            balanceRemaining,
+            total: serviceTotal,
+            paymentMethod: normalizePaymentMethod(
+              payment.method || latestPayment.method || o.paymentMethod
+            ),
             status: mapOrderStatusToCanonical(rawStatus),
             statusRaw: rawStatus || undefined,
             dateTime: created,

@@ -3,6 +3,7 @@ import { X, Printer, Download, RotateCcw, CheckCircle2, Car, Phone, Mail } from 
 import { Customer, Vehicle, CartItem, formatPeso, getPaymentMethodLabel, PaymentMethod } from '@/lib/salesData';
 import AppLogo from '@/components/sales/ui/AppLogo';
 import { COMPANY_BRANDING, companyContactLine } from '@/lib/company-branding';
+import { resolveReceiptPhone } from '@/lib/receipt-phone';
 
 interface Props {
   txnId: string;
@@ -31,6 +32,10 @@ export default function ReceiptModal({
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
   const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+  const vehicleInfo = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ');
+  const vehicleColor = vehicle.color?.trim();
+  const vehicleClass = vehicle.type?.trim();
+  const customerPhone = resolveReceiptPhone(customer);
 
   const handlePrint = () => {
     if (!receiptRef.current) return;
@@ -115,24 +120,38 @@ export default function ReceiptModal({
 
             {/* Customer Info */}
             <div className="py-4 border-b border-dashed border-slate-200">
-              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Customer</p>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Customer & Vehicle</p>
               <p className="text-sm font-bold text-slate-900">{customer.name}</p>
-              <div className="flex items-center gap-1.5 mt-1">
-                <Phone size={10} className="text-slate-400" />
-                <span className="text-xs text-slate-600">{customer.phone}</span>
-              </div>
+              {customerPhone ? (
+                <div className="flex items-center gap-1.5 mt-1">
+                  <Phone size={10} className="text-slate-400" />
+                  <span className="text-xs text-slate-600">{customerPhone}</span>
+                </div>
+              ) : null}
               {customer.email ? (
                 <div className="flex items-center gap-1.5">
                   <Mail size={10} className="text-slate-400" />
                   <span className="text-xs text-slate-600">{customer.email}</span>
                 </div>
               ) : null}
-              <div className="flex items-center gap-1.5 mt-1">
-                <Car size={10} className="text-slate-400" />
-                <span className="text-xs text-slate-600">
-                  {vehicle.plate} — {vehicle.year} {vehicle.make} {vehicle.model} ({vehicle.color})
-                </span>
-              </div>
+              {(vehicle.plate || vehicleInfo) ? (
+                <div className="flex items-center gap-1.5 mt-1">
+                  <Car size={10} className="text-slate-400" />
+                  <span className="text-xs text-slate-600">
+                    {[vehicle.plate, vehicleInfo].filter(Boolean).join(' — ')}
+                  </span>
+                </div>
+              ) : null}
+              {(vehicleColor || vehicleClass) ? (
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <Car size={10} className="text-slate-400" />
+                  <span className="text-xs text-slate-600">
+                    {[vehicleColor ? `Color: ${vehicleColor}` : '', vehicleClass ? `Class: ${vehicleClass}` : '']
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                </div>
+              ) : null}
             </div>
 
             {/* Services */}

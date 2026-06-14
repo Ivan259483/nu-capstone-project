@@ -16,6 +16,10 @@ export interface User {
     jobsCompleted?: number;
     createdAt: string;
     avatar?: string;
+    profileImage?: string;
+    profilePhoto?: string;
+    image?: string;
+    photo?: string;
     phone?: string;
     address?: string;
     displayName?: string;
@@ -101,6 +105,12 @@ export interface Booking {
     date: string;
     time: string;
     status: 'pending' | 'pending_confirmation' | 'confirmed' | 'approved' | 'assigned' | 'received' | 'in_progress' | 'in-progress' | 'completed' | 'paid' | 'released' | 'cancelled' | 'failed' | 'rejected';
+    subtotal?: number;
+    discountAmount?: number;
+    taxVatAmount?: number;
+    additionalFees?: number;
+    serviceTotal?: number;
+    amountCollected?: number;
     totalPrice?: number;
     totalAmount?: number;
     downPaymentAmount?: number;
@@ -123,6 +133,15 @@ export interface Booking {
     customer?: User;
     customerAvatar?: string;
     items?: { product?: InventoryItem; name?: string; quantity: number; price?: number }[];
+    latestPayment?: Record<string, any> | null;
+    invoiceRecord?: {
+        _id?: string;
+        invoiceNumber?: string;
+        billingVersion?: number;
+        snapshot?: Record<string, any>;
+        payment?: string;
+        createdAt?: string;
+    } | null;
 
     // assignedDetailer moved below with updated type
     estimatedCompletion?: string;
@@ -130,6 +149,9 @@ export interface Booking {
     vehicleMake?: string;
     vehicleModel?: string;
     vehicleColor?: string;
+    vehicleType?: string;
+    vehicleClass?: string;
+    vehicleCategory?: string;
     vehiclePlate?: string;
     /** API omits plate text when decrypt fails; UI can show a fallback when this is true */
     vehiclePlateDecryptFailed?: boolean;

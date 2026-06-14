@@ -8,6 +8,7 @@ import {
 } from '@/lib/salesData';
 import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
 import { COMPANY_BRANDING } from '@/lib/company-branding';
+import { resolveReceiptPhone } from '@/lib/receipt-phone';
 
 export type DetailedReceiptLine = {
   name: string;
@@ -28,6 +29,8 @@ export type DetailedReceipt = {
   customerEmail?: string;
   vehiclePlate?: string;
   vehicleInfo?: string;
+  vehicleColor?: string;
+  vehicleClass?: string;
   lineItems: DetailedReceiptLine[];
   subtotal: number;
   discount: number;
@@ -60,6 +63,15 @@ const asRecord = (value: unknown): Record<string, any> =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, any>
     : {};
+
+const firstNonEmptyString = (...values: unknown[]): string | undefined => {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed && !['null', 'undefined'].includes(trimmed.toLowerCase())) return trimmed;
+  }
+  return undefined;
+};
 
 const escapeHtml = (value: unknown) =>
   String(value ?? '')
@@ -210,6 +222,7 @@ const resolveBookingFinancials = (
     computed.grandTotal,
     payment.grandTotal,
     snapshot.grandTotal,
+    raw.serviceTotal,
     raw.grandTotal
   );
   const bookingTotal = Math.max(0, firstFiniteNumber(
@@ -267,6 +280,7 @@ const resolveBookingFinancials = (
   const recordedAmountCollected = Math.max(0, firstFiniteNumber(
     payment.amountCollected,
     payment.amountPaid,
+    raw.amountCollected,
     raw.finalPaymentAmount
   ) ?? 0);
   const total = recordedAmountCollected > 0
@@ -304,6 +318,15 @@ export const receiptFromTransaction = (txn: Transaction): DetailedReceipt => {
         unitPrice: safeNumber(txn.total),
       }];
   const computedSubtotal = lineItems.reduce((sum, item) => sum + item.unitPrice * item.qty, 0);
+  const subtotal = safeNumber(txn.subtotal || computedSubtotal);
+  const discount = safeNumber(txn.discount);
+  const tax = safeNumber(txn.tax);
+  const additionalFees = safeNumber(txn.additionalFees);
+  const serviceTotal = safeNumber(
+    txn.serviceTotal ?? subtotal - discount + tax + additionalFees
+  );
+  const amountCollected = safeNumber(txn.amountCollected ?? txn.total);
+  const downpayment = safeNumber(txn.downpayment);
 
   return {
     receiptNumber,
@@ -314,19 +337,24 @@ export const receiptFromTransaction = (txn: Transaction): DetailedReceipt => {
     paidAt: txn.paidAt || txn.analyticsDateTime,
     staffName: txn.staffName,
     customerName: txn.customerName,
-    customerPhone: txn.customerPhone,
+    customerPhone: resolveReceiptPhone(txn),
     customerEmail: txn.customerEmail,
     vehiclePlate: sanitizeVehiclePlate(txn.vehiclePlate || ''),
     vehicleInfo: txn.vehicleInfo,
+    vehicleColor: firstNonEmptyString(txn.vehicleColor),
+    vehicleClass: firstNonEmptyString(txn.vehicleClass),
     lineItems,
-    subtotal: safeNumber(txn.subtotal || computedSubtotal),
-    discount: safeNumber(txn.discount),
-    tax: safeNumber(txn.tax),
-    additionalFees: 0,
-    downpayment: 0,
-    serviceTotal: safeNumber(txn.total),
-    total: safeNumber(txn.total),
-    balanceDue: txn.status === 'completed' ? 0 : safeNumber(txn.total),
+    subtotal,
+    discount,
+    tax,
+    additionalFees,
+    downpayment,
+    serviceTotal,
+    total: amountCollected,
+    balanceDue: safeNumber(
+      txn.balanceRemaining ??
+      (txn.status === 'completed' ? 0 : Math.max(0, serviceTotal - downpayment - amountCollected))
+    ),
     paymentMethod: normalizePaymentMethod(txn.paymentMethod),
     paymentStatus,
     notes: txn.notes,
@@ -350,6 +378,9 @@ export const receiptFromBooking = (booking: Booking): DetailedReceipt => {
   }
   const snapshotCustomer = asRecord(sources.snapshot.customer);
   const snapshotVehicle = asRecord(sources.snapshot.vehicle);
+  const snapshotVehicleDetails = asRecord(snapshotVehicle.details);
+  const rawVehicle = asRecord(sources.raw.vehicle);
+  const rawVehicleDetails = asRecord(rawVehicle.details);
   const vehicleInfo =
     snapshotVehicle.description ||
     snapshotVehicle.vehicleInfo ||
@@ -359,6 +390,34 @@ export const receiptFromBooking = (booking: Booking): DetailedReceipt => {
       snapshotVehicle.make ?? booking.vehicleMake,
       snapshotVehicle.model ?? booking.vehicleModel,
     ].filter(Boolean).join(' ');
+  const vehicleColor = firstNonEmptyString(
+    snapshotVehicle.color,
+    snapshotVehicle.colorName,
+    snapshotVehicle.paintColor,
+    snapshotVehicleDetails.color,
+    rawVehicle.color,
+    rawVehicle.colorName,
+    rawVehicle.paintColor,
+    rawVehicleDetails.color,
+    sources.raw.vehicleColor,
+    sources.raw.color,
+    sources.raw.colorName,
+    sources.raw.paintColor,
+    asRecord(sources.raw.details).color
+  );
+  const vehicleClass = firstNonEmptyString(
+    snapshotVehicle.type,
+    snapshotVehicle.class,
+    snapshotVehicle.vehicleType,
+    snapshotVehicle.category,
+    rawVehicle.type,
+    rawVehicle.class,
+    rawVehicle.vehicleType,
+    rawVehicle.category,
+    sources.raw.vehicleType,
+    sources.raw.vehicleClass,
+    sources.raw.vehicleCategory
+  );
   const paymentStaff = asRecord(sources.payment.staff);
 
   return {
@@ -389,10 +448,15 @@ export const receiptFromBooking = (booking: Booking): DetailedReceipt => {
       booking.customerName ||
       booking.customer?.name ||
       'Customer',
-    customerPhone:
-      snapshotCustomer.phone ||
-      booking.customerPhone ||
-      booking.customer?.phone,
+    customerPhone: resolveReceiptPhone(
+      sources.snapshot,
+      snapshotCustomer,
+      booking,
+      booking.customer,
+      sources.payment,
+      sources.raw.user,
+      sources.raw.receipt
+    ),
     customerEmail: snapshotCustomer.email || booking.customer?.email,
     vehiclePlate: sanitizeVehiclePlate(
       snapshotVehicle.plate ||
@@ -401,6 +465,8 @@ export const receiptFromBooking = (booking: Booking): DetailedReceipt => {
       ''
     ),
     vehicleInfo,
+    vehicleColor,
+    vehicleClass,
     lineItems,
     subtotal: financials.subtotal,
     discount: financials.discount,
@@ -562,6 +628,8 @@ export const buildDetailedReceiptHtml = (receipt: DetailedReceipt) => {
             ${receipt.customerPhone ? `<div class="line"><span>Phone</span><strong>${escapeHtml(receipt.customerPhone)}</strong></div>` : ''}
             ${receipt.vehiclePlate ? `<div class="line"><span>Plate Number</span><strong>${escapeHtml(receipt.vehiclePlate)}</strong></div>` : ''}
             ${receipt.vehicleInfo ? `<div class="line"><span>Vehicle</span><strong>${escapeHtml(receipt.vehicleInfo)}</strong></div>` : ''}
+            ${receipt.vehicleColor ? `<div class="line"><span>Color</span><strong>${escapeHtml(receipt.vehicleColor)}</strong></div>` : ''}
+            ${receipt.vehicleClass ? `<div class="line"><span>Class</span><strong>${escapeHtml(receipt.vehicleClass)}</strong></div>` : ''}
           </div>
         </div>
       </section>
@@ -774,6 +842,8 @@ export const createDetailedReceiptPdfBlob = async (receipt: DetailedReceipt): Pr
   if (receipt.customerPhone) customerRows.push(['Phone', receipt.customerPhone]);
   if (receipt.vehiclePlate) customerRows.push(['Plate Number', receipt.vehiclePlate]);
   if (receipt.vehicleInfo) customerRows.push(['Vehicle', receipt.vehicleInfo]);
+  if (receipt.vehicleColor) customerRows.push(['Color', receipt.vehicleColor]);
+  if (receipt.vehicleClass) customerRows.push(['Class', receipt.vehicleClass]);
 
   const leftH = drawBox(margin, 'Transaction Details', detailsRows);
   const rightH = drawBox(margin + boxW + 14, 'Customer & Vehicle', customerRows);

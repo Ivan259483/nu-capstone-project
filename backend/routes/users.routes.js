@@ -1,4 +1,5 @@
 import express from 'express';
+import multer from 'multer';
 import * as userController from '../controllers/user.controller.js';
 import { authenticate, authorize } from '../middleware/auth.middleware.js';
 import { STAFF_MANAGER_ROLES } from '../constants/roles.js';
@@ -6,6 +7,50 @@ import { STAFF_MANAGER_ROLES } from '../constants/roles.js';
 const router = express.Router();
 const authorizeStaffManagers = authorize(...STAFF_MANAGER_ROLES);
 const authorizeUserDirectoryReaders = authorize(...STAFF_MANAGER_ROLES, 'sales');
+const PROFILE_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+const PROFILE_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png']);
+
+const profilePhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: PROFILE_PHOTO_MAX_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (PROFILE_PHOTO_MIME_TYPES.has(file.mimetype)) {
+      cb(null, true);
+      return;
+    }
+
+    const error = new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'photo');
+    error.message = 'Upload a JPG or PNG image.';
+    cb(error);
+  },
+});
+
+const handleProfilePhotoUpload = (req, res, next) => {
+  const contentType = String(req.headers['content-type'] || '').toLowerCase();
+  if (!contentType.includes('multipart/form-data')) {
+    next();
+    return;
+  }
+
+  profilePhotoUpload.single('photo')(req, res, (error) => {
+    if (!error) {
+      next();
+      return;
+    }
+
+    if (error instanceof multer.MulterError) {
+      const message = error.code === 'LIMIT_FILE_SIZE'
+        ? 'Profile photo is too large. Upload a JPG or PNG image under 2 MB.'
+        : error.message || 'Invalid profile photo upload.';
+      return res.status(400).json({ success: false, message });
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: error.message || 'Invalid profile photo upload.',
+    });
+  });
+};
 
 const requireUserDirectoryAccess = (req, res, next) => {
   if (typeof req.query.email === 'string' && req.query.email.trim()) {
@@ -27,7 +72,7 @@ router.get('/', requireUserDirectoryAccess, userController.getAllUsers);
  * @desc Update current authenticated user's profile (name, phone, avatar, email)
  * @access Private
  */
-router.patch('/profile', authenticate, userController.updateMyProfile);
+router.patch('/profile', authenticate, handleProfilePhotoUpload, userController.updateMyProfile);
 
 /**
  * @route PATCH /api/users/me/activity

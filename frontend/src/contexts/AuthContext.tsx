@@ -16,6 +16,7 @@ import { getBaseApiUrl } from '@/lib/api';
 import { invalidate, invalidateAll } from '@/lib/queryCache';
 import { getSharedSocket, refreshSocketAuth, destroySharedSocket } from '@/hooks/useRealtimeSync';
 import { formatContactNoInputFromProfile, normalizePhilippineMobileInput } from '@/lib/phone';
+import { resolveProfileImage } from '@/lib/profile-image';
 import {
     BACKEND_USER_KEY,
     TOKEN_KEY,
@@ -159,7 +160,10 @@ function buildUserFromAuthMe(
         password: '',
         isActive: typeof me.isActive === 'boolean' ? me.isActive : true,
         lastActive: (me.updatedAt as string | undefined) || new Date().toISOString(),
-        avatar: (me.avatar as string | undefined) || firebaseUser?.photoURL || undefined,
+        avatar: resolveProfileImage(
+            me,
+            firebaseUser ? { photoURL: firebaseUser.photoURL } : undefined,
+        ) || undefined,
         phone: formatContactNoInputFromProfile(me.phone as string | undefined) || undefined,
     };
 }
@@ -175,7 +179,10 @@ interface AuthContextType {
     signup: (email: string, password: string, name: string) => Promise<{ success: boolean; message?: string }>;
     resetPassword: (email: string) => Promise<{ success: boolean; message?: string }>;
     logout: () => Promise<void>;
-    updateUser: (user: User, options?: { localOnly?: boolean }) => Promise<{ success: boolean; message?: string; offline?: boolean; reason?: 'timeout' | 'network' | 'error'; phone?: string }>;
+    updateUser: (
+        user: User,
+        options?: { localOnly?: boolean; profilePhoto?: File | null },
+    ) => Promise<{ success: boolean; message?: string; offline?: boolean; reason?: 'timeout' | 'network' | 'error'; phone?: string; avatar?: string }>;
     setAuthUser: (user: User | null) => void;
     markLoginInProgress: () => void;
     markLoginComplete: () => void;
@@ -202,11 +209,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const sanitizeUser = useCallback((userData: User): User => {
         if (!userData) return userData;
-        if (userData.avatar && isDataImage(userData.avatar)) {
-            const { avatar: _removed, ...rest } = userData;
+        const resolvedAvatar = resolveProfileImage(userData as unknown as Record<string, unknown>);
+        if (resolvedAvatar && isDataImage(resolvedAvatar)) {
+            const {
+                avatar: _avatar,
+                photoURL: _photoURL,
+                profileImage: _profileImage,
+                profilePhoto: _profilePhoto,
+                image: _image,
+                photo: _photo,
+                ...rest
+            } = userData;
             return { ...rest } as User;
         }
-        return userData;
+        return {
+            ...userData,
+            avatar: resolvedAvatar || undefined,
+            photoURL: resolvedAvatar || undefined,
+        };
     }, []);
 
     useEffect(() => {
@@ -1480,10 +1500,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const updateUser = useCallback(async (
         updatedUser: User,
-        options?: { localOnly?: boolean }
-    ): Promise<{ success: boolean; message?: string; offline?: boolean; reason?: 'timeout' | 'network' | 'error'; phone?: string }> => {
-        const normalizedPhone = formatContactNoInputFromProfile(updatedUser.phone)
+        options?: { localOnly?: boolean; profilePhoto?: File | null }
+    ): Promise<{ success: boolean; message?: string; offline?: boolean; reason?: 'timeout' | 'network' | 'error'; phone?: string; avatar?: string }> => {
+        const submittedPhone = formatContactNoInputFromProfile(updatedUser.phone)
             || normalizePhilippineMobileInput(updatedUser.phone || '');
+        const currentPhone = formatContactNoInputFromProfile(user?.phone);
+        const normalizedPhone = submittedPhone || currentPhone;
 
         const applyLocalUpdate = (userData: User) => {
             const withPhone: User = {
@@ -1493,10 +1515,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const sanitized = sanitizeUser(withPhone);
             userStorage.update(sanitized);
             userStorage.setCurrentUser(sanitized);
-            setUser(withPhone);
+            setUser(sanitized);
             patchBackendUser({
                 phone: withPhone.phone,
                 _id: withPhone._id,
+                avatar: sanitized.avatar,
+                photoURL: sanitized.photoURL,
             });
         };
 
@@ -1506,13 +1530,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         try {
-            const response = await UserService.patchMyProfile({
+            const profilePayload: { name?: string; email?: string; avatar?: string; phone?: string; address?: string } = {
                 name: updatedUser.name,
                 email: updatedUser.email,
                 avatar: updatedUser.avatar,
-                phone: normalizedPhone || updatedUser.phone,
                 address: (updatedUser as { address?: string }).address,
-            });
+            };
+            if (submittedPhone) profilePayload.phone = submittedPhone;
+
+            const response = await UserService.patchMyProfile(profilePayload, options?.profilePhoto);
 
             if (response.success) {
                 const backendData = (response.data || {}) as Record<string, unknown>;
@@ -1520,6 +1546,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     typeof backendData.phone === 'string' ? backendData.phone : undefined,
                 ) || normalizedPhone;
 
+                const returnedAvatar = resolveProfileImage(backendData);
+                const mergedAvatar = returnedAvatar
+                    || (updatedUser.avatar === '' ? undefined : resolveProfileImage(updatedUser as unknown as Record<string, unknown>))
+                    || undefined;
                 const mergedData: User = {
                     ...updatedUser,
                     ...backendData,
@@ -1531,19 +1561,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         typeof backendData.address === 'string'
                             ? backendData.address
                             : (updatedUser as { address?: string }).address,
-                    avatar:
-                        typeof backendData.avatar === 'string' && backendData.avatar
-                            ? backendData.avatar
-                            : updatedUser.avatar,
+                    avatar: mergedAvatar,
+                    photoURL: mergedAvatar,
                 };
                 applyLocalUpdate(mergedData);
                 const token = localStorage.getItem('autospf_token') || '';
                 setSessionCache(mergedData, token);
-                return { success: true, phone: apiPhone || undefined };
+                return { success: true, phone: apiPhone || undefined, avatar: mergedAvatar };
             }
             return { success: false, message: response.message || 'Update failed' };
         } catch (error: any) {
             console.error('Update profile error:', error);
+            if (error?.response) {
+                return {
+                    success: false,
+                    message: error.response?.data?.message || 'Failed to update profile.',
+                };
+            }
             const message = error?.message || '';
             const isTimeout = error?.code === 'ECONNABORTED' || /timeout/i.test(message);
             const isNetwork = !error?.response || /network/i.test(message);
@@ -1551,7 +1585,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             applyLocalUpdate({ ...updatedUser, phone: normalizedPhone || updatedUser.phone });
             return { success: true, offline: true, reason, phone: normalizedPhone || undefined };
         }
-    }, [sanitizeUser]);
+    }, [sanitizeUser, user?.phone]);
 
     const value = useMemo(() => ({
         user,

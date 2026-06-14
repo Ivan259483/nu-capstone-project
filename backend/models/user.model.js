@@ -31,6 +31,26 @@ const userSchema = new mongoose.Schema(
       required: false,
       trim: true,
     },
+    phoneNumber: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    contactNumber: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    mobileNumber: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    contactNo: {
+      type: String,
+      required: false,
+      trim: true,
+    },
     address: String,
     isVerified: {
       type: Boolean,
@@ -41,6 +61,21 @@ const userSchema = new mongoose.Schema(
       default: true,
     },
     avatar: {
+      type: String,
+    },
+    photoURL: {
+      type: String,
+    },
+    profileImage: {
+      type: String,
+    },
+    profilePhoto: {
+      type: String,
+    },
+    image: {
+      type: String,
+    },
+    photo: {
       type: String,
     },
     firebaseUid: {

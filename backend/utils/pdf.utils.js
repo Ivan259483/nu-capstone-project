@@ -282,6 +282,28 @@ export const buildInvoicePdfBuffer = (snapshot) => {
   );
   const payment = snapshot.payment || {};
   const computed = snapshot.computed || {};
+  const firstText = (...values) => {
+    for (const value of values) {
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (trimmed && !['null', 'undefined'].includes(trimmed.toLowerCase())) return trimmed;
+    }
+    return '';
+  };
+  const customerPhone = firstText(snapshot.customerPhone);
+  const vehicleInfo = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ');
+  const vehicleColor = firstText(
+    vehicle.color,
+    vehicle.colorName,
+    vehicle.paintColor,
+    vehicle.details?.color
+  );
+  const vehicleClass = firstText(
+    vehicle.type,
+    vehicle.class,
+    vehicle.vehicleType,
+    vehicle.category
+  );
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
@@ -342,15 +364,12 @@ export const buildInvoicePdfBuffer = (snapshot) => {
   }
   if (payment.staff?.name) detailsRows.push(['Served by', payment.staff.name]);
 
-  const customerRows = [
-    ['Customer', snapshot.customerName || 'Customer'],
-    ['Phone', snapshot.customerPhone || '-'],
-  ];
-  if (plateForPdf) customerRows.push(['Plate', plateForPdf]);
-  customerRows.push([
-    'Vehicle',
-    [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || '-',
-  ]);
+  const customerRows = [['Customer', snapshot.customerName || 'Customer']];
+  if (customerPhone) customerRows.push(['Phone', customerPhone]);
+  if (plateForPdf) customerRows.push(['Plate Number', plateForPdf]);
+  if (vehicleInfo) customerRows.push(['Vehicle', vehicleInfo]);
+  if (vehicleColor) customerRows.push(['Color', vehicleColor]);
+  if (vehicleClass) customerRows.push(['Class', vehicleClass]);
 
   const detailsH = drawInfoBox(margin, 'Transaction Details', detailsRows);
   const customerH = drawInfoBox(margin + boxW + 18, 'Customer & Vehicle', customerRows);

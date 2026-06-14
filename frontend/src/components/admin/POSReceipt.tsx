@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { jsPDF } from 'jspdf';
 import { X, Printer, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { resolveReceiptPhone } from '@/lib/receipt-phone';
 
 export interface ReceiptData {
     transactionId: string;
@@ -14,11 +15,27 @@ export interface ReceiptData {
         make?: string;
         model?: string;
         color?: string;
+        colorName?: string;
+        paintColor?: string;
+        details?: { color?: string };
+        type?: string;
+        class?: string;
+        vehicleType?: string;
+        category?: string;
         plate?: string;
     };
     items: { name: string; price: number; quantity: number; isAddon?: boolean }[];
     subtotal: number;
+    discountAmount?: number;
     discount?: { type: string; value: number; amount: number; reason?: string } | null;
+    taxVatAmount?: number;
+    taxAmount?: number;
+    additionalFees?: number;
+    downpayment?: number;
+    grandTotal?: number;
+    serviceTotal?: number;
+    totalAmount?: number;
+    amountCollected?: number;
     total: number;
     paymentMethod: string;
     splitPayments?: { method: string; amount: number }[];
@@ -40,8 +57,39 @@ interface POSReceiptProps {
 
 const formatCurrency = (val: number) => `₱${val.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const firstDisplayValue = (...values: unknown[]) => {
+    for (const value of values) {
+        if (typeof value !== 'string') continue;
+        const trimmed = value.trim();
+        if (trimmed && !['null', 'undefined'].includes(trimmed.toLowerCase())) return trimmed;
+    }
+    return '';
+};
+
 export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress, businessPhone, onClose }: POSReceiptProps) {
     const receiptRef = useRef<HTMLDivElement>(null);
+    const customerPhone = resolveReceiptPhone(receipt);
+    const discountAmount = receipt.discount?.amount ?? receipt.discountAmount ?? 0;
+    const taxAmount = receipt.taxVatAmount ?? receipt.taxAmount ?? 0;
+    const additionalFees = receipt.additionalFees ?? 0;
+    const serviceTotal =
+        receipt.serviceTotal
+        ?? receipt.grandTotal
+        ?? receipt.totalAmount
+        ?? receipt.subtotal - discountAmount + taxAmount + additionalFees;
+    const amountCollected = receipt.amountCollected ?? receipt.total;
+    const vehicleColor = firstDisplayValue(
+        receipt.vehicle?.color,
+        receipt.vehicle?.colorName,
+        receipt.vehicle?.paintColor,
+        receipt.vehicle?.details?.color
+    );
+    const vehicleClass = firstDisplayValue(
+        receipt.vehicle?.type,
+        receipt.vehicle?.class,
+        receipt.vehicle?.vehicleType,
+        receipt.vehicle?.category
+    );
 
     const handlePrint = () => {
         const printContent = receiptRef.current;
@@ -75,8 +123,11 @@ export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress
             <div class="section">
                 <div class="row"><span>Date:</span><span>${new Date(receipt.date).toLocaleString()}</span></div>
                 <div class="row"><span>Customer:</span><span>${receipt.customerName}</span></div>
+                ${customerPhone ? `<div class="row"><span>Phone:</span><span>${customerPhone}</span></div>` : ''}
                 ${receipt.vehicle?.make ? `<div class="row"><span>Vehicle:</span><span>${[receipt.vehicle.year, receipt.vehicle.make, receipt.vehicle.model].filter(Boolean).join(' ')}</span></div>` : ''}
                 ${receipt.vehicle?.plate ? `<div class="row"><span>Plate:</span><span>${receipt.vehicle.plate}</span></div>` : ''}
+                ${vehicleColor ? `<div class="row"><span>Color:</span><span>${vehicleColor}</span></div>` : ''}
+                ${vehicleClass ? `<div class="row"><span>Class:</span><span>${vehicleClass}</span></div>` : ''}
                 ${receipt.bookingRef ? `<div class="row"><span>Booking:</span><span>#${receipt.bookingRef}</span></div>` : ''}
                 ${receipt.staff?.name ? `<div class="row"><span>Staff:</span><span>${receipt.staff.name}</span></div>` : ''}
             </div>
@@ -92,9 +143,12 @@ export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress
             <div class="divider"></div>
             <div class="section">
                 <div class="row"><span>Subtotal</span><span>${formatCurrency(receipt.subtotal)}</span></div>
-                ${receipt.discount ? `<div class="row" style="color:#e44;"><span>Discount${receipt.discount.reason ? ' (' + receipt.discount.reason + ')' : ''}</span><span>-${formatCurrency(receipt.discount.amount)}</span></div>` : ''}
+                ${discountAmount > 0 ? `<div class="row" style="color:#e44;"><span>Discount${receipt.discount?.reason ? ' (' + receipt.discount.reason + ')' : ''}</span><span>-${formatCurrency(discountAmount)}</span></div>` : ''}
+                <div class="row"><span>VAT / Tax</span><span>${formatCurrency(taxAmount)}</span></div>
+                ${additionalFees > 0 ? `<div class="row"><span>Additional Fees</span><span>${formatCurrency(additionalFees)}</span></div>` : ''}
                 <div class="divider"></div>
-                <div class="row total-row"><span>TOTAL</span><span>${formatCurrency(receipt.total)}</span></div>
+                <div class="row"><span>Service Total</span><span>${formatCurrency(serviceTotal)}</span></div>
+                <div class="row total-row"><span>AMOUNT COLLECTED</span><span>${formatCurrency(amountCollected)}</span></div>
             </div>
             <div class="divider"></div>
             <div class="section">
@@ -147,8 +201,11 @@ export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress
             ['Date', new Date(receipt.date).toLocaleString()],
             ['Customer', receipt.customerName],
         ];
+        if (customerPhone) meta.push(['Phone', customerPhone]);
         if (receipt.vehicle?.make) meta.push(['Vehicle', [receipt.vehicle.year, receipt.vehicle.make, receipt.vehicle.model].filter(Boolean).join(' ')]);
         if (receipt.vehicle?.plate) meta.push(['Plate', receipt.vehicle.plate]);
+        if (vehicleColor) meta.push(['Color', vehicleColor]);
+        if (vehicleClass) meta.push(['Class', vehicleClass]);
         if (receipt.bookingRef) meta.push(['Booking', `#${receipt.bookingRef}`]);
         if (receipt.staff?.name) meta.push(['Staff', receipt.staff.name]);
 
@@ -199,21 +256,35 @@ export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress
         doc.text(formatCurrency(receipt.subtotal), x + w, y, { align: 'right' });
         y += 12;
 
-        if (receipt.discount) {
+        if (discountAmount > 0) {
             doc.setTextColor(220, 50, 50);
-            doc.text(`Discount${receipt.discount.reason ? ` (${receipt.discount.reason})` : ''}`, x, y);
-            doc.text(`-${formatCurrency(receipt.discount.amount)}`, x + w, y, { align: 'right' });
+            doc.text(`Discount${receipt.discount?.reason ? ` (${receipt.discount.reason})` : ''}`, x, y);
+            doc.text(`-${formatCurrency(discountAmount)}`, x + w, y, { align: 'right' });
             y += 12;
             doc.setTextColor(0);
+        }
+
+        doc.text('VAT / Tax', x, y);
+        doc.text(formatCurrency(taxAmount), x + w, y, { align: 'right' });
+        y += 12;
+
+        if (additionalFees > 0) {
+            doc.text('Additional Fees', x, y);
+            doc.text(formatCurrency(additionalFees), x + w, y, { align: 'right' });
+            y += 12;
         }
 
         y += 2;
         doc.line(x, y, x + w, y);
         y += 12;
         doc.setFont('courier', 'bold');
+        doc.setFontSize(9);
+        doc.text('SERVICE TOTAL', x, y);
+        doc.text(formatCurrency(serviceTotal), x + w, y, { align: 'right' });
+        y += 12;
         doc.setFontSize(11);
-        doc.text('TOTAL', x, y);
-        doc.text(formatCurrency(receipt.total), x + w, y, { align: 'right' });
+        doc.text('AMOUNT COLLECTED', x, y);
+        doc.text(formatCurrency(amountCollected), x + w, y, { align: 'right' });
         y += 14;
 
         doc.setLineDashPattern([2, 2], 0);
@@ -290,8 +361,11 @@ export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress
                     <div className="space-y-2.5 text-[12px] mb-6 bg-white/[0.02] p-4 rounded-xl border border-white/5">
                         <div className="flex justify-between"><span className="text-zinc-500">Date</span><span className="font-semibold text-zinc-200">{new Date(receipt.date).toLocaleString()}</span></div>
                         <div className="flex justify-between"><span className="text-zinc-500">Customer</span><span className="font-semibold text-zinc-200">{receipt.customerName}</span></div>
+                        {customerPhone && <div className="flex justify-between"><span className="text-zinc-500">Phone</span><span className="font-semibold text-zinc-200">{customerPhone}</span></div>}
                         {vehicleStr && <div className="flex justify-between"><span className="text-zinc-500">Vehicle</span><span className="font-semibold text-zinc-200">{vehicleStr}</span></div>}
                         {receipt.vehicle?.plate && <div className="flex justify-between"><span className="text-zinc-500">Plate</span><span className="font-mono font-semibold text-orange-400 bg-orange-500/10 px-1.5 rounded">{receipt.vehicle.plate}</span></div>}
+                        {vehicleColor && <div className="flex justify-between"><span className="text-zinc-500">Color</span><span className="font-semibold text-zinc-200">{vehicleColor}</span></div>}
+                        {vehicleClass && <div className="flex justify-between"><span className="text-zinc-500">Class</span><span className="font-semibold text-zinc-200">{vehicleClass}</span></div>}
                         {receipt.bookingRef && <div className="flex justify-between"><span className="text-zinc-500">Booking</span><span className="font-mono text-orange-500 font-semibold">#{receipt.bookingRef}</span></div>}
                         {receipt.staff?.name && <div className="flex justify-between"><span className="text-zinc-500">Technician</span><span className="font-semibold text-zinc-200">{receipt.staff.name}</span></div>}
                     </div>
@@ -323,16 +397,24 @@ export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress
                     <div className="border-t border-dashed border-white/10 my-5" />
                     <div className="space-y-2 text-[13px]">
                         <div className="flex justify-between"><span className="text-zinc-400">Subtotal</span><span className="font-semibold">{formatCurrency(receipt.subtotal)}</span></div>
-                        {receipt.discount && (
+                        {discountAmount > 0 && (
                             <div className="flex justify-between text-orange-400">
-                                <span>Discount{receipt.discount.reason ? ` (${receipt.discount.reason})` : ''}</span>
-                                <span className="font-semibold">−{formatCurrency(receipt.discount.amount)}</span>
+                                <span>Discount{receipt.discount?.reason ? ` (${receipt.discount.reason})` : ''}</span>
+                                <span className="font-semibold">−{formatCurrency(discountAmount)}</span>
                             </div>
                         )}
+                        <div className="flex justify-between"><span className="text-zinc-400">VAT / Tax</span><span className="font-semibold">{formatCurrency(taxAmount)}</span></div>
+                        {additionalFees > 0 && (
+                            <div className="flex justify-between"><span className="text-zinc-400">Additional Fees</span><span className="font-semibold">{formatCurrency(additionalFees)}</span></div>
+                        )}
                         <div className="border-t border-dashed border-white/10 my-3" />
+                        <div className="flex justify-between">
+                            <span className="text-zinc-400">Service Total</span>
+                            <span className="font-bold text-white">{formatCurrency(serviceTotal)}</span>
+                        </div>
                         <div className="flex justify-between items-end">
-                            <span className="text-[14px] font-black tracking-widest text-zinc-500">TOTAL</span>
-                            <span className="text-2xl font-black text-orange-500 drop-shadow-[0_0_15px_rgba(249,115,22,0.3)]">{formatCurrency(receipt.total)}</span>
+                            <span className="text-[14px] font-black tracking-widest text-zinc-500">COLLECTED</span>
+                            <span className="text-2xl font-black text-orange-500 drop-shadow-[0_0_15px_rgba(249,115,22,0.3)]">{formatCurrency(amountCollected)}</span>
                         </div>
                     </div>
 

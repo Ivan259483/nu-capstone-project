@@ -15,6 +15,7 @@ import { ensureBackendAuthToken, getStoredAuthToken } from '../lib/api';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
 import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking, normalizePhilippineMobileInput, resolveProfilePhoneDisplay } from '../lib/phone';
 import { normalizePlateNumber } from '../lib/plate';
+import { resolveProfileImage } from '../lib/profile-image';
 import { usePublishedBookingPackages, type VehiclePriceKey } from '../lib/customer-booking-catalog';
 import {
   BOOKING_TERMS_DOCUMENT_TITLE,
@@ -37,6 +38,7 @@ import { getTrackerPipelineProgressPct } from '../lib/tracker-pipeline-progress'
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '../lib/cloudinary-delivery-url';
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
 import { CustomerDashboardOverviewStrip } from '../components/customer/CustomerDashboardOverviewStrip';
+import { CustomerBookingsSection } from '../components/customer/CustomerBookingsSection';
 import CustomerGarageVehicleSilhouette from '../components/customer/CustomerGarageVehicleSilhouette';
 import { CustomerPaymentHistorySection } from '../components/customer/CustomerPaymentHistorySection';
 import {
@@ -662,8 +664,9 @@ export default function CustomerDashboard() {
   const [customerBookingsLoadedOnce, setCustomerBookingsLoadedOnce] = useState(false);
   const customerBookingsLoadedOnceRef = useRef(false);
   const [bookingsFilter, setBookingsFilter] = useState<'all' | 'upcoming' | 'active' | 'completed' | 'cancelled'>('all');
+  const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
   const [highlightedAppointmentRef, setHighlightedAppointmentRef] = useState('');
-  const bookingCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const bookingCardRefs = useRef<Record<string, HTMLElement | null>>({});
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
   // Payment History lightbox
   const [paymentLightboxUrl, setPaymentLightboxUrl] = useState<string | null>(null);
@@ -1028,14 +1031,13 @@ export default function CustomerDashboard() {
   const [bookingDownpaymentProof, setBookingDownpaymentProof] = useState<string | null>(null);
   const bookingBodyRef = useRef<HTMLDivElement | null>(null);
   const packageListRef = useRef<HTMLDivElement | null>(null);
-  const packageCardRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const packagePeekFrameRef = useRef<number | null>(null);
-  const [packagePeek, setPackagePeek] = useState({
-    visible: false,
-    remaining: 0,
-    left: 0,
-    top: 0,
-    width: 0,
+  const packageScrollFrameRef = useRef<number | null>(null);
+  const packageScrollInteractedRef = useRef(false);
+  const [packageScrollState, setPackageScrollState] = useState({
+    overflow: false,
+    atStart: true,
+    atEnd: false,
+    interacted: false,
   });
 
   // Vehicle History Modal
@@ -1182,107 +1184,88 @@ export default function CustomerDashboard() {
     date: '', time: '', notes: '',
   });
 
-  const setPackagePeekHidden = useCallback(() => {
-    setPackagePeek((prev) => (
-      prev.visible || prev.remaining
-        ? { ...prev, visible: false, remaining: 0 }
-        : prev
-    ));
-  }, []);
-
-  const updatePackagePeek = useCallback(() => {
+  const updatePackageScrollState = useCallback(() => {
     if (typeof window === 'undefined') return;
-    if (packagePeekFrameRef.current !== null) return;
+    if (packageScrollFrameRef.current !== null) return;
 
-    packagePeekFrameRef.current = window.requestAnimationFrame(() => {
-      packagePeekFrameRef.current = null;
-
-      const body = bookingBodyRef.current;
+    packageScrollFrameRef.current = window.requestAnimationFrame(() => {
+      packageScrollFrameRef.current = null;
       const list = packageListRef.current;
-      const cards = packageCardRefs.current.slice(0, bookingPackages.length);
-
-      if (!bookingOpen || bookingDone || bookingStep !== 1 || !body || !list || cards.length <= 1) {
-        setPackagePeekHidden();
+      if (!list) {
+        setPackageScrollState({
+          overflow: false,
+          atStart: true,
+          atEnd: false,
+          interacted: packageScrollInteractedRef.current,
+        });
         return;
       }
 
-      const bodyRect = body.getBoundingClientRect();
-      const listRect = list.getBoundingClientRect();
-      const bodyBottom = Math.min(bodyRect.bottom, window.innerHeight);
-      const listIsInView = listRect.top < bodyBottom - 48 && listRect.bottom > bodyRect.top + 24;
-      const listHasMoreBelow = listRect.bottom > bodyBottom + 8;
-
-      if (!listIsInView || !listHasMoreBelow) {
-        setPackagePeekHidden();
-        return;
-      }
-
-      const visibleBoundary = bodyBottom - 64;
-      let lastVisiblePackageIndex = -1;
-
-      cards.forEach((card, index) => {
-        if (!card) return;
-        const rect = card.getBoundingClientRect();
-        if (rect.top < visibleBoundary && rect.bottom > bodyRect.top) {
-          lastVisiblePackageIndex = index;
-        }
-      });
-
-      const remaining = Math.max(0, bookingPackages.length - lastVisiblePackageIndex - 1);
-      if (remaining <= 0) {
-        setPackagePeekHidden();
-        return;
-      }
-
+      const threshold = 3;
+      const overflow = list.scrollWidth - list.clientWidth > threshold;
+      const atStart = !overflow || list.scrollLeft <= threshold;
+      const atEnd = overflow
+        ? list.scrollLeft + list.clientWidth >= list.scrollWidth - threshold
+        : false;
       const next = {
-        visible: true,
-        remaining,
-        left: bodyRect.left,
-        top: bodyBottom - 76,
-        width: bodyRect.width,
+        overflow,
+        atStart,
+        atEnd,
+        interacted: packageScrollInteractedRef.current,
       };
 
-      setPackagePeek((prev) => (
-        prev.visible === next.visible &&
-        prev.remaining === next.remaining &&
-        Math.abs(prev.left - next.left) < 0.5 &&
-        Math.abs(prev.top - next.top) < 0.5 &&
-        Math.abs(prev.width - next.width) < 0.5
+      setPackageScrollState((prev) => (
+        prev.overflow === next.overflow &&
+        prev.atStart === next.atStart &&
+        prev.atEnd === next.atEnd &&
+        prev.interacted === next.interacted
           ? prev
           : next
       ));
     });
-  }, [bookingDone, bookingOpen, bookingPackages.length, bookingStep, setPackagePeekHidden]);
+  }, []);
+
+  const handlePackageListScroll = useCallback(() => {
+    const list = packageListRef.current;
+    if (list && Math.abs(list.scrollLeft) > 3) {
+      packageScrollInteractedRef.current = true;
+    }
+    updatePackageScrollState();
+  }, [updatePackageScrollState]);
 
   useLayoutEffect(() => {
     if (!bookingOpen || bookingDone || bookingStep !== 1) {
-      setPackagePeekHidden();
+      packageScrollInteractedRef.current = false;
+      setPackageScrollState({
+        overflow: false,
+        atStart: true,
+        atEnd: false,
+        interacted: false,
+      });
       return;
     }
 
-    const body = bookingBodyRef.current;
-    if (!body) return;
+    const list = packageListRef.current;
+    if (!list) return;
 
-    updatePackagePeek();
-    body.addEventListener('scroll', updatePackagePeek, { passive: true });
-    window.addEventListener('resize', updatePackagePeek);
-
+    packageScrollInteractedRef.current = false;
+    list.scrollLeft = 0;
+    updatePackageScrollState();
+    window.addEventListener('resize', updatePackageScrollState);
     const resizeObserver = typeof ResizeObserver !== 'undefined'
-      ? new ResizeObserver(updatePackagePeek)
+      ? new ResizeObserver(updatePackageScrollState)
       : null;
-    resizeObserver?.observe(body);
-    if (packageListRef.current) resizeObserver?.observe(packageListRef.current);
+    resizeObserver?.observe(list);
 
     return () => {
-      body.removeEventListener('scroll', updatePackagePeek);
-      window.removeEventListener('resize', updatePackagePeek);
+      window.removeEventListener('resize', updatePackageScrollState);
       resizeObserver?.disconnect();
-      if (packagePeekFrameRef.current !== null) {
-        window.cancelAnimationFrame(packagePeekFrameRef.current);
-        packagePeekFrameRef.current = null;
+      if (packageScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(packageScrollFrameRef.current);
+        packageScrollFrameRef.current = null;
       }
     };
-  }, [bookingDone, bookingForm.service, bookingOpen, bookingStep, updatePackagePeek, setPackagePeekHidden]);
+  }, [bookingDone, bookingOpen, bookingPackages.length, bookingStep, updatePackageScrollState]);
 
   useLayoutEffect(() => {
     if (!bookingOpen || bookingDone) return;
@@ -1457,7 +1440,13 @@ export default function CustomerDashboard() {
     setBookingAgreed(false);
     setBookingTermsReachedEnd(false);
     setBookingDownpaymentProof(null);
-    setPackagePeekHidden();
+    packageScrollInteractedRef.current = false;
+    setPackageScrollState({
+      overflow: false,
+      atStart: true,
+      atEnd: false,
+      interacted: false,
+    });
   }
 
   function closeBookingModal() {
@@ -1961,9 +1950,12 @@ export default function CustomerDashboard() {
     email: user?.email || '',
     phone: resolveProfilePhoneDisplay((user as any)?.phone),
     avatarPreview: '',
+    avatarFile: null as File | null,
+    avatarRemoved: false,
   });
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
   const [profileSaved, setProfileSaved] = useState(false);
+  const [profileSubmitting, setProfileSubmitting] = useState(false);
   const [regionalPrefs, setRegionalPrefs] = useState(() => ({
     language: 'English',
     region: 'Philippines',
@@ -2034,19 +2026,30 @@ export default function CustomerDashboard() {
       ? normalizePhilippineMobileInput(profile.phone)
       : normalizeInternationalPhoneInput(profile.phone);
 
+    setProfileSubmitting(true);
+    setProfileErrors((current) => ({ ...current, form: '' }));
     try {
       const result = await updateUser({
         ...user,
         name: profile.fullName,
         email: profile.email,
         phone: phoneToSave,
+        avatar: profile.avatarRemoved
+          ? ''
+          : resolveProfileImage(user as unknown as Record<string, unknown>) || undefined,
+      }, {
+        profilePhoto: profile.avatarFile,
       });
 
       if (result.success && !result.offline) {
         const savedPhone = resolveProfilePhoneDisplay(result.phone, phoneToSave, profile.phone);
-        if (savedPhone) {
-          setProfile((p) => ({ ...p, phone: savedPhone }));
-        }
+        setProfile((current) => ({
+          ...current,
+          phone: savedPhone || current.phone,
+          avatarPreview: '',
+          avatarFile: null,
+          avatarRemoved: false,
+        }));
         setProfileSaved(true);
         setTimeout(() => setProfileSaved(false), 3000);
       } else if (result.offline) {
@@ -2056,6 +2059,8 @@ export default function CustomerDashboard() {
       }
     } catch (err) {
       setProfileErrors({ form: 'An error occurred while saving.' });
+    } finally {
+      setProfileSubmitting(false);
     }
   }
 
@@ -2746,6 +2751,10 @@ export default function CustomerDashboard() {
   const rewardsSectionLoading = activeSection === 'rewards' && customerSectionDataLoading;
   const servicesSectionLoading = activeSection === 'services' && (customerSectionDataLoading || vehiclesLoading);
   const settingsInitial = (profile.fullName || user?.name || user?.email || 'C').charAt(0).toUpperCase();
+  const savedProfileImage = profile.avatarRemoved
+    ? ''
+    : resolveProfileImage(user as unknown as Record<string, unknown>);
+  const settingsProfileImage = profile.avatarPreview || savedProfileImage;
   const settingsAccountStatus = profile.phone ? 'Profile ready' : 'Add phone';
   const settingsProfileCompletion = [
     profile.fullName?.trim(),
@@ -2817,7 +2826,11 @@ export default function CustomerDashboard() {
           <div className="customer-sidebar-header customer-sidebar-brand-row" title="">
             <div className="customer-sidebar-user-header" title="">
               <div className="customer-sidebar-avatar" aria-hidden title="">
-                {(sidebarUsername || sidebarUserEmail || '?').charAt(0).toUpperCase()}
+                {savedProfileImage ? (
+                  <img src={savedProfileImage} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  (sidebarUsername || sidebarUserEmail || '?').charAt(0).toUpperCase()
+                )}
               </div>
               {!sidebarCollapsed && (
                 <span className="customer-sidebar-profile-copy">
@@ -3068,8 +3081,8 @@ export default function CustomerDashboard() {
                   aria-expanded={profileMenuOpen}
                 >
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-blue-50 text-sm font-bold text-blue-700 ring-1 ring-blue-100">
-                    {user?.avatar ? (
-                      <img src={user.avatar} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    {savedProfileImage ? (
+                      <img src={savedProfileImage} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       (user?.name || 'C').charAt(0).toUpperCase()
                     )}
@@ -3089,8 +3102,8 @@ export default function CustomerDashboard() {
                           <div className="px-2 pt-1 pb-1.5">
                             <button onClick={() => { setProfileMenuOpen(false); setProfileSubMenu(null); nav('settings'); }} className="w-full flex items-center gap-3 p-3 rounded-xl bg-white hover:bg-slate-50 border border-slate-100 shadow-sm transition-all group">
                               <div className="w-12 h-12 rounded-full bg-[#eff6ff] flex items-center justify-center text-[#1d4ed8] font-bold text-[17px] shrink-0 overflow-hidden">
-                                {user?.avatar ? (
-                                  <img src={user.avatar} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                {savedProfileImage ? (
+                                  <img src={savedProfileImage} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                 ) : (
                                   (user?.name || 'C').charAt(0).toUpperCase()
                                 )}
@@ -3284,9 +3297,38 @@ export default function CustomerDashboard() {
                 <CustomerBookingsSkeleton />
               ) : (
               /* ═══════════════════════════════════════════
-                 MY BOOKINGS — Ultra-Premium UI
+                 MY BOOKINGS — Premium customer portal
               ═══════════════════════════════════════════ */
               (() => {
+                return (
+                  <CustomerBookingsSection
+                    bookings={myBookings}
+                    activeFilter={bookingsFilter}
+                    highlightedAppointmentRef={highlightedAppointmentRef}
+                    onFilterChange={setBookingsFilter}
+                    onNewBooking={() => void openBookingModal()}
+                    onTrackService={() => nav('tracker')}
+                    onViewReceipt={(orderId) => void openCustomerOrderReceiptPdf(orderId)}
+                    onCancelBooking={async (booking) => {
+                      const id = booking._id || booking.id;
+                      try {
+                        const { OrderService } = await import('../lib/order-service');
+                        await (OrderService as any).updateOrder?.(id, { status: 'cancelled' });
+                        setMyBookings((previous) => previous.map((item) => (
+                          (item._id || item.id) === id
+                            ? { ...item, status: 'cancelled' }
+                            : item
+                        )));
+                      } catch {
+                        // Preserve the existing cancellation behavior when the update request fails.
+                      }
+                    }}
+                    registerBookingRef={(reference, element) => {
+                      if (reference) bookingCardRefs.current[reference] = element;
+                    }}
+                  />
+                );
+
                 const upcomingStatuses = ['pending_confirmation', 'pending', 'confirmed', 'approved', 'assigned'];
                 const activeStatuses = ['in-progress', 'in_progress', 'processing', 'checked-in', 'received'];
                 const doneStatuses = ['completed', 'released', 'done', 'delivered', 'paid'];
@@ -3297,18 +3339,145 @@ export default function CustomerDashboard() {
                       : bookingsFilter === 'completed' ? myBookings.filter(b => doneStatuses.includes(b.status))
                         : myBookings.filter(b => cancelledStatuses.includes(b.status));
 
-                const statusCfg: Record<string, { label: string; color: string; bg: string; strip: string; dot?: boolean }> = {
-	                  pending: { label: 'Pending', color: '#C2410C', bg: '#FFF7ED', strip: CUSTOMER_UI.warning },
-	                  confirmed: { label: 'Confirmed', color: '#1D4ED8', bg: '#EFF6FF', strip: CUSTOMER_UI.primary },
-	                  assigned: { label: 'Assigned', color: '#1D4ED8', bg: '#EFF6FF', strip: CUSTOMER_UI.primary },
-	                  'in-progress': { label: 'In Progress', color: '#047857', bg: '#ECFDF5', strip: CUSTOMER_UI.success, dot: true },
-	                  processing: { label: 'Processing', color: '#047857', bg: '#ECFDF5', strip: CUSTOMER_UI.success, dot: true },
-	                  'checked-in': { label: 'Checked In', color: '#1D4ED8', bg: '#EFF6FF', strip: CUSTOMER_UI.primary },
-	                  completed: { label: 'Completed', color: '#065F46', bg: '#F0FDF4', strip: CUSTOMER_UI.success },
-	                  released: { label: 'Released', color: '#065F46', bg: '#F0FDF4', strip: CUSTOMER_UI.success },
-	                  done: { label: 'Done', color: '#065F46', bg: '#F0FDF4', strip: CUSTOMER_UI.success },
-	                  cancelled: { label: 'Cancelled', color: '#991B1B', bg: '#FEF2F2', strip: CUSTOMER_UI.danger },
-	                  rejected: { label: 'Rejected', color: '#991B1B', bg: '#FEF2F2', strip: CUSTOMER_UI.danger },
+                const statusCfg: Record<string, {
+                  label: string;
+                  badge: string;
+                  icon: string;
+                  accent: string;
+                  helper: string;
+                  live?: boolean;
+                }> = {
+                  pending_confirmation: {
+                    label: 'Awaiting confirmation',
+                    badge: 'border-amber-200 bg-amber-50 text-amber-800',
+                    icon: 'bg-amber-50 text-amber-700 ring-amber-100',
+                    accent: 'bg-amber-500',
+                    helper: 'Payment verification in progress',
+                  },
+                  pending: {
+                    label: 'Pending',
+                    badge: 'border-amber-200 bg-amber-50 text-amber-800',
+                    icon: 'bg-amber-50 text-amber-700 ring-amber-100',
+                    accent: 'bg-amber-500',
+                    helper: 'Waiting for appointment confirmation',
+                  },
+                  approved: {
+                    label: 'Approved',
+                    badge: 'border-blue-200 bg-blue-50 text-blue-800',
+                    icon: 'bg-blue-50 text-blue-700 ring-blue-100',
+                    accent: 'bg-blue-600',
+                    helper: 'Your appointment is secured',
+                  },
+                  confirmed: {
+                    label: 'Confirmed',
+                    badge: 'border-blue-200 bg-blue-50 text-blue-800',
+                    icon: 'bg-blue-50 text-blue-700 ring-blue-100',
+                    accent: 'bg-blue-600',
+                    helper: 'Your appointment is secured',
+                  },
+                  assigned: {
+                    label: 'Team assigned',
+                    badge: 'border-blue-200 bg-blue-50 text-blue-800',
+                    icon: 'bg-blue-50 text-blue-700 ring-blue-100',
+                    accent: 'bg-blue-600',
+                    helper: 'A service team is preparing for your visit',
+                  },
+                  received: {
+                    label: 'Vehicle received',
+                    badge: 'border-cyan-200 bg-cyan-50 text-cyan-800',
+                    icon: 'bg-cyan-50 text-cyan-700 ring-cyan-100',
+                    accent: 'bg-cyan-600',
+                    helper: 'Your vehicle is now with our team',
+                    live: true,
+                  },
+                  'checked-in': {
+                    label: 'Checked in',
+                    badge: 'border-cyan-200 bg-cyan-50 text-cyan-800',
+                    icon: 'bg-cyan-50 text-cyan-700 ring-cyan-100',
+                    accent: 'bg-cyan-600',
+                    helper: 'Your vehicle is now with our team',
+                    live: true,
+                  },
+                  in_progress: {
+                    label: 'In service',
+                    badge: 'border-teal-200 bg-teal-50 text-teal-800',
+                    icon: 'bg-teal-50 text-teal-700 ring-teal-100',
+                    accent: 'bg-teal-600',
+                    helper: 'Service work is currently underway',
+                    live: true,
+                  },
+                  'in-progress': {
+                    label: 'In service',
+                    badge: 'border-teal-200 bg-teal-50 text-teal-800',
+                    icon: 'bg-teal-50 text-teal-700 ring-teal-100',
+                    accent: 'bg-teal-600',
+                    helper: 'Service work is currently underway',
+                    live: true,
+                  },
+                  processing: {
+                    label: 'In service',
+                    badge: 'border-teal-200 bg-teal-50 text-teal-800',
+                    icon: 'bg-teal-50 text-teal-700 ring-teal-100',
+                    accent: 'bg-teal-600',
+                    helper: 'Service work is currently underway',
+                    live: true,
+                  },
+                  completed: {
+                    label: 'Completed',
+                    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+                    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+                    accent: 'bg-emerald-600',
+                    helper: 'Service completed successfully',
+                  },
+                  paid: {
+                    label: 'Paid',
+                    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+                    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+                    accent: 'bg-emerald-600',
+                    helper: 'Payment and service are complete',
+                  },
+                  released: {
+                    label: 'Released',
+                    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+                    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+                    accent: 'bg-emerald-600',
+                    helper: 'Vehicle returned to customer',
+                  },
+                  done: {
+                    label: 'Completed',
+                    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+                    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+                    accent: 'bg-emerald-600',
+                    helper: 'Service completed successfully',
+                  },
+                  delivered: {
+                    label: 'Released',
+                    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+                    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+                    accent: 'bg-emerald-600',
+                    helper: 'Vehicle returned to customer',
+                  },
+                  cancelled: {
+                    label: 'Cancelled',
+                    badge: 'border-rose-200 bg-rose-50 text-rose-800',
+                    icon: 'bg-rose-50 text-rose-700 ring-rose-100',
+                    accent: 'bg-rose-500',
+                    helper: 'This appointment was cancelled',
+                  },
+                  rejected: {
+                    label: 'Not approved',
+                    badge: 'border-rose-200 bg-rose-50 text-rose-800',
+                    icon: 'bg-rose-50 text-rose-700 ring-rose-100',
+                    accent: 'bg-rose-500',
+                    helper: 'This booking needs a new request',
+                  },
+                  failed: {
+                    label: 'Payment issue',
+                    badge: 'border-rose-200 bg-rose-50 text-rose-800',
+                    icon: 'bg-rose-50 text-rose-700 ring-rose-100',
+                    accent: 'bg-rose-500',
+                    helper: 'Payment could not be completed',
+                  },
                 };
 
                 const filterCounts = {
@@ -3318,155 +3487,227 @@ export default function CustomerDashboard() {
                   completed: myBookings.filter(b => doneStatuses.includes(b.status)).length,
                   cancelled: myBookings.filter(b => cancelledStatuses.includes(b.status)).length,
                 };
+                const nextUpcomingBooking = myBookings
+                  .filter((booking) => upcomingStatuses.includes(String(booking.status || '').toLowerCase()))
+                  .map((booking) => ({
+                    booking,
+                    timestamp: new Date(booking.bookingDate || booking.date || 0).getTime(),
+                  }))
+                  .filter((entry) => Number.isFinite(entry.timestamp) && entry.timestamp > 0)
+                  .sort((a, b) => a.timestamp - b.timestamp)[0]?.booking;
+                const nextAppointmentLabel = nextUpcomingBooking
+                  ? `${formatBookingDayLabel(nextUpcomingBooking.bookingDate || nextUpcomingBooking.date)}${nextUpcomingBooking.bookingTime || nextUpcomingBooking.time ? ` · ${nextUpcomingBooking.bookingTime || nextUpcomingBooking.time}` : ''}`
+                  : 'No upcoming appointment';
+                const summaryCards = [
+                  { key: 'all', label: 'Total Bookings', count: filterCounts.all, helper: 'Lifetime appointments', icon: 'solar:calendar-mark-bold', tone: 'text-slate-700 bg-slate-100 ring-slate-200' },
+                  { key: 'upcoming', label: 'Upcoming', count: filterCounts.upcoming, helper: 'Scheduled or pending', icon: 'solar:calendar-date-bold', tone: 'text-amber-700 bg-amber-50 ring-amber-100' },
+                  { key: 'active', label: 'Active', count: filterCounts.active, helper: 'Currently in service', icon: 'solar:steering-wheel-bold', tone: 'text-cyan-700 bg-cyan-50 ring-cyan-100' },
+                  { key: 'completed', label: 'Completed', count: filterCounts.completed, helper: 'Finished appointments', icon: 'solar:check-circle-bold', tone: 'text-emerald-700 bg-emerald-50 ring-emerald-100' },
+                  { key: 'cancelled', label: 'Cancelled', count: filterCounts.cancelled, helper: 'Cancelled or rejected', icon: 'solar:close-circle-bold', tone: 'text-rose-700 bg-rose-50 ring-rose-100' },
+                ] as const;
+                const filterMeta = {
+                  all: { label: 'All', icon: 'solar:layers-minimalistic-linear' },
+                  upcoming: { label: 'Upcoming', icon: 'solar:calendar-date-linear' },
+                  active: { label: 'Active', icon: 'solar:play-circle-linear' },
+                  completed: { label: 'Completed', icon: 'solar:check-circle-linear' },
+                  cancelled: { label: 'Cancelled', icon: 'solar:close-circle-linear' },
+                } as const;
+                const progressSteps = [
+                  { label: 'Confirmed', short: 'Confirmed' },
+                  { label: 'Vehicle arrived', short: 'Arrived' },
+                  { label: 'In service', short: 'In Service' },
+                  { label: 'Quality review', short: 'QC Review' },
+                  { label: 'Ready for pickup', short: 'Pickup' },
+                ] as const;
 
                 return (
-                  <div className="customer-content-fade-in space-y-6 pb-10">
+                  <div className="customer-content-fade-in mx-auto w-full max-w-[1380px] space-y-4 pb-12 pt-1">
 
                     {/* ── Header ── */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-	                          <h2 className="text-[28px] font-bold text-slate-900 tracking-tight">My Bookings</h2>
-                          {myBookings.length > 0 && (
-	                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full text-blue-600" style={{ background: '#eff6ff' }}>{myBookings.length}</span>
-                          )}
+                    <section className="overflow-hidden rounded-[20px] border border-slate-200/80 bg-[#fffefd] shadow-[0_16px_44px_-38px_rgba(15,23,42,0.42)]">
+                      <div className="flex flex-col gap-4 px-5 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="min-w-0">
+                          <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                            <p className={CUSTOMER_SECTION_LABEL}>Service appointments</p>
+                            {myBookings.length > 0 && (
+                              <span className="rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                                {myBookings.length} total
+                              </span>
+                            )}
+                          </div>
+                          <h2 className="text-[26px] font-bold tracking-[-0.035em] text-slate-950 sm:text-[30px]">My Bookings</h2>
+                          <p className="mt-0.5 max-w-2xl text-sm leading-5 text-slate-500">
+                            Your current service journey and complete vehicle care history.
+                          </p>
                         </div>
-                        <p className="text-[13px] text-slate-400 font-medium">Track and manage all your service appointments</p>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                          <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3.5 py-2.5 sm:min-w-[220px]">
+                            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">
+                              <span className={`h-2 w-2 rounded-full ${filterCounts.active > 0 ? 'bg-teal-500' : 'bg-slate-300'}`} />
+                              Next appointment
+                            </div>
+                            <p className="mt-1 truncate text-sm font-semibold text-slate-800">{nextAppointmentLabel}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void openBookingModal()}
+                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_-16px_rgba(37,99,235,0.9)] transition hover:bg-blue-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
+                          >
+                            <iconify-icon icon="solar:calendar-add-bold" width="17"></iconify-icon>
+                            New Booking
+                          </button>
+                        </div>
                       </div>
-                      <button
-                        onClick={() => openBookingModal()}
-	                        className="flex items-center gap-2 px-5 py-2.5 text-white rounded-lg text-sm font-semibold transition-all hover:-translate-y-0.5"
-	                        style={{ background: CUSTOMER_UI.primary, boxShadow: '0 4px 14px rgba(37,99,235,0.28)' }}
-                      >
-                        <iconify-icon icon="solar:add-circle-bold" width="16"></iconify-icon>
-                        New Booking
-                      </button>
-                    </div>
+                    </section>
 
                     {/* ── Stats Summary ── */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      {[
-	                        { label: 'Total', count: filterCounts.all, icon: 'solar:notebook-bookmark-bold', cardBg: `linear-gradient(135deg,${CUSTOMER_UI.primary},${CUSTOMER_UI.primaryDark})`, text: '#fff', sub: '#BFDBFE' },
-	                        { label: 'Upcoming', count: filterCounts.upcoming, icon: 'solar:clock-circle-bold', cardBg: `linear-gradient(135deg,${CUSTOMER_UI.warning},#EA580C)`, text: '#fff', sub: '#FED7AA' },
-	                        { label: 'Active', count: filterCounts.active, icon: 'solar:play-circle-bold', cardBg: `linear-gradient(135deg,${CUSTOMER_UI.success},#059669)`, text: '#fff', sub: '#A7F3D0' },
-	                        { label: 'Completed', count: filterCounts.completed, icon: 'solar:check-circle-bold', cardBg: 'linear-gradient(135deg,#059669,#047857)', text: '#fff', sub: '#A7F3D0' },
-                      ].map(s => (
-                        <div key={s.label} className="rounded-2xl p-4 flex items-center gap-3 relative overflow-hidden" style={{ background: s.cardBg, boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }}>
-                          <div className="absolute -right-3 -top-3 w-20 h-20 rounded-full opacity-20" style={{ background: 'rgba(255,255,255,0.3)' }} />
-                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.2)' }}>
-                            <iconify-icon icon={s.icon} width="20" style={{ color: '#fff' }}></iconify-icon>
+                    <div className="grid grid-cols-2 overflow-hidden rounded-[20px] border border-slate-200/80 bg-white shadow-[0_14px_34px_-30px_rgba(15,23,42,0.44)] md:grid-cols-3 xl:grid-cols-5">
+                      {summaryCards.map((summary) => (
+                        <button
+                          type="button"
+                          key={summary.key}
+                          onClick={() => setBookingsFilter(summary.key)}
+                          className={`group relative min-h-[82px] border-b border-r border-slate-100 p-3.5 text-left transition hover:bg-slate-50/80 ${
+                            bookingsFilter === summary.key ? 'bg-blue-50/65' : 'bg-white'
+                          }`}
+                        >
+                          {bookingsFilter === summary.key && <span className="absolute inset-x-4 top-0 h-0.5 rounded-full bg-blue-600" />}
+                          <div className="flex items-center justify-between gap-3">
+                            <div className={`flex h-8 w-8 items-center justify-center rounded-lg ring-1 ring-inset ${summary.tone}`}>
+                              <iconify-icon icon={summary.icon} width="16"></iconify-icon>
+                            </div>
+                            <span className="text-[22px] font-bold leading-none tracking-[-0.04em] text-slate-950">{summary.count}</span>
                           </div>
-                          <div>
-                            <p className="text-[26px] font-black leading-none" style={{ color: s.text }}>{s.count}</p>
-                            <p className="text-[11px] font-semibold mt-0.5" style={{ color: s.sub }}>{s.label}</p>
+                          <div className="mt-2">
+                            <p className="text-[11px] font-bold text-slate-800 sm:text-xs">{summary.label}</p>
+                            <p className="mt-0.5 truncate text-[9px] text-slate-400 sm:text-[10px]">{summary.helper}</p>
                           </div>
-                        </div>
+                        </button>
                       ))}
                     </div>
 
                     {/* ── Filter Tabs ── */}
-                    <div className="flex items-center gap-1.5 bg-white border border-slate-100 p-1.5 rounded-2xl w-fit overflow-x-auto" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-                      {(['all', 'upcoming', 'active', 'completed', 'cancelled'] as const).map(f => {
-                        const meta: Record<string, { icon: string; activeGrad: string; activeTxt: string }> = {
-	                          all:       { icon: 'solar:layers-bold',        activeGrad: `linear-gradient(135deg,${CUSTOMER_UI.primary},${CUSTOMER_UI.primaryDark})`, activeTxt: '#fff' },
-	                          upcoming:  { icon: 'solar:clock-circle-bold',  activeGrad: `linear-gradient(135deg,${CUSTOMER_UI.warning},#EA580C)`, activeTxt: '#fff' },
-	                          active:    { icon: 'solar:play-circle-bold',   activeGrad: `linear-gradient(135deg,${CUSTOMER_UI.success},#059669)`, activeTxt: '#fff' },
-	                          completed: { icon: 'solar:check-circle-bold',  activeGrad: 'linear-gradient(135deg,#059669,#047857)', activeTxt: '#fff' },
-	                          cancelled: { icon: 'solar:close-circle-bold',  activeGrad: `linear-gradient(135deg,#DC2626,${CUSTOMER_UI.danger})`, activeTxt: '#fff' },
-                        };
-                        const m = meta[f];
-                        const isActive = bookingsFilter === f;
+                    <div className="sticky top-0 z-20 -mx-3 overflow-x-auto bg-[#f7f6f2]/95 px-3 py-2 backdrop-blur-md [scrollbar-width:none] sm:-mx-4 sm:px-4 lg:-mx-5 lg:px-5 [&::-webkit-scrollbar]:hidden">
+                      <div className="inline-flex min-w-max items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-[0_12px_28px_-22px_rgba(15,23,42,0.5)]">
+                      {(['all', 'upcoming', 'active', 'completed', 'cancelled'] as const).map((filter) => {
+                        const meta = filterMeta[filter];
+                        const isActive = bookingsFilter === filter;
                         return (
                           <button
-                            key={f}
-                            onClick={() => setBookingsFilter(f)}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap capitalize"
-                            style={isActive
-                              ? { background: m.activeGrad, color: m.activeTxt, boxShadow: '0 3px 10px rgba(0,0,0,0.18)' }
-                              : { color: '#64748b' }
-                            }
+                            type="button"
+                            key={filter}
+                            onClick={() => setBookingsFilter(filter)}
+                            className={`flex min-h-9 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
+                              isActive
+                                ? 'bg-slate-950 text-white shadow-sm'
+                                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                            }`}
                           >
-                            <iconify-icon icon={m.icon} width="13"></iconify-icon>
-                            {f}
-                            {filterCounts[f] > 0 && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                                style={isActive ? { background: 'rgba(255,255,255,0.25)', color: '#fff' } : { background: '#f1f5f9', color: '#64748b' }}>
-                                {filterCounts[f]}
-                              </span>
-                            )}
+                            <iconify-icon icon={meta.icon} width="14"></iconify-icon>
+                            {meta.label}
+                            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${
+                              isActive ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-500'
+                            }`}>
+                              {filterCounts[filter]}
+                            </span>
                           </button>
                         );
                       })}
+                      </div>
                     </div>
 
                     {/* ── Content ── */}
                     {myBookingsLoading ? (
-                      <div className="space-y-3">
-                        {[1, 2, 3].map(k => (
-                          <div key={k} className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden animate-pulse">
-                            <div className="flex">
-                              <div className="w-1 bg-slate-200 shrink-0" />
-                              <div className="flex-1 p-5 space-y-3">
-                                <div className="flex justify-between gap-8">
-                                  <div className="space-y-2 flex-1">
-                                    <div className="h-3 w-20 bg-slate-100 rounded-full" />
-                                    <div className="h-4 w-44 bg-slate-200 rounded-full" />
-                                    <div className="h-3 w-32 bg-slate-100 rounded-full" />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <div className="h-4 w-24 bg-slate-200 rounded-full" />
-                                    <div className="h-3 w-28 bg-slate-100 rounded-full" />
-                                  </div>
-                                </div>
-                                <div className="h-px bg-slate-100" />
-                                <div className="flex justify-between">
-                                  <div className="h-3 w-28 bg-slate-100 rounded-full" />
-                                  <div className="h-8 w-32 bg-slate-100 rounded-lg" />
+                      <div className="grid gap-3 lg:grid-cols-2">
+                        {[1, 2, 3, 4].map((key) => (
+                          <div key={key} className="min-h-[248px] animate-pulse rounded-[20px] border border-slate-200 bg-white p-5">
+                            <div className="flex items-start justify-between gap-6">
+                              <div className="flex flex-1 gap-3">
+                                <div className="h-11 w-11 rounded-xl bg-slate-100" />
+                                <div className="flex-1 space-y-2">
+                                  <div className="h-3 w-24 rounded-full bg-slate-100" />
+                                  <div className="h-5 w-48 rounded-full bg-slate-200" />
                                 </div>
                               </div>
+                              <div className="h-6 w-24 rounded-full bg-slate-100" />
+                            </div>
+                            <div className="mt-6 grid grid-cols-2 gap-3">
+                              <div className="h-20 rounded-2xl bg-slate-50" />
+                              <div className="h-20 rounded-2xl bg-slate-50" />
+                            </div>
+                            <div className="mt-4 h-16 rounded-2xl bg-slate-50" />
+                            <div className="mt-4 flex justify-end gap-2">
+                              <div className="h-10 w-28 rounded-xl bg-slate-100" />
+                              <div className="h-10 w-32 rounded-xl bg-slate-200" />
                             </div>
                           </div>
                         ))}
                       </div>
                     ) : filteredBookings.length === 0 ? (
-                      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-14 text-center flex flex-col items-center">
-	                        <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
-	                          <iconify-icon icon="solar:calendar-minimalistic-linear" width="32" style={{ color: CUSTOMER_UI.primary }}></iconify-icon>
+                      <div className="flex min-h-[360px] flex-col items-center justify-center rounded-[22px] border border-dashed border-slate-300 bg-white/80 px-6 py-14 text-center shadow-[0_18px_40px_-36px_rgba(15,23,42,0.5)]">
+                        <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+                          <iconify-icon icon="solar:calendar-minimalistic-linear" width="30"></iconify-icon>
                         </div>
-                        <h3 className="font-semibold text-slate-900 text-[16px] mb-1">
+                        <p className={CUSTOMER_SECTION_LABEL}>Your service history</p>
+                        <h3 className="mt-2 text-lg font-bold text-slate-950">
                           {bookingsFilter === 'all' ? 'No bookings yet' : `No ${bookingsFilter} bookings`}
                         </h3>
-                        <p className="text-sm text-slate-500 max-w-[240px] mx-auto mb-6 leading-relaxed">
+                        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
                           {bookingsFilter === 'all'
-                            ? "Book a service to get started — we'll track everything here."
-                            : `You have no ${bookingsFilter} bookings at the moment.`
+                            ? 'Schedule your first AutoSPF+ visit and track every stage from confirmation to pickup.'
+                            : `There are no ${bookingsFilter} appointments in your service history right now.`
                           }
                         </p>
-                        {bookingsFilter === 'all' && (
+                        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+                          {bookingsFilter !== 'all' && (
+                            <button
+                              type="button"
+                              onClick={() => setBookingsFilter('all')}
+                              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                            >
+                              View all bookings
+                            </button>
+                          )}
                           <button
-                            onClick={() => openBookingModal()}
-	                            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-all shadow-sm"
+                            type="button"
+                            onClick={() => void openBookingModal()}
+                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
                           >
-                            <iconify-icon icon="solar:add-circle-linear" width="16"></iconify-icon>
-                            Book Your First Service
+                            <iconify-icon icon="solar:calendar-add-bold" width="16"></iconify-icon>
+                            Book a Service
                           </button>
-                        )}
+                        </div>
                       </div>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="grid items-stretch gap-3 lg:grid-cols-2">
                         {filteredBookings.map((booking: any, idx: number) => {
-                          const st = (booking.status || 'pending').toLowerCase();
+                          const st = String(booking.status || 'pending').toLowerCase();
                           const cfg = statusCfg[st] || statusCfg['pending'];
                           const bookingId = booking._id || booking.id || String(idx);
+                          const bookingIdString = String(bookingId);
                           const isCancelling = cancelConfirmId === bookingId;
                           const canCancel = ['pending', 'confirmed'].includes(st);
+                          const isExpanded = expandedBookingId === bookingIdString;
+                          const hasLiveTracker = bookingShowsCustomerLiveTracker(booking);
+                          const isCompleted = doneStatuses.includes(st) && !hasLiveTracker;
+                          const isCancelled = cancelledStatuses.includes(st) || st === 'failed';
+                          const isJourneyCard = hasLiveTracker || [
+                            'approved',
+                            'confirmed',
+                            'assigned',
+                            'received',
+                            'checked-in',
+                            'in_progress',
+                            'in-progress',
+                            'processing',
+                          ].includes(st);
                           const dateStr = (() => {
                             const raw = booking.bookingDate || booking.date;
-                            if (!raw) return 'Date TBD';
-                            try { return new Date(raw).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
+                            if (!raw) return 'Date to be confirmed';
+                            try { return new Date(raw).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }); }
                             catch { return raw; }
                           })();
-                          const timeStr = booking.bookingTime || booking.time || '';
+                          const timeStr = formatTrackerClockLabel(booking.bookingTime || booking.time, 'Time to be confirmed');
                           const serviceIcons: Record<string, string> = {
                             'exterior': 'solar:washing-machine-bold', 'interior': 'solar:sofa-2-bold',
                             'paint': 'solar:pallete-2-bold', 'ceramic': 'solar:shield-check-bold',
@@ -3474,12 +3715,86 @@ export default function CustomerDashboard() {
                           };
                           const svcName = (booking.serviceName || booking.serviceType || '').toLowerCase();
                           const svcIcon = Object.entries(serviceIcons).find(([k]) => svcName.includes(k))?.[1] || 'solar:car-wash-bold';
-                          const vehicleLabel = [booking.vehicleBrand || booking.vehicleMake, booking.vehicleModel].filter(Boolean).join(' ') || booking.vehicleModel || booking.vehicleMake || '';
-                          const plateLabel = displayVehicleLabel(booking.vehiclePlate, '');
+                          const rawVehicleLabel = [
+                            booking.vehicleYear,
+                            booking.vehicleBrand || booking.vehicleMake,
+                            booking.vehicleModel,
+                          ].filter(Boolean).join(' ') || booking.vehicleInfo || '';
+                          const vehicleLabel = /^(vehicle\s+details?|plate)\s+(pending|tbd)$/i.test(String(rawVehicleLabel).trim())
+                            ? ''
+                            : String(rawVehicleLabel).trim();
+                          const rawPlateLabel = displayVehicleLabel(booking.vehiclePlate, '');
+                          const plateLabel = /^(plate\s*)?(pending|tbd|n\/a|none)$/i.test(rawPlateLabel)
+                            ? ''
+                            : rawPlateLabel;
+                          const vehicleDescriptors = [
+                            formatTitleCaseDisplay(booking.vehicleColor, ''),
+                            formatTitleCaseDisplay(
+                              booking.vehicleClass || booking.vehicleType || booking.vehicleCategory,
+                              ''
+                            ),
+                          ].filter(Boolean);
                           const appointmentRef = normalizeAppointmentReference(booking.bookingReference || booking.orderNumber);
+                          const referenceLabel = appointmentRef || bookingIdString.slice(-8).toUpperCase();
                           const isHighlightedAppointment = Boolean(
                             highlightedAppointmentRef && bookingMatchesAppointmentReference(booking, highlightedAppointmentRef)
                           );
+                          const paymentStatus = String(booking.paymentStatus || '').toLowerCase();
+                          const paymentMeta = paymentStatus === 'paid'
+                            ? { label: 'Paid', className: 'border-emerald-200 bg-emerald-50 text-emerald-700', icon: 'solar:verified-check-linear' }
+                            : paymentStatus === 'failed'
+                              ? { label: 'Payment failed', className: 'border-rose-200 bg-rose-50 text-rose-700', icon: 'solar:danger-circle-linear' }
+                              : paymentStatus === 'refunded'
+                                ? { label: 'Refunded', className: 'border-slate-200 bg-slate-50 text-slate-600', icon: 'solar:restart-linear' }
+                                : paymentStatus
+                                  ? { label: 'Payment pending', className: 'border-amber-200 bg-amber-50 text-amber-700', icon: 'solar:wallet-money-linear' }
+                                  : null;
+                          const amountValue = [
+                            booking.totalAmount,
+                            booking.serviceTotal,
+                            booking.totalPrice,
+                            booking.price,
+                          ].find((value) => Number.isFinite(Number(value)) && Number(value) > 0);
+                          const hasReceipt = Boolean(
+                            paymentStatus === 'paid'
+                            || st === 'paid'
+                            || booking.invoiceId
+                            || booking.invoiceRecord?._id
+                          );
+                          const rawStage = normTrackerStr(booking.serviceTrackingStage || st);
+                          const stageIndexMap: Record<string, number> = {
+                            pending: 0,
+                            pending_confirmation: 0,
+                            approved: 0,
+                            confirmed: 0,
+                            assigned: 0,
+                            received: 1,
+                            checked_in: 1,
+                            in_progress: 2,
+                            processing: 2,
+                            quality_check: 3,
+                            ready_pickup: 4,
+                            completed: 4,
+                          };
+                          const progressIndex = Math.max(0, Math.min(4, stageIndexMap[rawStage] ?? 0));
+                          const showProgress = [
+                            'approved',
+                            'confirmed',
+                            'assigned',
+                            'received',
+                            'checked-in',
+                            'in_progress',
+                            'in-progress',
+                            'processing',
+                          ].includes(st) || ['received', 'in_progress', 'quality_check', 'ready_pickup'].includes(rawStage);
+                          const currentStage = progressSteps[progressIndex];
+                          const nextStage = progressSteps[progressIndex + 1];
+                          const assignedTeam = Array.isArray(booking.serviceStaffAssignments)
+                            ? booking.serviceStaffAssignments.map((entry: any) => entry?.name).filter(Boolean).join(', ')
+                            : '';
+                          const rejectionMessage = booking.rejectionReason
+                            || (st === 'cancelled' ? 'This appointment was cancelled.' : '')
+                            || (st === 'failed' ? 'The payment for this booking could not be completed.' : '');
 
                           return (
                             <div
@@ -3488,122 +3803,347 @@ export default function CustomerDashboard() {
                                 if (appointmentRef) bookingCardRefs.current[appointmentRef] = el;
                               }}
                               data-appointment-ref={appointmentRef || undefined}
-                              className={`rounded-3xl overflow-hidden transition-all duration-300 hover:-translate-y-1 group ${isHighlightedAppointment ? 'ring-4 ring-blue-500/30' : ''}`}
+                              className={`relative flex h-full flex-col overflow-hidden rounded-[20px] border bg-[#fffefd] shadow-[0_16px_38px_-32px_rgba(15,23,42,0.5)] transition duration-300 motion-reduce:transform-none motion-reduce:transition-none hover:-translate-y-0.5 hover:shadow-[0_22px_44px_-30px_rgba(15,23,42,0.55)] ${
+                                isJourneyCard ? 'lg:col-span-2 border-blue-200/90' : ''
+                              } ${
+                                isHighlightedAppointment
+                                  ? 'border-blue-300 ring-4 ring-blue-500/15'
+                                  : isCancelled
+                                    ? 'border-rose-200/80'
+                                    : isCompleted
+                                      ? 'border-emerald-100'
+                                      : isJourneyCard
+                                        ? ''
+                                        : 'border-amber-100'
+                              }`}
                               style={{
-                                scrollMarginTop: 120,
-                                boxShadow: isHighlightedAppointment
-                                  ? '0 0 0 4px rgba(37,99,235,0.18), 0 18px 46px rgba(37,99,235,0.20)'
-                                  : '0 4px 24px rgba(0,0,0,0.1), 0 1px 4px rgba(0,0,0,0.06)',
+                                scrollMarginTop: 76,
                               }}
                             >
+                              <div className={`absolute inset-y-0 left-0 ${isJourneyCard ? 'w-1.5' : 'w-1'} ${cfg.accent}`} />
+                              {isJourneyCard && (
+                                <>
+                                  <div className="pointer-events-none absolute right-0 top-0 h-32 w-32 rounded-full bg-blue-50/80 blur-3xl" />
+                                  <iconify-icon
+                                    icon="solar:wheel-angle-linear"
+                                    width="76"
+                                    className="pointer-events-none absolute right-4 top-4 text-blue-950 opacity-[0.025]"
+                                  ></iconify-icon>
+                                </>
+                              )}
+
                               {/* Cancel banner */}
                               {isCancelling && (
-                                <div className="px-5 py-3 flex items-center justify-between gap-4" style={{ background: '#fef2f2', borderBottom: '1px solid #fecaca' }}>
+                                <div className="flex flex-col gap-3 border-b border-rose-200 bg-rose-50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
                                   <div className="flex items-center gap-2">
-                                    <iconify-icon icon="solar:danger-triangle-bold" width="15" style={{ color: '#ef4444' }}></iconify-icon>
+                                    <iconify-icon icon="solar:danger-triangle-bold" width="16" className="text-rose-600"></iconify-icon>
                                     <p className="text-sm font-semibold text-red-700">Cancel this booking?</p>
                                   </div>
                                   <div className="flex gap-2">
-                                    <button onClick={() => setCancelConfirmId(null)} className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50">Keep it</button>
-                                    <button onClick={async () => { try { const { OrderService } = await import('../lib/order-service'); await (OrderService as any).updateOrder?.(bookingId, { status: 'cancelled' }); setMyBookings(prev => prev.map(b => (b._id || b.id) === bookingId ? { ...b, status: 'cancelled' } : b)); } catch {} setCancelConfirmId(null); }} className="px-3 py-1.5 text-xs font-bold text-white rounded-lg" style={{ background: '#ef4444' }}>Yes, cancel</button>
+                                    <button type="button" onClick={() => setCancelConfirmId(null)} className="min-h-9 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:flex-none">Keep booking</button>
+                                    <button type="button" onClick={async () => { try { const { OrderService } = await import('../lib/order-service'); await (OrderService as any).updateOrder?.(bookingId, { status: 'cancelled' }); setMyBookings(prev => prev.map(b => (b._id || b.id) === bookingId ? { ...b, status: 'cancelled' } : b)); } catch {} setCancelConfirmId(null); }} className="min-h-9 flex-1 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-700 sm:flex-none">Yes, cancel</button>
                                   </div>
                                 </div>
                               )}
 
-                              {/* ── CARD HEADER (dark themed) ── */}
-                              <div className="relative px-5 pt-5 pb-6 overflow-hidden" style={{ background: `linear-gradient(135deg, #0f172a 0%, #1e293b 60%, ${cfg.strip}33 100%)` }}>
-                                {/* Background blur orb */}
-                                <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full opacity-20 blur-2xl pointer-events-none" style={{ background: cfg.strip }} />
-                                <div className="relative flex items-start justify-between gap-4">
-                                  <div className="flex items-center gap-3">
-                                    {/* Icon */}
-                                    <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `${cfg.strip}30`, border: `1px solid ${cfg.strip}50` }}>
-                                      <iconify-icon icon={svcIcon} width="21" style={{ color: cfg.strip }}></iconify-icon>
+                              <div className={`relative flex flex-1 flex-col ${isJourneyCard ? 'p-4 sm:p-5' : 'p-4 sm:p-[18px]'}`}>
+                                {isJourneyCard && (
+                                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-blue-100/80 pb-2.5">
+                                    <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">
+                                      <span className="relative flex h-2 w-2">
+                                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-60 motion-reduce:animate-none" />
+                                        <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-600" />
+                                      </span>
+                                      Current service journey
                                     </div>
-                                    <div>
-                                      {/* Status pill */}
-                                      <div className="flex items-center gap-1.5 mb-1">
-                                        {cfg.dot && (
-                                          <span className="relative flex h-1.5 w-1.5">
-                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: cfg.strip }} />
-                                            <span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: cfg.strip }} />
-                                          </span>
-                                        )}
-                                        <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: cfg.strip }}>{cfg.label}</span>
+                                    <span className="rounded-full border border-blue-100 bg-blue-50/80 px-2.5 py-1 text-[10px] font-semibold text-blue-700">
+                                      Stage {progressIndex + 1} of {progressSteps.length}
+                                    </span>
+                                  </div>
+                                )}
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                                  <div className="flex min-w-0 items-start gap-3">
+                                    <div className={`flex shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${isJourneyCard ? 'h-11 w-11' : 'h-10 w-10'} ${cfg.icon}`}>
+                                      <iconify-icon icon={svcIcon} width={isJourneyCard ? '21' : '19'}></iconify-icon>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${cfg.badge}`}>
+                                          {cfg.live && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+                                          {cfg.label}
+                                        </span>
+                                        <span className="font-mono text-[10px] font-semibold tracking-[0.04em] text-slate-400">
+                                          #{referenceLabel}
+                                        </span>
                                       </div>
-                                      <h3 className="font-bold text-white text-[16px] leading-tight">
-                                        {booking.serviceName || booking.serviceType || 'Auto Service'}
+                                      <h3 className={`mt-1.5 line-clamp-2 font-bold tracking-[-0.025em] text-slate-950 ${isJourneyCard ? 'text-lg sm:text-xl' : 'text-[16px] sm:text-[17px]'}`}>
+                                        {displayServiceTitle(booking.serviceName || booking.serviceType, 'AutoSPF+ Service')}
                                       </h3>
+                                      {!isCompleted && <p className="mt-0.5 text-[11px] text-slate-500">{cfg.helper}</p>}
                                     </div>
                                   </div>
-                                  {/* Price */}
-                                  {booking.price && (
-                                    <div className="text-right shrink-0">
-                                      <p className="text-[10px] font-semibold uppercase tracking-widest mb-0.5" style={{ color: cfg.strip }}>Amount</p>
-                                      <p className="text-[22px] font-black text-white leading-none tracking-tight">₱{Number(booking.price).toLocaleString()}</p>
+                                  {amountValue !== undefined && (
+                                    <div className="shrink-0 pl-14 text-left sm:pl-0 sm:text-right">
+                                      <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400">Service total</p>
+                                      <p className="mt-0.5 text-lg font-bold tracking-[-0.03em] text-slate-950">
+                                        ₱{Number(amountValue).toLocaleString()}
+                                      </p>
                                     </div>
                                   )}
                                 </div>
-                              </div>
 
-                              {/* ── TICKET NOTCH DIVIDER ── */}
-                              <div className="relative flex items-center" style={{ background: '#f8fafc' }}>
-                                <div className="absolute -left-3 w-6 h-6 rounded-full bg-white" style={{ boxShadow: 'inset -2px 0 4px rgba(0,0,0,0.06)' }} />
-                                <div className="flex-1 mx-3 border-t-2 border-dashed" style={{ borderColor: '#e2e8f0' }} />
-                                <div className="absolute -right-3 w-6 h-6 rounded-full bg-white" style={{ boxShadow: 'inset 2px 0 4px rgba(0,0,0,0.06)' }} />
-                              </div>
+                                {isJourneyCard ? (
+                                  <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
+                                    <div className="grid content-start gap-2.5 sm:grid-cols-2">
+                                      {(vehicleLabel || plateLabel || vehicleDescriptors.length > 0) && (
+                                        <div className="rounded-xl border border-slate-100 bg-slate-50/65 p-3">
+                                          <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.09em] text-slate-400">
+                                            <iconify-icon icon="solar:wheel-angle-bold" width="13" className="text-slate-500"></iconify-icon>
+                                            Vehicle
+                                          </div>
+                                          {vehicleLabel && <p className="mt-1.5 truncate text-sm font-semibold text-slate-800">{vehicleLabel}</p>}
+                                          {(plateLabel || vehicleDescriptors.length > 0) && (
+                                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                              {plateLabel && (
+                                                <span className="inline-flex rounded-md border border-slate-200 bg-white px-2 py-0.5 font-mono text-[9px] font-bold tracking-[0.08em] text-slate-600">
+                                                  {plateLabel}
+                                                </span>
+                                              )}
+                                              {vehicleDescriptors.map((descriptor) => (
+                                                <span key={descriptor} className="text-[10px] font-medium text-slate-400">{descriptor}</span>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                      <div className={`rounded-xl border border-slate-100 bg-slate-50/65 p-3 ${
+                                        vehicleLabel || plateLabel || vehicleDescriptors.length > 0 ? '' : 'sm:col-span-2'
+                                      }`}>
+                                        <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.09em] text-slate-400">
+                                          <iconify-icon icon="solar:calendar-date-bold" width="13" className="text-slate-500"></iconify-icon>
+                                          Schedule
+                                        </div>
+                                        <p className="mt-1.5 text-sm font-semibold text-slate-800">{dateStr}</p>
+                                        <p className="mt-0.5 text-[11px] font-medium text-slate-500">{timeStr}</p>
+                                      </div>
+                                      {(paymentMeta || booking.paymentMethod || booking.paymentProvider) && (
+                                        <div className="flex min-h-[54px] items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5 sm:col-span-2">
+                                          <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.09em] text-slate-400">
+                                            <iconify-icon icon="solar:wallet-money-bold" width="13" className="text-slate-500"></iconify-icon>
+                                            Payment
+                                          </div>
+                                          <div className="flex flex-wrap items-center justify-end gap-2">
+                                            {paymentMeta && (
+                                              <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${paymentMeta.className}`}>
+                                                <iconify-icon icon={paymentMeta.icon} width="13"></iconify-icon>
+                                                {paymentMeta.label}
+                                              </span>
+                                            )}
+                                            {(booking.paymentMethod || booking.paymentProvider) && (
+                                              <span className="text-[10px] font-medium text-slate-400">
+                                                via {formatTitleCaseDisplay(booking.paymentMethod || booking.paymentProvider, '')}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
 
-                              {/* ── CARD BODY ── */}
-                              <div className="px-5 pt-4 pb-5 bg-white">
-                                {/* Vehicle + Date row */}
-                                <div className="grid grid-cols-2 gap-4 mb-4">
-                                  <div>
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Vehicle</p>
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      {vehicleLabel
-                                        ? <span className="text-[13px] font-semibold text-slate-800">{vehicleLabel}</span>
-                                        : <span className="text-[13px] text-slate-400">—</span>
-                                      }
-                                      {plateLabel && (
-                                        <span className="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-md" style={{ background: '#f1f5f9', color: '#475569' }}>{plateLabel}</span>
+                                    <div className="rounded-2xl border border-blue-100 bg-[linear-gradient(145deg,#f8fbff,#f1f7ff)] p-3.5 sm:p-4">
+                                      <div className="flex items-start justify-between gap-4">
+                                        <div>
+                                          <p className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.1em] text-blue-500">
+                                            <iconify-icon icon="solar:route-bold" width="13"></iconify-icon>
+                                            Current stage
+                                          </p>
+                                          <p className="mt-1.5 text-base font-bold tracking-[-0.02em] text-blue-950">{currentStage.label}</p>
+                                        </div>
+                                        <div className="max-w-[48%] text-right">
+                                          <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400">Next step</p>
+                                          <p className="mt-1 text-xs font-semibold text-slate-700">
+                                            {nextStage ? nextStage.label : 'Vehicle ready for pickup'}
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      {showProgress && (
+                                        <div className="mt-4">
+                                          <div className="grid grid-cols-5 gap-1">
+                                            {progressSteps.map((step, stepIndex) => {
+                                              const complete = stepIndex < progressIndex;
+                                              const current = stepIndex === progressIndex;
+                                              return (
+                                                <div key={step.label} className="min-w-0">
+                                                  <div className="flex items-center">
+                                                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[8px] font-bold ${
+                                                      complete
+                                                        ? 'border-emerald-500 bg-emerald-500 text-white'
+                                                        : current
+                                                          ? 'border-blue-600 bg-blue-600 text-white ring-4 ring-blue-100'
+                                                          : 'border-slate-200 bg-white text-slate-400'
+                                                    }`}>
+                                                      {complete
+                                                        ? <iconify-icon icon="solar:check-circle-bold" width="10"></iconify-icon>
+                                                        : stepIndex + 1}
+                                                    </span>
+                                                    {stepIndex < progressSteps.length - 1 && (
+                                                      <span className={`mx-1 h-px flex-1 ${
+                                                        complete ? 'bg-emerald-500' : current ? 'bg-blue-500' : 'bg-slate-200'
+                                                      }`} />
+                                                    )}
+                                                  </div>
+                                                  <p className={`mt-1.5 truncate text-[8px] font-semibold sm:text-[9px] ${
+                                                    complete ? 'text-emerald-700' : current ? 'text-blue-700' : 'text-slate-400'
+                                                  }`}>
+                                                    {step.short}
+                                                  </p>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
                                       )}
                                     </div>
                                   </div>
-                                  <div>
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Schedule</p>
-                                    <p className="text-[13px] font-semibold text-slate-800">{dateStr}</p>
-                                    {timeStr && <p className="text-[12px] text-slate-500 font-medium">{timeStr}</p>}
+                                ) : (
+                                  <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-2.5 border-y border-slate-100 py-3 sm:grid-cols-2">
+                                    {(vehicleLabel || plateLabel || vehicleDescriptors.length > 0) && (
+                                      <div className="flex min-w-0 items-center gap-2.5">
+                                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-500">
+                                          <iconify-icon icon="solar:wheel-angle-linear" width="16"></iconify-icon>
+                                        </span>
+                                        <div className="min-w-0">
+                                          {vehicleLabel && <p className="truncate text-xs font-semibold text-slate-800">{vehicleLabel}</p>}
+                                          {(plateLabel || vehicleDescriptors.length > 0) && (
+                                            <p className="mt-0.5 truncate text-[10px] font-medium text-slate-400">
+                                              {[plateLabel, ...vehicleDescriptors].filter(Boolean).join(' · ')}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                    <div className="flex min-w-0 items-center gap-2.5">
+                                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-500">
+                                        <iconify-icon icon="solar:calendar-date-linear" width="16"></iconify-icon>
+                                      </span>
+                                      <div className="min-w-0">
+                                        <p className="truncate text-xs font-semibold text-slate-800">{dateStr}</p>
+                                        {timeStr !== 'Time to be confirmed' && (
+                                          <p className="mt-0.5 truncate text-[10px] font-medium text-slate-400">{timeStr}</p>
+                                        )}
+                                      </div>
+                                    </div>
+                                    {(paymentMeta || booking.paymentMethod || booking.paymentProvider) && (
+                                      <div className="flex min-w-0 items-center gap-2.5 sm:col-span-2">
+                                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-500">
+                                          <iconify-icon icon="solar:wallet-money-linear" width="16"></iconify-icon>
+                                        </span>
+                                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                          {paymentMeta && (
+                                            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${paymentMeta.className}`}>
+                                              <iconify-icon icon={paymentMeta.icon} width="13"></iconify-icon>
+                                              {paymentMeta.label}
+                                            </span>
+                                          )}
+                                          {(booking.paymentMethod || booking.paymentProvider) && (
+                                            <span className="truncate text-[10px] font-medium text-slate-400">
+                                              via {formatTitleCaseDisplay(booking.paymentMethod || booking.paymentProvider, '')}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
-                                </div>
+                                )}
 
-                                {/* Actions */}
-                                <div className="flex items-center justify-between">
-                                  {canCancel ? (
-                                    <button onClick={() => setCancelConfirmId(bookingId)}
-                                      className="text-xs font-semibold text-slate-400 hover:text-red-500 px-3 py-1.5 rounded-xl hover:bg-red-50 transition-all">
-                                      Cancel booking
+                                {isCancelled && (
+                                  <div className="mt-3 flex gap-2.5 rounded-xl border border-rose-100 bg-rose-50/70 p-3 text-rose-800">
+                                    <iconify-icon icon="solar:info-circle-linear" width="17" className="mt-0.5 shrink-0"></iconify-icon>
+                                    <p className="text-xs leading-5">{rejectionMessage || 'This booking is no longer active. You can create a new appointment anytime.'}</p>
+                                  </div>
+                                )}
+
+                                {isExpanded && (
+                                  <div className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-xs sm:grid-cols-2">
+                                    <div>
+                                      <p className="font-bold uppercase tracking-[0.08em] text-slate-400">Last update</p>
+                                      <p className="mt-1.5 font-medium text-slate-700">{formatActivityWhen(booking) || 'No update available'}</p>
+                                    </div>
+                                    <div>
+                                      <p className="font-bold uppercase tracking-[0.08em] text-slate-400">Assigned team</p>
+                                      <p className="mt-1.5 font-medium text-slate-700">{assignedTeam || (typeof booking.assignedDetailer === 'object' ? booking.assignedDetailer?.name : booking.assignedDetailer) || 'To be assigned'}</p>
+                                    </div>
+                                    {booking.notes && (
+                                      <div className="sm:col-span-2">
+                                        <p className="font-bold uppercase tracking-[0.08em] text-slate-400">Appointment notes</p>
+                                        <p className="mt-1.5 leading-5 text-slate-600">{booking.notes}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                <div className={`mt-auto flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between ${
+                                  isJourneyCard ? 'border-t border-blue-100 pt-3.5' : 'pt-3.5'
+                                }`}>
+                                  <div className="flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedBookingId(isExpanded ? null : bookingIdString)}
+                                      className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-slate-950"
+                                    >
+                                      <iconify-icon icon={isExpanded ? 'solar:alt-arrow-up-linear' : 'solar:document-text-linear'} width="14"></iconify-icon>
+                                      {isExpanded ? 'Hide Details' : isCompleted ? 'View Summary' : 'View Details'}
                                     </button>
-                                  ) : <div />}
-                                  {bookingShowsCustomerLiveTracker(booking) ? (
+                                    {canCancel && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setCancelConfirmId(bookingId)}
+                                        className="inline-flex min-h-10 items-center justify-center rounded-xl px-3 py-2 text-xs font-semibold text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                                      >
+                                        Cancel Booking
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-2 sm:justify-end">
+                                  {hasReceipt && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void openCustomerOrderReceiptPdf(bookingIdString)}
+                                      className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:flex-none"
+                                    >
+                                      <iconify-icon icon="solar:receipt-linear" width="15"></iconify-icon>
+                                      View Receipt
+                                    </button>
+                                  )}
+                                  {(isCompleted || isCancelled) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void openBookingModal()}
+                                      className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 sm:flex-none"
+                                    >
+                                      <iconify-icon icon="solar:restart-bold" width="14"></iconify-icon>
+                                      Book Again
+                                    </button>
+                                  )}
+                                  {hasLiveTracker ? (
                                   <button
+                                    type="button"
                                     onClick={() => nav('tracker')}
-                                    className="flex items-center gap-2 text-sm font-bold text-white px-5 py-2.5 rounded-2xl transition-all hover:-translate-y-0.5 hover:shadow-lg"
-                                    style={{ background: `linear-gradient(135deg, ${cfg.strip}, ${cfg.strip}cc)`, boxShadow: `0 4px 16px ${cfg.strip}50` }}>
-                                    <iconify-icon icon="solar:map-arrow-right-bold" width="15"></iconify-icon>
+                                    className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-[0_10px_22px_-16px_rgba(37,99,235,0.9)] transition hover:bg-blue-700 sm:flex-none"
+                                  >
+                                    <iconify-icon icon="solar:map-arrow-right-bold" width="14"></iconify-icon>
                                     Track Service
                                   </button>
-                                  ) : String(booking?.paymentStatus || '').toLowerCase() === 'paid' ? (
-                                    <span className="text-[11px] font-semibold text-slate-400 px-2 py-1 text-right">Paid — see Payment History</span>
-                                  ) : (
-                                    <div />
-                                  )}
+                                  ) : null}
+                                  </div>
                                 </div>
                               </div>
                             </div>
                           );
                         })}
                         {bookingsFilter === 'all' && myBookings.length > 0 && myBookings.length <= 3 && (
-                          <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 p-5 shadow-sm transition-colors hover:bg-blue-50 sm:flex sm:items-center sm:justify-between sm:gap-6">
+                          <div className="rounded-[20px] border border-dashed border-blue-200 bg-blue-50/40 p-5 shadow-sm transition-colors hover:bg-blue-50 xl:col-span-2 sm:flex sm:items-center sm:justify-between sm:gap-6">
                             <div className="flex items-start gap-3">
                               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 ring-1 ring-blue-100">
                                 <iconify-icon icon="solar:shield-star-linear" width="20"></iconify-icon>
@@ -4890,19 +5430,42 @@ export default function CustomerDashboard() {
                             <input
                               id="avatar-upload-input"
                               type="file"
-                              accept="image/*"
+                              accept=".jpg,.jpeg,.png,image/jpeg,image/png"
                               className="hidden"
                               onChange={(e) => {
                                 const file = e.target.files?.[0];
                                 if (file) {
+                                  if (!['image/jpeg', 'image/png'].includes(file.type)) {
+                                    setProfileErrors((current) => ({ ...current, form: 'Upload a JPG or PNG image.' }));
+                                    e.target.value = '';
+                                    return;
+                                  }
                                   if (file.size > 2 * 1024 * 1024) {
-                                    setProfileErrors({ form: 'Image must be under 2MB.' });
+                                    setProfileErrors((current) => ({ ...current, form: 'Profile photo must be under 2 MB.' }));
+                                    e.target.value = '';
                                     return;
                                   }
                                   const reader = new FileReader();
-                                  reader.onloadend = () => setProfile(p => ({ ...p, avatarPreview: reader.result as string }));
+                                  reader.onload = () => {
+                                    const preview = reader.result;
+                                    if (typeof preview !== 'string') {
+                                      setProfileErrors((current) => ({ ...current, form: 'Could not preview this image. Please choose another file.' }));
+                                      return;
+                                    }
+                                    setProfile((current) => ({
+                                      ...current,
+                                      avatarPreview: preview,
+                                      avatarFile: file,
+                                      avatarRemoved: false,
+                                    }));
+                                    setProfileErrors((current) => ({ ...current, form: '' }));
+                                  };
+                                  reader.onerror = () => {
+                                    setProfileErrors((current) => ({ ...current, form: 'Could not read this image. Please choose another file.' }));
+                                  };
                                   reader.readAsDataURL(file);
                                 }
+                                e.target.value = '';
                               }}
                             />
                             <button
@@ -4911,10 +5474,8 @@ export default function CustomerDashboard() {
                               className="group flex w-full flex-col items-center rounded-lg border border-slate-200 bg-slate-50 px-4 py-5 text-center transition hover:border-blue-200 hover:bg-blue-50/50 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
                             >
                               <span className="relative mb-3 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white bg-white text-2xl font-bold text-blue-700 shadow-sm ring-1 ring-slate-200">
-                                {profile.avatarPreview ? (
-                                  <img src={profile.avatarPreview} alt="Profile" className="h-full w-full object-cover" />
-                                ) : user?.avatar ? (
-                                  <img src={user.avatar} alt="Profile" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                                {settingsProfileImage ? (
+                                  <img src={settingsProfileImage} alt="Profile" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                                 ) : (
                                   settingsInitial
                                 )}
@@ -4925,10 +5486,18 @@ export default function CustomerDashboard() {
                               <span className="text-sm font-semibold text-slate-900">Profile Photo</span>
                               <span className="mt-1 text-xs leading-5 text-slate-500">JPG or PNG, max 2MB.</span>
                             </button>
-                            {(profile.avatarPreview || user?.avatar) && (
+                            {settingsProfileImage && (
                               <button
                                 type="button"
-                                onClick={() => setProfile(p => ({ ...p, avatarPreview: '' }))}
+                                onClick={() => {
+                                  setProfile((current) => ({
+                                    ...current,
+                                    avatarPreview: '',
+                                    avatarFile: null,
+                                    avatarRemoved: true,
+                                  }));
+                                  setProfileErrors((current) => ({ ...current, form: '' }));
+                                }}
                                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
                               >
                                 Remove Photo
@@ -5007,9 +5576,13 @@ export default function CustomerDashboard() {
                             </div>
 
                             <div className="flex justify-end border-t border-slate-100 pt-4">
-                              <button type="submit" className={`${CUSTOMER_PRIMARY_BUTTON} inline-flex items-center gap-2`}>
+                              <button
+                                type="submit"
+                                disabled={profileSubmitting}
+                                className={`${CUSTOMER_PRIMARY_BUTTON} inline-flex items-center gap-2 disabled:pointer-events-none disabled:opacity-60`}
+                              >
                                 <iconify-icon icon="solar:diskette-linear" width="16"></iconify-icon>
-                                Save Changes
+                                {profileSubmitting ? 'Saving...' : 'Save Changes'}
                               </button>
                             </div>
                           </div>
@@ -5126,10 +5699,8 @@ export default function CustomerDashboard() {
                     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
                       <div className="flex items-center gap-3">
                         <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-50 text-xl font-bold text-blue-700 ring-1 ring-blue-100">
-                          {profile.avatarPreview ? (
-                            <img src={profile.avatarPreview} alt="Profile" className="h-full w-full object-cover" />
-                          ) : user?.avatar ? (
-                            <img src={user.avatar} alt="Profile" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                          {settingsProfileImage ? (
+                            <img src={settingsProfileImage} alt="Profile" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                           ) : (
                             settingsInitial
                           )}
@@ -6861,14 +7432,39 @@ export default function CustomerDashboard() {
                           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
                             {bookingPackages.length} packages
                           </span>
+                          {packageScrollState.overflow && !packageScrollState.interacted ? (
+                            <span
+                              id="booking-package-scroll-hint"
+                              className="booking-package-scroll-hint"
+                            >
+                              <span className="booking-package-scroll-hint-desktop">Scroll sideways to view more packages</span>
+                              <span className="booking-package-scroll-hint-mobile">Swipe or scroll sideways to view more packages</span>
+                              <iconify-icon icon="solar:arrow-right-linear" width="14" aria-hidden="true"></iconify-icon>
+                            </span>
+                          ) : null}
                         </div>
                     </div>
 
-                    <div ref={packageListRef} className="space-y-3">
-                      {bookingPackages.map((svc: any, index: number) => {
-                        const currentPrice = svc.prices[bookingVehicleType] ?? null;
-                        if (currentPrice === null) return null;
-                        const selected = bookingForm.service === svc.id;
+                    <div
+                      className={`booking-package-carousel ${
+                        packageScrollState.overflow ? 'is-overflowing' : ''
+                      } ${packageScrollState.atStart ? 'is-at-start' : ''} ${
+                        packageScrollState.atEnd ? 'is-at-end' : ''
+                      } ${packageScrollState.interacted ? 'is-interacted' : ''}`}
+                    >
+                      <div
+                        ref={packageListRef}
+                        className="booking-package-carousel-track"
+                        onScroll={handlePackageListScroll}
+                        role="region"
+                        aria-label="Protection packages"
+                        aria-describedby={packageScrollState.overflow && !packageScrollState.interacted ? 'booking-package-scroll-hint' : undefined}
+                        tabIndex={packageScrollState.overflow ? 0 : -1}
+                      >
+                        {bookingPackages.map((svc: any) => {
+                          const currentPrice = svc.prices[bookingVehicleType] ?? null;
+                          if (currentPrice === null) return null;
+                          const selected = bookingForm.service === svc.id;
 	                        const packageBadge =
 	                          svc.id === 'spf89' ? 'Most chosen' :
 	                          svc.id === 'spf101' ? 'All-in package' :
@@ -6878,12 +7474,11 @@ export default function CustomerDashboard() {
 	                        const vehicleLabel = VEHICLE_OPTIONS.find(o => o.type === bookingVehicleType)?.label || bookingVehicleType;
 	                        return (
 	                          <button
-                            key={svc.id}
-                            ref={(el) => { packageCardRefs.current[index] = el; }}
+                              key={svc.id}
 	                            type="button"
 	                            aria-pressed={selected}
 	                            onClick={() => setBookingForm(f => ({ ...f, service: svc.id, serviceName: svc.name, servicePrice: currentPrice }))}
-	                            className={`booking-service-package-card w-full rounded-[22px] border-0 p-4 text-left transition-all ${selected ? 'is-selected border-0' : 'border-0 bg-white'}`}
+	                            className={`booking-service-package-card booking-service-package-slide rounded-[22px] border-0 p-4 text-left transition-all ${selected ? 'is-selected border-0' : 'border-0 bg-white'}`}
 	                                style={{
 	                                  '--booking-package-accent': packageAccent.border,
 	                                  '--booking-package-ring': `${packageAccent.border}29`,
@@ -6960,7 +7555,24 @@ export default function CustomerDashboard() {
                               )}
                           </button>
                         );
-                      })}
+                        })}
+                      </div>
+                      <div
+                        className={`booking-package-edge booking-package-edge--left ${
+                          packageScrollState.overflow && !packageScrollState.atStart ? 'is-visible' : ''
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <div
+                        className={`booking-package-edge booking-package-edge--right ${
+                          packageScrollState.overflow && !packageScrollState.atEnd ? 'is-visible' : ''
+                        } ${
+                          packageScrollState.overflow && !packageScrollState.atEnd && !packageScrollState.interacted
+                            ? 'is-emphasized'
+                            : ''
+                        }`}
+                        aria-hidden="true"
+                      />
                     </div>
                   </div>
                 </div>
@@ -8006,24 +8618,6 @@ export default function CustomerDashboard() {
                 </div>
               )}
             </div>
-
-            {bookingStep === 1 && (
-              <div
-                className={`booking-package-peek-overlay ${packagePeek.visible ? 'is-visible' : ''}`}
-                style={{
-                  left: packagePeek.left,
-                  top: packagePeek.top,
-                  width: packagePeek.width,
-                }}
-                aria-hidden={!packagePeek.visible}
-              >
-                <div className="booking-package-peek-pill">
-                  {packagePeek.remaining === bookingPackages.length
-                    ? `View all ${bookingPackages.length} packages ↓`
-                    : `↓ ${packagePeek.remaining} more package${packagePeek.remaining === 1 ? '' : 's'} available`}
-                </div>
-              </div>
-            )}
 
             {/* Footer */}
             {!bookingDone && (() => {

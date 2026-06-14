@@ -7,6 +7,8 @@ import User from '../models/user.model.js';
 import Notification from '../models/notification.model.js';
 import Setting from '../models/setting.model.js';
 import InventoryTransaction from '../models/inventoryTransaction.model.js';
+import Payment from '../models/payment.model.js';
+import InvoiceRecord from '../models/invoiceRecord.model.js';
 import emailService from '../utils/emailService.utils.js';
 import { getIO } from '../utils/socket.utils.js';
 import { jsPDF } from 'jspdf';
@@ -27,6 +29,10 @@ import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { decrypt } from '../utils/encryption.utils.js';
 import { countGatePhotos, REQUIRED_GATE_PHOTOS } from '../utils/trackerGatePhotos.utils.js';
+import {
+  resolveReceiptPhoneForClient,
+  USER_PHONE_SELECT_FIELDS,
+} from '../utils/phone-client.utils.js';
 import {
   getDateAvailabilitySnapshot,
   isSlotConsumingStatus,
@@ -189,8 +195,15 @@ const ORDER_LIST_SELECT_FIELDS = [
   'customerPhone',
   'serviceId',
   'serviceType',
+  'items.name',
   'items.quantity',
   'items.price',
+  'subtotal',
+  'discountAmount',
+  'taxVatAmount',
+  'additionalFees',
+  'serviceTotal',
+  'amountCollected',
   'totalAmount',
   'totalPrice',
   'downPaymentAmount',
@@ -213,6 +226,9 @@ const ORDER_LIST_SELECT_FIELDS = [
   'vehicleMake',
   'vehicleModel',
   'vehicleColor',
+  'vehicleType',
+  'vehicleClass',
+  'vehicleCategory',
   'vehiclePlate',
   'bookingDate',
   'bookingTime',
@@ -355,10 +371,7 @@ const formatBookingDto = (orderDoc) => {
     || (typeof order.customer === 'object' ? order.customer?.name : '')
     || '';
 
-  const customerPhone =
-    order.customerPhone
-    || (typeof order.customer === 'object' ? order.customer?.phone : '')
-    || '';
+  const customerPhone = resolveReceiptPhoneForClient(order);
 
   const customerAvatar = typeof order.customer === 'object' ? order.customer?.avatar : null;
 
@@ -420,10 +433,7 @@ const formatBookingListDto = (orderDoc) => {
     order.customerName
     || (typeof order.customer === 'object' ? order.customer?.name : '')
     || '';
-  const customerPhone =
-    order.customerPhone
-    || (typeof order.customer === 'object' ? order.customer?.phone : '')
-    || '';
+  const customerPhone = resolveReceiptPhoneForClient(order);
   const customerAvatar = typeof order.customer === 'object' ? order.customer?.avatar : null;
 
   return {
@@ -441,6 +451,12 @@ const formatBookingListDto = (orderDoc) => {
     serviceType: order.serviceType,
     serviceName,
     items: order.items,
+    subtotal: order.subtotal,
+    discountAmount: order.discountAmount,
+    taxVatAmount: order.taxVatAmount,
+    additionalFees: order.additionalFees,
+    serviceTotal: order.serviceTotal,
+    amountCollected: order.amountCollected,
     totalAmount: order.totalAmount,
     totalPrice: order.totalPrice,
     downPaymentAmount: order.downPaymentAmount,
@@ -464,6 +480,9 @@ const formatBookingListDto = (orderDoc) => {
     vehicleMake: order.vehicleMake,
     vehicleModel: order.vehicleModel,
     vehicleColor: order.vehicleColor,
+    vehicleType: order.vehicleType,
+    vehicleClass: order.vehicleClass,
+    vehicleCategory: order.vehicleCategory,
     vehiclePlate,
     vehiclePlateDecryptFailed: couldNotDecryptPlate,
     vehicleInfo: vehicleInfo || '',
@@ -477,10 +496,101 @@ const formatBookingListDto = (orderDoc) => {
     serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || null,
     serviceTrackingUpdatedBy: order.serviceTrackingUpdatedBy || null,
     serviceStaffAssignments: order.serviceStaffAssignments || [],
+    latestPayment: order.latestPayment || null,
+    invoiceRecord: order.invoiceRecord || null,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
   };
 };
+
+async function attachLatestReceiptRecords(orderRows = []) {
+  const idFromReference = (value) => {
+    if (!value) return '';
+    if (typeof value === 'object') {
+      return value._id?.toString?.() || value.id?.toString?.() || '';
+    }
+    return value.toString?.() || String(value);
+  };
+
+  const receiptOrderIds = orderRows
+    .filter((order) => order?.paymentStatus === 'paid' || order?.invoiceId)
+    .map((order) => order?._id)
+    .filter(Boolean);
+  const customerIds = [...new Set(orderRows.map((order) => idFromReference(order?.customer)).filter(Boolean))];
+  const vehicleIds = [...new Set(orderRows.map((order) => idFromReference(order?.vehicle)).filter(Boolean))];
+
+  const [payments, invoices, customers, vehicles] = await Promise.all([
+    receiptOrderIds.length
+      ? Payment.find({
+          order: { $in: receiptOrderIds },
+          status: 'succeeded',
+        })
+          .select(
+            '_id order invoiceId items subtotal discount discountAmount taxVatAmount additionalFees ' +
+            'downpayment grandTotal amount amountPaid balanceRemaining method status staffAssigned createdAt'
+          )
+          .sort({ createdAt: -1 })
+          .lean()
+      : [],
+    receiptOrderIds.length
+      ? InvoiceRecord.find({ order: { $in: receiptOrderIds } })
+          .select('_id order invoiceNumber billingVersion snapshot payment createdAt')
+          .sort({ createdAt: -1 })
+          .lean()
+      : [],
+    customerIds.length
+      ? User.find({ _id: { $in: customerIds } })
+          .select(`_id ${USER_PHONE_SELECT_FIELDS}`)
+          .lean()
+      : [],
+    vehicleIds.length
+      ? Vehicle.find({ _id: { $in: vehicleIds } })
+          .select('_id year make model color plateNumber vehicleType')
+          .lean()
+      : [],
+  ]);
+
+  const latestPaymentByOrder = new Map();
+  for (const payment of payments) {
+    const key = String(payment.order || '');
+    if (key && !latestPaymentByOrder.has(key)) latestPaymentByOrder.set(key, payment);
+  }
+
+  const latestInvoiceByOrder = new Map();
+  for (const invoice of invoices) {
+    const key = String(invoice.order || '');
+    if (key && !latestInvoiceByOrder.has(key)) latestInvoiceByOrder.set(key, invoice);
+  }
+
+  const customerById = new Map(
+    customers.map((customer) => [String(customer._id || ''), customer])
+  );
+  const vehicleById = new Map(
+    vehicles.map((vehicle) => [String(vehicle._id || ''), vehicle])
+  );
+
+  return orderRows.map((order) => {
+    const key = String(order?._id || '');
+    const customer = customerById.get(idFromReference(order?.customer));
+    const vehicle = vehicleById.get(idFromReference(order?.vehicle));
+    return {
+      ...order,
+      customerPhone: resolveReceiptPhoneForClient(order, customer),
+      vehicleYear: order.vehicleYear || vehicle?.year,
+      vehicleMake: order.vehicleMake || vehicle?.make,
+      vehicleModel: order.vehicleModel || vehicle?.model,
+      vehicleColor: order.vehicleColor || vehicle?.color,
+      vehicleType:
+        order.vehicleType ||
+        order.vehicleClass ||
+        order.vehicleCategory ||
+        vehicle?.vehicleType,
+      vehiclePlate: order.vehiclePlate || vehicle?.plateNumber,
+      latestPayment: latestPaymentByOrder.get(key) || null,
+      invoiceRecord: latestInvoiceByOrder.get(key) || null,
+    };
+  });
+}
 
 const toApprovalQueueBookingDto = (orderDoc) => {
   const booking = formatBookingListDto(orderDoc);
@@ -658,6 +768,7 @@ export const getAllOrders = async (req, res, next) => {
 
     const hasNextPage = fetchedOrders.length > parsedLimit;
     const orders = hasNextPage ? fetchedOrders.slice(0, parsedLimit) : fetchedOrders;
+    const ordersWithReceipts = await attachLatestReceiptRecords(orders);
 
     const pagination = {
       page: resolvedPage,
@@ -674,7 +785,7 @@ export const getAllOrders = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: orders.map((o) => formatBookingListDto(o)),
+      data: ordersWithReceipts.map((o) => formatBookingListDto(o)),
       pagination,
     });
   } catch (error) {
@@ -922,9 +1033,13 @@ export const getOrderById = async (req, res, next) => {
       });
     }
 
+    const [orderWithReceipt] = await attachLatestReceiptRecords([
+      order.toObject({ virtuals: true }),
+    ]);
+
     res.json({
       success: true,
-      data: formatBookingDto(order),
+      data: formatBookingDto(orderWithReceipt),
     });
   } catch (error) {
     next(error);
