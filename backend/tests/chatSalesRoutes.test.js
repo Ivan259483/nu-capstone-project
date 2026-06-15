@@ -348,6 +348,7 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
     name: 'Sales One',
     email: 'sales-one@example.com',
     role: 'sales',
+    avatar: 'https://cdn.example.com/sales-one-avatar.jpg',
     status: 'active',
     isActive: true,
   });
@@ -380,7 +381,61 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
   assert.equal(reply.body.conversation.status, 'in_conversation');
   assert.equal(reply.body.conversation.unreadForCustomer, true);
   assert.equal(reply.body.conversation.assignedSalesName, 'Sales One');
+  assert.equal(reply.body.conversation.assignedSalesUser.name, 'Sales One');
+  assert.equal(
+    reply.body.conversation.assignedSalesUser.profileImage,
+    'https://cdn.example.com/sales-one-avatar.jpg'
+  );
+  assert.equal(
+    reply.body.conversation.assignedSalesUser.avatarUrl,
+    'https://cdn.example.com/sales-one-avatar.jpg'
+  );
+  assert.equal(
+    reply.body.conversation.assignedSalesUser.avatar,
+    'https://cdn.example.com/sales-one-avatar.jpg'
+  );
+  assert.equal('password' in reply.body.conversation.assignedSalesUser, false);
   assert.equal(reply.body.message.senderType, 'sales');
+  assert.equal(
+    reply.body.message.senderAvatarUrl,
+    'https://cdn.example.com/sales-one-avatar.jpg'
+  );
+
+  const customerMessages = await jsonRequest(
+    `/api/chat/conversations/${conversationId}/messages?guestKey=${guestKey}`
+  );
+  assert.equal(customerMessages.response.status, 200);
+  assert.equal(
+    customerMessages.body.conversation.lastHumanResponder.profileImage,
+    'https://cdn.example.com/sales-one-avatar.jpg'
+  );
+  assert.equal(
+    customerMessages.body.messages.find((message) => message.sender === 'sales')
+      .senderAvatarUrl,
+    'https://cdn.example.com/sales-one-avatar.jpg'
+  );
+
+  const customerDetail = await jsonRequest(
+    `/api/chat/conversations/${conversationId}?guestKey=${guestKey}`
+  );
+  assert.equal(customerDetail.response.status, 200);
+  assert.equal(
+    customerDetail.body.conversation.assignedSalesUser.profileImage,
+    'https://cdn.example.com/sales-one-avatar.jpg'
+  );
+
+  const customerList = await jsonRequest(
+    `/api/chat/conversations?guestKey=${guestKey}`
+  );
+  assert.equal(customerList.response.status, 200);
+  assert.equal(
+    customerList.body.conversations[0].assignedSalesUser.profileImage,
+    'https://cdn.example.com/sales-one-avatar.jpg'
+  );
+  assert.equal(
+    customerList.body.conversations[0].lastHumanResponder.avatarUrl,
+    'https://cdn.example.com/sales-one-avatar.jpg'
+  );
 
   const joinedCount = await ChatMessage.countDocuments({
     conversationId,

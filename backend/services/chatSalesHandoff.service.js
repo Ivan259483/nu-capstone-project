@@ -18,6 +18,7 @@ import {
   findConversationForAccess,
   normalizeConversationStatus,
   serializeChatMessages,
+  serializeConversation,
 } from './chatConversation.service.js';
 
 export const SALES_CHAT_ROLES = Object.freeze(['sales', 'administrator', 'office_admin']);
@@ -31,9 +32,35 @@ export const SALES_HANDOFF_ACTIVE_STATUSES = Object.freeze([
 export const HANDOFF_SYSTEM_MESSAGE = 'Chat was escalated from AutoSPF+ AI to Sales.';
 const SALES_JOINED_SYSTEM_MESSAGE = 'Sales joined the conversation.';
 const ENCRYPTED_VALUE_PATTERN = /^[0-9a-f]{32}:[0-9a-f]+$/i;
+const CHAT_AGENT_USER_FIELDS =
+  '_id name role email avatar photoURL profileImage profilePhoto image photo';
+const CHAT_AGENT_IMAGE_FIELDS = Object.freeze([
+  'avatarUrl',
+  'avatar',
+  'profileImage',
+  'photoURL',
+  'profilePhoto',
+  'image',
+  'photo',
+]);
 
 const clean = (value = '') => String(value || '').trim();
 const normalizePhone = (value = '') => clean(value).replace(/[^\d+]/g, '');
+const isHttpImage = (value = '') => /^https?:\/\//i.test(clean(value));
+const isInlineImage = (value = '') => /^data:image\//i.test(clean(value));
+
+const resolveChatAgentImage = (user = {}) => {
+  const candidates = CHAT_AGENT_IMAGE_FIELDS
+    .map((field) => clean(user?.[field]))
+    .filter((value) => value && !value.startsWith('blob:'));
+
+  return (
+    candidates.find(isHttpImage) ||
+    candidates.find(isInlineImage) ||
+    candidates[0] ||
+    ''
+  );
+};
 
 const encryptPhone = (value = '') => {
   const phone = clean(value);
@@ -237,6 +264,228 @@ export const serializeSalesConversation = (conversation = {}) => ({
   updatedAt: conversation.updatedAt,
 });
 
+const serializeChatAgentProfile = (user, fallback = {}) => {
+  const id = clean(user?._id || user?.id || fallback.id);
+  const name = clean(user?.name || fallback.name) || 'Sales Team';
+  const role = clean(user?.role || fallback.role) || 'sales';
+  const email = clean(user?.email || fallback.email);
+  const profileImage = resolveChatAgentImage(user);
+
+  return {
+    ...(id ? { _id: id, id } : {}),
+    name,
+    fullName: name,
+    role,
+    ...(email ? { email } : {}),
+    ...(profileImage
+      ? {
+          avatar: profileImage,
+          profileImage,
+          avatarUrl: profileImage,
+          photoURL: profileImage,
+        }
+      : {}),
+  };
+};
+
+const getLatestSalesMessage = (messages = []) =>
+  [...messages].reverse().find((message) => message?.sender === 'sales') || null;
+
+export const serializeChatConversationPayload = async (
+  conversation = {},
+  messages = [],
+  { conversationSerializer = serializeSalesConversation } = {}
+) => {
+  const latestSalesMessage = getLatestSalesMessage(messages);
+  const assignedSalesId = clean(conversation.assignedSalesId);
+  const lastResponderId = clean(latestSalesMessage?.senderId);
+  const salesSenderIds = messages
+    .filter((message) => message?.sender === 'sales')
+    .map((message) => clean(message.senderId));
+  const userIds = [
+    ...new Set(
+      [assignedSalesId, lastResponderId, ...salesSenderIds]
+        .filter((id) => mongoose.isValidObjectId(id))
+    ),
+  ];
+  const users = userIds.length
+    ? await User.find({ _id: { $in: userIds } })
+        .select(CHAT_AGENT_USER_FIELDS)
+        .lean()
+    : [];
+  const usersById = new Map(users.map((user) => [String(user._id), user]));
+
+  const assignedSalesUser =
+    assignedSalesId || clean(conversation.assignedSalesName)
+      ? serializeChatAgentProfile(usersById.get(assignedSalesId), {
+          id: assignedSalesId,
+          name: conversation.assignedSalesName,
+        })
+      : null;
+  const lastHumanResponder = latestSalesMessage
+    ? serializeChatAgentProfile(usersById.get(lastResponderId), {
+        id: lastResponderId,
+        name: latestSalesMessage.senderName,
+      })
+    : null;
+
+  const serializedMessages = serializeChatMessages(messages).map((message) => {
+    if (message.sender !== 'sales') return message;
+    const senderId = clean(message.senderId);
+    const senderProfile = serializeChatAgentProfile(usersById.get(senderId), {
+      id: senderId,
+      name: message.senderName,
+    });
+    return {
+      ...message,
+      senderName: senderProfile.name,
+      senderProfile,
+      ...(senderProfile.profileImage
+        ? {
+            senderAvatarUrl: senderProfile.profileImage,
+          }
+        : {}),
+    };
+  });
+
+  return {
+    conversation: {
+      ...conversationSerializer(conversation),
+      ...(assignedSalesId
+        ? {
+            assignedSalesId,
+            assignedSalesName: assignedSalesUser?.name || '',
+          }
+        : {}),
+      ...(assignedSalesUser
+        ? {
+            assignedSalesUser,
+            assignedStaff: assignedSalesUser,
+          }
+        : {}),
+      ...(lastHumanResponder ? { lastHumanResponder } : {}),
+    },
+    messages: serializedMessages,
+  };
+};
+
+export const serializeChatConversationList = async (
+  conversations = [],
+  { conversationSerializer = serializeSalesConversation } = {}
+) => {
+  const conversationIds = conversations
+    .map((conversation) => clean(conversation.conversationId))
+    .filter(Boolean);
+  const latestSalesMessages = conversationIds.length
+    ? await ChatMessage.aggregate([
+        {
+          $match: {
+            sender: 'sales',
+            $or: [
+              { conversationId: { $in: conversationIds } },
+              { sessionId: { $in: conversationIds } },
+            ],
+          },
+        },
+        {
+          $addFields: {
+            resolvedConversationId: { $ifNull: ['$conversationId', '$sessionId'] },
+          },
+        },
+        { $sort: { createdAt: -1 } },
+        {
+          $group: {
+            _id: '$resolvedConversationId',
+            message: { $first: '$$ROOT' },
+          },
+        },
+        { $replaceRoot: { newRoot: '$message' } },
+        {
+          $project: {
+            conversationId: 1,
+            sessionId: 1,
+            senderId: 1,
+            senderName: 1,
+            createdAt: 1,
+          },
+        },
+      ])
+    : [];
+  const latestSalesByConversation = new Map();
+  for (const message of latestSalesMessages) {
+    const conversationId = clean(message.conversationId || message.sessionId);
+    if (conversationId && !latestSalesByConversation.has(conversationId)) {
+      latestSalesByConversation.set(conversationId, message);
+    }
+  }
+
+  const userIds = [
+    ...new Set(
+      [
+        ...conversations.map((conversation) => clean(conversation.assignedSalesId)),
+        ...latestSalesMessages.map((message) => clean(message.senderId)),
+      ]
+        .filter((id) => mongoose.isValidObjectId(id))
+    ),
+  ];
+  const users = userIds.length
+    ? await User.find({ _id: { $in: userIds } })
+        .select(CHAT_AGENT_USER_FIELDS)
+        .lean()
+    : [];
+  const usersById = new Map(users.map((user) => [String(user._id), user]));
+
+  return conversations.map((conversation) => {
+    const assignedSalesId = clean(conversation.assignedSalesId);
+    const latestSalesMessage = latestSalesByConversation.get(
+      clean(conversation.conversationId)
+    );
+    const lastResponderId = clean(latestSalesMessage?.senderId);
+    const assignedSalesUser =
+      assignedSalesId || clean(conversation.assignedSalesName)
+        ? serializeChatAgentProfile(usersById.get(assignedSalesId), {
+            id: assignedSalesId,
+            name: conversation.assignedSalesName,
+          })
+        : null;
+    const lastHumanResponder = latestSalesMessage
+      ? serializeChatAgentProfile(usersById.get(lastResponderId), {
+          id: lastResponderId,
+          name: latestSalesMessage.senderName,
+        })
+      : null;
+    return {
+      ...conversationSerializer(conversation),
+      ...(assignedSalesId
+        ? {
+            assignedSalesId,
+            assignedSalesName: assignedSalesUser?.name || '',
+          }
+        : {}),
+      ...(assignedSalesUser
+        ? {
+            assignedSalesUser,
+            assignedStaff: assignedSalesUser,
+          }
+        : {}),
+      ...(lastHumanResponder ? { lastHumanResponder } : {}),
+    };
+  });
+};
+
+export const serializeCustomerChatConversationPayload = (
+  conversation = {},
+  messages = []
+) =>
+  serializeChatConversationPayload(conversation, messages, {
+    conversationSerializer: serializeConversation,
+  });
+
+export const serializeCustomerChatConversationList = (conversations = []) =>
+  serializeChatConversationList(conversations, {
+    conversationSerializer: serializeConversation,
+  });
+
 export const promoteConversationToSales = async ({
   conversationId,
   userId,
@@ -362,16 +611,16 @@ export const promoteConversationToSales = async ({
     { new: true, runValidators: true }
   ).lean();
 
+  const messages = await ChatMessage.find({
+    $or: [{ conversationId: id }, { sessionId: id }],
+  })
+    .sort({ createdAt: 1 })
+    .limit(200)
+    .lean();
+  const payload = await serializeChatConversationPayload(updated, messages);
+
   return {
-    conversation: serializeSalesConversation(updated),
-    messages: serializeChatMessages(
-      await ChatMessage.find({
-        $or: [{ conversationId: id }, { sessionId: id }],
-      })
-        .sort({ createdAt: 1 })
-        .limit(200)
-        .lean()
-    ),
+    ...payload,
     firstHandoff,
   };
 };
@@ -397,10 +646,7 @@ export const getCustomerConversationMessages = async ({
     .limit(200)
     .lean();
 
-  return {
-    conversation: serializeSalesConversation(conversation),
-    messages: serializeChatMessages(messages),
-  };
+  return serializeChatConversationPayload(conversation, messages);
 };
 
 export const sendCustomerConversationMessage = async ({
@@ -460,9 +706,10 @@ export const sendCustomerConversationMessage = async ({
     { new: true, runValidators: true }
   ).lean();
 
+  const payload = await serializeChatConversationPayload(updated, [created.toObject()]);
   return {
-    conversation: serializeSalesConversation(updated),
-    message: serializeChatMessages([created.toObject()])[0],
+    conversation: payload.conversation,
+    message: payload.messages[0],
   };
 };
 
@@ -485,7 +732,8 @@ export const markCustomerConversationRead = async ({
     { $set: { unreadForCustomer: false } },
     { new: true, runValidators: true }
   ).lean();
-  return serializeSalesConversation(updated);
+  const payload = await serializeChatConversationPayload(updated);
+  return payload.conversation;
 };
 
 const salesConversationFilter = () => ({
@@ -517,7 +765,7 @@ export const listSalesConversations = async ({ status, search } = {}) => {
     .limit(200)
     .lean();
   const query = clean(search).toLowerCase();
-  if (!query) return rows.map(serializeSalesConversation);
+  if (!query) return serializeChatConversationList(rows);
 
   const queryVariants = new Set([query]);
   const compactPhoneQuery = query.replace(/[^\d+]/g, '');
@@ -529,7 +777,7 @@ export const listSalesConversations = async ({ status, search } = {}) => {
   const matchers = [...queryVariants].map(
     (value) => new RegExp(escapeRegex(value), 'i')
   );
-  return rows
+  const filteredRows = rows
     .filter((row) =>
       [
         row.customerName,
@@ -542,8 +790,8 @@ export const listSalesConversations = async ({ status, search } = {}) => {
       ].some((value) =>
         matchers.some((matcher) => matcher.test(clean(value)))
       )
-    )
-    .map(serializeSalesConversation);
+    );
+  return serializeChatConversationList(filteredRows);
 };
 
 export const getSalesConversation = async (conversationId) => {
@@ -560,10 +808,7 @@ export const getSalesConversation = async (conversationId) => {
     .sort({ createdAt: 1 })
     .limit(200)
     .lean();
-  return {
-    conversation: serializeSalesConversation(conversation),
-    messages: serializeChatMessages(messages),
-  };
+  return serializeChatConversationPayload(conversation, messages);
 };
 
 export const sendSalesConversationMessage = async ({
@@ -678,9 +923,10 @@ export const sendSalesConversationMessage = async ({
     throw createHttpError(409, 'CHAT_CONVERSATION_CLOSED', 'Reopen the conversation before replying');
   }
 
+  const payload = await serializeChatConversationPayload(updated, [created.toObject()]);
   return {
-    conversation: serializeSalesConversation(updated),
-    message: serializeChatMessages([created.toObject()])[0],
+    conversation: payload.conversation,
+    message: payload.messages[0],
     joinedNow,
   };
 };
@@ -705,7 +951,8 @@ export const updateSalesConversationStatus = async ({ conversationId, status }) 
   if (!updated) {
     throw createHttpError(404, 'CHAT_CONVERSATION_NOT_FOUND', 'Conversation not found');
   }
-  return serializeSalesConversation(updated);
+  const payload = await serializeChatConversationPayload(updated);
+  return payload.conversation;
 };
 
 export const assignSalesConversation = async ({ conversationId, salesUser }) => {
@@ -722,7 +969,8 @@ export const assignSalesConversation = async ({ conversationId, salesUser }) => 
   if (!updated) {
     throw createHttpError(404, 'CHAT_CONVERSATION_NOT_FOUND', 'Conversation not found');
   }
-  return serializeSalesConversation(updated);
+  const payload = await serializeChatConversationPayload(updated);
+  return payload.conversation;
 };
 
 export const markSalesConversationRead = async (conversationId) => {
@@ -734,5 +982,6 @@ export const markSalesConversationRead = async (conversationId) => {
   if (!updated) {
     throw createHttpError(404, 'CHAT_CONVERSATION_NOT_FOUND', 'Conversation not found');
   }
-  return serializeSalesConversation(updated);
+  const payload = await serializeChatConversationPayload(updated);
+  return payload.conversation;
 };

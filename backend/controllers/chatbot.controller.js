@@ -90,6 +90,8 @@ import {
 } from '../services/chatConversation.service.js';
 import {
   assertAiMessageAllowed,
+  serializeCustomerChatConversationList,
+  serializeCustomerChatConversationPayload,
 } from '../services/chatSalesHandoff.service.js';
 import {
   buildConversationalState,
@@ -2939,7 +2941,7 @@ export const listConversations = async (req, res, next) => {
 
     res.json({
       success: true,
-      conversations: conversations.map(serializeConversation),
+      conversations: await serializeCustomerChatConversationList(conversations),
     });
   } catch (error) {
     next(error);
@@ -3013,11 +3015,13 @@ export const getConversation = async (req, res, next) => {
       expiresAt: Date.now() + CHAT_SESSION_CACHE_TTL_MS,
     });
 
+    const payload = await serializeCustomerChatConversationPayload(conversation, messages);
+
     res.json({
       success: true,
-      conversation: serializeConversation(conversation),
+      conversation: payload.conversation,
       session: buildSessionPayload(session),
-      messages: serializeChatMessages(messages),
+      messages: payload.messages,
     });
   } catch (error) {
     next(error);
