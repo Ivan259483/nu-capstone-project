@@ -1,9 +1,10 @@
-import ChatBrandAvatar from './ChatBrandAvatar';
-import { CHAT_ASSISTANT_NAME, CHAT_INBOX_NAME } from './chat-theme';
+import ChatAgentAvatar from './ChatAgentAvatar';
+import { getRecentSenderLabel, type ChatAgentIdentity } from './chat-utils';
 
 interface ChatConversationPreviewProps {
     preview: string;
     relativeTime: string;
+    agent: ChatAgentIdentity;
     onClick?: () => void;
     as?: 'button' | 'div';
     className?: string;
@@ -15,17 +16,18 @@ interface ChatConversationPreviewProps {
 export default function ChatConversationPreview({
     preview,
     relativeTime,
+    agent,
     onClick,
     as = 'button',
     className = '',
     variant = 'inbox',
 }: ChatConversationPreviewProps) {
-    const displayName = variant === 'inbox' ? CHAT_INBOX_NAME : CHAT_ASSISTANT_NAME;
+    const displayName = getRecentSenderLabel(agent);
     const showPreview = preview.trim().length > 0;
 
     const content = (
         <>
-            <ChatBrandAvatar size={variant === 'inbox' ? 'lg' : 'md'} />
+            <ChatAgentAvatar identity={agent} size={variant === 'inbox' ? 'lg' : 'md'} />
             <div className="min-w-0 flex-1 pt-px">
                 <div className="flex items-center justify-between gap-3">
                     <p className="truncate text-[17px] font-semibold leading-none text-[#15171C]">
@@ -60,13 +62,15 @@ export default function ChatConversationPreview({
 export function ChatInboxRow({
     preview,
     relativeTime,
+    agent,
     onClick,
-}: Pick<ChatConversationPreviewProps, 'preview' | 'relativeTime' | 'onClick'>) {
+}: Pick<ChatConversationPreviewProps, 'preview' | 'relativeTime' | 'agent' | 'onClick'>) {
     return (
         <ChatConversationPreview
             variant="inbox"
             preview={preview}
             relativeTime={relativeTime}
+            agent={agent}
             onClick={onClick}
             className="cursor-pointer border-b !border-gray-200 px-6 py-5 transition-colors hover:bg-[#FAFAFA]"
         />

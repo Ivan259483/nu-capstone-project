@@ -22,13 +22,30 @@ export interface PublicTrackerSummary {
     }>;
 }
 
+export type ChatAgentImageValue =
+    | string
+    | {
+        url?: string;
+        secure_url?: string;
+        secureUrl?: string;
+        src?: string;
+    };
+
 export interface ChatMessage {
     id: string;
     sender: 'user' | 'assistant' | 'sales' | 'system';
+    senderId?: string;
+    senderName?: string;
+    senderAvatarUrl?: string;
     message: string;
     createdAt?: string;
     meta?: {
         type?: string;
+        senderAvatarUrl?: ChatAgentImageValue;
+        avatarUrl?: ChatAgentImageValue;
+        avatar?: ChatAgentImageValue;
+        profileImage?: ChatAgentImageValue;
+        photoURL?: ChatAgentImageValue;
         tracker?: PublicTrackerSummary;
         trackerUrl?: string;
         trackerReference?: string;
@@ -50,11 +67,48 @@ export type RegistrationStep =
 
 export type ChatScreen = 'home' | 'messages' | 'chat';
 
+export interface ChatAgentProfile {
+    _id?: string;
+    id?: string;
+    firstName?: string;
+    lastName?: string;
+    name?: string;
+    fullName?: string;
+    displayName?: string;
+    role?: string;
+    email?: string;
+    avatar?: ChatAgentImageValue;
+    avatarUrl?: ChatAgentImageValue;
+    profileImage?: ChatAgentImageValue;
+    photoURL?: ChatAgentImageValue;
+    profilePhoto?: ChatAgentImageValue;
+    image?: ChatAgentImageValue;
+    photo?: ChatAgentImageValue;
+}
+
+export interface ChatAgentIdentity {
+    kind: 'bot' | 'human';
+    displayName: string;
+    avatarUrl: string;
+    initials: string;
+}
+
 export interface ChatConversationThread {
     conversationId: string;
     title: string;
     mode: string;
     status?: SalesHandoffStatus;
+    assignedSalesId?: string | ChatAgentProfile | null;
+    assignedSalesName?: string;
+    assignedSalesAvatar?: string;
+    assignedSalesAvatarUrl?: string;
+    assignedSalesUser?: ChatAgentProfile | null;
+    assignedStaff?: ChatAgentProfile | null;
+    lastHumanResponder?: ChatAgentProfile | null;
+    currentAssignedProfile?: ChatAgentProfile | null;
+    lastMessageSender?: ChatMessage['sender'];
+    lastMessageSenderName?: string;
+    lastMessageSenderAvatar?: string;
     lastMessagePreview?: string;
     lastMessageAt?: string;
     createdAt?: string;
@@ -67,6 +121,153 @@ export type SalesHandoffStatus =
     | 'in_conversation'
     | 'resolved'
     | 'converted';
+
+const PROFILE_IMAGE_FIELDS = [
+    'profileImage',
+    'avatarUrl',
+    'photoURL',
+    'avatar',
+    'profilePhoto',
+    'image',
+    'photo',
+] as const;
+
+const clean = (value: unknown): string =>
+    typeof value === 'string' ? value.trim() : '';
+
+export const resolveChatAgentAvatarUrl = (...values: unknown[]): string => {
+    for (const value of values) {
+        const direct = clean(value);
+        if (direct && !direct.startsWith('blob:')) return direct;
+        if (!value || typeof value !== 'object') continue;
+
+        const nested = value as {
+            url?: unknown;
+            secure_url?: unknown;
+            secureUrl?: unknown;
+            src?: unknown;
+        };
+        const resolved =
+            clean(nested.url) ||
+            clean(nested.secure_url) ||
+            clean(nested.secureUrl) ||
+            clean(nested.src);
+        if (resolved && !resolved.startsWith('blob:')) return resolved;
+    }
+    return '';
+};
+
+const getProfileName = (profile?: ChatAgentProfile | null): string =>
+    clean(profile?.fullName) ||
+    clean(profile?.name) ||
+    clean([profile?.firstName, profile?.lastName].filter(Boolean).join(' ')) ||
+    clean(profile?.displayName);
+
+const getProfileAvatar = (profile?: ChatAgentProfile | null): string => {
+    if (!profile) return '';
+    for (const field of PROFILE_IMAGE_FIELDS) {
+        const value = resolveChatAgentAvatarUrl(profile[field]);
+        if (value) return value;
+    }
+    return '';
+};
+
+const toAgentProfile = (
+    source: unknown,
+    fallbackName = '',
+    fallbackAvatar = ''
+): ChatAgentProfile | null => {
+    const profile =
+        source && typeof source === 'object'
+            ? source as ChatAgentProfile
+            : null;
+    const name = getProfileName(profile) || clean(fallbackName);
+    const avatarUrl = getProfileAvatar(profile) || clean(fallbackAvatar);
+    if (!name && !avatarUrl) return null;
+    return { ...profile, name, avatarUrl };
+};
+
+export function getInitials(name: string): string {
+    const parts = clean(name)
+        .split(/\s+/)
+        .filter(Boolean);
+    if (!parts.length) return 'ST';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+export function getLastHumanResponder(messages: ChatMessage[]): ChatAgentProfile | null {
+    const message = [...messages].reverse().find(entry => entry.sender === 'sales');
+    if (!message) return null;
+    return toAgentProfile(
+        {
+            ...message.meta,
+            id: message.senderId,
+            name: message.senderName,
+            avatarUrl: message.senderAvatarUrl,
+        },
+        message.senderName || 'Sales Team',
+        message.senderAvatarUrl
+    );
+}
+
+export function resolveChatAgentIdentity(
+    thread?: ChatConversationThread | null,
+    messages: ChatMessage[] = []
+): ChatAgentIdentity {
+    const assignedSales = toAgentProfile(
+        thread?.assignedSalesUser ||
+        thread?.assignedStaff ||
+        (thread?.assignedSalesId && typeof thread.assignedSalesId === 'object'
+            ? thread.assignedSalesId
+            : null),
+        thread?.assignedSalesName,
+        thread?.assignedSalesAvatarUrl || thread?.assignedSalesAvatar
+    );
+    const lastHumanResponder =
+        toAgentProfile(thread?.lastHumanResponder) ||
+        getLastHumanResponder(messages) ||
+        toAgentProfile(
+            null,
+            thread?.lastMessageSender === 'sales' ? thread.lastMessageSenderName : '',
+            thread?.lastMessageSender === 'sales' ? thread.lastMessageSenderAvatar : ''
+        );
+    const currentAssignedProfile = toAgentProfile(thread?.currentAssignedProfile);
+    const humanProfile = assignedSales || lastHumanResponder || currentAssignedProfile;
+    const isHumanMode =
+        Boolean(humanProfile) ||
+        Boolean(
+            thread?.assignedSalesId ||
+            thread?.assignedSalesUser ||
+            thread?.assignedStaff ||
+            thread?.lastHumanResponder ||
+            thread?.currentAssignedProfile
+        ) ||
+        Boolean(thread?.status && thread.status !== 'ai_handling');
+
+    if (!isHumanMode) {
+        return {
+            kind: 'bot',
+            displayName: 'AutoSPF+',
+            avatarUrl: '',
+            initials: 'A+',
+        };
+    }
+
+    const displayName = getProfileName(humanProfile) || 'Sales Team';
+    return {
+        kind: 'human',
+        displayName,
+        avatarUrl: getProfileAvatar(humanProfile),
+        initials: getInitials(displayName),
+    };
+}
+
+export function getRecentSenderLabel(identity: ChatAgentIdentity): string {
+    if (identity.kind === 'bot') return identity.displayName;
+    if (/auto\s*spf|sales\s*team/i.test(identity.displayName)) return identity.displayName;
+    return `${identity.displayName} from AutoSPF+`;
+}
 
 export function getThreadPreview(
     thread: ChatConversationThread | null | undefined,

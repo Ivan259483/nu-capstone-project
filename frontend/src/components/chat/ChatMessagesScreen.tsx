@@ -6,6 +6,7 @@ import { PillChevronIcon } from './ChatIcons';
 import {
     formatRelativeTime,
     getThreadPreview,
+    resolveChatAgentIdentity,
     type ChatConversationThread,
     type RegistrationStep,
 } from './chat-utils';
@@ -52,6 +53,7 @@ export default function ChatMessagesScreen({
                                 variant="inbox"
                                 preview={getThreadPreview(thread, registrationStep)}
                                 relativeTime={formatRelativeTime(thread.lastMessageAt)}
+                                agent={resolveChatAgentIdentity(thread)}
                                 onClick={() => onSelectConversation(thread.conversationId)}
                                 className="cursor-pointer border-b !border-gray-200 px-6 py-5 transition-colors hover:bg-[#FAFAFA]"
                             />

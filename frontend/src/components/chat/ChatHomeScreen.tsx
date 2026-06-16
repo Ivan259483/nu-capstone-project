@@ -1,14 +1,15 @@
 import { X } from 'lucide-react';
 import ChatBottomNav from './ChatBottomNav';
-import ChatBrandAvatar from './ChatBrandAvatar';
+import ChatAgentAvatar from './ChatAgentAvatar';
 import { chatCardClass, CHAT_BLUE } from './chat-theme';
 import { PaperPlaneIcon } from './ChatIcons';
+import { getRecentSenderLabel, type ChatAgentIdentity } from './chat-utils';
 
 interface ChatHomeScreenProps {
     preview: string;
     relativeTime: string;
     hasRecentThread: boolean;
-    currentUserName?: string;
+    recentAgent: ChatAgentIdentity;
     onClose: () => void;
     onOpenRecent: () => void;
     onAskQuestion: () => void;
@@ -18,7 +19,7 @@ interface ChatHomeScreenProps {
 export default function ChatHomeScreen({
     preview,
     relativeTime,
-    currentUserName,
+    recentAgent,
     onClose,
     hasRecentThread,
     onOpenRecent,
@@ -26,7 +27,7 @@ export default function ChatHomeScreen({
     onOpenMessages,
 }: ChatHomeScreenProps) {
     const previewText = preview.trim() || (hasRecentThread ? 'Tap to continue' : 'We typically reply in minutes');
-    const avatarLabel = currentUserName ? currentUserName.charAt(0).toUpperCase() : null;
+    const recentSenderLabel = getRecentSenderLabel(recentAgent);
 
     return (
         <div className="flex min-h-0 flex-1 flex-col bg-white">
@@ -48,23 +49,7 @@ export default function ChatHomeScreen({
                         className="h-10 w-[94px] object-contain object-left drop-shadow-[0_8px_18px_rgba(0,0,0,0.35)]"
                     />
                     <div className="flex items-center gap-4">
-                        {avatarLabel ? (
-                            <div
-                                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#1DA1FF] text-[14px] font-semibold text-white ring-2 ring-white/10"
-                                title={currentUserName}
-                            >
-                                {avatarLabel}
-                            </div>
-                        ) : (
-                            <div
-                                className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#21A8FF] text-[15px] font-black tracking-[-0.04em] text-white ring-2 ring-white/10"
-                                aria-hidden="true"
-                            >
-                                <span>A</span>
-                                <span className="text-[#FFB454]">+</span>
-                                <span className="absolute bottom-0.5 right-0.5 h-3 w-3 rounded-full border-2 border-black bg-[#FFCA3A]" />
-                            </div>
-                        )}
+                        <ChatAgentAvatar identity={recentAgent} size="lg" />
                         <button
                             type="button"
                             onClick={onClose}
@@ -100,11 +85,11 @@ export default function ChatHomeScreen({
                             Recent message
                         </p>
                         <div className="mt-5 flex items-center gap-3.5">
-                            <ChatBrandAvatar size="lg" />
+                            <ChatAgentAvatar identity={recentAgent} size="lg" />
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-between gap-3">
                                     <p className="truncate text-[17px] font-semibold leading-none text-[#15171C] sm:text-[18px]">
-                                        AutoSPF+
+                                        {recentSenderLabel}
                                     </p>
                                     <span className="shrink-0 text-[16px] font-normal tabular-nums text-[#6B7280] sm:text-[17px]">
                                         {relativeTime}

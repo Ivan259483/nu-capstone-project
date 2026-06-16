@@ -21,12 +21,15 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import { Input } from '@/components/ui/input';
-import ChatBrandAvatar from './ChatBrandAvatar';
+import ChatAgentAvatar from './ChatAgentAvatar';
 import { CHAT_BLUE } from './chat-theme';
 import { SendArrowIcon } from './ChatIcons';
 import {
     formatChatMessageText,
     formatRelativeTime,
+    getInitials,
+    resolveChatAgentAvatarUrl,
+    type ChatAgentIdentity,
     type ChatMessage,
     type PublicTrackerSummary,
     type RegistrationStep,
@@ -78,6 +81,7 @@ interface ChatConversationScreenProps {
     inputFocused: boolean;
     chatInputPlaceholder: string;
     isSending: boolean;
+    agentIdentity: ChatAgentIdentity;
     handoffStatus: SalesHandoffStatus;
     showConnectToSales: boolean;
     handoffBusy: boolean;
@@ -225,7 +229,7 @@ function TrackerLinkCard({
     );
 }
 
-function TypingIndicator() {
+function TypingIndicator({ identity }: { identity: ChatAgentIdentity }) {
     return (
         <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -233,9 +237,9 @@ function TypingIndicator() {
             exit={{ opacity: 0, y: 4 }}
             className="flex items-end gap-2"
             aria-live="polite"
-            aria-label="AutoSPF+ is typing"
+            aria-label={`${identity.displayName} is typing`}
         >
-            <ChatBrandAvatar size="sm" />
+            <ChatAgentAvatar identity={identity} size="sm" />
             <div className="flex items-center gap-1.5 rounded-[22px] rounded-tl-[10px] bg-[#F4F4F5] px-4 py-3.5">
                 {[0, 0.18, 0.36].map((delay, i) => (
                     <motion.span
@@ -256,6 +260,7 @@ export default function ChatConversationScreen({
     inputFocused,
     chatInputPlaceholder,
     isSending,
+    agentIdentity,
     handoffStatus,
     showConnectToSales,
     handoffBusy,
@@ -312,10 +317,18 @@ export default function ChatConversationScreen({
                     <ChevronLeft className="h-6 w-6" strokeWidth={2.1} />
                 </button>
                 <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <ChatBrandAvatar size="md" />
+                    <ChatAgentAvatar identity={agentIdentity} size="md" />
                     <div className="min-w-0">
-                        <p className="truncate text-[17px] font-semibold leading-tight text-[#15171C]">AutoSPF+</p>
-                        <p className="mt-0.5 truncate text-[13px] leading-tight text-[#747983]">Team can help</p>
+                        <p className="truncate text-[17px] font-semibold leading-tight text-[#15171C]">
+                            {agentIdentity.displayName}
+                        </p>
+                        <p className="mt-0.5 truncate text-[13px] leading-tight text-[#747983]">
+                            {agentIdentity.kind === 'human'
+                                ? isSalesHandoff
+                                    ? 'AutoSPF+ Sales'
+                                    : 'Sales conversation'
+                                : 'AI concierge'}
+                        </p>
                     </div>
                 </div>
                 <button
@@ -359,6 +372,21 @@ export default function ChatConversationScreen({
                     }
                     const isSales = msg.sender === 'sales';
                     const isCustomer = msg.sender === 'user';
+                    const salesDisplayName = msg.senderName || agentIdentity.displayName || 'Sales Team';
+                    const salesIdentity: ChatAgentIdentity = {
+                        kind: 'human',
+                        displayName: salesDisplayName,
+                        avatarUrl: resolveChatAgentAvatarUrl(
+                            msg.senderAvatarUrl,
+                            msg.meta?.senderAvatarUrl,
+                            msg.meta?.avatarUrl,
+                            msg.meta?.avatar,
+                            msg.meta?.profileImage,
+                            msg.meta?.photoURL,
+                            agentIdentity.avatarUrl
+                        ),
+                        initials: getInitials(salesDisplayName),
+                    };
                     const startsSenderGroup = messages[index - 1]?.sender !== msg.sender;
                     const endsSenderGroup = messages[index + 1]?.sender !== msg.sender;
                     return (
@@ -380,28 +408,35 @@ export default function ChatConversationScreen({
                                 message={msg.message}
                             />
                         ) : (
-                            <div className="max-w-[78%]">
-                                {!isCustomer && !isSales && startsSenderGroup ? (
-                                    <p className="mb-1.5 px-1 text-[12px] font-medium text-[#777C85]">
-                                        AutoSPF+ AI
-                                    </p>
+                            <div className={`flex items-end gap-2 ${isSales ? 'max-w-[86%]' : 'max-w-[78%]'}`}>
+                                {isSales ? (
+                                    endsSenderGroup
+                                        ? <ChatAgentAvatar identity={salesIdentity} size="sm" />
+                                        : <span className="h-9 w-9 shrink-0" aria-hidden="true" />
                                 ) : null}
-                                <div
-                                    className={`whitespace-pre-wrap px-[18px] py-3.5 text-[15px] leading-[1.55] ${
-                                        isCustomer
-                                            ? 'rounded-[22px] text-white'
-                                            : 'rounded-[22px] bg-[#F3F4F6] text-[#17191D]'
-                                    }`}
-                                    style={isCustomer ? { backgroundColor: CHAT_BLUE } : undefined}
-                                >
-                                    {formatChatMessageText(msg.message)}
+                                <div className="min-w-0">
+                                    {!isCustomer && startsSenderGroup ? (
+                                        <p className="mb-1.5 px-1 text-[12px] font-medium text-[#777C85]">
+                                            {isSales ? salesDisplayName : 'AutoSPF+ AI'}
+                                        </p>
+                                    ) : null}
+                                    <div
+                                        className={`whitespace-pre-wrap px-[18px] py-3.5 text-[15px] leading-[1.55] ${
+                                            isCustomer
+                                                ? 'rounded-[22px] text-white'
+                                                : 'rounded-[22px] bg-[#F3F4F6] text-[#17191D]'
+                                        }`}
+                                        style={isCustomer ? { backgroundColor: CHAT_BLUE } : undefined}
+                                    >
+                                        {formatChatMessageText(msg.message)}
+                                    </div>
+                                    {isSales && endsSenderGroup ? (
+                                        <p className="mt-1.5 px-1 text-[12px] text-[#888D96]">
+                                            {salesDisplayName}
+                                            {msg.createdAt ? ` · ${formatRelativeTime(msg.createdAt)}` : ''}
+                                        </p>
+                                    ) : null}
                                 </div>
-                                {isSales && endsSenderGroup ? (
-                                    <p className="mt-1.5 px-1 text-[12px] text-[#888D96]">
-                                        AutoSPF+ Sales
-                                        {msg.createdAt ? ` · ${formatRelativeTime(msg.createdAt)}` : ''}
-                                    </p>
-                                ) : null}
                             </div>
                         )}
                     </motion.div>
@@ -411,7 +446,7 @@ export default function ChatConversationScreen({
                 <AnimatePresence>
                     {showTypingIndicator && (
                         <div className="flex justify-start">
-                            <TypingIndicator />
+                            <TypingIndicator identity={agentIdentity} />
                         </div>
                     )}
                 </AnimatePresence>
@@ -553,8 +588,10 @@ export default function ChatConversationScreen({
 
                 {messages.length === 0 && !showTypingIndicator && (
                     <div className="mb-3 flex items-center justify-center gap-2 text-[13px] text-[#6B7280]">
-                        <ChatBrandAvatar size="sm" />
-                        AutoSPF+ studio team is on standby
+                        <ChatAgentAvatar identity={agentIdentity} size="sm" />
+                        {agentIdentity.kind === 'human'
+                            ? `${agentIdentity.displayName} is ready to help`
+                            : 'AutoSPF+ studio team is on standby'}
                     </div>
                 )}
                 <div
