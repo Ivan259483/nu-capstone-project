@@ -4,6 +4,7 @@ import type { ConversationStatus } from './conciergeTypes';
 type ConversationStatusBadgeProps = {
   status: ConversationStatus;
   compact?: boolean;
+  detail?: string;
 };
 
 const STATUS_CLASSES: Record<ConversationStatus, string> = {
@@ -16,6 +17,7 @@ const STATUS_CLASSES: Record<ConversationStatus, string> = {
 export default function ConversationStatusBadge({
   status,
   compact = false,
+  detail,
 }: ConversationStatusBadgeProps) {
   return (
     <span
@@ -25,6 +27,8 @@ export default function ConversationStatusBadge({
     >
       {status === 'Resolved' ? <CheckCircle2 size={compact ? 11 : 12} className="text-emerald-600" /> : null}
       {status}
+      {detail ? <span aria-hidden="true">·</span> : null}
+      {detail ? <span>{detail}</span> : null}
     </span>
   );
 }

@@ -156,7 +156,15 @@ export default function ConversationList({
                       </p>
 
                       <div className="mt-2 flex items-center gap-2">
-                        <ConversationStatusBadge status={conversation.status} compact />
+                        <ConversationStatusBadge
+                          status={conversation.status}
+                          compact
+                          detail={
+                            conversation.status === 'In Conversation'
+                              ? conversation.conversationStarted
+                              : undefined
+                          }
+                        />
                       </div>
                     </div>
                   </div>

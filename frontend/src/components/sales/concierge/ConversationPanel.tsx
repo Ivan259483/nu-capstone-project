@@ -222,7 +222,11 @@ export default function ConversationPanel({
                   }
                   onReplyChange(reply.text);
                 }}
-                className="rounded-lg border border-blue-200 bg-white px-3.5 py-2 text-xs font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
+                className={`rounded-lg border px-3.5 py-2 text-xs font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]/30 ${
+                  reply.label === 'Create Booking'
+                    ? 'border-[#C9A84C] bg-[#C9A84C] text-white hover:bg-[#B8973F]'
+                    : 'border-[#C9A84C] bg-white text-[#8A6F24] hover:bg-[#C9A84C]/10'
+                }`}
               >
                 {reply.label}
               </button>
@@ -278,7 +282,7 @@ export default function ConversationPanel({
               <button
                 type="button"
                 onClick={onCreateBooking}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#C9A84C] bg-[#C9A84C] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#B8973F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]/30"
               >
                 <CalendarPlus2 size={14} />
                 Create Booking

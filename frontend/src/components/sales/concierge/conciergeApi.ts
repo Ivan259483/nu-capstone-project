@@ -1,4 +1,5 @@
 import api from '@/lib/api';
+import { formatPhilippinePhoneDisplay } from '@/lib/phone';
 import type {
   ConciergeConversation,
   ConciergeMessage,
@@ -39,6 +40,9 @@ type ApiConversation = {
   lastMessage?: string;
   lastMessagePreview?: string;
   lastMessageAt?: string;
+  handedOffAt?: string;
+  salesJoinedAt?: string;
+  createdAt?: string;
   unreadForSales?: boolean;
   aiSummary?: string;
 };
@@ -121,6 +125,9 @@ export const mapConciergeConversation = (
 ): ConciergeConversation => {
   const customerName = conversation.customerName?.trim() || 'Guest Customer';
   const lastActive = formatRelativeTime(conversation.lastMessageAt);
+  const conversationStarted = formatRelativeTime(
+    conversation.salesJoinedAt || conversation.handedOffAt || conversation.createdAt,
+  );
 
   return {
     id: conversation.conversationId,
@@ -129,7 +136,7 @@ export const mapConciergeConversation = (
       : `GUEST-${conversation.conversationId.slice(0, 8).toUpperCase()}`,
     customerName,
     initials: getInitials(customerName),
-    phone: conversation.customerPhone || 'Not provided',
+    phone: formatPhilippinePhoneDisplay(conversation.customerPhone) || 'Not provided',
     vehicle: conversation.vehicleLabel || 'Not provided',
     plate: conversation.plateNumber || '',
     serviceInterest: conversation.serviceInterest || 'General inquiry',
@@ -139,6 +146,7 @@ export const mapConciergeConversation = (
       conversation.lastMessagePreview || conversation.lastMessage || 'No messages yet',
     time: lastActive,
     lastActive: `Active ${lastActive.toLowerCase()}`,
+    conversationStarted,
     unread: Boolean(conversation.unreadForSales),
     handoffNote: 'Chat was escalated from AutoSPF+ AI to Sales.',
     aiSummary:

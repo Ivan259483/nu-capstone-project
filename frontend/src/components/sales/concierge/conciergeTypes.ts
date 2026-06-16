@@ -30,6 +30,7 @@ export type ConciergeConversation = {
   lastMessagePreview: string;
   time: string;
   lastActive: string;
+  conversationStarted?: string;
   unread: boolean;
   handoffNote: string;
   aiSummary: string;

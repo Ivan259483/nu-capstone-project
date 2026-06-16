@@ -365,6 +365,22 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
   });
   assert.equal(list.response.status, 200);
   assert.equal(list.body.conversations.length, 1);
+  assert.equal(list.body.conversations[0].customerPhone, '+639171234567');
+
+  await ChatConversation.create({
+    conversationId: 'undecryptable-phone',
+    customerName: 'Legacy Customer',
+    customerPhone: `${'a'.repeat(32)}:${'b'.repeat(32)}`,
+    status: 'needs_sales',
+    handedOffAt: new Date(),
+  });
+  const legacyList = await jsonRequest('/api/chat/sales/conversations', {
+    headers: { Authorization: `Bearer ${salesToken}` },
+  });
+  const legacyConversation = legacyList.body.conversations.find(
+    (conversation) => conversation.conversationId === 'undecryptable-phone'
+  );
+  assert.equal(legacyConversation.customerPhone, '');
 
   const reply = await jsonRequest(
     `/api/chat/sales/conversations/${conversationId}/messages`,

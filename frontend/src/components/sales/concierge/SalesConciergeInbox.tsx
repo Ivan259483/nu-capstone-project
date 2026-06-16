@@ -15,6 +15,8 @@ type SalesConciergeInboxProps = {
 };
 
 const POLL_INTERVAL_MS = 5_000;
+const ASK_VEHICLE_DETAILS_MESSAGE =
+  'Hi! Could you provide your vehicle details (make, model, year) and plate number so we can prepare better for your service?';
 
 function normalizeSearchValue(value: string): string {
   return value.trim().toLocaleLowerCase('en-PH');
@@ -365,6 +367,7 @@ export default function SalesConciergeInbox({ onBack }: SalesConciergeInboxProps
           onNoteTool={(tool) =>
             showFutureActionToast(`${tool} for notes remains mock-only.`)
           }
+          onAskCustomer={() => setReplyText(ASK_VEHICLE_DETAILS_MESSAGE)}
         />
       </div>
 

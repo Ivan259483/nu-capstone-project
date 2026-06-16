@@ -71,7 +71,8 @@ const encryptPhone = (value = '') => {
 const decryptPhone = (value = '') => {
   const phone = clean(value);
   if (!phone) return '';
-  return decrypt(phone);
+  const decrypted = clean(decrypt(phone));
+  return ENCRYPTED_VALUE_PATTERN.test(decrypted) ? '' : decrypted;
 };
 
 const escapeRegex = (value = '') =>

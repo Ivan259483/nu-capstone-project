@@ -78,3 +78,18 @@ export function resolveProfilePhoneDisplay(...candidates: Array<string | undefin
   }
   return '';
 }
+
+/** Customer-facing display, e.g. +63 917 123 4567. Returns empty for ciphertext. */
+export function formatPhilippinePhoneDisplay(phone?: string): string {
+  const value = phone?.trim();
+  if (!value || looksLikeEncryptedPhoneField(value)) return '';
+
+  const digits = value.replace(/\D/g, '');
+  let national = '';
+  if (/^639\d{9}$/.test(digits)) national = digits.slice(2);
+  else if (/^09\d{9}$/.test(digits)) national = digits.slice(1);
+  else if (/^9\d{9}$/.test(digits)) national = digits;
+
+  if (!national) return value;
+  return `+63 ${national.slice(0, 3)} ${national.slice(3, 6)} ${national.slice(6)}`;
+}

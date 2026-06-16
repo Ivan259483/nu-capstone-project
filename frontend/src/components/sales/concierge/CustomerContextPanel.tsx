@@ -1,6 +1,7 @@
 import {
   Bot,
   CarFront,
+  Copy,
   Hash,
   MessageSquareText,
   MoreHorizontal,
@@ -25,7 +26,11 @@ type CustomerContextPanelProps = {
   onAddAttribute: () => void;
   onMoreNote: () => void;
   onNoteTool: (tool: string) => void;
+  onAskCustomer: () => void;
 };
+
+const formatCustomerId = (customerId: string) =>
+  `CUS-${customerId.slice(-6).toUpperCase()}`;
 
 export default function CustomerContextPanel({
   conversation,
@@ -36,6 +41,7 @@ export default function CustomerContextPanel({
   onAddAttribute,
   onMoreNote,
   onNoteTool,
+  onAskCustomer,
 }: CustomerContextPanelProps) {
   if (!conversation) {
     return (
@@ -50,12 +56,29 @@ export default function CustomerContextPanel({
     );
   }
 
+  const customerDisplayId = formatCustomerId(conversation.customerId);
   const details = [
     { label: 'Channel', value: conversation.source, icon: Bot },
-    { label: 'Customer ID', value: conversation.customerId, icon: Hash },
+    {
+      label: 'Customer ID',
+      value: customerDisplayId,
+      fullValue: conversation.customerId,
+      copyable: true,
+      icon: Hash,
+    },
     { label: 'Phone number', value: conversation.phone, icon: Phone },
-    { label: 'Vehicle', value: conversation.vehicle, icon: CarFront },
-    { label: 'Plate number', value: conversation.plate || 'Not provided', icon: Tag },
+    {
+      label: 'Vehicle',
+      value: conversation.vehicle || 'Not provided',
+      icon: CarFront,
+      askable: true,
+    },
+    {
+      label: 'Plate number',
+      value: conversation.plate || 'Not provided',
+      icon: Tag,
+      askable: true,
+    },
     { label: 'Service interest', value: conversation.serviceInterest, icon: Sparkles },
   ];
 
@@ -68,7 +91,12 @@ export default function CustomerContextPanel({
           </div>
           <div className="min-w-0">
             <h2 className="truncate text-sm font-bold text-slate-900">{conversation.customerName}</h2>
-            <p className="mt-0.5 truncate text-[11px] text-slate-500">{conversation.customerId}</p>
+            <p
+              className="mt-0.5 truncate text-[11px] text-slate-500"
+              title={conversation.customerId}
+            >
+              {customerDisplayId}
+            </p>
           </div>
         </div>
         <button
@@ -90,8 +118,33 @@ export default function CustomerContextPanel({
             >
               <detail.icon size={15} className="mt-0.5 text-slate-400" />
               <span className="text-xs font-medium text-slate-500">{detail.label}</span>
-              <span className="break-words text-xs font-semibold leading-5 text-slate-800">
-                {detail.value}
+              <span
+                className="flex min-w-0 flex-wrap items-center gap-1.5 break-words text-xs font-semibold leading-5 text-slate-800"
+                title={detail.fullValue}
+              >
+                <span>{detail.value}</span>
+                {detail.copyable && detail.fullValue ? (
+                  <button
+                    type="button"
+                    onClick={() => void navigator.clipboard?.writeText(detail.fullValue)}
+                    className="inline-flex h-5 w-5 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]/30"
+                    title={`Copy full customer ID: ${detail.fullValue}`}
+                    aria-label={`Copy full customer ID ${detail.fullValue}`}
+                  >
+                    <Copy size={11} />
+                  </button>
+                ) : null}
+                {detail.askable && detail.value === 'Not provided' ? (
+                  <button
+                    type="button"
+                    onClick={onAskCustomer}
+                    className="inline-flex items-center gap-1 rounded-md border border-[#C9A84C] px-1.5 py-0.5 text-[10px] font-semibold text-[#8A6F24] transition-colors hover:bg-[#C9A84C]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]/30"
+                    aria-label={`Ask customer for ${detail.label.toLowerCase()}`}
+                  >
+                    <MessageSquareText size={10} />
+                    Ask customer
+                  </button>
+                ) : null}
               </span>
             </div>
           ))}
@@ -108,7 +161,10 @@ export default function CustomerContextPanel({
 
         <div className="my-5 h-px bg-slate-200" />
 
-        <AiHandoffSummary summary={conversation.aiSummary} />
+        <AiHandoffSummary
+          summary={conversation.aiSummary}
+          serviceInterest={conversation.serviceInterest}
+        />
 
         <div className="my-5 h-px bg-slate-200" />
 
