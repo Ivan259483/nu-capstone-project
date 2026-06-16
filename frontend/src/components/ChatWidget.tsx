@@ -435,7 +435,13 @@ export default function ChatWidget({
     const endRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-    const latestThread = conversations[0] ?? null;
+    const latestThread = useMemo(
+        () =>
+            conversations.find((thread) => resolveChatAgentIdentity(thread).kind === 'human') ||
+            conversations[0] ||
+            null,
+        [conversations]
+    );
     const authed = typeof isAuthenticated === 'boolean'
         ? isAuthenticated
         : typeof window !== 'undefined' && !!localStorage.getItem('autospf_token');
