@@ -30,6 +30,7 @@ export function FloatingLabelField({
     disabled,
     onBlur,
     onFocus,
+    placeholder,
     ...inputProps
 }: FloatingLabelFieldProps) {
     const autoId = useId();
@@ -53,10 +54,14 @@ export function FloatingLabelField({
                     onChange={(e) => onChange(e.target.value)}
                     onFocus={onFocus}
                     onBlur={onBlur}
-                    placeholder=" "
+                    placeholder={placeholder || " "}
                     className={cn(
                         "peer block h-12 w-full bg-transparent px-4 pb-1.5 pt-5 text-sm font-medium text-white",
-                        "placeholder-transparent focus:outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-zinc-500",
+                        placeholder
+                            ? "placeholder:text-transparent focus:placeholder:text-white/[0.38]"
+                            : "placeholder-transparent",
+                        placeholder && "auth-floating-field-with-example",
+                        "focus:outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-zinc-500",
                         className
                     )}
                     aria-invalid={error ? true : undefined}

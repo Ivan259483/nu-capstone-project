@@ -123,12 +123,12 @@ export type SalesHandoffStatus =
     | 'converted';
 
 const PROFILE_IMAGE_FIELDS = [
-    'profileImage',
     'avatarUrl',
-    'photoURL',
     'avatar',
-    'profilePhoto',
+    'profileImage',
+    'photoURL',
     'image',
+    'profilePhoto',
     'photo',
 ] as const;
 
@@ -136,9 +136,13 @@ const clean = (value: unknown): string =>
     typeof value === 'string' ? value.trim() : '';
 
 export const resolveChatAgentAvatarUrl = (...values: unknown[]): string => {
+    const candidates: string[] = [];
+
     for (const value of values) {
         const direct = clean(value);
-        if (direct && !direct.startsWith('blob:')) return direct;
+        if (direct && !direct.startsWith('blob:')) {
+            candidates.push(direct);
+        }
         if (!value || typeof value !== 'object') continue;
 
         const nested = value as {
@@ -147,14 +151,21 @@ export const resolveChatAgentAvatarUrl = (...values: unknown[]): string => {
             secureUrl?: unknown;
             src?: unknown;
         };
-        const resolved =
-            clean(nested.url) ||
-            clean(nested.secure_url) ||
-            clean(nested.secureUrl) ||
-            clean(nested.src);
-        if (resolved && !resolved.startsWith('blob:')) return resolved;
+        candidates.push(
+            clean(nested.url),
+            clean(nested.secure_url),
+            clean(nested.secureUrl),
+            clean(nested.src)
+        );
     }
-    return '';
+
+    const usable = candidates.filter(value => value && !value.startsWith('blob:'));
+    return (
+        usable.find(value => /^https?:\/\//i.test(value)) ||
+        usable.find(value => /^data:image\//i.test(value)) ||
+        usable[0] ||
+        ''
+    );
 };
 
 const getProfileName = (profile?: ChatAgentProfile | null): string =>
@@ -165,11 +176,9 @@ const getProfileName = (profile?: ChatAgentProfile | null): string =>
 
 const getProfileAvatar = (profile?: ChatAgentProfile | null): string => {
     if (!profile) return '';
-    for (const field of PROFILE_IMAGE_FIELDS) {
-        const value = resolveChatAgentAvatarUrl(profile[field]);
-        if (value) return value;
-    }
-    return '';
+    return resolveChatAgentAvatarUrl(
+        ...PROFILE_IMAGE_FIELDS.map(field => profile[field])
+    );
 };
 
 const toAgentProfile = (
@@ -215,6 +224,13 @@ export function resolveChatAgentIdentity(
     thread?: ChatConversationThread | null,
     messages: ChatMessage[] = []
 ): ChatAgentIdentity {
+    const hasHumanAgent =
+        Boolean(thread?.assignedSalesUser) ||
+        Boolean(thread?.assignedStaff) ||
+        Boolean(thread?.lastHumanResponder) ||
+        Boolean(thread?.currentAssignedProfile) ||
+        Boolean(thread?.assignedSalesId) ||
+        Boolean(clean(thread?.assignedSalesName));
     const assignedSales = toAgentProfile(
         thread?.assignedSalesUser ||
         thread?.assignedStaff ||
@@ -235,14 +251,8 @@ export function resolveChatAgentIdentity(
     const currentAssignedProfile = toAgentProfile(thread?.currentAssignedProfile);
     const humanProfile = assignedSales || lastHumanResponder || currentAssignedProfile;
     const isHumanMode =
+        hasHumanAgent ||
         Boolean(humanProfile) ||
-        Boolean(
-            thread?.assignedSalesId ||
-            thread?.assignedSalesUser ||
-            thread?.assignedStaff ||
-            thread?.lastHumanResponder ||
-            thread?.currentAssignedProfile
-        ) ||
         Boolean(thread?.status && thread.status !== 'ai_handling');
 
     if (!isHumanMode) {
@@ -265,8 +275,7 @@ export function resolveChatAgentIdentity(
 
 export function getRecentSenderLabel(identity: ChatAgentIdentity): string {
     if (identity.kind === 'bot') return identity.displayName;
-    if (/auto\s*spf|sales\s*team/i.test(identity.displayName)) return identity.displayName;
-    return `${identity.displayName} from AutoSPF+`;
+    return identity.displayName;
 }
 
 export function getThreadPreview(

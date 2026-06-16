@@ -33,7 +33,7 @@ export const HANDOFF_SYSTEM_MESSAGE = 'Chat was escalated from AutoSPF+ AI to Sa
 const SALES_JOINED_SYSTEM_MESSAGE = 'Sales joined the conversation.';
 const ENCRYPTED_VALUE_PATTERN = /^[0-9a-f]{32}:[0-9a-f]+$/i;
 const CHAT_AGENT_USER_FIELDS =
-  '_id name role email avatar photoURL profileImage profilePhoto image photo';
+  '_id name role email avatar avatarUrl photoURL profileImage profilePhoto image photo';
 const CHAT_AGENT_IMAGE_FIELDS = Object.freeze([
   'avatarUrl',
   'avatar',
@@ -291,6 +291,35 @@ const serializeChatAgentProfile = (user, fallback = {}) => {
 
 const getLatestSalesMessage = (messages = []) =>
   [...messages].reverse().find((message) => message?.sender === 'sales') || null;
+
+export const getDefaultSalesAgentProfile = async () => {
+  const users = await User.find({
+    role: { $in: SALES_CHAT_ROLES },
+    isActive: { $ne: false },
+    isDeleted: { $ne: true },
+    status: { $ne: 'suspended' },
+  })
+    .select(CHAT_AGENT_USER_FIELDS)
+    .sort({ updatedAt: -1, createdAt: -1 })
+    .limit(50)
+    .lean();
+
+  const ranked = users.sort((a, b) => {
+    const aRole = clean(a.role) === 'sales' ? 0 : 1;
+    const bRole = clean(b.role) === 'sales' ? 0 : 1;
+    if (aRole !== bRole) return aRole - bRole;
+
+    const aImage = resolveChatAgentImage(a) ? 0 : 1;
+    const bImage = resolveChatAgentImage(b) ? 0 : 1;
+    return aImage - bImage;
+  });
+
+  const selected = ranked[0];
+  if (!selected) return null;
+
+  const { email: _email, ...profile } = serializeChatAgentProfile(selected);
+  return profile;
+};
 
 export const serializeChatConversationPayload = async (
   conversation = {},

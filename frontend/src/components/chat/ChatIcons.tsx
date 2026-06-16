@@ -2,8 +2,8 @@ import { CHAT_BLUE } from './chat-theme';
 
 type IconProps = { className?: string; active?: boolean };
 
-/** Intercom-style launcher: white rounded chat bubble with blue smile */
-export function LauncherBubbleIcon({ className = 'h-9 w-9' }: IconProps) {
+/** Launcher mark: white rounded chat bubble with a blue smile */
+export function LauncherBubbleIcon({ className = 'h-12 w-12' }: IconProps) {
     return (
         <svg
             className={className}
@@ -12,14 +12,15 @@ export function LauncherBubbleIcon({ className = 'h-9 w-9' }: IconProps) {
             aria-hidden="true"
             shapeRendering="geometricPrecision"
         >
+            <rect x="8" y="7.2" width="24.2" height="25.8" rx="6.2" fill="white" />
             <path
                 fill="white"
-                d="M12.2 9.25h15.6a4.95 4.95 0 0 1 4.95 4.95v16.95l-7.75-4.1H12.2a4.95 4.95 0 0 1-4.95-4.95v-7.9a4.95 4.95 0 0 1 4.95-4.95Z"
+                d="M27.2 29.2 34.2 34.1 30.8 26.35Z"
             />
             <path
-                d="M13.2 19.1c3.15 2.75 10.45 2.75 13.6 0"
+                d="M14.6 23.1c2.9 2.25 8.75 2.25 11.7 0"
                 stroke={CHAT_BLUE}
-                strokeWidth="2.5"
+                strokeWidth="3"
                 strokeLinecap="round"
                 fill="none"
             />

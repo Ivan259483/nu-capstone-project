@@ -269,7 +269,7 @@ export const en = {
         registerSubtitle: "Join AutoSPF+ to book services, track your vehicle, and manage appointments",
         email: "Email",
         password: "Password",
-        emailPlaceholder: "Email address",
+        emailPlaceholder: "name@example.com",
         passwordPlaceholder: "Password",
         forgotPassword: "Forgot your password?",
         signIn: "Log In",

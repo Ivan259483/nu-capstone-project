@@ -534,6 +534,18 @@ body {
     color: #ffffff;
 }
 
+.auth-page input::placeholder {
+    color: rgba(255, 255, 255, 0.38);
+}
+
+.auth-page input.auth-floating-field-with-example::placeholder {
+    color: transparent;
+}
+
+.auth-page input.auth-floating-field-with-example:focus::placeholder {
+    color: rgba(255, 255, 255, 0.38);
+}
+
 html {
     scroll-behavior: smooth;
     scrollbar-width: thin;
@@ -10577,7 +10589,10 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
 }
 
 .auth-page--automotive {
-    background: #030303;
+    overflow-x: hidden;
+    background:
+        radial-gradient(ellipse at 50% 42%, rgba(255, 255, 255, 0.028), transparent 34%),
+        #020203;
 }
 
 .auth-page--automotive::before {
@@ -10586,11 +10601,11 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     inset: 0;
     z-index: 2;
     pointer-events: none;
-    opacity: 0.18;
+    opacity: 0.16;
     background-image:
-        radial-gradient(circle at 18% 24%, rgba(255, 255, 255, 0.014) 0 1px, transparent 1px),
-        radial-gradient(circle at 76% 72%, rgba(255, 255, 255, 0.01) 0 1px, transparent 1px);
-    background-size: 4px 4px, 6px 6px;
+        radial-gradient(circle at 18% 24%, rgba(255, 255, 255, 0.016) 0 1px, transparent 1px),
+        radial-gradient(circle at 76% 72%, rgba(255, 255, 255, 0.011) 0 1px, transparent 1px);
+    background-size: 5px 5px, 7px 7px;
     mix-blend-mode: screen;
 }
 
@@ -10641,6 +10656,41 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     z-index: 2;
 }
 
+.auth-page--automotive .auth-spotlight-layer {
+    background:
+        radial-gradient(ellipse 31rem 20rem at 50% 50%, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.072) 22%, rgba(255, 255, 255, 0.022) 46%, transparent 64%),
+        radial-gradient(ellipse 20rem 13rem at 50% 57%, rgba(251, 146, 60, 0.042) 0%, rgba(251, 146, 60, 0.014) 42%, transparent 67%),
+        radial-gradient(ellipse at 84% 6%, rgba(255, 255, 255, 0.082) 0%, rgba(255, 255, 255, 0.028) 25%, transparent 48%),
+        radial-gradient(ellipse at 7% 94%, rgba(178, 185, 193, 0.048) 0%, rgba(178, 185, 193, 0.016) 29%, transparent 58%),
+        linear-gradient(112deg, rgba(255, 255, 255, 0.026) 0%, transparent 27%, transparent 67%, rgba(251, 146, 60, 0.018) 100%),
+        linear-gradient(180deg, #040405 0%, #020203 48%, #050506 100%);
+}
+
+.auth-page--automotive .auth-spotlight-layer::before {
+    top: 50%;
+    left: 50%;
+    right: auto;
+    width: min(39rem, 68vw);
+    height: min(25rem, 48vh);
+    background:
+        radial-gradient(ellipse at 50% 48%, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0.11) 30%, rgba(255, 255, 255, 0.032) 53%, transparent 73%),
+        linear-gradient(126deg, transparent 18%, rgba(255, 255, 255, 0.078) 43%, rgba(251, 146, 60, 0.018) 56%, transparent 76%);
+    border-radius: 50%;
+    filter: blur(28px);
+    opacity: 0.42;
+    transform: translate(-50%, -50%) rotate(-9deg);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, 0.96) 0%, rgba(0, 0, 0, 0.66) 45%, transparent 74%);
+    mask-image: radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, 0.96) 0%, rgba(0, 0, 0, 0.66) 45%, transparent 74%);
+}
+
+.auth-page--automotive .auth-spotlight-layer::after {
+    background:
+        linear-gradient(58deg, transparent 7%, rgba(255, 255, 255, 0.037) 24%, transparent 38%),
+        linear-gradient(107deg, transparent 34%, rgba(255, 255, 255, 0.026) 48%, rgba(251, 146, 60, 0.014) 53%, transparent 69%),
+        radial-gradient(ellipse at 50% 52%, rgba(255, 255, 255, 0.008) 0%, rgba(0, 0, 0, 0.17) 47%, rgba(0, 0, 0, 0.82) 100%);
+    filter: blur(0.35px);
+}
+
 .auth-automotive-reflections {
     position: absolute;
     inset: 0;
@@ -10656,21 +10706,21 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
 }
 
 .auth-reflection--top-right {
-    top: -23%;
-    right: -15%;
-    width: min(66rem, 84vw);
-    height: min(40rem, 60vw);
-    border-radius: 70% 0 0 82%;
-    border-left: 1px solid rgba(255, 255, 255, 0.16);
+    top: -20%;
+    right: -10%;
+    width: min(64rem, 80vw);
+    height: min(41rem, 57vw);
+    border-radius: 66% 0 0 80%;
+    border-left: 1px solid rgba(255, 255, 255, 0.18);
     background:
-        linear-gradient(129deg, transparent 6%, rgba(255, 255, 255, 0.05) 26%, rgba(255, 255, 255, 0.24) 39%, rgba(245, 245, 245, 0.08) 47%, rgba(251, 146, 60, 0.03) 52%, rgba(255, 255, 255, 0.03) 62%, transparent 79%),
-        radial-gradient(ellipse at 73% 24%, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.13) 34%, transparent 69%);
+        linear-gradient(127deg, transparent 7%, rgba(255, 255, 255, 0.046) 25%, rgba(255, 255, 255, 0.25) 38%, rgba(245, 245, 245, 0.086) 47%, rgba(251, 146, 60, 0.026) 52%, rgba(255, 255, 255, 0.032) 63%, transparent 80%),
+        radial-gradient(ellipse at 72% 25%, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0.15) 34%, transparent 70%);
     box-shadow:
-        inset 28px 0 86px -50px rgba(255, 255, 255, 0.52),
-        inset 0 -36px 84px -66px rgba(251, 146, 60, 0.28);
+        inset 30px 0 92px -50px rgba(255, 255, 255, 0.58),
+        inset 0 -34px 84px -66px rgba(251, 146, 60, 0.24);
     filter: blur(0.2px);
-    opacity: 0.92;
-    transform: rotate(-15deg);
+    opacity: 0.46;
+    transform: rotate(-14deg);
     -webkit-mask-image: radial-gradient(ellipse at 73% 28%, #000 0%, rgba(0, 0, 0, 0.82) 45%, transparent 76%);
     mask-image: radial-gradient(ellipse at 73% 28%, #000 0%, rgba(0, 0, 0, 0.82) 45%, transparent 76%);
 }
@@ -10687,9 +10737,20 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     transform: rotate(-7deg);
 }
 
+.auth-reflection--top-right::after {
+    content: "";
+    position: absolute;
+    inset: 58% -6% auto 18%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0.12), transparent);
+    filter: blur(0.45px);
+    opacity: 0.54;
+    transform: rotate(-8deg);
+}
+
 .auth-reflection--bottom-left {
-    left: -25%;
-    bottom: -24%;
+    left: -27%;
+    bottom: -25%;
     width: min(56rem, 84vw);
     height: min(32rem, 58vw);
     border-radius: 0 68% 74% 0;
@@ -10700,7 +10761,7 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     box-shadow:
         inset -20px 0 72px -52px rgba(255, 255, 255, 0.36),
         inset 0 38px 84px -72px rgba(255, 255, 255, 0.18);
-    opacity: 0.42;
+    opacity: 0.34;
     transform: rotate(-10deg);
     -webkit-mask-image: radial-gradient(ellipse at 31% 62%, #000 0%, rgba(0, 0, 0, 0.7) 46%, transparent 76%);
     mask-image: radial-gradient(ellipse at 31% 62%, #000 0%, rgba(0, 0, 0, 0.7) 46%, transparent 76%);
@@ -10718,26 +10779,26 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     display: block;
     height: 1px;
     border-radius: 999px;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.46), rgba(251, 146, 60, 0.09), transparent);
-    box-shadow: 0 0 24px rgba(255, 255, 255, 0.14);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.52), rgba(251, 146, 60, 0.075), transparent);
+    box-shadow: 0 0 24px rgba(255, 255, 255, 0.16);
     filter: blur(0.15px);
-    opacity: 0.34;
+    opacity: 0.36;
     pointer-events: none;
 }
 
 .auth-light-streak--upper {
-    top: 23%;
-    right: -11%;
-    width: min(38rem, 54vw);
+    top: 21%;
+    right: -8%;
+    width: min(42rem, 56vw);
     transform: rotate(-16deg);
 }
 
 .auth-light-streak--lower {
-    left: -12%;
-    bottom: 21%;
-    width: min(40rem, 58vw);
-    transform: rotate(-14deg);
-    opacity: 0.3;
+    left: -14%;
+    bottom: 18%;
+    width: min(42rem, 60vw);
+    transform: rotate(-13deg);
+    opacity: 0.24;
 }
 
 .auth-coating-gloss {
@@ -10747,9 +10808,9 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     bottom: 8%;
     height: 28%;
     pointer-events: none;
-    background: linear-gradient(104deg, transparent 22%, rgba(255, 255, 255, 0.018) 43%, rgba(255, 255, 255, 0.058) 48%, rgba(251, 146, 60, 0.018) 52%, transparent 72%);
-    filter: blur(20px);
-    opacity: 0.25;
+    background: linear-gradient(104deg, transparent 22%, rgba(255, 255, 255, 0.018) 42%, rgba(255, 255, 255, 0.068) 48%, rgba(251, 146, 60, 0.018) 53%, transparent 72%);
+    filter: blur(18px);
+    opacity: 0.29;
     transform: rotate(-8deg);
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 76%, transparent);
     mask-image: linear-gradient(90deg, transparent, #000 22%, #000 76%, transparent);
@@ -10837,14 +10898,14 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
 }
 
 .auth-spotlight-main {
-    top: -40%;
-    left: 0;
+    top: -45%;
+    left: 8%;
 }
 
 @media (min-width: 768px) {
     .auth-spotlight-main {
-        left: 15%;
-        top: -20%;
+        left: 23%;
+        top: -26%;
     }
 }
 
@@ -10861,24 +10922,86 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     }
 
     100% {
-        opacity: 0.65;
-        transform: translate(-50%, -40%) scale(1);
+        opacity: 0.5;
+        transform: translate(-45%, -45%) scale(0.98);
     }
 }
 
 @keyframes authSpotlightDrift {
     0% {
-        transform: translate(-50%, -40%) scale(1);
+        transform: translate(-45%, -45%) scale(0.98);
     }
 
     100% {
-        transform: translate(-46%, -36%) scale(1.06);
+        transform: translate(-41%, -42%) scale(1.03);
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
     .auth-spotlight-svg {
         animation: authSpotlight 2s ease 0.75s 1 forwards;
+    }
+}
+
+.auth-page--automotive .auth-spotlight-svg {
+    width: min(62rem, 115vw);
+    height: min(42rem, 96vh);
+    filter: contrast(1.04);
+    mix-blend-mode: screen;
+    animation:
+        authSpotlightInternational 2s ease 0.55s 1 forwards,
+        authSpotlightInternationalDrift 14s ease-in-out 2.55s infinite alternate;
+}
+
+.auth-page--automotive .auth-spotlight-main {
+    top: 40%;
+    left: 34%;
+}
+
+@media (min-width: 768px) {
+    .auth-page--automotive .auth-spotlight-main {
+        top: 42%;
+        left: 40%;
+    }
+}
+
+@media (min-width: 1024px) {
+    .auth-page--automotive .auth-spotlight-svg {
+        width: min(62rem, 64vw);
+        height: min(42rem, 84vh);
+    }
+
+    .auth-page--automotive .auth-spotlight-main {
+        top: 44%;
+        left: 44%;
+    }
+}
+
+@keyframes authSpotlightInternational {
+    0% {
+        opacity: 0;
+        transform: translate(-60%, -55%) scale(0.52) rotate(-1deg);
+    }
+
+    100% {
+        opacity: 0.56;
+        transform: translate(-39%, -43%) scale(0.98) rotate(0deg);
+    }
+}
+
+@keyframes authSpotlightInternationalDrift {
+    0% {
+        transform: translate(-39%, -43%) scale(0.98) rotate(0deg);
+    }
+
+    100% {
+        transform: translate(-35%, -40%) scale(1.03) rotate(0.45deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .auth-page--automotive .auth-spotlight-svg {
+        animation: authSpotlightInternational 2s ease 0.55s 1 forwards;
     }
 }
 
@@ -10945,7 +11068,7 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
         right: -42%;
         width: 38rem;
         height: 25rem;
-        opacity: 0.78;
+        opacity: 0.38;
     }
 
     .auth-reflection--bottom-left {
@@ -10981,6 +11104,17 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
         border-color: transparent;
         border-radius: 0;
         box-shadow: none;
+    }
+}
+
+@media (max-width: 420px) {
+    .auth-page--automotive .auth-login-card h1 {
+        font-size: 1.82rem;
+        line-height: 1.08;
+    }
+
+    .auth-page--automotive .auth-login-card p {
+        max-width: min(100%, 22rem);
     }
 }
 

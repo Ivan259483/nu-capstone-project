@@ -285,7 +285,7 @@ export default function ResetPassword() {
                                                 void handleSendResetCode();
                                             }
                                         }}
-                                        placeholder="alan.turing@example.com"
+                                        placeholder="name@example.com"
                                         className={cn(AUTH_INPUT_CLASS, "pl-10")}
                                     />
                                 </div>

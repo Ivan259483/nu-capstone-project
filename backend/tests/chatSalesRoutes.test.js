@@ -330,6 +330,27 @@ test('logged-in customer handoff uses account identity without contact capture',
   assert.equal(response.body.conversation.status, 'needs_sales');
 });
 
+test('customer conversation list returns a safe default Sales agent without existing threads', async () => {
+  const sales = await User.create({
+    name: 'Default Sales',
+    email: 'default-sales@example.com',
+    role: 'sales',
+    avatarUrl: 'https://res.cloudinary.com/demo/image/upload/default-sales.jpg',
+    status: 'active',
+    isActive: true,
+  });
+
+  const response = await jsonRequest('/api/chat/conversations?guestKey=fresh-public-guest');
+  assert.equal(response.response.status, 200);
+  assert.deepEqual(response.body.conversations, []);
+  assert.equal(response.body.defaultSalesAgent.name, sales.name);
+  assert.equal(response.body.defaultSalesAgent.role, 'sales');
+  assert.equal(response.body.defaultSalesAgent.avatarUrl, sales.avatarUrl);
+  assert.equal(response.body.defaultSalesAgent.profileImage, sales.avatarUrl);
+  assert.equal('email' in response.body.defaultSalesAgent, false);
+  assert.equal('password' in response.body.defaultSalesAgent, false);
+});
+
 test('Sales routes require a live allowed role and persist replies, assignment, unread, and status', async () => {
   const { conversationId, guestKey } = await seedGuestConversation();
   await jsonRequest('/api/chat/handoff', {
@@ -618,6 +639,65 @@ test('logged-in customers cannot read another customer conversation', async () =
     }
   );
   assert.equal(response.response.status, 404);
+
+  const list = await jsonRequest('/api/chat/conversations?guestKey=owner-guest-key', {
+    headers: { Authorization: `Bearer ${tokenFor(other)}` },
+  });
+  assert.equal(list.response.status, 200);
+  assert.equal(list.body.conversations.length, 0);
+});
+
+test('unauthenticated guest can hydrate a conversation later linked to a customer account', async () => {
+  const owner = await User.create({
+    name: 'Owner Guest',
+    email: 'owner-guest@example.com',
+    role: 'customer',
+    status: 'active',
+    isActive: true,
+  });
+  const sales = await User.create({
+    name: 'Assigned Sales',
+    email: 'assigned-sales@example.com',
+    role: 'sales',
+    avatar: 'https://res.cloudinary.com/demo/image/upload/profile.jpg',
+    status: 'active',
+    isActive: true,
+  });
+  await ChatConversation.create({
+    conversationId: 'guest-linked-conversation',
+    userId: owner._id,
+    guestKey: 'linked-guest-key',
+    status: 'in_conversation',
+    assignedSalesId: sales._id,
+    assignedSalesName: sales.name,
+    handedOffAt: new Date(),
+  });
+  await ChatMessage.create({
+    sessionId: 'guest-linked-conversation',
+    conversationId: 'guest-linked-conversation',
+    sender: 'sales',
+    senderId: sales._id,
+    senderName: sales.name,
+    message: 'I can help from Sales.',
+  });
+
+  const list = await jsonRequest('/api/chat/conversations?guestKey=linked-guest-key');
+  assert.equal(list.response.status, 200);
+  assert.equal(list.body.conversations.length, 1);
+  assert.equal(list.body.conversations[0].assignedSalesUser.avatarUrl, sales.avatar);
+
+  const detail = await jsonRequest(
+    '/api/chat/conversations/guest-linked-conversation?guestKey=linked-guest-key'
+  );
+  assert.equal(detail.response.status, 200);
+  assert.equal(detail.body.conversation.assignedSalesUser.avatarUrl, sales.avatar);
+
+  const messages = await jsonRequest(
+    '/api/chat/conversations/guest-linked-conversation/messages?guestKey=linked-guest-key'
+  );
+  assert.equal(messages.response.status, 200);
+  assert.equal(messages.body.conversation.assignedSalesUser.avatarUrl, sales.avatar);
+  assert.equal(messages.body.messages[0].senderAvatarUrl, sales.avatar);
 });
 
 test('AI HTTP, SSE, and existing Socket.IO paths are blocked during Sales handoff', async () => {

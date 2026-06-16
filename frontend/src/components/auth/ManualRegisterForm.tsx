@@ -265,7 +265,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
         <>
             <form
                 onSubmit={handleSubmit}
-                className="mx-auto max-h-[min(calc(100dvh-13.25rem),39rem)] w-full space-y-3 overflow-y-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20"
+                className="mx-auto max-h-[min(calc(100dvh-13.25rem),39rem)] w-full space-y-3.5 overflow-y-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20"
                 noValidate
             >
                 {attemptedSubmit && Object.keys(errors).length > 0 ? (
@@ -277,7 +277,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                     </p>
                 ) : null}
 
-                <div className="grid gap-2.5 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                     <FloatingLabelField
                         compactError
                         id="manual-reg-first-name"
@@ -319,6 +319,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                     id="manual-reg-email"
                     label={t("register.email")}
                     type="email"
+                    placeholder="name@example.com"
                     autoComplete="email"
                     inputMode="email"
                     value={email}
@@ -471,7 +472,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                     </div>
                 ) : null}
 
-                <div className="space-y-2.5 pt-0.5">
+                <div className="space-y-3 pt-0.5">
                     <RegisterLegalCheckboxes
                         idPrefix="manual-reg"
                         ppfTermsAgreed={legal.ppfTermsAgreed}
@@ -484,7 +485,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                     <Button
                         type="submit"
                         disabled={!canSubmit}
-                        className="h-[46px] w-full rounded-[14px] border border-white/[0.085] bg-zinc-950/70 text-sm font-semibold text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.075),0_18px_48px_-36px_rgba(255,255,255,0.24)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-white/[0.18] hover:bg-black/80 hover:text-white hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.11),0_22px_58px_-38px_rgba(255,255,255,0.28)] disabled:translate-y-0 disabled:border-white/[0.07] disabled:bg-zinc-950/45 disabled:text-zinc-500 disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]"
+                        className="h-[46px] w-full rounded-[14px] border border-white/[0.085] bg-zinc-950/70 text-sm font-semibold text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.075),0_18px_48px_-36px_rgba(255,255,255,0.24)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-white/[0.18] hover:bg-black/80 hover:text-white hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.11),0_22px_58px_-38px_rgba(255,255,255,0.28)] disabled:translate-y-0 disabled:!opacity-100 disabled:border-white/[0.12] disabled:bg-white/[0.045] disabled:text-zinc-300 disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.065),0_16px_42px_-36px_rgba(255,255,255,0.22)]"
                     >
                         {isSubmitting ? (
                             <>

@@ -13,12 +13,12 @@ export default function ChatBottomNav({ active, onHome, onMessages }: ChatBottom
             <button
                 type="button"
                 onClick={onHome}
-                className="flex flex-1 flex-col items-center gap-2 py-4 transition-colors cursor-pointer"
+                className="flex flex-1 flex-col items-center gap-1.5 py-3 transition-colors cursor-pointer"
                 aria-current={active === 'home' ? 'page' : undefined}
             >
-                <HomeTabIcon active={active === 'home'} className="h-7 w-7" />
+                <HomeTabIcon active={active === 'home'} className="h-6 w-6" />
                 <span
-                    className="text-[14px] font-semibold leading-none"
+                    className="text-[12px] font-semibold leading-none"
                     style={{ color: active === 'home' ? CHAT_BLUE : '#6B7280' }}
                 >
                     Home
@@ -27,12 +27,12 @@ export default function ChatBottomNav({ active, onHome, onMessages }: ChatBottom
             <button
                 type="button"
                 onClick={onMessages}
-                className="flex flex-1 flex-col items-center gap-2 py-4 transition-colors cursor-pointer"
+                className="flex flex-1 flex-col items-center gap-1.5 py-3 transition-colors cursor-pointer"
                 aria-current={active === 'messages' ? 'page' : undefined}
             >
-                <MessagesTabIcon active={active === 'messages'} className="h-7 w-7" />
+                <MessagesTabIcon active={active === 'messages'} className="h-6 w-6" />
                 <span
-                    className="text-[14px] font-medium leading-none"
+                    className="text-[12px] font-medium leading-none"
                     style={{ color: active === 'messages' ? CHAT_BLUE : '#6B7280' }}
                 >
                     Messages

@@ -263,7 +263,7 @@ export const fil = {
         registerSubtitle: "Sumali sa AutoSPF+ para mag-book, subaybayan ang kotse, at pamahalaan ang mga appointment",
         email: "Email",
         password: "Password",
-        emailPlaceholder: "Ilagay ang email",
+        emailPlaceholder: "name@example.com",
         passwordPlaceholder: "Ilagay ang password",
         forgotPassword: "Nakalimutan ang password?",
         signIn: "Mag-log in",

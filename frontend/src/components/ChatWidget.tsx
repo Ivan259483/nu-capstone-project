@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import api, { BACKEND_API_URL, getStoredAuthToken } from '@/lib/api';
@@ -15,21 +15,20 @@ import {
 } from '@/lib/chat-threads';
 import {
     type ChatConversationThread,
+    type ChatAgentProfile,
     type ChatMessage,
     type ChatScreen,
     type PublicTrackerSummary,
     type RegistrationStep,
     type SalesHandoffStatus,
     getLastHumanResponder,
-    getThreadPreview,
-    getThreadRelativeTime,
+    resolveChatAgentAvatarUrl,
     resolveChatAgentIdentity,
 } from '@/components/chat/chat-utils';
 import { LauncherBubbleIcon } from '@/components/chat/ChatIcons';
 import ChatHomeScreen from '@/components/chat/ChatHomeScreen';
 import ChatMessagesScreen from '@/components/chat/ChatMessagesScreen';
 import ChatConversationScreen from '@/components/chat/ChatConversationScreen';
-import ChatAgentAvatar from '@/components/chat/ChatAgentAvatar';
 
 interface ChatWidgetProps {
     variant?: 'customer' | 'landing';
@@ -258,25 +257,6 @@ const parseTrackerCorrection = (content: string) => {
 const cleanText = (value: unknown): string =>
     typeof value === 'string' ? value.trim() : '';
 
-const cleanAvatarValue = (value: unknown): string => {
-    const direct = cleanText(value);
-    if (direct) return direct;
-    if (!value || typeof value !== 'object') return '';
-
-    const nested = value as {
-        url?: unknown;
-        secure_url?: unknown;
-        secureUrl?: unknown;
-        src?: unknown;
-    };
-    return (
-        cleanText(nested.url) ||
-        cleanText(nested.secure_url) ||
-        cleanText(nested.secureUrl) ||
-        cleanText(nested.src)
-    );
-};
-
 const resolvePayloadAvatar = (...sources: any[]): string => {
     const fields = [
         'senderAvatarUrl',
@@ -290,14 +270,14 @@ const resolvePayloadAvatar = (...sources: any[]): string => {
         'image',
         'photo',
     ];
+    const values: unknown[] = [];
     for (const source of sources) {
         if (!source || typeof source !== 'object') continue;
         for (const field of fields) {
-            const value = cleanAvatarValue(source[field]);
-            if (value && !value.startsWith('blob:')) return value;
+            values.push(source[field]);
         }
     }
-    return '';
+    return resolveChatAgentAvatarUrl(...values);
 };
 
 const resolvePayloadId = (value: unknown): string => {
@@ -400,7 +380,6 @@ const windowVariants: Variants = {
 };
 
 export default function ChatWidget({
-    variant = 'landing',
     onOpenBooking,
     currentUserName,
     isAuthenticated,
@@ -431,6 +410,7 @@ export default function ChatWidget({
     const [handoffBusy, setHandoffBusy] = useState(false);
     const [detectedServiceInterest, setDetectedServiceInterest] = useState('');
     const [contactCapturePurpose, setContactCapturePurpose] = useState<'quote' | 'handoff' | null>(null);
+    const [defaultSalesAgent, setDefaultSalesAgent] = useState<ChatAgentProfile | null>(null);
 
     const endRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -451,36 +431,60 @@ export default function ChatWidget({
         [conversations, activeConversationId]
     );
 
+    const defaultSalesThread = useMemo<ChatConversationThread | null>(
+        () =>
+            defaultSalesAgent
+                ? {
+                    conversationId: 'default-sales-agent',
+                    title: defaultSalesAgent.name || defaultSalesAgent.fullName || 'Sales Team',
+                    mode: 'sales',
+                    currentAssignedProfile: defaultSalesAgent,
+                }
+                : null,
+        [defaultSalesAgent]
+    );
+
+    const withDefaultSalesAgent = useCallback((
+        thread: ChatConversationThread | null
+    ): ChatConversationThread | null => {
+        if (!thread || !defaultSalesAgent) return thread;
+        const hasConversationAgent =
+            Boolean(thread.assignedSalesUser) ||
+            Boolean(thread.assignedStaff) ||
+            Boolean(thread.lastHumanResponder) ||
+            Boolean(thread.currentAssignedProfile) ||
+            Boolean(thread.assignedSalesId) ||
+            Boolean(thread.assignedSalesName);
+        if (hasConversationAgent) return thread;
+        return {
+            ...thread,
+            currentAssignedProfile: defaultSalesAgent,
+        };
+    }, [defaultSalesAgent]);
+
     const latestAgentIdentity = useMemo(
-        () => resolveChatAgentIdentity(latestThread),
-        [latestThread]
+        () => resolveChatAgentIdentity(
+            withDefaultSalesAgent(latestThread) || defaultSalesThread
+        ),
+        [defaultSalesThread, latestThread, withDefaultSalesAgent]
     );
 
     const activeAgentIdentity = useMemo(
         () => resolveChatAgentIdentity(
             activeThread
-                ? { ...activeThread, status: handoffStatus }
+                ? withDefaultSalesAgent({ ...activeThread, status: handoffStatus })
                 : activeConversationId
                     ? {
                         conversationId: activeConversationId,
-                        title: 'AutoSPF+ Concierge',
+                        title: defaultSalesAgent?.name || defaultSalesAgent?.fullName || 'AutoSPF+ Concierge',
                         mode: 'concierge',
                         status: handoffStatus,
+                        ...(defaultSalesAgent ? { currentAssignedProfile: defaultSalesAgent } : {}),
                     }
-                    : null,
+                    : defaultSalesThread,
             messages
         ),
-        [activeConversationId, activeThread, handoffStatus, messages]
-    );
-
-    const inboxPreview = useMemo(
-        () => getThreadPreview(latestThread, registrationStep),
-        [latestThread, registrationStep]
-    );
-
-    const inboxRelativeTime = useMemo(
-        () => getThreadRelativeTime(latestThread),
-        [latestThread]
+        [activeConversationId, activeThread, defaultSalesAgent, defaultSalesThread, handoffStatus, messages, withDefaultSalesAgent]
     );
 
     const resetThreadLocalState = () => {
@@ -507,6 +511,7 @@ export default function ChatWidget({
             },
         });
         const list = (res.data?.conversations || []) as ChatConversationThread[];
+        setDefaultSalesAgent(res.data?.defaultSalesAgent || null);
         setConversations(list);
 
         const identityHydrated = await Promise.all(
@@ -550,6 +555,9 @@ export default function ChatWidget({
             });
             const hydrated = mapApiMessages(res.data?.messages || []);
             const conversation = res.data?.conversation || {};
+            if (res.data?.defaultSalesAgent) {
+                setDefaultSalesAgent(res.data.defaultSalesAgent);
+            }
             setActiveConversationId(conversationId);
             setStoredActiveConversationId(conversationId);
             setMessages(hydrated);
@@ -585,6 +593,9 @@ export default function ChatWidget({
             });
             const conversation = res.data?.conversation as ChatConversationThread;
             const hydrated = mapApiMessages(res.data?.messages || []);
+            if (res.data?.defaultSalesAgent) {
+                setDefaultSalesAgent(res.data.defaultSalesAgent);
+            }
             if (!conversation?.conversationId) {
                 throw new Error('Missing conversationId');
             }
@@ -613,14 +624,6 @@ export default function ChatWidget({
     const openChat = (returnTo: 'home' | 'messages' = 'home') => {
         setChatReturnTo(returnTo);
         setScreen('chat');
-    };
-
-    const handleOpenRecent = () => {
-        if (latestThread) {
-            void openConversation(latestThread.conversationId, 'home');
-            return;
-        }
-        void createNewConversation('home');
     };
 
     const handleAskQuestion = () => {
@@ -1190,6 +1193,9 @@ export default function ChatWidget({
         });
         const conversation = res.data?.conversation as ChatConversationThread;
         const hydrated = mapApiMessages(res.data?.messages || []);
+        if (res.data?.defaultSalesAgent) {
+            setDefaultSalesAgent(res.data.defaultSalesAgent);
+        }
         if (!conversation?.conversationId) {
             throw new Error('Missing conversationId');
         }
@@ -1585,13 +1591,8 @@ export default function ChatWidget({
                                             : trackerStep === 'fallbackPhone' ? 'Registered phone number'
                                         : 'Message...';
 
-    const windowHeight =
-        variant === 'customer'
-            ? 'min(690px, calc(100dvh - 112px))'
-            : 'min(720px, calc(100dvh - 112px))';
-
     return (
-        <div className={className || 'fixed bottom-4 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[60] flex flex-col items-end gap-3'}>
+        <div className={className || 'fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-4 sm:right-6 z-[60] flex flex-col items-end gap-3'}>
             <AnimatePresence>
                 {isOpen && (
                     <motion.div
@@ -1600,20 +1601,12 @@ export default function ChatWidget({
                         initial="hidden"
                         animate="visible"
                         exit="exit"
-                        className={`${chatWindowClass} sm:w-[400px] sm:max-w-[400px]`}
-                        style={{
-                            height: windowHeight,
-                            maxHeight: 'calc(100dvh - 88px)',
-                        }}
+                        className={`${chatWindowClass} h-[min(680px,calc(100dvh_-_48px))] max-h-[calc(100dvh_-_48px)] w-[calc(100vw_-_24px)] sm:h-[min(620px,calc(100dvh_-_120px))] sm:max-h-[calc(100dvh_-_120px)] sm:w-[min(380px,calc(100vw_-_32px))] sm:max-w-[380px]`}
                     >
                         {screen === 'home' && (
                             <ChatHomeScreen
-                                preview={inboxPreview}
-                                relativeTime={inboxRelativeTime}
-                                hasRecentThread={Boolean(latestThread)}
                                 recentAgent={latestAgentIdentity}
                                 onClose={() => setIsOpen(false)}
-                                onOpenRecent={handleOpenRecent}
                                 onAskQuestion={handleAskQuestion}
                                 onOpenMessages={() => setScreen('messages')}
                             />
@@ -1674,11 +1667,7 @@ export default function ChatWidget({
                 onClick={handleOpenWidget}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className={`relative flex h-[60px] w-[60px] items-center justify-center rounded-full transition-shadow cursor-pointer ${
-                    !isOpen && latestAgentIdentity.kind === 'human'
-                        ? 'bg-[#171717] shadow-[0_8px_26px_rgba(15,23,42,0.28)] hover:shadow-[0_10px_30px_rgba(15,23,42,0.34)]'
-                        : 'bg-[#0066FF] shadow-[0_6px_24px_rgba(0,102,255,0.38)] hover:shadow-[0_8px_28px_rgba(0,102,255,0.45)]'
-                }`}
+                className="relative flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[#0066FF] shadow-[0_6px_24px_rgba(0,102,255,0.38)] transition-shadow hover:shadow-[0_8px_28px_rgba(0,102,255,0.45)] cursor-pointer"
                 aria-label={isOpen ? 'Close chat' : 'Open chat'}
             >
                 <AnimatePresence mode="wait" initial={false}>
@@ -1691,16 +1680,6 @@ export default function ChatWidget({
                             transition={{ duration: 0.15 }}
                         >
                             <ChevronDown className="h-6 w-6 text-white" strokeWidth={2.25} />
-                        </motion.span>
-                    ) : latestAgentIdentity.kind === 'human' ? (
-                        <motion.span
-                            key="agent-avatar"
-                            initial={{ opacity: 0, scale: 0.8 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.8 }}
-                            transition={{ duration: 0.15 }}
-                        >
-                            <ChatAgentAvatar identity={latestAgentIdentity} size="lg" />
                         </motion.span>
                     ) : (
                         <motion.span

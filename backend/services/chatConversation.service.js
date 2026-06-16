@@ -104,7 +104,6 @@ export const findConversationForAccess = async ({ conversationId, userId, guestK
     return ChatConversation.findOne({
       conversationId: id,
       guestKey,
-      $or: [{ userId: { $exists: false } }, { userId: null }],
     }).lean();
   }
 
@@ -117,7 +116,17 @@ export const listConversationsForCustomer = async ({
   limit = 30,
 } = {}) => {
   const filter = userId
-    ? { $or: [{ userId }, ...(guestKey ? [{ guestKey }] : [])] }
+    ? {
+        $or: [
+          { userId },
+          ...(guestKey
+            ? [{
+                guestKey,
+                $or: [{ userId: { $exists: false } }, { userId: null }],
+              }]
+            : []),
+        ],
+      }
     : guestKey
       ? { guestKey }
       : null;

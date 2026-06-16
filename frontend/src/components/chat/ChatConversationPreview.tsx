@@ -8,8 +8,6 @@ interface ChatConversationPreviewProps {
     onClick?: () => void;
     as?: 'button' | 'div';
     className?: string;
-    /** Inbox uses short name; cards use full assistant name */
-    variant?: 'inbox' | 'card';
 }
 
 /** Shared inbox row: name + time on one line, preview below */
@@ -20,25 +18,24 @@ export default function ChatConversationPreview({
     onClick,
     as = 'button',
     className = '',
-    variant = 'inbox',
 }: ChatConversationPreviewProps) {
     const displayName = getRecentSenderLabel(agent);
     const showPreview = preview.trim().length > 0;
 
     const content = (
         <>
-            <ChatAgentAvatar identity={agent} size={variant === 'inbox' ? 'lg' : 'md'} />
-            <div className="min-w-0 flex-1 pt-px">
-                <div className="flex items-center justify-between gap-3">
-                    <p className="truncate text-[17px] font-semibold leading-none text-[#15171C]">
+            <ChatAgentAvatar identity={agent} size="md" />
+            <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2.5">
+                    <p className="truncate text-[15px] font-semibold leading-tight text-[#15171C]">
                         {displayName}
                     </p>
-                    <span className="shrink-0 text-[15px] font-normal tabular-nums text-[#6B7280]">
+                    <span className="shrink-0 text-[12px] font-medium tabular-nums text-[#9CA3AF]">
                         {relativeTime}
                     </span>
                 </div>
                 {showPreview && (
-                    <p className="mt-2 truncate text-[16px] leading-none text-[#6B7280]">{preview}</p>
+                    <p className="mt-1 truncate text-[13px] leading-tight text-[#6B7280]">{preview}</p>
                 )}
             </div>
         </>
@@ -67,12 +64,11 @@ export function ChatInboxRow({
 }: Pick<ChatConversationPreviewProps, 'preview' | 'relativeTime' | 'agent' | 'onClick'>) {
     return (
         <ChatConversationPreview
-            variant="inbox"
             preview={preview}
             relativeTime={relativeTime}
             agent={agent}
             onClick={onClick}
-            className="cursor-pointer border-b !border-gray-200 px-6 py-5 transition-colors hover:bg-[#FAFAFA]"
+            className="cursor-pointer border-b !border-gray-100 px-4 py-3 transition-colors hover:bg-[#FAFAFA]"
         />
     );
 }

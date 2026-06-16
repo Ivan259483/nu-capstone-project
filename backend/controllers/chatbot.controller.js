@@ -90,6 +90,7 @@ import {
 } from '../services/chatConversation.service.js';
 import {
   assertAiMessageAllowed,
+  getDefaultSalesAgentProfile,
   serializeCustomerChatConversationList,
   serializeCustomerChatConversationPayload,
 } from '../services/chatSalesHandoff.service.js';
@@ -2939,9 +2940,15 @@ export const listConversations = async (req, res, next) => {
       }
     }
 
+    const [serializedConversations, defaultSalesAgent] = await Promise.all([
+      serializeCustomerChatConversationList(conversations),
+      getDefaultSalesAgentProfile(),
+    ]);
+
     res.json({
       success: true,
-      conversations: await serializeCustomerChatConversationList(conversations),
+      conversations: serializedConversations,
+      defaultSalesAgent,
     });
   } catch (error) {
     next(error);
@@ -2971,6 +2978,7 @@ export const createConversation = async (req, res, next) => {
     res.status(201).json({
       success: true,
       conversation: serializeConversation(conversation),
+      defaultSalesAgent: await getDefaultSalesAgentProfile(),
       session: buildSessionPayload(session),
       messages: serializeChatMessages([welcomeMessage]),
     });
@@ -3020,6 +3028,7 @@ export const getConversation = async (req, res, next) => {
     res.json({
       success: true,
       conversation: payload.conversation,
+      defaultSalesAgent: await getDefaultSalesAgentProfile(),
       session: buildSessionPayload(session),
       messages: payload.messages,
     });

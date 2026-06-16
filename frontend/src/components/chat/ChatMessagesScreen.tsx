@@ -30,16 +30,16 @@ export default function ChatMessagesScreen({
 }: ChatMessagesScreenProps) {
     return (
         <div className="flex min-h-0 flex-1 flex-col bg-white">
-            <header className={`${chatScreenHeaderClass} py-5`}>
+            <header className={chatScreenHeaderClass}>
                 <button
                     type="button"
                     onClick={onClose}
-                    className="absolute right-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full text-[#6B7280] transition-colors hover:bg-[#F5F5F5] hover:text-[#15171C] cursor-pointer"
+                    className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full text-[#6B7280] transition-colors hover:bg-[#F5F5F5] hover:text-[#15171C] cursor-pointer"
                     aria-label="Close chat"
                 >
-                    <X className="h-6 w-6" strokeWidth={2.1} />
+                    <X className="h-5 w-5" strokeWidth={2.1} />
                 </button>
-                <h2 className="text-center text-[21px] font-semibold tracking-[-0.01em] text-[#15171C]">
+                <h2 className="text-center text-[18px] font-semibold text-[#15171C]">
                     Messages
                 </h2>
             </header>
@@ -50,25 +50,24 @@ export default function ChatMessagesScreen({
                         {conversations.map((thread) => (
                             <ChatConversationPreview
                                 key={thread.conversationId}
-                                variant="inbox"
                                 preview={getThreadPreview(thread, registrationStep)}
                                 relativeTime={formatRelativeTime(thread.lastMessageAt)}
                                 agent={resolveChatAgentIdentity(thread)}
                                 onClick={() => onSelectConversation(thread.conversationId)}
-                                className="cursor-pointer border-b !border-gray-200 px-6 py-5 transition-colors hover:bg-[#FAFAFA]"
+                                className="cursor-pointer border-b !border-gray-100 px-4 py-3 transition-colors hover:bg-[#FAFAFA]"
                             />
                         ))}
                     </div>
                 ) : (
-                    <div className="flex flex-1 flex-col items-center justify-center px-6 py-10">
-                        <p className="max-w-[280px] text-center text-[14px] leading-relaxed text-[#9CA3AF]">
+                    <div className="flex flex-1 flex-col items-center justify-center px-5 py-8">
+                        <p className="max-w-[250px] text-center text-[13px] leading-relaxed text-[#9CA3AF]">
                             No conversations yet. Start a fresh thread with AutoSPF+ Concierge.
                         </p>
                     </div>
                 )}
 
-                <div className="mt-auto flex flex-col items-center px-6 pb-10 pt-6">
-                    <p className="mb-5 max-w-[280px] text-center text-[13px] leading-relaxed text-[#9CA3AF]">
+                <div className="mt-auto flex flex-col items-center px-5 pb-6 pt-4">
+                    <p className="mb-4 max-w-[260px] text-center text-[12px] leading-relaxed text-[#9CA3AF]">
                         Each question opens a new support thread so your context stays clean and focused.
                     </p>
                     <button type="button" onClick={onAskQuestion} className={chatPillButtonClass}>
