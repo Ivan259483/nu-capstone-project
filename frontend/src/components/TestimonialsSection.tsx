@@ -85,7 +85,7 @@ function TestimonialCard({
             onClick={onClick}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
-            className="w-[340px] shrink-0 relative rounded-2xl p-6 cursor-pointer select-none transition-all duration-500"
+            className="w-[340px] shrink-0 snap-center relative rounded-2xl p-6 cursor-pointer select-none transition-all duration-500"
             style={{
                 background: hovered
                     ? "linear-gradient(135deg, rgba(244,182,61,0.08) 0%, rgba(20,20,30,0.95) 50%, rgba(244,182,61,0.04) 100%)"

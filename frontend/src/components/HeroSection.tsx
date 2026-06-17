@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Star } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion, useScroll, useTransform } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { en } from "@/translations/en";
 import { fil } from "@/translations/fil";
@@ -16,8 +16,45 @@ const HERO_SERVICE_KEYS = [
     "ppf",
 ] as const;
 
+const HERO_EASE = [0.16, 1, 0.3, 1] as const;
+
+const heroStagger = {
+    hidden: {},
+    visible: {
+        transition: {
+            delayChildren: 0.14,
+            staggerChildren: 0.13,
+        },
+    },
+};
+
+const heroFadeUp = {
+    hidden: { opacity: 0, y: 18 },
+    visible: {
+        opacity: 1,
+        y: 0,
+        transition: { duration: 0.78, ease: HERO_EASE },
+    },
+};
+
+const heroFade = {
+    hidden: { opacity: 0 },
+    visible: {
+        opacity: 1,
+        transition: { duration: 0.78, ease: HERO_EASE },
+    },
+};
+
 export default function HeroSection() {
     const { lang, t } = useLanguage();
+    const sectionRef = useRef<HTMLElement>(null);
+    const reducedMotionPreference = useReducedMotion();
+    const { scrollYProgress } = useScroll({
+        target: sectionRef,
+        offset: ["start start", "end start"],
+    });
+    const mediaY = useTransform(scrollYProgress, [0, 1], [0, 46]);
+    const mediaScale = useTransform(scrollYProgress, [0, 1], [1.025, 1.055]);
     const heroHighlight = useMemo(
         () => (lang === "fil" ? fil.hero.typingWords : en.hero.typingWords)[0] || t("hero.titleHighlight"),
         [lang, t]
@@ -38,8 +75,11 @@ export default function HeroSection() {
         return () => mediaQuery.removeEventListener("change", updateMotionPreference);
     }, []);
 
+    const shouldReduceMotion = prefersReducedMotion || Boolean(reducedMotionPreference);
+
     return (
         <section
+            ref={sectionRef}
             className="relative min-h-screen w-full flex items-center overflow-hidden"
             style={{
                 background:
@@ -48,8 +88,14 @@ export default function HeroSection() {
         >
 
             {/* Full-bleed hero media — wide soft fade (avoids hard vertical seam under nav) */}
-            <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden border-0">
-                {(prefersReducedMotion || heroVideoFailed) && (
+            <motion.div
+                className="pointer-events-none absolute inset-0 z-0 overflow-hidden border-0 will-change-transform"
+                style={{
+                    y: shouldReduceMotion ? 0 : mediaY,
+                    scale: shouldReduceMotion ? 1 : mediaScale,
+                }}
+            >
+                {(shouldReduceMotion || heroVideoFailed) && (
                     <img
                         src={HERO_IMAGE_SRC}
                         alt=""
@@ -62,7 +108,7 @@ export default function HeroSection() {
                         style={{ filter: "saturate(1.08) contrast(1.08) brightness(0.92)" }}
                     />
                 )}
-                {!prefersReducedMotion && !heroVideoFailed && (
+                {!shouldReduceMotion && !heroVideoFailed && (
                     <video
                         aria-hidden
                         autoPlay
@@ -128,28 +174,33 @@ export default function HeroSection() {
                         background: "linear-gradient(to top, rgba(1,2,4,0.98) 0%, rgba(3,4,7,0.82) 46%, rgba(7,7,10,0.28) 100%), linear-gradient(90deg, rgba(1,2,4,0.82) 0%, rgba(7,7,10,0.14) 100%), radial-gradient(ellipse 80% 56% at 64% 18%, rgba(255,225,170,0.1) 0%, transparent 66%)",
                     }}
                 />
-            </div>
+            </motion.div>
 
 
             {/* Content Container */}
             <div className="container max-w-7xl mx-auto px-6 relative z-20 h-full flex flex-col lg:flex-row pt-32 pb-20 lg:py-0">
 
                 {/* Left Column (Content) */}
-                <div className="w-full lg:w-[55%] flex flex-col justify-center min-h-[calc(100vh-160px)] lg:min-h-screen pt-10">
+                <motion.div
+                    className="w-full lg:w-[55%] flex flex-col justify-center min-h-[calc(100vh-160px)] lg:min-h-screen pt-10"
+                    variants={heroStagger}
+                    initial={shouldReduceMotion ? false : "hidden"}
+                    animate="visible"
+                >
 
 
-                    <div
-                        className="mb-5 inline-flex w-fit items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f6d78a]/90 drop-shadow-[0_8px_18px_rgba(0,0,0,0.52)] animate-slide-up"
-                        style={{ animationDelay: "0.12s" }}
+                    <motion.div
+                        variants={heroFade}
+                        className="mb-5 inline-flex w-fit items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f6d78a]/90 drop-shadow-[0_8px_18px_rgba(0,0,0,0.52)]"
                     >
                         <span className="h-px w-9 bg-gradient-to-r from-[#ffe2a1] via-[#f4c96b] to-transparent shadow-[0_0_18px_rgba(244,201,107,0.28)]" aria-hidden />
                         {t("hero.badge")}
-                    </div>
+                    </motion.div>
 
                     {/* Headline */}
-                    <h1
-                        className="flex max-w-[760px] flex-col text-5xl font-serif font-medium leading-[1.03] text-white drop-shadow-[0_16px_30px_rgba(0,0,0,0.62)] sm:text-6xl lg:text-[72px] xl:text-[78px] animate-slide-up"
-                        style={{ animationDelay: "0.2s" }}
+                    <motion.h1
+                        variants={heroFadeUp}
+                        className="flex max-w-[760px] flex-col text-5xl font-serif font-medium leading-[1.03] text-white drop-shadow-[0_16px_30px_rgba(0,0,0,0.62)] sm:text-6xl lg:text-[72px] xl:text-[78px]"
                     >
                         <span className="pb-1 text-white/98">{t("hero.titleLine1")}</span>
                         <span className="pb-1 text-white/92">{t("hero.titleLine2")}</span>
@@ -163,26 +214,33 @@ export default function HeroSection() {
                             {heroHighlight.split("").map((char, i) => (
                                 <motion.span
                                     key={`${heroHighlight}-${i}`}
-                                    initial={{ opacity: 0, y: 8 }}
+                                    initial={shouldReduceMotion ? false : { opacity: 0, y: 7 }}
                                     animate={{ opacity: 1, y: 0 }}
-                                    transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
+                                    transition={{
+                                        duration: 0.28,
+                                        delay: shouldReduceMotion ? 0 : 0.42 + i * 0.012,
+                                        ease: HERO_EASE,
+                                    }}
                                     style={{ display: "inline-block", minWidth: char === " " ? "0.25em" : undefined }}
                                 >
                                     {char}
                                 </motion.span>
                             ))}
                         </span>
-                    </h1>
+                    </motion.h1>
 
                     {/* Subtitle */}
-                    <p className="mt-7 max-w-[35rem] text-base leading-[1.78] font-sans text-white/78 drop-shadow-[0_10px_20px_rgba(0,0,0,0.52)] animate-slide-up" style={{ animationDelay: "0.4s" }}>
+                    <motion.p
+                        variants={heroFade}
+                        className="mt-7 max-w-[35rem] text-base leading-[1.78] font-sans text-white/78 drop-shadow-[0_10px_20px_rgba(0,0,0,0.52)]"
+                    >
                         {t("hero.subtitle")}
-                    </p>
+                    </motion.p>
 
                     {/* Rating */}
-                    <div
-                        className="my-8 inline-flex w-fit items-center gap-3 rounded-full border border-[#f4c96b]/24 bg-[linear-gradient(135deg,rgba(255,255,255,0.115),rgba(255,255,255,0.04)_48%,rgba(7,7,10,0.58))] px-3.5 py-2 shadow-[0_16px_36px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.11)] backdrop-blur-md animate-slide-up"
-                        style={{ animationDelay: "0.5s" }}
+                    <motion.div
+                        variants={heroFadeUp}
+                        className="my-8 inline-flex w-fit items-center gap-3 rounded-full border border-[#f4c96b]/24 bg-[linear-gradient(135deg,rgba(255,255,255,0.115),rgba(255,255,255,0.04)_48%,rgba(7,7,10,0.58))] px-3.5 py-2 shadow-[0_16px_36px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.11)] backdrop-blur-md"
                         aria-label={`${t("stats.rating")}: 4.9, ${t("hero.reviews")}`}
                     >
                         <span className="flex h-8 min-w-[3rem] items-center justify-center text-[28px] font-serif font-light leading-none text-white/95 tabular-nums">
@@ -197,7 +255,7 @@ export default function HeroSection() {
                                         initial={{ opacity: 0, scale: 0 }}
                                         whileInView={{ opacity: 1, scale: 1 }}
                                         viewport={{ once: true }}
-                                        transition={{ delay: 0.5 + i * 0.08, type: "spring", stiffness: 300 }}
+                                        transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.58 + i * 0.08, type: "spring", stiffness: 280, damping: 20 }}
                                         className="shrink-0"
                                     >
                                         <Star className="h-3 w-3 fill-current" />
@@ -208,10 +266,13 @@ export default function HeroSection() {
                                 {t("stats.rating")} · {t("hero.reviews")}
                             </span>
                         </div>
-                    </div>
+                    </motion.div>
 
                     {/* CTA Buttons */}
-                    <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-11 animate-slide-up font-sans" style={{ animationDelay: "0.6s" }}>
+                    <motion.div
+                        variants={heroFadeUp}
+                        className="flex flex-wrap items-center gap-3 sm:gap-4 mb-11 font-sans"
+                    >
                         <Link
                             to="/login"
                             className="group public-luxury-cta public-luxury-cta--primary public-luxury-cta--hero"
@@ -225,26 +286,38 @@ export default function HeroSection() {
                         >
                             {t("hero.viewWork")}
                         </a>
-                    </div>
+                    </motion.div>
 
                     {/* Service tags */}
-                    <div className="mt-3 grid max-w-[15rem] grid-cols-1 gap-2 animate-slide-up font-sans opacity-[0.92] transition-opacity duration-300 hover:opacity-100 sm:max-w-[600px] sm:flex sm:flex-wrap sm:items-center sm:gap-2" style={{ animationDelay: "0.7s" }}>
+                    <motion.div
+                        variants={{
+                            hidden: {},
+                            visible: {
+                                transition: {
+                                    staggerChildren: 0.075,
+                                    delayChildren: 0.12,
+                                },
+                            },
+                        }}
+                        className="mt-3 grid max-w-[15rem] grid-cols-1 gap-2 font-sans opacity-[0.92] transition-opacity duration-300 hover:opacity-100 sm:max-w-[600px] sm:flex sm:flex-wrap sm:items-center sm:gap-2"
+                    >
                         {HERO_SERVICE_KEYS.map((key) => (
-                            <button
+                            <motion.button
                                 key={key}
+                                variants={heroFadeUp}
                                 type="button"
                                 onClick={() => setActiveServiceKey(key)}
                                 aria-pressed={activeServiceKey === key}
-                                className={`inline-flex min-h-8 items-center justify-center rounded-full border px-3.5 text-center text-[10px] font-medium uppercase tracking-[0.08em] shadow-[0_10px_22px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/35 sm:justify-start ${activeServiceKey === key
+                                className={`inline-flex min-h-8 items-center justify-center rounded-full border px-3.5 text-center text-[10px] font-medium uppercase tracking-[0.08em] shadow-[0_10px_22px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/35 motion-reduce:transform-none sm:justify-start ${activeServiceKey === key
                                     ? "border-[#f4c96b]/42 bg-[#e0a020]/12 text-[#ffe1a1] shadow-[0_10px_24px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.08)]"
                                     : "border-white/[0.12] bg-white/[0.035] text-white/64 hover:border-[#e0a020]/34 hover:bg-white/[0.055] hover:text-white/82"
                                     }`}
                             >
                                 {t(`hero.serviceTags.${key}`)}
-                            </button>
+                            </motion.button>
                         ))}
-                    </div>
-                </div>
+                    </motion.div>
+                </motion.div>
 
                 <div className="hidden lg:block w-[45%] h-screen" aria-hidden />
             </div>

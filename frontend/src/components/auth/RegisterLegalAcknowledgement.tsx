@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AlertTriangle, CheckCircle2, Clock, RefreshCw, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -24,14 +24,25 @@ import { cn } from "@/lib/utils";
 const PPF_TERMS_HIGHLIGHT_ICONS = [Clock, ShieldCheck, RefreshCw, CheckCircle2];
 
 const LEGAL_CHECKBOX_CLASS = cn(
-    "mt-0.5 h-4 w-4 shrink-0 rounded-[5px] border shadow-none ring-offset-0",
-    "border-white/35 bg-black/45",
-    "shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_0_0_1px_rgba(255,255,255,0.035)]",
-    "data-[state=checked]:border-orange-200/70 data-[state=checked]:bg-orange-200 data-[state=checked]:text-black",
-    "data-[state=checked]:shadow-[0_0_22px_-12px_rgba(251,146,60,0.85),inset_0_1px_0_rgba(255,255,255,0.35)]",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-200/25 focus-visible:ring-offset-0",
-    "[&_svg]:h-3 [&_svg]:w-3 [&_svg]:stroke-[3.25]"
+    "mt-0.5 h-4 w-4 shrink-0 rounded-[5px] border ring-offset-0",
+    "border-zinc-500/35 bg-black/55 text-transparent",
+    "shadow-[inset_0_1px_0_rgba(255,255,255,0.13),0_0_0_1px_rgba(255,255,255,0.035)]",
+    "transition-[background-color,border-color,box-shadow,color] duration-300",
+    "hover:border-zinc-400/45 hover:bg-white/[0.045]",
+    "data-[state=checked]:border-[#d7bd82]/75 data-[state=checked]:bg-[#c8ad76] data-[state=checked]:text-[#14100a]",
+    "data-[state=checked]:shadow-[0_0_18px_-9px_rgba(215,189,130,0.72),0_0_0_1px_rgba(215,189,130,0.16),inset_0_1px_0_rgba(255,255,255,0.32)]",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d7bd82]/25 focus-visible:ring-offset-0",
+    "[&_svg]:h-3 [&_svg]:w-3 [&_svg]:stroke-[3.2]"
 );
+
+const LEGAL_CHECKBOX_CHECKED_STYLE: CSSProperties = {
+    backgroundColor: "#c8ad76",
+    borderColor: "rgba(215, 189, 130, 0.75)",
+    color: "#14100a",
+};
+
+const LEGAL_CHECKBOX_ROW_CLASS =
+    "flex items-start gap-2.5 rounded-[18px] border !border-white/10 !bg-black/45 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-xl transition-[border-color,background-color,box-shadow] duration-300 hover:!border-white/20 hover:!bg-white/[0.045]";
 
 export const REGISTER_LEGAL_TOAST_MESSAGE =
     "Both checkboxes are required: accept the Paint Protection Film terms in the popup, and confirm the website Terms of Service.";
@@ -120,7 +131,7 @@ export function RegisterLegalCheckboxes({
 
     return (
         <div className="space-y-2">
-            <div className="flex items-start gap-2.5 rounded-[14px] border border-white/[0.085] bg-white/[0.035] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.055),0_14px_36px_-32px_rgba(0,0,0,0.9)]">
+            <div className={LEGAL_CHECKBOX_ROW_CLASS}>
                 <Checkbox
                     id={ppfCheckboxId}
                     checked={ppfTermsAgreed}
@@ -133,6 +144,7 @@ export function RegisterLegalCheckboxes({
                         }
                     }}
                     className={LEGAL_CHECKBOX_CLASS}
+                    style={ppfTermsAgreed ? LEGAL_CHECKBOX_CHECKED_STYLE : undefined}
                 />
                 <div className="min-w-0 flex-1">
                     <Label
@@ -148,13 +160,14 @@ export function RegisterLegalCheckboxes({
                 </div>
             </div>
 
-            <div className="flex items-start gap-2.5 rounded-[14px] border border-white/[0.085] bg-white/[0.035] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.055),0_14px_36px_-32px_rgba(0,0,0,0.9)]">
+            <div className={LEGAL_CHECKBOX_ROW_CLASS}>
                 <Checkbox
                     id={websiteCheckboxId}
                     checked={registerWebsiteTermsAgreed}
                     aria-required
                     onCheckedChange={(c) => setRegisterWebsiteTermsAgreed(c === true)}
                     className={LEGAL_CHECKBOX_CLASS}
+                    style={registerWebsiteTermsAgreed ? LEGAL_CHECKBOX_CHECKED_STYLE : undefined}
                 />
                 <Label
                     htmlFor={websiteCheckboxId}

@@ -5,6 +5,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 
 import TransformationsSection from "@/components/TransformationsSection";
 import TestimonialsSection from "@/components/TestimonialsSection";
+import { useLandingSmoothScroll } from "@/hooks/useLandingSmoothScroll";
 
 const PARALLAX_PRODUCTS: HeroParallaxProduct[] = [
     { title: "Ceramic Coating Application", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1567808291548-fc3ee04dbcf0?auto=format&fit=crop&q=80&w=800" },
@@ -26,6 +27,7 @@ const PARALLAX_PRODUCTS: HeroParallaxProduct[] = [
 
 export default function Home() {
     const { t } = useLanguage();
+    useLandingSmoothScroll();
 
     const transformationTitle = (
         <>
