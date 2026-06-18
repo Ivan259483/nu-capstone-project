@@ -3285,89 +3285,392 @@ html.dark * {
     box-shadow: 0 12px 24px -22px rgba(37, 99, 235, 0.28) !important;
 }
 
+@keyframes customerOverviewCardIn {
+    from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.985);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes customerOverviewSweep {
+    0% {
+        opacity: 0;
+        transform: translateX(-125%) skewX(-12deg);
+    }
+
+    28% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0;
+        transform: translateX(130%) skewX(-12deg);
+    }
+}
+
+@keyframes customerOverviewLivePulse {
+    0% {
+        opacity: 0.72;
+        transform: scale(1);
+    }
+
+    70%,
+    100% {
+        opacity: 0;
+        transform: scale(2.55);
+    }
+}
+
+@keyframes customerOverviewDotBreathe {
+    0%,
+    100% {
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12), 0 0 12px rgba(37, 99, 235, 0.34);
+        transform: scale(1);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08), 0 0 18px rgba(37, 99, 235, 0.48);
+        transform: scale(0.92);
+    }
+}
+
+@keyframes customerOverviewProgressIn {
+    from {
+        transform: scaleX(0);
+    }
+
+    to {
+        transform: scaleX(1);
+    }
+}
+
+@keyframes customerOverviewProgressSheen {
+    from {
+        transform: translateX(-110%);
+    }
+
+    to {
+        transform: translateX(135%);
+    }
+}
+
+.customer-overview-grid {
+    perspective: 900px;
+}
+
 .customer-overview-card {
+    --overview-accent-start: #2563eb;
+    --overview-accent-mid: #38bdf8;
+    --overview-accent-end: #93c5fd;
+    --overview-border: rgba(147, 197, 253, 0.62);
+    --overview-border-strong: rgba(96, 165, 250, 0.82);
+    --overview-orb: rgba(219, 234, 254, 0.82);
+    --overview-glow: rgba(59, 130, 246, 0.14);
+    --overview-shadow: rgba(37, 99, 235, 0.42);
+    --overview-icon: #2563eb;
+    --overview-icon-hover: #1d4ed8;
+    --overview-icon-bg: #eff6ff;
+    isolation: isolate;
     min-height: 116px !important;
-    border: 1px solid #e7e4de !important;
-    border-radius: 20px !important;
-    background: rgba(255, 254, 251, 0.98) !important;
-    box-shadow: var(--customer-premium-shadow) !important;
+    border: 1px solid var(--overview-border) !important;
+    border-radius: 22px !important;
+    background:
+        radial-gradient(circle at 94% 12%, var(--overview-orb), transparent 34%),
+        radial-gradient(circle at 8% 95%, rgba(255, 255, 255, 0.92), transparent 34%),
+        linear-gradient(145deg, rgba(255, 255, 255, 0.99) 0%, rgba(248, 250, 252, 0.98) 50%, rgba(239, 246, 255, 0.9) 100%) !important;
+    box-shadow:
+        0 24px 48px -38px var(--overview-shadow),
+        0 10px 22px -20px rgba(15, 23, 42, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.96) !important;
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+    animation: customerOverviewCardIn 0.62s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     transition:
-        border-color 0.18s ease,
-        background 0.18s ease,
-        box-shadow 0.18s ease,
-        transform 0.18s ease;
+        border-color 0.28s ease,
+        background 0.28s ease,
+        box-shadow 0.28s ease,
+        transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.customer-overview-card[data-card="status"] {
+    --overview-accent-start: #1d4ed8;
+    --overview-accent-mid: #2563eb;
+    --overview-accent-end: #38bdf8;
+    --overview-border: rgba(147, 197, 253, 0.68);
+    --overview-border-strong: rgba(96, 165, 250, 0.88);
+    --overview-orb: rgba(219, 234, 254, 0.86);
+    --overview-glow: rgba(37, 99, 235, 0.16);
+    --overview-shadow: rgba(37, 99, 235, 0.46);
+    --overview-icon: #2563eb;
+    --overview-icon-hover: #1d4ed8;
+    --overview-icon-bg: #eff6ff;
+}
+
+.customer-overview-card[data-card="appointment"] {
+    --overview-accent-start: #0891b2;
+    --overview-accent-mid: #06b6d4;
+    --overview-accent-end: #2dd4bf;
+    --overview-border: rgba(125, 211, 252, 0.62);
+    --overview-border-strong: rgba(34, 211, 238, 0.78);
+    --overview-orb: rgba(207, 250, 254, 0.82);
+    --overview-glow: rgba(20, 184, 166, 0.14);
+    --overview-shadow: rgba(8, 145, 178, 0.38);
+    --overview-icon: #0891b2;
+    --overview-icon-hover: #0e7490;
+    --overview-icon-bg: #ecfeff;
+}
+
+.customer-overview-card[data-card="lastService"] {
+    --overview-accent-start: #4f46e5;
+    --overview-accent-mid: #8b5cf6;
+    --overview-accent-end: #38bdf8;
+    --overview-border: rgba(199, 210, 254, 0.74);
+    --overview-border-strong: rgba(129, 140, 248, 0.82);
+    --overview-orb: rgba(224, 231, 255, 0.88);
+    --overview-glow: rgba(139, 92, 246, 0.14);
+    --overview-shadow: rgba(79, 70, 229, 0.38);
+    --overview-icon: #4f46e5;
+    --overview-icon-hover: #4338ca;
+    --overview-icon-bg: #eef2ff;
+}
+
+.customer-overview-card[data-card="loyalty"] {
+    --overview-accent-start: #0ea5e9;
+    --overview-accent-mid: #2563eb;
+    --overview-accent-end: #f59e0b;
+    --overview-border: rgba(125, 211, 252, 0.62);
+    --overview-border-strong: rgba(56, 189, 248, 0.78);
+    --overview-orb: rgba(224, 242, 254, 0.86);
+    --overview-glow: rgba(14, 165, 233, 0.14);
+    --overview-shadow: rgba(14, 165, 233, 0.36);
+    --overview-icon: #2563eb;
+    --overview-icon-hover: #1d4ed8;
+    --overview-icon-bg: #f0f9ff;
+}
+
+.customer-overview-card::before,
+.customer-overview-card::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+}
+
+.customer-overview-card::before {
+    inset: -42% -18% auto auto;
+    z-index: 0;
+    width: 12rem;
+    height: 12rem;
+    border-radius: 999px;
+    background: radial-gradient(circle, var(--overview-orb), var(--overview-glow) 42%, transparent 68%);
+    opacity: 0.82;
+    filter: blur(2px);
+    transition: opacity 0.28s ease, transform 0.28s ease;
+}
+
+.customer-overview-card::after {
+    inset: 0;
+    z-index: 1;
+    background: linear-gradient(105deg, transparent 0%, transparent 32%, rgba(255, 255, 255, 0.86) 45%, rgba(96, 165, 250, 0.14) 52%, transparent 66%, transparent 100%);
+    opacity: 0;
+    transform: translateX(-125%) skewX(-12deg);
 }
 
 .customer-overview-card:hover {
-    border-color: #dcd8d1 !important;
+    border-color: var(--overview-border-strong) !important;
     box-shadow:
-        0 24px 48px -38px rgba(15, 23, 42, 0.44),
-        0 4px 10px -8px rgba(15, 23, 42, 0.14) !important;
-    transform: translateY(-1px);
+        0 34px 66px -42px var(--overview-shadow),
+        0 16px 30px -24px rgba(15, 23, 42, 0.22),
+        inset 0 1px 0 rgba(255, 255, 255, 0.98) !important;
+    transform: translateY(-4px) scale(1.01);
+}
+
+.customer-overview-card:hover::before {
+    opacity: 1;
+    transform: translate3d(-0.45rem, 0.35rem, 0) scale(1.08);
+}
+
+.customer-overview-card:hover::after {
+    animation: customerOverviewSweep 0.9s ease;
+}
+
+.customer-overview-glow {
+    position: absolute;
+    inset: auto 1rem 0 1rem;
+    z-index: 0;
+    height: 2.85rem;
+    border-radius: 999px 999px 0 0;
+    background: radial-gradient(ellipse at center, var(--overview-glow), transparent 70%);
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.customer-overview-content {
+    z-index: 2;
 }
 
 .customer-overview-accent {
     position: absolute;
     top: 0;
     left: 1rem;
-    width: 2rem;
+    z-index: 3;
+    width: 3.25rem;
     height: 3px;
     border-radius: 0 0 999px 999px;
-    background: #94a3b8;
-}
-
-.customer-overview-card[data-card="status"] .customer-overview-accent {
-    background: #2563eb;
-}
-
-.customer-overview-card[data-card="appointment"] .customer-overview-accent {
-    background: #7b977f;
-}
-
-.customer-overview-card[data-card="lastService"] .customer-overview-accent {
-    background: #b78384;
-}
-
-.customer-overview-card[data-card="loyalty"] .customer-overview-accent {
-    background: #c2a25f;
+    background: linear-gradient(90deg, var(--overview-accent-start), var(--overview-accent-mid), var(--overview-accent-end));
+    box-shadow: 0 0 16px var(--overview-glow);
 }
 
 .customer-overview-icon {
+    position: relative;
     display: inline-flex;
-    width: 2.25rem;
-    height: 2.25rem;
+    width: 2.45rem;
+    height: 2.45rem;
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    border-radius: 0.8rem;
+    overflow: hidden;
+    border-radius: 0.95rem;
+    background: linear-gradient(145deg, #ffffff, var(--overview-icon-bg)) !important;
+    color: var(--overview-icon) !important;
     box-shadow:
-        0 10px 22px -18px currentColor,
-        0 1px 0 rgba(255, 255, 255, 0.84) inset;
+        0 14px 28px -22px var(--overview-shadow),
+        0 0 0 1px var(--overview-border) inset,
+        0 1px 0 rgba(255, 255, 255, 0.94) inset;
+    transition:
+        color 0.25s ease,
+        box-shadow 0.25s ease,
+        transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.customer-overview-icon::before {
+    content: "";
+    position: absolute;
+    inset: -45%;
+    background: conic-gradient(from 110deg, transparent, var(--overview-glow), transparent 34%);
+    opacity: 0;
+    transform: rotate(-20deg);
+    transition: opacity 0.25s ease, transform 0.35s ease;
+}
+
+.customer-overview-icon iconify-icon {
+    position: relative;
+    z-index: 1;
+}
+
+.customer-overview-card:hover .customer-overview-icon {
+    color: var(--overview-icon-hover) !important;
+    box-shadow:
+        0 18px 32px -22px var(--overview-shadow),
+        0 0 0 1px var(--overview-border-strong) inset,
+        0 1px 0 rgba(255, 255, 255, 0.96) inset;
+    transform: translateY(-2px) scale(1.04);
+}
+
+.customer-overview-card:hover .customer-overview-icon::before {
+    opacity: 1;
+    transform: rotate(24deg);
 }
 
 .customer-overview-label {
-    color: #667085 !important;
+    color: #64748b !important;
     font-size: 0.65rem !important;
     letter-spacing: 0.11em !important;
 }
 
+.customer-overview-value {
+    letter-spacing: -0.025em;
+    transition: color 0.22s ease;
+}
+
 .customer-overview-helper {
-    color: #8a94a3 !important;
-    font-weight: 520 !important;
+    color: #7c8aa0 !important;
+    font-weight: 580 !important;
+}
+
+.customer-overview-live-dot {
+    position: relative;
+    display: inline-flex;
+    width: 0.72rem;
+    height: 0.72rem;
+    flex: 0 0 0.72rem;
+    align-items: center;
+    justify-content: center;
+}
+
+.customer-overview-live-dot::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: var(--overview-glow);
+    animation: customerOverviewLivePulse 1.9s ease-out infinite;
+}
+
+.customer-overview-live-dot-core {
+    position: relative;
+    width: 0.52rem;
+    height: 0.52rem;
+    border-radius: 999px;
+    background: var(--overview-accent-mid);
+    animation: customerOverviewDotBreathe 1.9s ease-in-out infinite;
 }
 
 .customer-overview-loyalty-track {
-    border: 1px solid rgba(194, 162, 95, 0.2);
-    background: rgba(254, 243, 199, 0.72) !important;
-    box-shadow: inset 0 1px 2px rgba(146, 64, 14, 0.08);
+    border: 1px solid var(--overview-border);
+    background: rgba(239, 246, 255, 0.9) !important;
+    box-shadow:
+        inset 0 1px 2px rgba(37, 99, 235, 0.08),
+        0 8px 18px -18px rgba(37, 99, 235, 0.38);
 }
 
 .customer-overview-loyalty-shell {
-    box-shadow: inset 0 0 0 1px rgba(217, 119, 6, 0.12);
+    background: rgba(255, 255, 255, 0.88) !important;
+    box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.28);
 }
 
 .customer-overview-loyalty-fill {
-    box-shadow: 0 0 10px rgba(245, 158, 11, 0.28);
+    position: relative;
+    overflow: hidden;
+    transform-origin: left center;
+    background: linear-gradient(90deg, var(--overview-accent-start), var(--overview-accent-mid), var(--overview-accent-end)) !important;
+    box-shadow: 0 0 14px var(--overview-shadow);
+    animation: customerOverviewProgressIn 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+}
+
+.customer-overview-loyalty-fill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+    animation: customerOverviewProgressSheen 1.7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .customer-overview-card,
+    .customer-overview-card::after,
+    .customer-overview-card:hover::after,
+    .customer-overview-live-dot::before,
+    .customer-overview-live-dot-core,
+    .customer-overview-loyalty-fill,
+    .customer-overview-loyalty-fill::after {
+        animation: none !important;
+    }
+
+    .customer-overview-card {
+        opacity: 1;
+        transform: none;
+        transition: none !important;
+    }
+
+    .customer-overview-card:hover,
+    .customer-overview-card:hover .customer-overview-icon {
+        transform: none;
+    }
 }
 
 /* Compact customer booking alert */
