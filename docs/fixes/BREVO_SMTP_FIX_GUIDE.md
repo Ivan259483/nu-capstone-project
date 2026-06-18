@@ -51,7 +51,7 @@ The `BREVO_SMTP_PASSWORD` in `.env` is **INCORRECT**.
 ### Current .env:
 ```
 BREVO_SMTP_USER=a184b0001@smtp-brevo.com
-BREVO_SMTP_PASSWORD=xsmtpsib-6fe21da06f48b1a22b2c7dd4a713ad6f358d6c9f1cbfd4155ac36d6635d4a640-rSe91iU5zmkSCwkV
+BREVO_SMTP_PASSWORD=<brevo-smtp-password>
 ```
 
 ### To Fix:

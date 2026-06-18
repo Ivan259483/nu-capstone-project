@@ -130,14 +130,14 @@ export default defineConfig({
 const SERVICE_ID = 'service_uvd7x9o';
 const TEMPLATE_ID = 'template_pkumzpa';
 const PUBLIC_KEY = '14L8opol4yNJUJLiG';           // ❌ HARDCODED - EXPOSED!
-const PRIVATE_KEY = 'oTCoGlsu1sqCMm3X8dYWV';     // ❌ HARDCODED - EXPOSED!
+const PRIVATE_KEY = '<emailjs-private-key>';     // ❌ HARDCODED - EXPOSED!
 const EMAILJS_URL = 'https://api.emailjs.com/api/v1.0/email/send';
 
 // ✅ AFTER (secured with environment variables):
 const SERVICE_ID = 'service_uvd7x9o';
 const TEMPLATE_ID = 'template_pkumzpa';
 const PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || '14L8opol4yNJUJLiG';     // ✅ FROM ENV
-const PRIVATE_KEY = import.meta.env.VITE_EMAILJS_PRIVATE_KEY || 'oTCoGlsu1sqCMm3X8dYWV'; // ✅ FROM ENV
+const PRIVATE_KEY = import.meta.env.VITE_EMAILJS_PRIVATE_KEY || '<emailjs-private-key>'; // ✅ FROM ENV
 const EMAILJS_URL = 'https://api.emailjs.com/api/v1.0/email/send';
 ```
 

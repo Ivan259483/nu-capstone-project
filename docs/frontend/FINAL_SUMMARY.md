@@ -119,7 +119,7 @@ npm run dev
 ### Before
 ```typescript
 const PUBLIC_KEY = '14L8opol4yNJUJLiG';  // ❌ In Git history!
-const PRIVATE_KEY = 'oTCoGlsu1sqCMm3X8dYWV';  // ❌ Exposed!
+const PRIVATE_KEY = '<emailjs-private-key>';  // ❌ Exposed!
 ```
 
 ### After

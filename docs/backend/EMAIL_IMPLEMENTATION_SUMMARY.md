@@ -174,7 +174,7 @@ SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false
 EMAIL_USER=username
-EMAIL_PASSWORD=password
+EMAIL_PASSWORD=<email-password>
 ```
 
 ### Development

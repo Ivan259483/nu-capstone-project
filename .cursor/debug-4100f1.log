@@ -1,6 +1,0 @@
-{"sessionId":"4100f1","location":"AuthContext.tsx:logout","message":"logout start","data":{"hadToken":true},"timestamp":1780208732133,"hypothesisId":"H1","runId":"signout"}
-{"sessionId":"4100f1","location":"AuthContext.tsx:onAuthStateChanged","message":"logout in progress — skip JWT restore","data":{"hasToken":false},"timestamp":1780208732188,"hypothesisId":"H1","runId":"signout"}
-{"sessionId":"4100f1","location":"AuthContext.tsx:logout","message":"logout complete","data":{"hasToken":false},"timestamp":1780208732189,"hypothesisId":"H1","runId":"signout"}
-{"sessionId":"4100f1","location":"AuthContext.tsx:logout","message":"logout start","data":{"hadToken":true},"timestamp":1780208746030,"hypothesisId":"H1","runId":"signout"}
-{"sessionId":"4100f1","location":"AuthContext.tsx:onAuthStateChanged","message":"logout in progress — skip JWT restore","data":{"hasToken":false},"timestamp":1780208746060,"hypothesisId":"H1","runId":"signout"}
-{"sessionId":"4100f1","location":"AuthContext.tsx:logout","message":"logout complete","data":{"hasToken":false},"timestamp":1780208746061,"hypothesisId":"H1","runId":"signout"}

@@ -1,120 +1,185 @@
-# AutoSPF+ Premium Automotive Service Management
+# AutoSPF+ / AutoGloss
 
-![Version](https://img.shields.io/badge/Version-v1.0.0-orange)
-![Security](https://img.shields.io/badge/Security-Hardened-brightgreen)
-![Status](https://img.shields.io/badge/Status-Portfolio_Showcase-blue)
-
-AutoSPF+ is a full-stack automotive service management platform built for automotive detailing and protection services. It supports customer booking, POS and billing workflows, inventory monitoring, real-time service tracking, role-based dashboards, AI-assisted damage scan workflows, and secure authentication.
+AutoSPF+ / AutoGloss is a full-stack automotive service management platform for detailing, paint protection, billing, inventory, and customer service tracking. The system includes web dashboards, a mobile app surface, real-time updates, AI-assisted vehicle inspection workflows, and AR visualization support.
 
 ## Live Demo
 
-Demo: https://autospf.shop
+https://nu-capstone-project.vercel.app
 
-## Key Features
+## Features
 
-- **Admin Dashboard**: Manage users, roles, bookings, services, pricing, inventory, activity logs, and operational settings.
-- **Customer Dashboard**: Customer portal for booking services, tracking vehicle progress, uploading payment proof, managing service history, and viewing loyalty points.
-- **Sales / POS Dashboard**: Booking approval, billing, transaction management, customer records, and sales reporting.
-- **Quality Checker / Staff Dashboard**: Shop-floor workflow for assigned jobs, service stage updates, timers, inventory usage logging, before/after photos, QC checklist, and job completion.
-- **Live Service Tracking**: Real-time vehicle service progress updates powered by Socket.IO and MongoDB change streams.
-- **Booking Availability Control**: Time-slot capacity checks and availability rules to help prevent overbooking.
-- **AI-Assisted Workflows**: Damage scan, service estimate support, 3D/AR vehicle preview flow, and chatbot-assisted customer onboarding.
-- **Security-Focused Architecture**: Firebase Auth, backend JWT sessions, bcrypt password hashing, OTP flows, rate limiting, NoSQL sanitization, Helmet security headers, and field-level encryption for sensitive data.
+- **Booking and scheduling**: Customer booking flow, availability handling, and service appointment management.
+- **POS and billing**: Sales dashboard, billing workflows, payment records, receipts, and transaction management.
+- **Inventory management**: Product, supplier, stock, and inventory usage tracking for service operations.
+- **Live service tracking**: Real-time job progress updates for customers and staff using Socket.IO.
+- **AI vehicle inspection**: AI-assisted damage scan and vehicle inspection workflows.
+- **AR visualization**: 3D and AR vehicle preview support for visual service experiences.
+- **Customer documents and waivers**: Digital waivers, service documents, proof uploads, and customer records.
+- **Role-based dashboards**: Separate experiences for customers, administrators, sales, quality checking, and staff operations.
 
-## Technology Stack
+## Tech Stack
 
-- **Frontend**: React, TypeScript, Vite, Tailwind CSS, Framer Motion, Lucide Icons, Sonner Toasts, Axios
-- **Backend**: Node.js, Express.js, MongoDB Atlas, Mongoose, JWT, Firebase Admin SDK
-- **Authentication**: Firebase Auth, backend JWT, OTP verification
-- **Real-Time Updates**: Socket.IO, MongoDB Change Streams
-- **Email / Notifications**: Resend for OTP emails, password setup links, and transactional emails
-- **AI / Media Workflows**: Groq, Roboflow Workflows, Meshy AI, Cloudinary
-- **Deployment**: Vercel for the frontend, Render for the backend API
+- **Web frontend**: React, Vite, TypeScript, Tailwind CSS
+- **Backend API**: Node.js, Express
+- **Database**: MongoDB Atlas, Mongoose
+- **Mobile**: Expo React Native
+- **Authentication**: Firebase Auth, backend sessions, role validation
+- **Real time**: Socket.IO
+- **AI/AR tools**: AI inspection services, 3D generation, AR visualization, and media storage integrations
+- **Deployment**: Vercel for the frontend, Render for the backend API, Expo/EAS for mobile builds
 
-## Production Checklist Implemented
+## Screenshots
 
-- [x] **Error Boundaries**: Global React error boundary and component-level safeguards for complex UI areas.
-- [x] **Security Hardening**: Helmet security headers, production CSP configuration, NoSQL sanitization, rate limiting, and protected API routes.
-- [x] **Field-Level Encryption**: AES-256-CBC encryption for sensitive fields such as phone numbers, addresses, vehicle plates, notes, and signatures.
-- [x] **Authentication Flow**: Firebase Auth integrated with backend JWT sessions, role validation, OTP verification, and secure password setup links.
-- [x] **Rate Limiting**: General API and authentication route protection against repeated requests and brute-force attempts.
-- [x] **API Resilience**: Axios interceptors, request timeouts, token handling, and global error handling for frontend API calls.
-- [x] **Type Safety**: TypeScript-based frontend with centralized app types and role-safe UI flows.
-- [x] **Real-Time Sync**: Socket.IO-powered updates for live tracking, booking status, availability, and operational changes.
-- [x] **Performance**: Gzip compression, optimized Vite build configuration, asset handling, and frontend code-splitting.
+Screenshots are not required to run the project. Add production screenshots to these paths when they are available:
 
-## Setup Instructions
+| Screen | Placeholder path |
+| --- | --- |
+| Customer dashboard | `docs/screenshots/customer-dashboard.png` |
+| Admin dashboard | `docs/screenshots/admin-dashboard.png` |
+| Live tracker | `docs/screenshots/live-tracker.png` |
+
+## Project Structure
+
+```text
+backend/   Express API, MongoDB models, services, Socket.IO, and server logic
+frontend/  React/Vite web app and dashboards
+mobile/    Expo React Native mobile app
+docs/      Architecture notes, setup guides, and screenshots
+```
+
+## Setup
 
 ### Prerequisites
 
-- Node.js v18+
-- MongoDB Atlas account or local MongoDB
-- Firebase project
-- Resend API key
-- Optional AI service keys for Groq, Roboflow, Meshy AI, and Cloudinary
+- Node.js 18 or newer
+- npm
+- MongoDB Atlas database or a local MongoDB instance
+- Firebase project for authentication
+- Optional provider accounts for email, AI inspection, AR/3D generation, and media storage
+- Expo CLI or `npx expo` for the mobile app
 
-### Installation
+### Backend
 
-1. **Clone the repository**
-   ```bash
-   git clone [repository-url]
-   cd AutoSPF+
-
-   Backend Setup
-
+```bash
 cd backend
 npm install
-# Create .env based on the backend environment variables below
+cp .env.example .env
 npm run dev
-Frontend Setup
+```
 
+The backend defaults to port `3000` unless `PORT` is set in `backend/.env`.
+
+### Frontend
+
+```bash
 cd frontend
 npm install
-# Create .env based on the frontend environment variables below
+cp .env.example .env
 npm run dev
-Environment Variables
-Backend (/backend/.env)
-PORT=8080
+```
+
+The Vite app normally runs on `http://localhost:5173`. Set `VITE_API_URL` and `VITE_BACKEND_URL` to match your backend origin.
+
+### Mobile
+
+```bash
+cd mobile
+npm install
+cp .env.example .env
+npx expo start
+```
+
+Set `EXPO_PUBLIC_API_URL` when testing against a LAN, ngrok, or deployed backend API.
+
+## Environment Variables
+
+Use `.env.example` files as templates. Keep all real secrets in local `.env` files or in the environment variable manager for your deployment platform.
+
+### Backend (`backend/.env`)
+
+```env
+PORT=3000
 NODE_ENV=development
-MONGODB_URI=your_mongodb_uri
+MONGODB_URI=<mongodb-connection-string>
 
-JWT_SECRET=your_jwt_secret
-ENCRYPTION_KEY=your_32_character_encryption_key
-
+JWT_SECRET=<long-random-jwt-secret>
+ENCRYPTION_KEY=<32-character-encryption-key>
 CORS_ORIGIN=http://localhost:5173
 
 EMAIL_PROVIDER=resend
 EMAIL_FROM_NAME=AutoSPF+
-EMAIL_FROM_ADDRESS=verify@autospf.shop
-EMAIL_REPLY_TO=support@autospf.shop
-SUPPORT_EMAIL=support@autospf.shop
-RESEND_API_KEY=your_resend_api_key
+EMAIL_FROM_ADDRESS=<verified-sender-email>
+EMAIL_REPLY_TO=<support-email>
+SUPPORT_EMAIL=<support-email>
+RESEND_API_KEY=<resend-api-key>
 
-FIREBASE_PROJECT_ID=your_firebase_project_id
-FIREBASE_CLIENT_EMAIL=your_firebase_service_account_email
-FIREBASE_PRIVATE_KEY=your_firebase_private_key
+FIREBASE_PROJECT_ID=<firebase-project-id>
+FIREBASE_CLIENT_EMAIL=<firebase-service-account-email>
+FIREBASE_PRIVATE_KEY="<firebase-private-key-with-escaped-newlines>"
 
-GROQ_API_KEY=your_groq_api_key
-ROBOFLOW_API_KEY=your_roboflow_api_key
-MESHY_API_KEY=your_meshy_api_key
+GROQ_API_KEY=<groq-api-key>
+ROBOFLOW_API_KEY=<roboflow-api-key>
+MESHY_API_KEY=<meshy-api-key>
 
-CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
-CLOUDINARY_API_KEY=your_cloudinary_api_key
-CLOUDINARY_API_SECRET=your_cloudinary_api_secret
-Frontend (/frontend/.env)
-VITE_API_URL=http://localhost:8080/api
-VITE_BACKEND_URL=http://localhost:8080
+CLOUDINARY_CLOUD_NAME=<cloudinary-cloud-name>
+CLOUDINARY_API_KEY=<cloudinary-api-key>
+CLOUDINARY_API_SECRET=<cloudinary-api-secret>
+```
 
-VITE_FIREBASE_API_KEY=your_firebase_api_key
-VITE_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your_project_id
-VITE_FIREBASE_STORAGE_BUCKET=your_project_id.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-VITE_FIREBASE_APP_ID=your_firebase_app_id
-If you use PORT=3000 for the backend, update both VITE_API_URL and VITE_BACKEND_URL to match.
+### Frontend (`frontend/.env`)
 
-Tags
-#AutoSPFPlus #MERNStack #AutomotiveSaaS #React #TypeScript #NodeJS #ExpressJS #MongoDB #FirebaseAuth #SocketIO #Vercel #Render
+```env
+VITE_API_URL=http://localhost:3000/api
+VITE_BACKEND_URL=http://localhost:3000
 
-© 2026 AutoSPF+ | Portfolio Showcase
+VITE_FIREBASE_API_KEY=<firebase-web-api-key>
+VITE_FIREBASE_AUTH_DOMAIN=<firebase-auth-domain>
+VITE_FIREBASE_PROJECT_ID=<firebase-project-id>
+VITE_FIREBASE_STORAGE_BUCKET=<firebase-storage-bucket>
+VITE_FIREBASE_MESSAGING_SENDER_ID=<firebase-sender-id>
+VITE_FIREBASE_APP_ID=<firebase-app-id>
+```
 
+### Mobile (`mobile/.env`)
+
+```env
+EXPO_PUBLIC_API_URL=http://<your-lan-ip>:3000
+EXPO_PUBLIC_DEV_API_PORT=3000
+```
+
+## Deployment Notes
+
+### Vercel
+
+- Deploy the frontend from `frontend/` or use the existing Vercel configuration.
+- Set frontend environment variables in the Vercel dashboard.
+- The public demo is hosted at `https://nu-capstone-project.vercel.app`.
+
+### Render
+
+- Deploy the backend API from `backend/`.
+- Use `npm install` as the build command and `npm start` as the start command.
+- Set all backend secrets in Render environment variables.
+- Confirm the health endpoint after deployment: `/health` or `/api/health`.
+
+### Expo
+
+- Configure mobile environment variables before starting Metro or creating EAS builds.
+- Use `npx expo start` for development.
+- Use EAS profiles from `eas.json` or `mobile/eas.json` for preview and production builds.
+
+## Security
+
+Do not commit real `.env` files, database credentials, API keys, Firebase private keys, passwords, tokens, or deployment secrets. Use `.env.example` for placeholders only and store real values locally or in Vercel, Render, Expo, Firebase, or provider dashboards.
+
+## Roadmap
+
+- Add polished production screenshots for the main dashboards and live tracker.
+- Expand automated tests for booking, billing, inventory, and service tracking flows.
+- Add CI checks for linting, tests, dependency review, and secret scanning.
+- Improve deployment documentation for production operations.
+- Publish mobile preview and production build notes.
+
+## License
+
+This project is prepared for public open-source release. Add the final license text in a `LICENSE` file before accepting external contributions or redistributing the software.

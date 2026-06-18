@@ -110,7 +110,7 @@ import react from "@vitejs/plugin-react-swc";
 ```typescript
 ❌ BEFORE (email-service.ts):
 const PUBLIC_KEY = '14L8opol4yNJUJLiG';    // Hardcoded - exposed in Git!
-const PRIVATE_KEY = 'oTCoGlsu1sqCMm3X8dYWV'; // Hardcoded - visible to everyone!
+const PRIVATE_KEY = '<emailjs-private-key>'; // Hardcoded - visible to everyone!
 
 ✅ AFTER (email-service.ts):
 const PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || '...';

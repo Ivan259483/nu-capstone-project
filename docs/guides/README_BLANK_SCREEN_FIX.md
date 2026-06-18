@@ -253,7 +253,7 @@ This created an **incompatible mix** that couldn't run properly.
 ### Before
 ```typescript
 const PUBLIC_KEY = '14L8opol4yNJUJLiG';  // Visible in Git!
-const PRIVATE_KEY = 'oTCoGlsu1sqCMm3X8dYWV';  // Everyone sees it!
+const PRIVATE_KEY = '<emailjs-private-key>';  // Everyone sees it!
 ```
 
 ### After

@@ -140,7 +140,7 @@ User Action: Sign Up → Send OTP
 │       secure: false,     // TLS, not SSL            │
 │       auth: {                                        │
 │         user: "a184b0001@smtp-brevo.com",          │
-│         pass: "xsmtpsib-..."                       │
+│         pass: "<brevo-smtp-password>"                       │
 │       }                                              │
 │     }                                                │
 │  2. Send email via Brevo SMTP                      │
@@ -253,8 +253,8 @@ EMAIL_FROM_ADDRESS=noreply@autospf.com
 
 # Brevo SMTP
 BREVO_SMTP_USER=a184b0001@smtp-brevo.com
-BREVO_SMTP_PASSWORD=xsmtpsib-6fe21da06f48b1a22b2c7dd4a713ad6f358d6c9f1cbfd4155ac36d6635d4a640-rSe91iU5zmkSCwkV
-BREVO_API_KEY=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
+BREVO_SMTP_PASSWORD=<brevo-smtp-password>
+BREVO_API_KEY=<brevo-api-key>
 
 # OTP Settings
 OTP_EXPIRY=600

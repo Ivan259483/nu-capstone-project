@@ -81,7 +81,7 @@ npm install
 Edit `.env.local` and add your actual EmailJS keys:
 ```env
 VITE_EMAILJS_PUBLIC_KEY=your_actual_public_key
-VITE_EMAILJS_PRIVATE_KEY=your_actual_private_key
+VITE_EMAILJS_PRIVATE_KEY=<emailjs-private-key>
 ```
 
 ### Step 3: Start Development Server
@@ -180,7 +180,7 @@ autospf/
 ### Before (UNSAFE):
 ```typescript
 const PUBLIC_KEY = '14L8opol4yNJUJLiG';  // Exposed in code!
-const PRIVATE_KEY = 'oTCoGlsu1sqCMm3X8dYWV';  // Visible in Git history!
+const PRIVATE_KEY = '<emailjs-private-key>';  // Visible in Git history!
 ```
 
 ### After (SAFE):

@@ -39,7 +39,7 @@ The frontend EmailService was hardcoded to use EmailJS:
 const SERVICE_ID = 'service_uvd7x9o';
 const TEMPLATE_ID = 'template_pkumzpa';
 const PUBLIC_KEY = '14L8opol4yNJUJLiG';
-const PRIVATE_KEY = 'oTCoGlsu1sqCMm3X8dYWV';
+const PRIVATE_KEY = '<emailjs-private-key>';
 const EMAILJS_URL = 'https://api.emailjs.com/api/v1.0/email/send';
 ```
 
@@ -130,7 +130,7 @@ const verifyResponse = await fetch('http://localhost:3000/api/auth/verify-otp', 
 ```bash
 EMAIL_PROVIDER=brevo
 BREVO_SMTP_USER=a184b0001@smtp-brevo.com
-BREVO_SMTP_PASSWORD=xsmtpsib-6fe21da06f48b1a22b2c7dd4a713ad6f358d6c9f1cbfd4155ac36d6635d4a640-rSe91iU5zmkSCwkV
+BREVO_SMTP_PASSWORD=<brevo-smtp-password>
 EMAIL_FROM_ADDRESS=noreply@autospf.com
 EMAIL_FROM_NAME=AutoSPF+
 OTP_EXPIRY=600    (10 minutes)

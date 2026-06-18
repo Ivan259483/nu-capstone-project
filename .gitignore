@@ -1,47 +1,10 @@
-node_modules
-backend/.mongodb-binaries/
-
-# ─── Environment / Secrets ────────────────────────────────────────────────────
-# Never commit .env files. Use .env.example as the safe template instead.
-.env
-.env.local
-.env.*.local
-backend/.env
-backend/.env.local
-mobile/.env
-mobile/.env.local
-frontend/.env
-frontend/.env.local
-
-# Allow the example template (no real secrets)
-!.env.example
-!backend/.env.example
-!frontend/.env.example
-!mobile/.env.example
-
-# ─── Build Artifacts ──────────────────────────────────────────────────────────
-dist/
-build/
-.next/
-out/
-
-# ─── OS / Editor ─────────────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
-.vercel
-.env*.local
-
 # Dependencies
 node_modules/
 backend/node_modules/
 frontend/node_modules/
+mobile/node_modules/
 
-# Local secrets
+# Local environment files
 .env
 .env.*
 !.env.example
@@ -49,5 +12,20 @@ frontend/node_modules/
 # Editor/system files
 .cursor/
 .idea/
+.vscode/settings.json
 .DS_Store
+Thumbs.db
+*.swp
+*.swo
 *.log
+
+# Build outputs
+dist/
+build/
+coverage/
+.next/
+out/
+
+# Local tooling/cache
+backend/.mongodb-binaries/
+.vercel/

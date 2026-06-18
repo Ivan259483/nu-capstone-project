@@ -133,7 +133,7 @@ EMAIL_PROVIDER=gmail
 # New
 EMAIL_PROVIDER=brevo
 BREVO_SMTP_USER=new_credentials
-BREVO_SMTP_PASSWORD=new_password
+BREVO_SMTP_PASSWORD=<brevo-smtp-password>
 ```
 
 ### Step 2: Restart Server
@@ -243,7 +243,7 @@ curl -X POST http://localhost:3000/api/auth/send-otp \
 ### 1. Never Commit Credentials
 ```bash
 # ❌ BAD: Credentials in code
-EMAIL_PASSWORD=mypassword123
+EMAIL_PASSWORD=<email-password>
 
 # ✅ GOOD: Use .env file
 # .env is in .gitignore
@@ -334,7 +334,7 @@ EMAIL_PASSWORD=xxxx xxxx xxxx xxxx
 # Generic SMTP Only
 # ======================
 EMAIL_USER=username
-EMAIL_PASSWORD=password
+EMAIL_PASSWORD=<email-password>
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false|true

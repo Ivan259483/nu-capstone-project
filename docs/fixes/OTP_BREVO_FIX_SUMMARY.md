@@ -16,8 +16,8 @@ To: EMAIL_PROVIDER=brevo
 - Switched from console mode to actual Brevo SMTP email provider
 - Verified all Brevo credentials are present:
   - ✅ BREVO_SMTP_USER: a184b0001@smtp-brevo.com
-  - ✅ BREVO_SMTP_PASSWORD: xsmtpsib-[key]
-  - ✅ BREVO_API_KEY: xkeysib-[key]
+  - ✅ BREVO_SMTP_PASSWORD: <brevo-smtp-password>
+  - ✅ BREVO_API_KEY: <brevo-api-key>
 
 ### 2. **Server Startup Verification** (`backend/server.js`)
 Added comprehensive environment variable logging at startup:
@@ -40,7 +40,7 @@ Host: smtp-relay.brevo.com
 Port: 587
 Secure: false (TLS, not SSL)
 Auth User: a184b0001@smtp-brevo.com
-Auth Pass: xsmtpsib-[API_KEY]
+Auth Pass: <brevo-smtp-password>
 Debug: true (enables SMTP conversation logging)
 Logger: true (enables detailed logging)
 ```
@@ -275,15 +275,15 @@ If Brevo fails, system automatically falls back to console mode:
 ```
 PORT=3000
 NODE_ENV=development
-MONGODB_URI=mongodb+srv://...
-JWT_SECRET=dev-secret-key-...
+MONGODB_URI=<mongodb-connection-string>
+JWT_SECRET=<jwt-secret>
 CORS_ORIGIN=http://localhost:5173
 EMAIL_PROVIDER=brevo
 EMAIL_FROM_NAME=AutoSPF+
 EMAIL_FROM_ADDRESS=ivantadena21@gmail.com
 BREVO_SMTP_USER=a184b0001@smtp-brevo.com
-BREVO_SMTP_PASSWORD=xsmtpsib-...
-BREVO_API_KEY=xkeysib-...
+BREVO_SMTP_PASSWORD=<brevo-smtp-password>
+BREVO_API_KEY=<brevo-api-key>
 OTP_EXPIRY=600
 OTP_LENGTH=6
 ```

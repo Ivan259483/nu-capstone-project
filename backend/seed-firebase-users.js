@@ -16,17 +16,17 @@ dotenv.config();
 
 // ─── Firebase Config (matches autospf frontend) ───
 const firebaseConfig = {
-  apiKey: 'AIzaSyCO203nx1fifBUyn9-KuAE1AfqflxPaQ5M',
-  authDomain: 'autospf-plus.firebaseapp.com',
-  projectId: 'autospf-plus',
-  storageBucket: 'autospf-plus.firebasestorage.app',
-  messagingSenderId: '227724962432',
-  appId: '1:227724962432:web:fddb58f76cf6b348ee5465',
-  measurementId: 'G-NDN8GHWJWB',
+  apiKey: process.env.FIREBASE_WEB_API_KEY || process.env.VITE_FIREBASE_API_KEY,
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID,
+  measurementId: process.env.FIREBASE_MEASUREMENT_ID || process.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 // ─── Shared test password ───
-const TEST_PASSWORD = 'AutoSPF@2026';
+const TEST_PASSWORD = process.env.SEED_TEST_PASSWORD;
 
 // ─── Test accounts to create (from MongoDB users collection) ───
 const TEST_ACCOUNTS = [
@@ -61,7 +61,21 @@ async function main() {
   console.log('\n╔══════════════════════════════════════════════════════╗');
   console.log('║   🔥 Firebase Auth User Seeder for AutoSPF+        ║');
   console.log('╚══════════════════════════════════════════════════════╝\n');
-  console.log(`📋 Shared test password: ${TEST_PASSWORD}`);
+
+  const missingFirebaseConfig = Object.entries(firebaseConfig)
+    .filter(([key, value]) => key !== 'measurementId' && !value)
+    .map(([key]) => key);
+  if (missingFirebaseConfig.length > 0) {
+    console.error(`Missing Firebase web config values: ${missingFirebaseConfig.join(', ')}`);
+    process.exit(1);
+  }
+
+  if (!TEST_PASSWORD) {
+    console.error('Missing SEED_TEST_PASSWORD in environment.');
+    process.exit(1);
+  }
+
+  console.log('📋 Shared test password: [set from SEED_TEST_PASSWORD]');
   console.log(`📋 Accounts to process: ${TEST_ACCOUNTS.length}\n`);
 
   // 1. Connect to MongoDB
@@ -154,7 +168,7 @@ async function main() {
     results.failed.forEach(f => console.log(`   • ${f.email} — ${f.reason}`));
   }
 
-  console.log(`\n🔑 All test accounts use password: ${TEST_PASSWORD}\n`);
+  console.log('\n🔑 All test accounts use the password from SEED_TEST_PASSWORD.\n');
 
   await mongoose.disconnect();
   console.log('🔌 Disconnected from MongoDB');
