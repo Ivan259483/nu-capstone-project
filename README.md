@@ -5,8 +5,6 @@ AutoSPF+ / AutoGloss is a full-stack automotive service management platform for 
 ## Live Demo
 
 Primary: https://autospf.shop  
-Vercel preview: https://nu-capstone-project.vercel.app
-
 ## Features
 
 - **Booking and scheduling**: Customer booking flow, availability handling, and service appointment management.
