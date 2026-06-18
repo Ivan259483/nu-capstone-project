@@ -35,3 +35,19 @@ Thumbs.db
 !.vscode/settings.json
 .vercel
 .env*.local
+
+# Dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Editor/system files
+.cursor/
+.idea/
+.DS_Store
+*.log
