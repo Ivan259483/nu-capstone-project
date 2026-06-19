@@ -102,6 +102,13 @@ router.put('/:orderId/billing', authorize(...POS_MANAGER_ROLES), putBilling);
 router.post('/:orderId/billing/checkout', authorize(...POS_MANAGER_ROLES), checkoutBilling);
 
 /**
+ * @route GET /api/orders/queue/balance-pickup
+ * @desc Real POS Balance / Pickup queue for final payment/release
+ * @access Private - Sales/Office Admin/Admin
+ */
+router.get('/queue/balance-pickup', authorize(...BOOKING_MANAGER_ROLES), orderController.getBalancePickupQueue);
+
+/**
  * @route GET /api/orders/queue/staff
  * @desc Get prioritized staff queue of actionable jobs
  * @access Private - Detailer/Admin

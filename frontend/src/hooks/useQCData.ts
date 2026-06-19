@@ -640,6 +640,12 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
       const orderId = String(payload?.orderId || payload?.id || payload?._id || '').trim();
       const media = normalizeQcTrackerMediaList(payload?.trackerStageMedia);
       if (orderId && media.length > 0) {
+        console.log('[QC Upload Debug] useQCData targeted trackerStageMedia socket patch', {
+          orderId,
+          mediaCount: media.length,
+          status: payload?.status,
+          serviceTrackingStage: payload?.serviceTrackingStage,
+        });
         if (debounceTimer) {
           clearTimeout(debounceTimer);
           debounceTimer = null;
@@ -726,6 +732,12 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
       payload: { stage: string; slot?: string; description?: string; file?: File | null },
       _opts?: { skipJobsRefresh?: boolean }
     ): Promise<QCStagePhotoUploadResult> => {
+      console.log('[QC Upload Debug] Stage photo upload starts', {
+        orderId,
+        stage: payload.stage,
+        slot: payload.slot,
+        hasFile: Boolean(payload.file),
+      });
       pauseQcSocketJobsRefetch(15_000);
       try {
         if (payload.file) {
@@ -776,6 +788,14 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
             trackerStageMedia = nextMedia;
           }
 
+          console.log('[QC Upload Debug] Stage photo upload succeeds', {
+            orderId,
+            stage: payload.stage,
+            slot: payload.slot,
+            photoUrl: savedMedia?.photoUrl || postData?.photoUrl,
+            savedMedia,
+            mediaCount: trackerStageMedia.length,
+          });
           toast.success('Stage photo saved', {
             description: 'Shown on the customer live tracker.',
           });
@@ -802,6 +822,14 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
           );
           return { success: false };
         }
+        console.log('[QC Upload Debug] Stage photo upload succeeds', {
+          orderId,
+          stage: payload.stage,
+          slot: payload.slot,
+          photoUrl: undefined,
+          savedMedia: undefined,
+          mediaCount: undefined,
+        });
         toast.success('Stage photo saved', {
           description: 'Shown on the customer live tracker.',
         });

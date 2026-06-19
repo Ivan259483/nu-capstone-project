@@ -11,13 +11,17 @@ import { uploadVehicleScanImages } from '../utils/cloudinaryStorage.utils.js';
 import { SERVICE_OPERATION_ROLES, normalizeToCanonical } from '../constants/roles.js';
 import {
   TRACKER_GATE_STAGES,
+  REQUIRED_READY_PICKUP_SLOTS,
   normalizePhotoSlot,
 } from '../utils/trackerGatePhotos.utils.js';
 import {
   applyPickupGateCompleteSideEffects,
   revertReadyForPaymentIfPickupIncomplete,
 } from '../utils/readyPickupPaymentFlow.utils.js';
-import { notifyReadyForPickupIfGateComplete } from '../utils/customerStageNotifications.utils.js';
+import {
+  createCustomerStageMediaNotification,
+  notifyReadyForPickupIfGateComplete,
+} from '../utils/customerStageNotifications.utils.js';
 
 /** Same coarse stages as QC `service-status`; `confirmed` is optional text-only for customers. */
 const TRACKER_MEDIA_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'];
@@ -64,6 +68,7 @@ function isGateStage(stage) {
 }
 
 function gateSlotInvalidMessage(stage, forQuery = false) {
+  const readyPickupSlotList = REQUIRED_READY_PICKUP_SLOTS.join(', ');
   if (stage === 'received') {
     return forQuery
       ? 'slot query is required (front, rear, left, right, close_up, or preassessment_form for QC checklist)'
@@ -73,6 +78,11 @@ function gateSlotInvalidMessage(stage, forQuery = false) {
     return forQuery
       ? 'slot query is required (qc_form for QC checklist / inspection, or legacy angle slots)'
       : `slot is required for stage ${stage}. Use qc_form (QC checklist / inspection photo), or standard angle keys for legacy rows`;
+  }
+  if (stage === 'ready_pickup') {
+    return forQuery
+      ? `slot query is required (${readyPickupSlotList})`
+      : `slot is required for stage ${stage}. Use one of: ${readyPickupSlotList}`;
   }
   return forQuery
     ? 'slot query is required (front, rear, left, right, close_up)'
@@ -345,6 +355,13 @@ export const patchTrackerStagePhoto = async (req, res, next) => {
         console.warn('[tracker] Failed to create ready_pickup notification:', ne.message);
       }
     }
+    if (url) {
+      try {
+        await createCustomerStageMediaNotification(order, stage);
+      } catch (ne) {
+        console.warn('[tracker] Failed to create stage media notification:', ne.message);
+      }
+    }
 
     logActivity({
       req,
@@ -466,6 +483,13 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
         console.warn('[tracker] Failed to create ready_pickup notification:', ne.message);
       }
     }
+    if (photoUrl) {
+      try {
+        await createCustomerStageMediaNotification(order, stage);
+      } catch (ne) {
+        console.warn('[tracker] Failed to create stage media notification:', ne.message);
+      }
+    }
 
     if (storage === 'inline_fast') {
       queueCloudinaryStagePhotoBackfill({
@@ -552,7 +576,7 @@ export const deleteTrackerStagePhoto = async (req, res, next) => {
     order.markModified('trackerStageMedia');
 
     if (stage === 'ready_pickup') {
-      revertReadyForPaymentIfPickupIncomplete(order);
+      await revertReadyForPaymentIfPickupIncomplete(order);
     }
 
     await order.save({ validateBeforeSave: false });

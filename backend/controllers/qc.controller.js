@@ -19,6 +19,7 @@ import { normalizeToCanonical } from '../constants/roles.js';
 import {
   applyPickupGateCompleteSideEffects,
   computeOrderBalanceDue,
+  evaluateReadyForPickupQueueEligibility,
 } from '../utils/readyPickupPaymentFlow.utils.js';
 import { notifySalesBalancePickupQueue } from '../utils/bookingManagerNotifications.utils.js';
 import { isSlotConsumingStatus, releaseBookingSlot } from '../services/slot.service.js';
@@ -553,6 +554,11 @@ export const approveJob = async (req, res, next) => {
       order.status = 'completed';
     } else {
       order.status = 'ready_for_payment';
+      await evaluateReadyForPickupQueueEligibility(order, {
+        persist: false,
+        emit: true,
+        notify: true,
+      });
     }
     await order.save();
     if (isSlotConsumingStatus(prevStatus) && !isSlotConsumingStatus(order.status)) {

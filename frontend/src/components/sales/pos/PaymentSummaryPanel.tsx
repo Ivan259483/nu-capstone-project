@@ -10,20 +10,30 @@ interface Props {
   total: number;
   /** When collecting balance on a booked order (reservation already paid) */
   balanceCheckout?: {
+    originalTotal?: number;
     grandTotal: number;
     reservationApplied: number;
+    amountPaid?: number;
     balanceDue: number;
+    remainingBalance?: number;
+    totalDue?: number;
     discountTotal?: number;
     taxVatTotal?: number;
     additionalFeesTotal?: number;
+    queued?: boolean;
   } | null;
   /** Tighter layout when embedded above billing (queue / balance due) */
   compact?: boolean;
   paymentMethod: string;
   processing: boolean;
+  paymentDisabled?: boolean;
+  queuedOrderLabel?: string | null;
+  transactionNotes?: string;
   onDiscountChange: (v: number) => void;
   onVatChange: (v: number) => void;
   onPaymentMethodChange: (v: string) => void;
+  onTransactionNotesChange?: (v: string) => void;
+  onClearQueuedOrder?: () => void;
   onProcessPayment: () => void;
 }
 
@@ -36,11 +46,13 @@ export default function PaymentSummaryPanel({
   cartItems, subtotal, discount, vatAmount, total,
   balanceCheckout = null,
   compact = false,
-  paymentMethod, processing,
-  onDiscountChange, onVatChange, onPaymentMethodChange, onProcessPayment,
+  paymentMethod, processing, paymentDisabled = false,
+  queuedOrderLabel = null,
+  transactionNotes = '',
+  onDiscountChange, onVatChange, onPaymentMethodChange, onTransactionNotesChange, onClearQueuedOrder, onProcessPayment,
 }: Props) {
-  const payAmount = balanceCheckout?.balanceDue ?? total;
-  const payLabel = balanceCheckout ? 'Collect balance' : 'Process Payment';
+  const payAmount = balanceCheckout?.remainingBalance ?? balanceCheckout?.balanceDue ?? total;
+  const payLabel = 'Process Payment';
   const isCompact = compact || Boolean(balanceCheckout);
 
   return (
@@ -50,7 +62,23 @@ export default function PaymentSummaryPanel({
       }`}
     >
       <div className={`border-b border-slate-100 ${isCompact ? 'px-3 py-2.5' : 'px-4 py-4'}`}>
-        <h3 className="text-sm font-semibold text-slate-900">Payment Summary</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-slate-900">Payment Summary</h3>
+          {queuedOrderLabel && (
+            <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">
+              Pickup queue order loaded · {queuedOrderLabel}
+            </span>
+          )}
+        </div>
+        {queuedOrderLabel && onClearQueuedOrder && (
+          <button
+            type="button"
+            onClick={onClearQueuedOrder}
+            className="mt-2 text-[11px] font-bold text-slate-500 transition-colors hover:text-blue-700"
+          >
+            Clear queued order
+          </button>
+        )}
       </div>
 
       <div
@@ -154,6 +182,12 @@ export default function PaymentSummaryPanel({
         >
           {balanceCheckout ? (
             <>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-600">Original total</span>
+                <span className="font-semibold text-slate-800">
+                  {formatPeso(balanceCheckout.originalTotal ?? balanceCheckout.grandTotal)}
+                </span>
+              </div>
               {(balanceCheckout.discountTotal ?? 0) > 0 && (
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-slate-600">Discount</span>
@@ -182,18 +216,24 @@ export default function PaymentSummaryPanel({
                 <span className="text-slate-600">Grand total</span>
                 <span className="font-semibold text-slate-800">{formatPeso(balanceCheckout.grandTotal)}</span>
               </div>
-              {balanceCheckout.reservationApplied > 0 && (
+              {(balanceCheckout.amountPaid ?? balanceCheckout.reservationApplied) > 0 && (
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-600">Reservation paid (GCash)</span>
+                  <span className="text-slate-600">Amount paid / downpayment applied</span>
                   <span className="font-semibold text-emerald-700">
-                    −{formatPeso(balanceCheckout.reservationApplied)}
+                    −{formatPeso(balanceCheckout.amountPaid ?? balanceCheckout.reservationApplied)}
                   </span>
                 </div>
               )}
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-600">Total due</span>
+                <span className="font-semibold text-slate-800">
+                  {formatPeso(balanceCheckout.totalDue ?? balanceCheckout.balanceDue)}
+                </span>
+              </div>
               <div className="flex items-center justify-between pt-1.5 border-t border-slate-200">
-                <span className="text-xs font-semibold text-slate-800">Balance due today</span>
+                <span className="text-xs font-semibold text-slate-800">Remaining balance</span>
                 <span className={`font-bold text-amber-700 ${isCompact ? 'text-xl' : 'text-2xl'}`}>
-                  {formatPeso(balanceCheckout.balanceDue)}
+                  {formatPeso(balanceCheckout.remainingBalance ?? balanceCheckout.balanceDue)}
                 </span>
               </div>
             </>
@@ -247,6 +287,8 @@ export default function PaymentSummaryPanel({
             <textarea
               rows={2}
               placeholder="Special instructions, remarks…"
+              value={transactionNotes}
+              onChange={(e) => onTransactionNotesChange?.(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 bg-white text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-all resize-none"
             />
           </div>
@@ -257,9 +299,9 @@ export default function PaymentSummaryPanel({
       <div className={`border-t border-slate-100 shrink-0 ${isCompact ? 'px-3 py-3' : 'px-4 py-4'}`}>
         <button
           onClick={onProcessPayment}
-          disabled={processing || cartItems.length === 0}
+          disabled={processing || paymentDisabled || cartItems.length === 0}
           className={`w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl font-bold text-sm transition-all duration-150 ${
-            cartItems.length === 0
+            cartItems.length === 0 || paymentDisabled
               ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
               : 'bg-blue-700 hover:bg-blue-800 active:scale-[0.99] text-white shadow-sm'
           }`}

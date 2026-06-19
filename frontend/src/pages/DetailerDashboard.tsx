@@ -213,6 +213,10 @@ export default function DetailerDashboard() {
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user?.role]);
+    const activeTabRef = useRef<TabType>(activeTab);
+    useEffect(() => {
+        activeTabRef.current = activeTab;
+    }, [activeTab]);
 
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('autospf_sidebar_collapsed') === 'true');
@@ -440,10 +444,54 @@ export default function DetailerDashboard() {
     const realtimeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     useRealtimeSync(
         ['orders', 'products'],
-        useCallback((_collection: string) => {
+        useCallback((collection: string, operationType: string, documentKey: any) => {
+            const tabAtEvent = activeTabRef.current;
+            console.log('[QC Upload Debug] DetailerDashboard realtime event', {
+                collection,
+                operationType,
+                documentKey,
+                activeTab: tabAtEvent,
+            });
+
+            if (tabAtEvent === 'qc_review') {
+                if (realtimeDebounceRef.current) {
+                    clearTimeout(realtimeDebounceRef.current);
+                    realtimeDebounceRef.current = null;
+                }
+                console.log('[QC Upload Debug] DetailerDashboard loadData() skipped while QC review is active', {
+                    collection,
+                    operationType,
+                    documentKey,
+                    activeTab: tabAtEvent,
+                });
+                return;
+            }
+
             // Debounce rapid successive changes (e.g. assign + status change)
             if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
             realtimeDebounceRef.current = setTimeout(() => {
+                const tabAtRefresh = activeTabRef.current;
+                console.log('[QC Upload Debug] DetailerDashboard realtime debounce firing', {
+                    collection,
+                    operationType,
+                    documentKey,
+                    activeTab: tabAtRefresh,
+                });
+                if (tabAtRefresh === 'qc_review') {
+                    console.log('[QC Upload Debug] DetailerDashboard loadData() skipped while QC review is active', {
+                        collection,
+                        operationType,
+                        documentKey,
+                        activeTab: tabAtRefresh,
+                    });
+                    return;
+                }
+                console.log('[QC Upload Debug] DetailerDashboard loadData() called from realtime socket', {
+                    collection,
+                    operationType,
+                    documentKey,
+                    activeTab: tabAtRefresh,
+                });
                 console.log('⚡ [REALTIME] db_change detected, refreshing detailer data...');
                 loadDataRef.current?.();
             }, 400);
@@ -466,6 +514,9 @@ export default function DetailerDashboard() {
 
     const loadData = useCallback(async () => {
         if (!user) return;
+        console.log('[QC Upload Debug] DetailerDashboard loadData() called', {
+            activeTab: activeTabRef.current,
+        });
         setIsLoading(true);
 
         try {
@@ -1674,4 +1725,3 @@ export default function DetailerDashboard() {
         </div>
     );
 }
-

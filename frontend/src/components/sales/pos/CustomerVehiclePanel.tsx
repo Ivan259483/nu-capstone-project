@@ -1,7 +1,15 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
-import { Search, User, Car, Phone, Mail, History, Plus, Pencil } from 'lucide-react';
-import { Customer, Vehicle } from '@/lib/salesData';
+import { Search, User, Car, Phone, Mail, History, Plus, Pencil, Loader2 } from 'lucide-react';
+import { Customer, Vehicle, formatPeso } from '@/lib/salesData';
 import { vehicleHeadline } from '@/lib/vehicle-display';
 import api from '@/lib/api';
 import VehicleGarageForm from '@/components/shared/VehicleGarageForm';
@@ -21,13 +29,37 @@ import { normalizePlateNumber } from '@/lib/plate';
 import { contactDirectorySubtitle, sanitizePhoneForDisplay } from '@/lib/pii-display';
 import { resolveReceiptPhone } from '@/lib/receipt-phone';
 import { toast } from 'sonner';
+import {
+  idString,
+  normalizeMoney,
+  normalizeQueuedPickupOrder,
+  posQueueDebug,
+} from '@/lib/pos-pickup-queue';
+
+export type CustomerVehiclePanelHandle = {
+  focusQueueSearch: () => void;
+};
 
 interface Props {
   selectedCustomer: Customer | null;
   selectedVehicle: Vehicle | null;
+  pickupQueueOrders?: any[];
+  unpaidOrderOptions?: any[];
+  queueLoading?: boolean;
+  hydratingOrderId?: string | null;
+  pendingQueuedOrder?: any | null;
+  selectedQueuedOrderId?: string | null;
+  onRequestLoadQueuedOrder?: (row: any) => Promise<boolean> | boolean;
+  onConfirmPendingQueuedOrder?: () => Promise<boolean> | boolean;
+  onCancelPendingQueuedOrder?: () => void;
   onSelectCustomer: (c: Customer) => void;
   onSelectVehicle: (v: Vehicle) => void;
 }
+
+type DropdownItem =
+  | { type: 'queue'; key: string; row: any }
+  | { type: 'unpaid'; key: string; row: any }
+  | { type: 'customer'; key: string; customer: Customer };
 
 const TIER_COLORS: Record<string, string> = {
   bronze: 'text-amber-700 bg-amber-50 border-amber-200',
@@ -52,6 +84,65 @@ function dedupeCustomersByEmail(rows: Customer[]): Customer[] {
 
 function digitsOnly(s: string): string {
   return s.replace(/\D/g, '');
+}
+
+function queueOrderId(row: any): string {
+  return normalizeQueuedPickupOrder(row).orderId;
+}
+
+function queueSearchText(row: any): string {
+  const normalized = normalizeQueuedPickupOrder(row);
+  return [
+    normalized.orderId,
+    normalized.bookingId,
+    normalized.bookingReference,
+    normalized.customerName,
+    normalized.plateNumber,
+    row?.customerName,
+    row?.customerPhone,
+    row?.customerEmail,
+    row?.vehiclePlate,
+    row?.serviceType,
+    row?.serviceName,
+    row?.bookingReference,
+    row?.orderNumber,
+    row?.orderId,
+    row?.bookingId,
+    row?._id,
+    row?.id,
+  ]
+    .filter(Boolean)
+    .map(String)
+    .join(' ')
+    .toLowerCase();
+}
+
+function matchesQueueQuery(row: any, rawQuery: string): boolean {
+  const qt = rawQuery.trim();
+  if (!qt) return true;
+  const lower = qt.toLowerCase();
+  if (queueSearchText(row).includes(lower)) return true;
+  const qDigits = digitsOnly(qt);
+  if (qDigits && digitsOnly(String(row?.customerPhone || '')).includes(qDigits)) return true;
+  const qPlate = normalizePlateNumber(qt);
+  return Boolean(qPlate && normalizePlateNumber(row?.vehiclePlate || '').includes(qPlate));
+}
+
+function queueReference(row: any): string {
+  const normalized = normalizeQueuedPickupOrder(row);
+  return String(normalized.bookingReference || row?.orderNumber || normalized.orderId || 'Queued order');
+}
+
+function readyTime(row: any): string {
+  const normalized = normalizeQueuedPickupOrder(row);
+  if (row?.bookingTime) return String(row.bookingTime);
+  const raw = normalized.readyForPaymentAt || row?.updatedAt || row?.createdAt;
+  if (!raw) return 'Ready now';
+  try {
+    return new Date(raw).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return 'Ready now';
+  }
 }
 
 /** Name, email, phone (with digit normalization), plate hints, loaded vehicles */
@@ -94,17 +185,28 @@ function mapUserRecordToCustomer(u: any): Customer {
   };
 }
 
-export default function CustomerVehiclePanel({
+const CustomerVehiclePanel = forwardRef<CustomerVehiclePanelHandle, Props>(function CustomerVehiclePanel({
   selectedCustomer,
   selectedVehicle,
+  pickupQueueOrders = [],
+  unpaidOrderOptions = [],
+  queueLoading = false,
+  hydratingOrderId = null,
+  pendingQueuedOrder = null,
+  selectedQueuedOrderId = null,
+  onRequestLoadQueuedOrder,
+  onConfirmPendingQueuedOrder,
+  onCancelPendingQueuedOrder,
   onSelectCustomer,
   onSelectVehicle,
-}: Props) {
+}: Props, ref) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [vehiclesLoading, setVehiclesLoading] = useState(false);
   const [query, setQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  const [highlightQueue, setHighlightQueue] = useState(false);
+  const [activeOptionIndex, setActiveOptionIndex] = useState(0);
 
   const [garageOpen, setGarageOpen] = useState(false);
   const [garageMode, setGarageMode] = useState<'add' | 'edit'>('add');
@@ -116,6 +218,25 @@ export default function CustomerVehiclePanel({
   const [garageSaving, setGarageSaving] = useState(false);
 
   const lastDirectoryFetchAt = useRef(0);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    focusQueueSearch: () => {
+      setShowDropdown(true);
+      setHighlightQueue(true);
+      setActiveOptionIndex(0);
+      inputRef.current?.focus();
+      if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = window.setTimeout(() => setHighlightQueue(false), 1400);
+    },
+  }), []);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
 
   const loadDirectory = useCallback(async (force = false) => {
     const now = Date.now();
@@ -162,8 +283,34 @@ export default function CustomerVehiclePanel({
     []
   );
 
+  const filteredQueue = useMemo(
+    () => pickupQueueOrders.filter((row) => matchesQueueQuery(row, query)),
+    [pickupQueueOrders, query]
+  );
+  const queueIds = useMemo(() => new Set(pickupQueueOrders.map((row) => idString(queueOrderId(row))).filter(Boolean)), [pickupQueueOrders]);
+  const filteredUnpaid = useMemo(
+    () =>
+      unpaidOrderOptions.filter((row) => {
+        const id = idString(queueOrderId(row));
+        return Boolean(id && !queueIds.has(id) && matchesQueueQuery(row, query));
+      }),
+    [queueIds, query, unpaidOrderOptions]
+  );
   const filtered =
     query.length >= 1 ? customers.filter((c) => matchesDirectoryQuery(c, query)) : customers;
+
+  const dropdownItems: DropdownItem[] = useMemo(
+    () => [
+      ...filteredQueue.map((row, index) => ({ type: 'queue' as const, key: `queue-${queueOrderId(row) || queueReference(row) || index}`, row })),
+      ...filteredUnpaid.map((row, index) => ({ type: 'unpaid' as const, key: `unpaid-${queueOrderId(row) || queueReference(row) || index}`, row })),
+      ...filtered.map((customer) => ({ type: 'customer' as const, key: `customer-${customer.id}`, customer })),
+    ],
+    [filtered, filteredQueue, filteredUnpaid]
+  );
+
+  useEffect(() => {
+    setActiveOptionIndex(0);
+  }, [query, showDropdown, filteredQueue.length, filteredUnpaid.length, filtered.length]);
 
   const handlePickCustomer = async (c: Customer) => {
     setQuery(c.name);
@@ -180,6 +327,128 @@ export default function CustomerVehiclePanel({
       vehicles: veh,
       garagePlateHints: [...hints].filter(Boolean),
     });
+  };
+
+  const handleLoadQueueRow = async (row: any) => {
+    const normalized = normalizeQueuedPickupOrder(row);
+    if (normalized.disabledReason) {
+      posQueueDebug('[POS Queue] load disabled reason', { reason: normalized.disabledReason, row });
+      return;
+    }
+    if (hydratingOrderId || !onRequestLoadQueuedOrder) return;
+    const loaded = await onRequestLoadQueuedOrder(row);
+    if (loaded) {
+      setQuery(row.customerName || queueReference(row));
+      setShowDropdown(false);
+    }
+  };
+
+  const activateDropdownItem = (item: DropdownItem | undefined) => {
+    if (!item) return;
+    if (item.type === 'customer') {
+      void handlePickCustomer(item.customer);
+      return;
+    }
+    void handleLoadQueueRow(item.row);
+  };
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      setShowDropdown(false);
+      return;
+    }
+    if (!showDropdown && ['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key)) {
+      setShowDropdown(true);
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveOptionIndex((idx) => Math.min(idx + 1, Math.max(dropdownItems.length - 1, 0)));
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveOptionIndex((idx) => Math.max(idx - 1, 0));
+      return;
+    }
+    if (event.key === 'Enter' && showDropdown) {
+      event.preventDefault();
+      activateDropdownItem(dropdownItems[activeOptionIndex]);
+    }
+  };
+
+  const activeOptionKey = dropdownItems[activeOptionIndex]?.key;
+
+  const renderQueueRow = (row: any, itemKey: string, kind: 'queue' | 'unpaid') => {
+    const normalized = normalizeQueuedPickupOrder(row);
+    const orderId = idString(normalized.orderId);
+    const isLoading = Boolean(hydratingOrderId) && idString(hydratingOrderId) === orderId;
+    const disabledReason = hydratingOrderId ? 'Loading queued order...' : normalized.disabledReason;
+    const disabled = Boolean(disabledReason || hydratingOrderId);
+    const active = activeOptionKey === itemKey || idString(selectedQueuedOrderId) === orderId;
+    const balance = normalized.remainingBalance || normalizeMoney(row.totalAmount ?? row.totalPrice);
+    return (
+      <button
+        key={itemKey}
+        type="button"
+        disabled={disabled}
+        title={disabledReason || undefined}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          if (disabledReason) return;
+          void handleLoadQueueRow(row);
+        }}
+        className={`w-full px-3 py-3 text-left transition-all duration-150 ${
+          active
+            ? 'bg-blue-50 ring-1 ring-inset ring-blue-200'
+            : kind === 'queue'
+              ? 'bg-white hover:bg-blue-50/70'
+              : 'bg-slate-50 hover:bg-slate-100'
+        } ${disabled ? 'cursor-wait opacity-70' : ''}`}
+      >
+        <div className="flex items-start gap-3">
+          <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-black ${
+            kind === 'queue' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-200 text-slate-700'
+          }`}>
+            {(normalized.customerName || row.customerName || 'C').charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="text-xs font-bold text-slate-900">{normalized.customerName || row.customerName || 'Customer'}</p>
+              <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
+                Ready for payment
+              </span>
+              <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">
+                Balance due
+              </span>
+              {isLoading && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">
+                  <Loader2 size={9} className="animate-spin" />
+                  Loading queued order...
+                </span>
+              )}
+            </div>
+            <p className="mt-1 truncate text-[11px] font-semibold text-slate-600">
+              {normalized.plateNumber || row.vehiclePlate || 'No plate'} · {row.serviceType || row.serviceName || 'Service/package'}
+            </p>
+            <p className="mt-0.5 truncate text-[10px] text-slate-400">
+              {normalized.bookingReference || queueReference(row)} · {readyTime(row)}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-xs font-black text-amber-700">{formatPeso(balance)}</p>
+            {disabledReason ? (
+              <span className="mt-1 inline-flex max-w-[7rem] justify-end rounded-full bg-slate-100 px-2 py-1 text-[9px] font-semibold text-slate-500">
+                {disabledReason}
+              </span>
+            ) : (
+              <span className="mt-1 inline-flex rounded-full bg-blue-600 px-2 py-1 text-[9px] font-bold text-white">
+                Load to POS
+              </span>
+            )}
+          </div>
+        </div>
+      </button>
+    );
   };
 
   const resetGarageFormState = () => {
@@ -314,9 +583,11 @@ export default function CustomerVehiclePanel({
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
+              ref={inputRef}
               type="text"
               placeholder="Search name, phone, plate…"
               value={query}
+              onKeyDown={handleSearchKeyDown}
               onFocus={() => {
                 setShowDropdown(true);
                 void loadDirectory();
@@ -326,42 +597,133 @@ export default function CustomerVehiclePanel({
                 setShowDropdown(true);
               }}
               onBlur={() => setTimeout(() => setShowDropdown(false), 180)}
+              aria-expanded={showDropdown}
+              aria-controls="pos-customer-vehicle-search-results"
               className="w-full pl-8 py-2 rounded-lg border border-slate-200 bg-white text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-all"
             />
 
             {showDropdown && (
-              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
-                {filtered.length === 0 ? (
-                  <div className="px-4 py-6 text-center">
-                    <p className="text-xs text-slate-500">No customer found for &quot;{query}&quot;</p>
+              <div
+                id="pos-customer-vehicle-search-results"
+                className="absolute z-50 top-full left-0 right-0 mt-1 max-h-[26rem] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"
+              >
+                <div className={`border-b border-slate-100 bg-gradient-to-r from-blue-50 to-white px-3 py-2 ${
+                  highlightQueue ? 'ring-2 ring-inset ring-blue-300' : ''
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">
+                      Pickup Payment Queue
+                    </p>
+                    {queueLoading && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500">
+                        <Loader2 size={10} className="animate-spin" />
+                        Syncing
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {filteredQueue.length === 0 ? (
+                  <div className="border-b border-slate-100 px-4 py-4 text-center">
+                    <p className="text-xs font-medium text-slate-500">
+                      No pickup payments found for this search.
+                    </p>
                   </div>
                 ) : (
-                  filtered.map((c) => (
-                    <button
-                      key={`cust-opt-${c.id}`}
-                      type="button"
-                      onMouseDown={() => void handlePickCustomer(c)}
-                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-blue-50 transition-colors duration-100 text-left"
-                    >
-                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold shrink-0">
-                        {c.name.split(' ').map((n) => n[0]).slice(0, 2).join('')}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-slate-900">{c.name}</p>
-                        <p className="text-[11px] text-slate-500 truncate">{contactDirectorySubtitle(c.phone, c.email)}</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">
-                          {c.vehicles.length ? c.vehicles.map((v) => vehicleHeadline(v)).join(', ') : '—'}
-                        </p>
-                      </div>
-                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border capitalize ${TIER_COLORS[c.tier]}`}>
-                        {c.tier}
-                      </span>
-                    </button>
-                  ))
+                  <div className="border-b border-slate-100">
+                    {filteredQueue.map((row, index) => {
+                      const key = `queue-${queueOrderId(row) || queueReference(row) || index}`;
+                      return renderQueueRow(row, key, 'queue');
+                    })}
+                  </div>
                 )}
+
+                {filteredUnpaid.length > 0 && (
+                  <div className="border-b border-slate-100 bg-slate-50/80">
+                    <div className="px-3 py-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Other unpaid orders
+                      </p>
+                    </div>
+                    {filteredUnpaid.map((row, index) => {
+                      const key = `unpaid-${queueOrderId(row) || queueReference(row) || index}`;
+                      return renderQueueRow(row, key, 'unpaid');
+                    })}
+                  </div>
+                )}
+
+                <div>
+                  <div className="px-3 py-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Customer directory
+                    </p>
+                  </div>
+                  {filtered.length === 0 ? (
+                    <div className="px-4 py-5 text-center">
+                      <p className="text-xs text-slate-500">No customer found for &quot;{query}&quot;</p>
+                    </div>
+                  ) : (
+                    filtered.map((c) => {
+                      const key = `customer-${c.id}`;
+                      const active = activeOptionKey === key;
+                      return (
+                        <button
+                          key={`cust-opt-${c.id}`}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            void handlePickCustomer(c);
+                          }}
+                          className={`w-full flex items-start gap-3 px-4 py-3 transition-colors duration-100 text-left ${
+                            active ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : 'hover:bg-blue-50'
+                          }`}
+                        >
+                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold shrink-0">
+                            {c.name.split(' ').map((n) => n[0]).slice(0, 2).join('')}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-slate-900">{c.name}</p>
+                            <p className="text-[11px] text-slate-500 truncate">{contactDirectorySubtitle(c.phone, c.email)}</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              {c.vehicles.length ? c.vehicles.map((v) => vehicleHeadline(v)).join(', ') : '—'}
+                            </p>
+                          </div>
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border capitalize ${TIER_COLORS[c.tier]}`}>
+                            {c.tier}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             )}
           </div>
+          {pendingQueuedOrder && (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
+              <p className="text-[11px] font-semibold text-amber-900">
+                You already have an active transaction. Load {pendingQueuedOrder.customerName || 'this customer'}'s pickup payment instead?
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  disabled={Boolean(hydratingOrderId)}
+                  onClick={() => void onConfirmPendingQueuedOrder?.()}
+                  className="rounded-lg bg-blue-700 px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:bg-blue-800 disabled:opacity-60"
+                >
+                  {hydratingOrderId ? 'Loading queued order...' : 'Load queued order'}
+                </button>
+                <button
+                  type="button"
+                  disabled={Boolean(hydratingOrderId)}
+                  onClick={onCancelPendingQueuedOrder}
+                  className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-[11px] font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                >
+                  Keep current
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {selectedCustomer ? (
@@ -561,7 +923,7 @@ export default function CustomerVehiclePanel({
                 <button
                   type="button"
                   disabled={garageSaving}
-                  onClick={closeGarageModal}
+                  onClick={() => closeGarageModal()}
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border-0 bg-white text-slate-500 shadow-md shadow-slate-900/10 transition-all duration-200 hover:bg-slate-50 hover:text-slate-900 hover:shadow-lg"
                   aria-label="Close"
                 >
@@ -599,7 +961,7 @@ export default function CustomerVehiclePanel({
                   <button
                     type="button"
                     disabled={garageSaving}
-                    onClick={closeGarageModal}
+                    onClick={() => closeGarageModal()}
                     className="flex-1 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-white to-slate-50/90 py-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all hover:border-slate-300/85 hover:shadow-[0_4px_14px_-6px_rgba(15,23,42,0.1)]"
                   >
                     Cancel
@@ -619,4 +981,6 @@ export default function CustomerVehiclePanel({
         )}
     </>
   );
-}
+});
+
+export default CustomerVehiclePanel;

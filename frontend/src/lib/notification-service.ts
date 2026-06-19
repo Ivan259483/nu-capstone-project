@@ -6,8 +6,10 @@ export interface SystemNotification {
     title: string;
     message: string;
     type: 'info' | 'success' | 'warning' | 'error' | 'booking' | 'inventory' | 'chat';
+    priority?: 'low' | 'normal' | 'high';
     isRead: boolean;
     createdAt: string;
+    updatedAt?: string;
     link?: string;
     metadata?: Record<string, unknown>;
 }

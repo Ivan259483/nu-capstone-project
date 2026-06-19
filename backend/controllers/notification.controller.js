@@ -91,8 +91,12 @@ export const getNotifications = async (req, res, next) => {
  */
 export const markAsRead = async (req, res, next) => {
   try {
-    const notification = await Notification.findByIdAndUpdate(
-      req.params.id,
+    const role = req.user.role;
+    const userId = new mongoose.Types.ObjectId(req.user._id || req.user.id);
+    const query = buildNotificationsQuery(role, userId);
+
+    const notification = await Notification.findOneAndUpdate(
+      { _id: req.params.id, ...query },
       { isRead: true },
       { new: true }
     );

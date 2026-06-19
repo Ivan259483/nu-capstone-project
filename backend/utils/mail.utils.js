@@ -5,7 +5,7 @@
 import { Resend } from 'resend';
 
 const FROM_NAME = process.env.EMAIL_FROM_NAME || 'AutoSPF+';
-const FROM_EMAIL = process.env.EMAIL_FROM_ADDRESS || 'verify@autospf.shop'; // verified domain — do NOT use onboarding@resend.dev
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM_ADDRESS || 'verify@autospf.shop'; // verified domain — do NOT use onboarding@resend.dev
 const FROM = `"${FROM_NAME}" <${FROM_EMAIL}>`;
 const DEFAULT_REPLY_TO = process.env.EMAIL_REPLY_TO || process.env.SUPPORT_EMAIL || 'support@autospf.shop';
 
@@ -451,6 +451,108 @@ function passwordSetupPlainText(name, setupUrl, expiresMinutes = 60) {
   return `AutoSPF+ secure account setup\n\nHi ${name || 'there'},\n\nSet your password using this secure one-time link:\n${setupUrl}\n\nThis link is valid for ${expiresMinutes} minutes. AutoSPF+ will never ask the AI assistant to create a password for you.\n\n${getAppPublicUrl()}`;
 }
 
+// ─── Customer Notification Template ──────────────────────────────────────────
+
+function absoluteAppUrl(pathOrUrl) {
+  const raw = String(pathOrUrl || '').trim();
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const path = raw.startsWith('/') ? raw : `/${raw || 'customer/dashboard'}`;
+  return `${getAppPublicUrl()}${path}`;
+}
+
+export function buildCustomerNotificationEmailTemplate(spec = {}) {
+  const subject = String(spec.emailSubject || spec.subject || spec.title || 'AutoSPF+ booking update').trim();
+  const title = escapeHtml(spec.title || subject);
+  const message = escapeHtml(spec.message || 'There is a new update for your AutoSPF+ booking.');
+  const bookingReference = escapeHtml(spec.bookingReference || spec.orderNumber || 'N/A');
+  const vehicle = escapeHtml(spec.vehicle || 'Your vehicle');
+  const serviceName = escapeHtml(spec.serviceName || 'AutoSPF+ service');
+  const stageLabel = escapeHtml(spec.stageLabel || spec.stage || spec.status || 'Booking update');
+  const ctaLabel = escapeHtml(spec.ctaLabel || 'View update');
+  const ctaUrl = escapeHtml(absoluteAppUrl(spec.ctaPath || spec.link || '/customer/dashboard'));
+  const priorityLabel = spec.priority === 'high'
+    ? `<p style="margin:0 0 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.18em;color:#c2410c">Important update</p>`
+    : `<p style="margin:0 0 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.18em;color:#94a3b8">Booking update</p>`;
+
+  const content = `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td style="padding:40px 36px 26px;text-align:center;border-bottom:1px solid #f1f5f9">
+          ${priorityLabel}
+          <h1 style="margin:0;font-size:25px;font-weight:700;letter-spacing:-0.03em;color:#0f172a;line-height:1.25">${title}</h1>
+          <p style="margin:16px auto 0;font-size:15px;line-height:1.65;color:#64748b;max-width:420px">${message}</p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:28px 32px 32px">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px">
+            <tr><td style="padding:18px 20px 8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8">Booking details</td></tr>
+            <tr><td style="padding:0 20px 18px">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;line-height:1.6;color:#0f172a">
+                <tr><td style="padding:6px 0;color:#64748b">Reference</td><td style="padding:6px 0;text-align:right;font-weight:700">${bookingReference}</td></tr>
+                <tr><td style="padding:6px 0;color:#64748b">Vehicle</td><td style="padding:6px 0;text-align:right;font-weight:600">${vehicle}</td></tr>
+                <tr><td style="padding:6px 0;color:#64748b">Service</td><td style="padding:6px 0;text-align:right;font-weight:600">${serviceName}</td></tr>
+                <tr><td style="padding:6px 0;color:#64748b">Current status</td><td style="padding:6px 0;text-align:right;font-weight:600">${stageLabel}</td></tr>
+              </table>
+            </td></tr>
+          </table>
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:28px auto 0">
+            <tr>
+              <td style="border-radius:14px;background:#0f172a">
+                <a href="${ctaUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:15px 30px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:14px">${ctaLabel}</a>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:22px 0 0;font-size:12px;line-height:1.65;color:#94a3b8;text-align:center">This message reflects the latest status saved in your AutoSPF+ live tracker.</p>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const text = [
+    `AutoSPF+ - ${subject}`,
+    '',
+    spec.message || 'There is a new update for your AutoSPF+ booking.',
+    '',
+    `Reference: ${spec.bookingReference || spec.orderNumber || 'N/A'}`,
+    `Vehicle: ${spec.vehicle || 'Your vehicle'}`,
+    `Service: ${spec.serviceName || 'AutoSPF+ service'}`,
+    `Current status: ${spec.stageLabel || spec.stage || spec.status || 'Booking update'}`,
+    '',
+    absoluteAppUrl(spec.ctaPath || spec.link || '/customer/dashboard'),
+  ].join('\n');
+
+  return {
+    subject,
+    html: baseWrapper(content, {
+      preheader: spec.preheader || spec.message || subject,
+      accent: spec.priority === 'high' ? 'brand' : 'slate',
+    }),
+    text,
+  };
+}
+
+export async function sendCustomerNotificationEmail({ to, spec, idempotencyKey }) {
+  const built = buildCustomerNotificationEmailTemplate(spec);
+  const result = await sendEmail({
+    to,
+    subject: built.subject,
+    html: built.html,
+    text: built.text,
+    tags: [
+      { name: 'type', value: 'customer_notification' },
+      { name: 'kind', value: normalizeTagValue(spec?.kind || spec?.emailCategory || 'booking_update') },
+      { name: 'stage', value: normalizeTagValue(spec?.stage || 'none') },
+    ],
+    idempotencyKey: buildIdempotencyKey('customer_notification', idempotencyKey),
+  });
+
+  return {
+    ...result,
+    subject: built.subject,
+  };
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export const sendOtpEmail = async (email, otp, { purpose = 'verification', otpRecordId } = {}) => {
@@ -528,4 +630,12 @@ export const initializeMailer = async () => {
   console.log(`   From: ${FROM}`);
 };
 
-export default { initializeMailer, sendOtpEmail, sendWelcomeEmail, sendPasswordResetEmail, sendPasswordSetupEmail };
+export default {
+  initializeMailer,
+  sendOtpEmail,
+  sendWelcomeEmail,
+  sendPasswordResetEmail,
+  sendPasswordSetupEmail,
+  sendCustomerNotificationEmail,
+  buildCustomerNotificationEmailTemplate,
+};

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell,
@@ -59,6 +59,8 @@ type ResolvedTrackerStep = TrackerStep & {
   stageSlotPhotos: { url: string; label: string }[];
 };
 
+type TrackerStagePhoto = ResolvedTrackerStep['stageSlotPhotos'][number];
+
 const TRACKER_STEPS: TrackerStep[] = [
   { id: 'awaiting_vehicle', title: 'Waiting for Your Vehicle to Arrive' },
   { id: 'confirmed', title: 'Vehicle Check-In' },
@@ -80,7 +82,7 @@ const STATUS_PRIORITY: Record<string, number> = {
 };
 
 const navButtonClass = (active = false) =>
-  `w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${active ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+  `w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${active ? 'bg-white/[0.08] text-zinc-50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]' : 'text-zinc-400 hover:text-zinc-50 hover:bg-white/[0.05]'
   }`;
 
 const pageStagger = {
@@ -105,6 +107,90 @@ const revealUp = {
     },
   },
 };
+
+function AnimatedProgressValue({ value }: { value: number }) {
+  const shouldReduceMotion = useReducedMotion();
+  const motionValue = useMotionValue(value);
+  const springValue = useSpring(motionValue, { stiffness: 84, damping: 20, mass: 0.65 });
+  const rounded = useTransform(springValue, (latest) => `${Math.round(latest)}%`);
+
+  useEffect(() => {
+    motionValue.set(value);
+  }, [motionValue, value]);
+
+  if (shouldReduceMotion) return <>{Math.round(value)}%</>;
+
+  return <motion.span>{rounded}</motion.span>;
+}
+
+function StagePhotoThumbnail({
+  shot,
+  shotIdx,
+  stepTitle,
+  onOpen,
+}: {
+  shot: TrackerStagePhoto;
+  shotIdx: number;
+  stepTitle: string;
+  onOpen: () => void;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  const [loaded, setLoaded] = useState(false);
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+
+  return (
+    <motion.div
+      key={`${shot.label}-${shot.url}`}
+      initial={shouldReduceMotion ? false : { opacity: 0, y: 10, scale: 0.965 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.42, delay: shouldReduceMotion ? 0 : shotIdx * 0.075, ease: LUXURY_EASE }}
+      className="min-w-0"
+    >
+      <p className="truncate text-[10px] font-semibold text-slate-500 mb-1">
+        {shot.label}
+      </p>
+      <motion.button
+        type="button"
+        whileHover={shouldReduceMotion ? undefined : { y: -2, scale: 1.012 }}
+        whileTap={shouldReduceMotion ? undefined : { scale: 0.99 }}
+        transition={{ duration: 0.2, ease: LUXURY_EASE }}
+        className="group block w-full cursor-zoom-in rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+        aria-label={`${stepTitle} — ${shot.label} — enlarge`}
+        onClick={onOpen}
+      >
+        <span className="relative block overflow-hidden rounded-lg border border-white/10 bg-zinc-950/70 shadow-[0_16px_38px_rgba(0,0,0,0.22)]">
+          <AnimatePresence>
+            {!loaded && (
+              <motion.span
+                className="absolute inset-0 overflow-hidden rounded-lg bg-zinc-900"
+                initial={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.28, ease: LUXURY_EASE }}
+              >
+                <motion.span
+                  className="absolute inset-y-0 -left-1/2 w-1/2 bg-gradient-to-r from-transparent via-white/10 to-transparent"
+                  animate={shouldReduceMotion ? undefined : { x: ['0%', '310%'] }}
+                  transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                />
+              </motion.span>
+            )}
+          </AnimatePresence>
+          <motion.img
+            src={toCloudinaryEvidenceThumbUrl(shot.url, dpr)}
+            alt=""
+            onLoad={() => setLoaded(true)}
+            onError={() => setLoaded(true)}
+            initial={false}
+            animate={{ opacity: loaded ? 1 : 0, scale: loaded ? 1 : 1.025 }}
+            transition={{ duration: 0.45, ease: LUXURY_EASE }}
+            className="aspect-square w-full rounded-lg object-cover border border-white/10"
+          />
+          <span className="pointer-events-none absolute inset-0 rounded-lg bg-gradient-to-t from-black/35 via-transparent to-white/5 opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
+        </span>
+      </motion.button>
+    </motion.div>
+  );
+}
 
 function isBookingMine(booking: Booking, user: User) {
   const bookingCustomerId =
@@ -424,6 +510,7 @@ export default function CustomerLiveTrackerPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const profileImage = resolveProfileImage(user as unknown as Record<string, unknown>);
+  const shouldReduceMotion = useReducedMotion();
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -728,18 +815,18 @@ export default function CustomerLiveTrackerPage() {
       label: 'Syncing',
       description: 'Checking your latest service data',
       dotColor: '#2563EB',
-	      background: '#EFF6FF',
-	      border: '#BFDBFE',
-	      text: '#1D4ED8',
+      background: 'rgba(37,99,235,0.12)',
+      border: 'rgba(96,165,250,0.32)',
+      text: '#bfdbfe',
     }
     : isAwaitingVehicle
       ? {
         label: 'Booking Approved',
         description: `Please bring your vehicle on ${activeBooking?.bookingDate || 'your appointment date'} at ${activeBooking?.bookingTime || 'your scheduled time'}`,
         dotColor: '#10B981',
-        background: '#f0fdf4',
-        border: '#86efac',
-        text: '#047857',
+        background: 'rgba(16,185,129,0.12)',
+        border: 'rgba(110,231,183,0.30)',
+        text: '#a7f3d0',
       }
     : activeBooking
       ? {
@@ -748,17 +835,17 @@ export default function CustomerLiveTrackerPage() {
           ? `Estimated completion at ${formatTimeValue(estimatedCompletion, activeBooking.bookingDate || activeBooking.date)}`
           : 'Live progress is being monitored now',
         dotColor: BRAND_ORANGE,
-        background: '#fff7ed',
-        border: '#fdba74',
-        text: BRAND_ORANGE,
+        background: 'rgba(249,115,22,0.13)',
+        border: 'rgba(251,146,60,0.35)',
+        text: '#fed7aa',
       }
       : {
         label: 'Standby',
         description: 'No active vehicle inside the bay',
         dotColor: '#64748b',
-        background: '#f8fafc',
-        border: '#cbd5e1',
-        text: '#475569',
+        background: 'rgba(148,163,184,0.10)',
+        border: 'rgba(203,213,225,0.24)',
+        text: '#cbd5e1',
       };
   const trackerHighlights = [
     {
@@ -792,20 +879,20 @@ export default function CustomerLiveTrackerPage() {
 
   return (
     <>
-      <div className="h-screen flex overflow-hidden text-sm bg-white" style={{ '--border': '214 32% 91%', color: '#0f172a' } as React.CSSProperties}>
+      <div className="customer-live-tracker-shell h-screen flex overflow-hidden text-sm bg-[#050505] text-zinc-100" style={{ '--border': '214 32% 91%' } as React.CSSProperties}>
         {isSidebarOpen && (
           <div
-            className="fixed inset-0 bg-slate-900/20 z-20 md:hidden transition-opacity"
+            className="fixed inset-0 bg-black/60 z-20 md:hidden transition-opacity backdrop-blur-sm"
             onClick={() => setIsSidebarOpen(false)}
           />
         )}
 
         <aside
-          className={`w-64 bg-white border-r border-slate-200 flex flex-col z-30 fixed inset-y-0 left-0 transform transition-transform duration-200 ease-in-out md:relative md:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full hidden md:flex'
+          className={`w-64 bg-[#070707]/95 border-r border-white/10 flex flex-col z-30 fixed inset-y-0 left-0 transform transition-transform duration-200 ease-in-out md:relative md:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full hidden md:flex'
             }`}
         >
-          <div className="h-16 flex items-center px-6 border-b border-slate-100 shrink-0">
-            <span className="font-semibold text-base tracking-tight text-slate-900">AutoSPF+</span>
+          <div className="h-16 flex items-center px-6 border-b border-white/10 shrink-0">
+            <span className="font-semibold text-base tracking-tight text-zinc-50">AutoSPF+</span>
           </div>
 
           <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
@@ -850,15 +937,15 @@ export default function CustomerLiveTrackerPage() {
         </aside>
 
         <div className="flex-1 flex flex-col min-w-0">
-          <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 z-10">
+          <header className="h-16 bg-[#070707]/95 border-b border-white/10 flex items-center justify-between px-4 sm:px-8 shrink-0 z-10 backdrop-blur-xl">
             <div className="flex items-center gap-4">
               <button
-                className="md:hidden text-slate-500 hover:text-slate-900"
+                className="md:hidden text-zinc-400 hover:text-zinc-100"
                 onClick={() => setIsSidebarOpen(true)}
               >
                 <Menu size={24} />
               </button>
-              <h1 className="text-xl font-medium tracking-tight text-slate-900 hidden sm:block">
+              <h1 className="text-xl font-medium tracking-tight text-zinc-50 hidden sm:block">
                 {greeting}, {(user?.name || 'Customer').split(' ')[0]}
               </h1>
             </div>
@@ -866,7 +953,7 @@ export default function CustomerLiveTrackerPage() {
             <div className="flex items-center gap-4">
               <button
                 onClick={() => navigate('/customer/book')}
-                className="hidden sm:flex items-center justify-center px-4 py-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-md font-medium transition-colors shadow-sm"
+                className="hidden sm:flex items-center justify-center px-4 py-2 border border-white/10 text-zinc-200 bg-white/[0.04] hover:bg-white/[0.08] rounded-md font-medium transition-colors shadow-sm"
               >
                 Book Service
               </button>
@@ -899,7 +986,7 @@ export default function CustomerLiveTrackerPage() {
                 <button
                   type="button"
                   onClick={() => setNotificationsOpen((current) => !current)}
-                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35"
+                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/35"
                   aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
                 >
                   <span
@@ -976,7 +1063,7 @@ export default function CustomerLiveTrackerPage() {
               <div className="relative">
                 <button
                   onClick={() => setProfileMenuOpen((current) => !current)}
-                  className="relative w-9 h-9 rounded-full bg-[#eff6ff] border border-[#bfdbfe] flex items-center justify-center text-[#1d4ed8] font-bold text-sm ml-2 hover:ring-2 hover:ring-[#bfdbfe] transition-all overflow-visible"
+                  className="relative w-9 h-9 rounded-full bg-orange-500/10 border border-orange-300/30 flex items-center justify-center text-orange-200 font-bold text-sm ml-2 hover:ring-2 hover:ring-orange-300/25 transition-all overflow-visible"
                 >
                   <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
                     {profileImage ? (
@@ -1041,61 +1128,62 @@ export default function CustomerLiveTrackerPage() {
             </div>
           </header>
 
-          <main className="relative flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50">
+          <main className="customer-live-tracker-cinema relative flex-1 overflow-y-auto p-4 sm:p-8 bg-[#050505]">
             <div className="pointer-events-none absolute inset-0 overflow-hidden">
               <motion.div
-                className="absolute left-[12%] top-0 h-80 w-80 rounded-full bg-blue-100/70 blur-3xl"
-                animate={{ x: [0, 18, -10, 0], y: [0, 20, 8, 0], scale: [1, 1.12, 0.96, 1] }}
-                transition={{ duration: 16, repeat: Infinity, ease: 'easeInOut' }}
+                className="absolute left-[8%] top-[-8rem] h-[28rem] w-[28rem] rounded-full bg-orange-500/[0.09] blur-3xl"
+                animate={shouldReduceMotion ? undefined : { x: [0, 18, -10, 0], y: [0, 20, 8, 0], scale: [1, 1.12, 0.96, 1] }}
+                transition={{ duration: 22, repeat: Infinity, ease: 'easeInOut' }}
               />
               <motion.div
-                className="absolute right-[6%] top-16 h-[22rem] w-[22rem] rounded-full bg-orange-100/60 blur-3xl"
-                animate={{ x: [0, -18, 8, 0], y: [0, 16, -12, 0], scale: [1, 0.96, 1.08, 1] }}
-                transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut', delay: 1.2 }}
+                className="absolute right-[4%] top-20 h-[24rem] w-[24rem] rounded-full bg-zinc-500/[0.08] blur-3xl"
+                animate={shouldReduceMotion ? undefined : { x: [0, -18, 8, 0], y: [0, 16, -12, 0], scale: [1, 0.96, 1.08, 1] }}
+                transition={{ duration: 24, repeat: Infinity, ease: 'easeInOut', delay: 1.2 }}
               />
+              <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(255,255,255,0.045)_0%,transparent_22%,rgba(249,115,22,0.045)_52%,transparent_78%)]" />
             </div>
 
             <motion.div
               className="relative max-w-6xl mx-auto space-y-6 pb-10"
               variants={pageStagger}
-              initial="hidden"
+              initial={shouldReduceMotion ? false : 'hidden'}
               animate="visible"
             >
               <motion.section
                 variants={revealUp}
-                className="group relative overflow-hidden rounded-[30px] border border-slate-200/90 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.08)]"
+                className="group relative overflow-hidden rounded-[30px] border border-white/10 bg-zinc-950/78 shadow-[0_34px_110px_rgba(0,0,0,0.48)] backdrop-blur-xl"
               >
                 <motion.div
                   className="absolute inset-0"
-                  animate={{ opacity: [0.92, 1, 0.92] }}
+                  animate={shouldReduceMotion ? undefined : { opacity: [0.72, 0.95, 0.72] }}
                   transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
                   style={{
-                    backgroundImage: 'radial-gradient(circle at top right, rgba(79,70,229,0.12), transparent 28%), radial-gradient(circle at left, rgba(232,101,10,0.10), transparent 24%)',
+                    backgroundImage: 'radial-gradient(circle at top right, rgba(249,115,22,0.15), transparent 30%), radial-gradient(circle at left, rgba(255,255,255,0.07), transparent 26%)',
                   }}
                 />
                 <div
                   className="absolute inset-0 opacity-[0.07]"
                   style={{
-                    backgroundImage: 'linear-gradient(rgba(148,163,184,0.35) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.35) 1px, transparent 1px)',
+                    backgroundImage: 'linear-gradient(rgba(255,255,255,0.28) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.28) 1px, transparent 1px)',
                     backgroundSize: '34px 34px',
                     maskImage: 'linear-gradient(180deg, rgba(0,0,0,0.8), transparent)',
                   }}
                 ></div>
                 <motion.div
                   className="absolute top-0 h-px w-40 bg-gradient-to-r from-transparent via-white to-transparent opacity-70"
-                  animate={{ x: ['-20%', '150%'] }}
+                  animate={shouldReduceMotion ? undefined : { x: ['-20%', '150%'] }}
                   transition={{ duration: 5.8, repeat: Infinity, ease: 'easeInOut' }}
                 />
-                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent"></div>
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-orange-300/45 to-transparent"></div>
 
                 <div className="relative p-6 sm:p-7">
                   <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
                     <motion.div variants={revealUp}>
-                      <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.20em] text-slate-500 shadow-sm">
+                      <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.20em] text-zinc-400 shadow-sm">
                         AutoSPF+ Concierge Feed
                       </span>
-                      <h2 className="text-[36px] sm:text-[46px] font-semibold tracking-[-0.05em] text-slate-900 mt-4">Live Tracker</h2>
-                      <p className="text-sm sm:text-base text-slate-500 mt-2">Track your vehicle service in real time</p>
+                      <h2 className="text-[36px] sm:text-[46px] font-semibold tracking-[-0.05em] text-zinc-50 mt-4">Live Tracker</h2>
+                      <p className="text-sm sm:text-base text-zinc-400 mt-2">Track your vehicle service in real time</p>
                     </motion.div>
 
                     <motion.div variants={revealUp} className="flex flex-col items-start gap-2 xl:items-end">
@@ -1122,7 +1210,18 @@ export default function CustomerLiveTrackerPage() {
                         </span>
                         {liveStatusMeta.label}
                       </motion.div>
-                      <p className="text-xs text-slate-500">{liveStatusMeta.description}</p>
+                      <AnimatePresence mode="wait">
+                        <motion.p
+                          key={liveStatusMeta.description}
+                          initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4 }}
+                          transition={{ duration: 0.3, ease: LUXURY_EASE }}
+                          className="text-xs text-zinc-400"
+                        >
+                          {liveStatusMeta.description}
+                        </motion.p>
+                      </AnimatePresence>
                     </motion.div>
                   </div>
 
@@ -1133,15 +1232,26 @@ export default function CustomerLiveTrackerPage() {
                         variants={revealUp}
                         transition={{ delay: index * 0.05 }}
                         whileHover={{ y: -4, scale: 1.01 }}
-                        className="rounded-[24px] border border-white/80 bg-white/80 p-4 backdrop-blur-sm shadow-[0_14px_34px_rgba(15,23,42,0.05)]"
+                        className="rounded-[24px] border border-white/10 bg-white/[0.055] p-4 backdrop-blur-sm shadow-[0_16px_40px_rgba(0,0,0,0.24)]"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-700 shadow-sm">
+                          <div className="w-10 h-10 rounded-2xl border border-white/10 bg-white/[0.06] flex items-center justify-center text-orange-200 shadow-sm">
                             <highlight.icon size={17} />
                           </div>
                           <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{highlight.label}</p>
-                            <p className="text-sm font-medium text-slate-800 mt-1">{highlight.value}</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{highlight.label}</p>
+                            <AnimatePresence mode="wait">
+                              <motion.p
+                                key={highlight.value}
+                                initial={shouldReduceMotion ? false : { opacity: 0, y: 5 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={shouldReduceMotion ? undefined : { opacity: 0, y: -5 }}
+                                transition={{ duration: 0.32, ease: LUXURY_EASE }}
+                                className="text-sm font-medium text-zinc-100 mt-1"
+                              >
+                                {highlight.value}
+                              </motion.p>
+                            </AnimatePresence>
                           </div>
                         </div>
                       </motion.div>
@@ -1154,59 +1264,59 @@ export default function CustomerLiveTrackerPage() {
                 {isLoading ? (
                   <motion.div
                     key="tracker-loading"
-                    initial={{ opacity: 0, y: 24, scale: 0.985 }}
+                    initial={shouldReduceMotion ? false : { opacity: 0, y: 24, scale: 0.985 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -16, scale: 0.985 }}
                     transition={{ duration: 0.6, ease: LUXURY_EASE }}
-                    className="relative overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.08)] p-10 flex flex-col items-center justify-center min-h-[360px]"
+                    className="relative overflow-hidden rounded-[30px] border border-white/10 bg-zinc-950/80 shadow-[0_30px_96px_rgba(0,0,0,0.42)] p-10 flex flex-col items-center justify-center min-h-[360px] backdrop-blur-xl"
                   >
                     <motion.div
                       className="absolute inset-0"
-                      animate={{ opacity: [0.7, 1, 0.7] }}
+                      animate={shouldReduceMotion ? undefined : { opacity: [0.55, 0.9, 0.55] }}
                       transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
                       style={{
-                        backgroundImage: 'radial-gradient(circle at top, rgba(79,70,229,0.08), transparent 30%), radial-gradient(circle at bottom, rgba(232,101,10,0.08), transparent 28%)',
+                        backgroundImage: 'radial-gradient(circle at top, rgba(249,115,22,0.10), transparent 32%), radial-gradient(circle at bottom, rgba(255,255,255,0.06), transparent 30%)',
                       }}
                     />
                     <motion.div
-                      className="absolute h-40 w-40 rounded-full border border-orange-100"
-                      animate={{ scale: [1, 1.18, 1], opacity: [0.3, 0.08, 0.3] }}
+                      className="absolute h-40 w-40 rounded-full border border-orange-300/20"
+                      animate={shouldReduceMotion ? undefined : { scale: [1, 1.18, 1], opacity: [0.3, 0.08, 0.3] }}
                       transition={{ duration: 3.4, repeat: Infinity, ease: 'easeInOut' }}
                     />
-                    <div className="relative w-12 h-12 border-2 border-slate-200 rounded-full animate-spin mb-5" style={{ borderTopColor: BRAND_ORANGE }}></div>
-                    <p className="relative text-sm font-semibold text-slate-900">Loading live service data...</p>
-                    <p className="relative text-xs text-slate-500 mt-1">Checking your active booking and latest service updates.</p>
+                    <div className="relative w-12 h-12 border-2 border-white/10 rounded-full animate-spin mb-5" style={{ borderTopColor: BRAND_ORANGE }}></div>
+                    <p className="relative text-sm font-semibold text-zinc-50">Loading live service data...</p>
+                    <p className="relative text-xs text-zinc-500 mt-1">Checking your active booking and latest service updates.</p>
                   </motion.div>
                 ) : !activeBooking ? (
                   <motion.section
                     key="tracker-empty"
-                    initial={{ opacity: 0, y: 24, scale: 0.985 }}
+                    initial={shouldReduceMotion ? false : { opacity: 0, y: 24, scale: 0.985 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -16, scale: 0.985 }}
                     transition={{ duration: 0.75, ease: LUXURY_EASE }}
-                    className="relative overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.08)]"
+                    className="relative overflow-hidden rounded-[30px] border border-white/10 bg-zinc-950/80 shadow-[0_30px_96px_rgba(0,0,0,0.42)] backdrop-blur-xl"
                   >
-                    <div className="absolute inset-0 bg-[linear-gradient(135deg,#ffffff_0%,#f8fafc_58%,#fff7ed_100%)]"></div>
+                    <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(12,12,13,0.96)_0%,rgba(18,18,20,0.92)_58%,rgba(249,115,22,0.11)_100%)]"></div>
                     <motion.div
                       className="absolute right-0 top-0 h-full w-[42%]"
-                      animate={{ opacity: [0.7, 1, 0.7] }}
+                      animate={shouldReduceMotion ? undefined : { opacity: [0.45, 0.8, 0.45] }}
                       transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-                      style={{ background: 'radial-gradient(circle at center, rgba(79,70,229,0.10), transparent 70%)' }}
+                      style={{ background: 'radial-gradient(circle at center, rgba(249,115,22,0.12), transparent 70%)' }}
                     />
                     <motion.div
-                      className="absolute -left-10 bottom-8 h-48 w-48 rounded-full border border-orange-100"
-                      animate={{ y: [0, -12, 0], scale: [1, 1.08, 1] }}
+                      className="absolute -left-10 bottom-8 h-48 w-48 rounded-full border border-orange-300/20"
+                      animate={shouldReduceMotion ? undefined : { y: [0, -12, 0], scale: [1, 1.08, 1] }}
                       transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
                     />
                     <div className="relative grid lg:grid-cols-[1.08fr_0.92fr]">
-                      <div className="p-8 sm:p-10 lg:border-r lg:border-slate-100">
-                        <span className="inline-flex items-center gap-2 rounded-full border border-orange-100 bg-orange-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: BRAND_ORANGE }}>
+                      <div className="p-8 sm:p-10 lg:border-r lg:border-white/10">
+                        <span className="inline-flex items-center gap-2 rounded-full border border-orange-300/25 bg-orange-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: '#fed7aa' }}>
                           Service visibility suite
                         </span>
-                        <h3 className="text-[32px] sm:text-[40px] leading-none font-semibold tracking-[-0.05em] text-slate-900 mt-5">
+                        <h3 className="text-[32px] sm:text-[40px] leading-none font-semibold tracking-[-0.05em] text-zinc-50 mt-5">
                           No active service at the moment.
                         </h3>
-                        <p className="text-sm sm:text-base text-slate-500 mt-4 max-w-xl leading-7">
+                        <p className="text-sm sm:text-base text-zinc-400 mt-4 max-w-xl leading-7">
                           Once your vehicle is checked in, the portal will surface bay progress, timing, and readiness updates in a luxury live command view.
                         </p>
 
@@ -1234,13 +1344,13 @@ export default function CustomerLiveTrackerPage() {
                               animate={{ opacity: 1, x: 0 }}
                               transition={{ delay: 0.12 + index * 0.08, duration: 0.55, ease: LUXURY_EASE }}
                               whileHover={{ x: 4, y: -2 }}
-                              className="rounded-[22px] border border-white/80 bg-white/75 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]"
+                              className="rounded-[22px] border border-white/10 bg-white/[0.05] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.22)]"
                             >
-                              <div className="w-10 h-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-700 mb-3">
+                              <div className="w-10 h-10 rounded-2xl bg-white/[0.055] border border-white/10 flex items-center justify-center text-orange-200 mb-3">
                                 <item.icon size={17} />
                               </div>
-                              <p className="text-sm font-semibold text-slate-900">{item.title}</p>
-                              <p className="text-xs leading-6 text-slate-500 mt-1">{item.copy}</p>
+                              <p className="text-sm font-semibold text-zinc-50">{item.title}</p>
+                              <p className="text-xs leading-6 text-zinc-500 mt-1">{item.copy}</p>
                             </motion.div>
                           ))}
                         </div>
@@ -1251,30 +1361,30 @@ export default function CustomerLiveTrackerPage() {
                           initial={{ opacity: 0, y: 18 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: 0.18, duration: 0.7, ease: LUXURY_EASE }}
-                          className="relative w-full rounded-[28px] border border-slate-200 bg-white/90 p-8 shadow-[0_22px_50px_rgba(15,23,42,0.08)] backdrop-blur-sm"
+                          className="relative w-full rounded-[28px] border border-white/10 bg-white/[0.055] p-8 shadow-[0_22px_54px_rgba(0,0,0,0.28)] backdrop-blur-sm"
                         >
                           <motion.div
-                            className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-orange-200 to-transparent"
-                            animate={{ opacity: [0.35, 1, 0.35] }}
+                            className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-orange-300/45 to-transparent"
+                            animate={shouldReduceMotion ? undefined : { opacity: [0.35, 1, 0.35] }}
                             transition={{ duration: 2.8, repeat: Infinity, ease: 'easeInOut' }}
                           />
-                          <div className="relative w-20 h-20 rounded-[28px] mx-auto flex items-center justify-center border border-orange-100 bg-orange-50 shadow-[0_12px_30px_rgba(232,101,10,0.12)]" style={{ color: BRAND_ORANGE }}>
+                          <div className="relative w-20 h-20 rounded-[28px] mx-auto flex items-center justify-center border border-orange-300/25 bg-orange-500/10 shadow-[0_12px_30px_rgba(249,115,22,0.14)]" style={{ color: '#fed7aa' }}>
                             <motion.div
-                              animate={{ rotate: [0, 8, -6, 0], y: [0, -2, 0] }}
+                              animate={shouldReduceMotion ? undefined : { rotate: [0, 8, -6, 0], y: [0, -2, 0] }}
                               transition={{ duration: 4.6, repeat: Infinity, ease: 'easeInOut' }}
                             >
                               <Navigation size={34} />
                             </motion.div>
                           </div>
-                          <p className="text-center text-xl font-semibold tracking-tight text-slate-900 mt-6">Ready for your next booking</p>
-                          <p className="text-center text-sm text-slate-500 mt-2 leading-7">
+                          <p className="text-center text-xl font-semibold tracking-tight text-zinc-50 mt-6">Ready for your next booking</p>
+                          <p className="text-center text-sm text-zinc-500 mt-2 leading-7">
                             Book a service to unlock the full live tracker experience inside the customer portal.
                           </p>
                           <motion.button
                             whileHover={{ y: -2, scale: 1.01 }}
                             whileTap={{ scale: 0.99 }}
                             onClick={() => navigate('/customer/book')}
-	                            className="mt-6 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold text-white transition-colors shadow-lg shadow-blue-600/20 bg-blue-600 hover:bg-blue-700"
+                            className="mt-6 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold text-white transition-colors shadow-lg shadow-orange-600/20 bg-orange-600 hover:bg-orange-500"
                           >
                             <CalendarPlus size={16} />
                             Book a Service
@@ -1287,43 +1397,43 @@ export default function CustomerLiveTrackerPage() {
                   <motion.div
                     key="tracker-active"
                     variants={pageStagger}
-                    initial="hidden"
+                    initial={shouldReduceMotion ? false : 'hidden'}
                     animate="visible"
                     exit={{ opacity: 0, y: -16 }}
                     className="space-y-6"
                   >
                     <motion.section
                       variants={revealUp}
-                      className="group relative overflow-hidden rounded-[30px] border border-slate-200/90 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.10)]"
+                      className="group relative overflow-hidden rounded-[30px] border border-white/10 bg-zinc-950/80 shadow-[0_34px_120px_rgba(0,0,0,0.50)] backdrop-blur-xl"
                     >
-                      <div className="absolute inset-0 bg-[linear-gradient(135deg,#ffffff_0%,#ffffff_44%,#f8fafc_76%,#fff7ed_100%)]"></div>
+                      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(12,12,13,0.96)_0%,rgba(18,18,20,0.92)_48%,rgba(7,7,8,0.96)_76%,rgba(249,115,22,0.12)_100%)]"></div>
                       <motion.div
-                        className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-blue-100/80 blur-3xl"
-                        animate={{ x: [0, -14, 0], y: [0, 18, 0], scale: [1, 1.08, 1] }}
+                        className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-orange-500/[0.10] blur-3xl"
+                        animate={shouldReduceMotion ? undefined : { x: [0, -14, 0], y: [0, 18, 0], scale: [1, 1.08, 1] }}
                         transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
                       />
                       <motion.div
-                        className="absolute -left-14 bottom-0 h-56 w-56 rounded-full bg-orange-100/70 blur-3xl"
-                        animate={{ x: [0, 14, 0], y: [0, -10, 0], scale: [1, 0.96, 1] }}
+                        className="absolute -left-14 bottom-0 h-56 w-56 rounded-full bg-white/[0.06] blur-3xl"
+                        animate={shouldReduceMotion ? undefined : { x: [0, 14, 0], y: [0, -10, 0], scale: [1, 0.96, 1] }}
                         transition={{ duration: 11, repeat: Infinity, ease: 'easeInOut' }}
                       />
                       <div
                         className="absolute inset-0 opacity-[0.07]"
                         style={{
-                          backgroundImage: 'linear-gradient(rgba(148,163,184,0.38) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.38) 1px, transparent 1px)',
+                          backgroundImage: 'linear-gradient(rgba(255,255,255,0.38) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.38) 1px, transparent 1px)',
                           backgroundSize: '38px 38px',
                           maskImage: 'radial-gradient(circle at center, rgba(0,0,0,0.9), transparent 85%)',
                         }}
                       ></div>
                       <motion.div
                         className="absolute inset-x-0 top-0 h-[3px]"
-                        animate={{ opacity: [0.7, 1, 0.7] }}
+                        animate={shouldReduceMotion ? undefined : { opacity: [0.7, 1, 0.7] }}
                         transition={{ duration: 2.8, repeat: Infinity, ease: 'easeInOut' }}
                         style={{ background: `linear-gradient(90deg, ${BRAND_ORANGE} 0%, #fb923c 42%, #cbd5e1 100%)` }}
                       />
                       <motion.div
                         className="absolute top-0 left-[-20%] h-full w-28 bg-gradient-to-r from-transparent via-white/60 to-transparent opacity-60 blur-xl"
-                        animate={{ x: ['0%', '470%'] }}
+                        animate={shouldReduceMotion ? undefined : { x: ['0%', '470%'] }}
                         transition={{ duration: 7.5, repeat: Infinity, ease: 'easeInOut' }}
                       />
 
@@ -1333,7 +1443,7 @@ export default function CustomerLiveTrackerPage() {
                             <div className="flex flex-wrap items-center gap-3">
                               <motion.div
                                 whileHover={{ y: -2, scale: 1.01 }}
-                                className="relative inline-flex items-center overflow-hidden rounded-[18px] border border-slate-300 bg-white shadow-[0_14px_34px_rgba(15,23,42,0.07)]"
+                                className="relative inline-flex items-center overflow-hidden rounded-[18px] border border-white/10 bg-white/[0.06] shadow-[0_18px_42px_rgba(0,0,0,0.25)]"
                               >
                                 <motion.div
                                   className="absolute inset-y-0 left-0 w-12 opacity-60"
@@ -1352,26 +1462,26 @@ export default function CustomerLiveTrackerPage() {
                                 </div>
                               </motion.div>
 
-                              <span className="inline-flex items-center gap-2 rounded-full border border-orange-100 bg-orange-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: BRAND_ORANGE }}>
+                                <span className="inline-flex items-center gap-2 rounded-full border border-orange-300/25 bg-orange-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: '#fed7aa' }}>
                                 <Sparkles size={13} />
                                 Live service session
                               </span>
                             </div>
 
                             <div>
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Vehicle in service</p>
-                              <h3 className="text-[38px] sm:text-[48px] leading-none font-semibold tracking-[-0.06em] text-slate-900 mt-3">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Vehicle in service</p>
+                              <h3 className="text-[38px] sm:text-[48px] leading-none font-semibold tracking-[-0.06em] text-zinc-50 mt-3">
                                 {vehicleLabel}
                               </h3>
-                              <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-600">
-                                <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
+                              <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-zinc-300">
+                                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 shadow-sm">
                                   <span
                                     className="w-2.5 h-2.5 rounded-full border border-white shadow-sm"
                                     style={{ backgroundColor: vehicleColorAccent }}
                                   ></span>
                                   {activeBooking.vehicleColor || 'Color not specified'}
                                 </span>
-                                <span className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm" style={{ color: BRAND_ORANGE, borderColor: '#fdba74', backgroundColor: '#fff7ed' }}>
+                                <span className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm" style={{ color: '#fed7aa', borderColor: 'rgba(251,146,60,0.35)', backgroundColor: 'rgba(249,115,22,0.11)' }}>
                                   <Wrench size={13} />
                                   {activeBooking.serviceName || activeBooking.serviceType || 'Active Service'}
                                 </span>
@@ -1383,7 +1493,7 @@ export default function CustomerLiveTrackerPage() {
                                 <motion.span
                                   key={serviceName}
                                   whileHover={{ y: -1 }}
-                                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm"
+                                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs font-medium text-zinc-300 shadow-sm"
                                 >
                                   <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: BRAND_ORANGE }}></span>
                                   {serviceName}
@@ -1393,15 +1503,15 @@ export default function CustomerLiveTrackerPage() {
                           </motion.div>
 
                           <motion.div variants={revealUp} className="space-y-4">
-                            <div className="rounded-[28px] border border-slate-200 bg-white/92 p-5 shadow-[0_18px_48px_rgba(15,23,42,0.08)] backdrop-blur-sm">
+                            <div className="rounded-[28px] border border-white/10 bg-white/[0.055] p-5 shadow-[0_20px_54px_rgba(0,0,0,0.28)] backdrop-blur-sm">
                               <div className="flex items-start justify-between gap-4">
                                 <div>
-                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Estimated Completion</p>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Estimated Completion</p>
                                   <motion.p
                                     initial={{ opacity: 0, y: 14 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ duration: 0.6, delay: 0.18, ease: LUXURY_EASE }}
-                                    className="text-[42px] sm:text-[52px] font-semibold tracking-[-0.06em] text-slate-900 mt-2"
+                                    className="text-[42px] sm:text-[52px] font-semibold tracking-[-0.06em] text-zinc-50 mt-2"
                                   >
                                     {formatTimeValue(estimatedCompletion, activeBooking.bookingDate || activeBooking.date)}
                                   </motion.p>
@@ -1409,51 +1519,61 @@ export default function CustomerLiveTrackerPage() {
                                 <motion.div
                                   animate={{ y: [0, -4, 0], rotate: [0, 4, 0] }}
                                   transition={{ duration: 4.8, repeat: Infinity, ease: 'easeInOut' }}
-                                  className="w-12 h-12 rounded-2xl border border-orange-100 bg-orange-50 flex items-center justify-center"
-                                  style={{ color: BRAND_ORANGE }}
+                                  className="w-12 h-12 rounded-2xl border border-orange-300/25 bg-orange-500/10 flex items-center justify-center"
+                                  style={{ color: '#fed7aa' }}
                                 >
                                   <Clock3 size={18} />
                                 </motion.div>
                               </div>
 
                               <div className="mt-5 grid grid-cols-2 gap-3">
-                                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
-                                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Start Time</p>
-                                  <p className="text-sm font-semibold text-slate-900 mt-2">
+                                <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-3.5">
+                                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Start Time</p>
+                                  <p className="text-sm font-semibold text-zinc-100 mt-2">
                                     {formatTimeValue(startTime, activeBooking.bookingDate || activeBooking.date)}
                                   </p>
                                 </div>
-                                <div className="rounded-2xl border border-orange-100 bg-orange-50 p-3.5">
-                                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: '#c2410c' }}>Current Stage</p>
-                                  <p className="text-sm font-semibold mt-2" style={{ color: BRAND_ORANGE }}>
-                                    {currentStageTitle}
-                                  </p>
+                                <div className="rounded-2xl border border-orange-300/25 bg-orange-500/10 p-3.5">
+                                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: '#fed7aa' }}>Current Stage</p>
+                                  <AnimatePresence mode="wait">
+                                    <motion.p
+                                      key={currentStageTitle}
+                                      initial={shouldReduceMotion ? false : { opacity: 0, y: 5 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      exit={shouldReduceMotion ? undefined : { opacity: 0, y: -5 }}
+                                      transition={{ duration: 0.34, ease: LUXURY_EASE }}
+                                      className="text-sm font-semibold mt-2"
+                                      style={{ color: '#ffedd5' }}
+                                    >
+                                      {currentStageTitle}
+                                    </motion.p>
+                                  </AnimatePresence>
                                 </div>
                               </div>
                             </div>
 
-                            <div className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.07)]">
+                            <div className="rounded-[28px] border border-white/10 bg-white/[0.055] p-5 shadow-[0_18px_46px_rgba(0,0,0,0.25)]">
                               <div className="flex items-center justify-between gap-4">
                                 <div>
-                                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Service Progress</p>
-                                  <p className="text-sm text-slate-500 mt-1">Premium 5-stage customer timeline</p>
+                                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Service Progress</p>
+                                  <p className="text-sm text-zinc-400 mt-1">Premium 5-stage customer timeline</p>
                                 </div>
                                 <div className="text-right">
-                                  <p className="text-[28px] font-semibold tracking-[-0.05em] text-slate-900">
-                                    {Math.round(trackerProgress)}%
+                                  <p className="text-[28px] font-semibold tracking-[-0.05em] text-zinc-50 tabular-nums">
+                                    <AnimatedProgressValue value={trackerProgress} />
                                   </p>
                                 </div>
                               </div>
-                              <div className="mt-5 h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                              <div className="mt-5 h-2.5 rounded-full bg-white/[0.08] overflow-hidden shadow-inner">
                                 <motion.div
                                   className="h-full rounded-full"
-                                  initial={{ width: 0 }}
+                                  initial={shouldReduceMotion ? false : { width: 0 }}
                                   animate={{ width: `${trackerProgress}%` }}
-                                  transition={{ duration: 1.2, ease: LUXURY_EASE }}
+                                  transition={{ duration: shouldReduceMotion ? 0 : 0.9, ease: LUXURY_EASE }}
                                   style={{ background: `linear-gradient(90deg, ${BRAND_ORANGE}, #fb923c, #facc15)` }}
                                 />
                               </div>
-                              <div className="mt-4 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                              <div className="mt-4 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
                                 <span>Booking confirmed</span>
                                 <span>Pickup ready</span>
                               </div>
@@ -1490,36 +1610,47 @@ export default function CustomerLiveTrackerPage() {
                               variants={revealUp}
                               transition={{ delay: index * 0.06 }}
                               whileHover={{ y: -4, scale: 1.01 }}
-                              className={`rounded-[24px] border p-4 shadow-[0_12px_34px_rgba(15,23,42,0.05)] ${meta.accent === 'orange'
-                                  ? 'border-orange-100 bg-orange-50/70'
+                              className={`rounded-[24px] border p-4 shadow-[0_16px_40px_rgba(0,0,0,0.22)] ${meta.accent === 'orange'
+                                  ? 'border-orange-300/25 bg-orange-500/10'
                                   : meta.accent === 'slate-soft'
-                                    ? 'border-slate-200 bg-slate-50/80'
-                                    : 'border-slate-200 bg-white/90'
+                                    ? 'border-white/10 bg-white/[0.045]'
+                                    : 'border-white/10 bg-white/[0.055]'
                                 }`}
                             >
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{meta.title}</p>
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{meta.title}</p>
                               <div className="mt-3 flex items-center gap-3">
                                 {meta.icon ? (
                                   <div
                                     className={`w-12 h-12 rounded-2xl border flex items-center justify-center ${meta.accent === 'orange'
-                                        ? 'border-orange-200 bg-white/80'
-                                        : 'border-slate-200 bg-white'
+                                        ? 'border-orange-300/25 bg-orange-500/10'
+                                        : 'border-white/10 bg-white/[0.05]'
                                       }`}
-                                    style={meta.accent === 'orange' ? { color: BRAND_ORANGE } : undefined}
+                                    style={meta.accent === 'orange' ? { color: '#fed7aa' } : undefined}
                                   >
                                     <meta.icon size={18} />
                                   </div>
                                 ) : (
                                   <div
                                     className="w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-bold border"
-                                    style={{ backgroundColor: '#fff7ed', color: BRAND_ORANGE, borderColor: '#fed7aa' }}
+                                    style={{ backgroundColor: 'rgba(249,115,22,0.12)', color: '#fed7aa', borderColor: 'rgba(251,146,60,0.32)' }}
                                   >
                                     {getInitials(detailerName)}
                                   </div>
                                 )}
                                 <div>
-                                  <p className="text-sm font-semibold text-slate-900">{meta.value}</p>
-                                  <p className="text-xs text-slate-500 mt-1">{meta.subtitle}</p>
+                                  <AnimatePresence mode="wait">
+                                    <motion.p
+                                      key={meta.value}
+                                      initial={shouldReduceMotion ? false : { opacity: 0, y: 5 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      exit={shouldReduceMotion ? undefined : { opacity: 0, y: -5 }}
+                                      transition={{ duration: 0.32, ease: LUXURY_EASE }}
+                                      className="text-sm font-semibold text-zinc-50"
+                                    >
+                                      {meta.value}
+                                    </motion.p>
+                                  </AnimatePresence>
+                                  <p className="text-xs text-zinc-500 mt-1">{meta.subtitle}</p>
                                 </div>
                               </div>
                             </motion.div>
@@ -1531,18 +1662,18 @@ export default function CustomerLiveTrackerPage() {
                     <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
                       <motion.section
                         variants={revealUp}
-                        className="relative overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.08)] p-6 sm:p-7"
+                        className="relative overflow-hidden rounded-[30px] border border-white/10 bg-zinc-950/78 shadow-[0_30px_96px_rgba(0,0,0,0.42)] p-6 sm:p-7 backdrop-blur-xl"
                       >
-                        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-orange-200 to-transparent"></div>
+                        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-orange-300/45 to-transparent"></div>
                         <div className="relative flex items-start justify-between gap-4 mb-7">
                           <div>
                             <div className="flex items-center gap-2">
-                              <ClipboardList size={18} className="text-slate-700" />
-                              <h3 className="text-lg font-semibold tracking-tight text-slate-900">Progress Stepper</h3>
+                              <ClipboardList size={18} className="text-orange-200" />
+                              <h3 className="text-lg font-semibold tracking-tight text-zinc-50">Progress Stepper</h3>
                             </div>
-                            <p className="text-sm text-slate-500 mt-2">Customer-facing milestones from booking confirmation to pickup readiness.</p>
+                            <p className="text-sm text-zinc-400 mt-2">Customer-facing milestones from booking confirmation to pickup readiness.</p>
                           </div>
-                          <span className="rounded-full bg-slate-100 border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          <span className="rounded-full bg-white/[0.05] border border-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
                             5-stage view
                           </span>
                         </div>
@@ -1551,27 +1682,28 @@ export default function CustomerLiveTrackerPage() {
                           {resolvedSteps.map((step, index) => {
                             const isCompleted = step.state === 'completed';
                             const isActive = step.state === 'active';
+                            const isPickup = step.id === 'paid';
 
                             return (
                               <motion.div
                                 key={step.id}
-                                initial={{ opacity: 0, x: -20 }}
+                                initial={shouldReduceMotion ? false : { opacity: 0, x: -20 }}
                                 animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: 0.16 + index * 0.08, duration: 0.55, ease: LUXURY_EASE }}
+                                transition={{ delay: shouldReduceMotion ? 0 : 0.16 + index * 0.08, duration: 0.55, ease: LUXURY_EASE }}
                                 className="relative flex gap-4 pb-6 last:pb-0"
                               >
                                 {index < resolvedSteps.length - 1 && (
                                   <>
                                     <span
                                       className="absolute left-[21px] top-11 w-[2px] h-[calc(100%-1rem)]"
-                                      style={{ background: '#e2e8f0' }}
+                                      style={{ background: 'rgba(255,255,255,0.10)' }}
                                     ></span>
                                     {isCompleted && (
                                       <motion.span
                                         className="absolute left-[21px] top-11 w-[2px] origin-top"
-                                        initial={{ height: 0 }}
+                                        initial={shouldReduceMotion ? false : { height: 0 }}
                                         animate={{ height: 'calc(100% - 1rem)' }}
-                                        transition={{ duration: 0.65, delay: 0.22 + index * 0.08, ease: LUXURY_EASE }}
+                                        transition={{ duration: shouldReduceMotion ? 0 : 0.75, delay: shouldReduceMotion ? 0 : 0.22 + index * 0.08, ease: LUXURY_EASE }}
                                         style={{ background: `linear-gradient(180deg, ${BRAND_ORANGE}, #fdba74)` }}
                                       ></motion.span>
                                     )}
@@ -1581,53 +1713,59 @@ export default function CustomerLiveTrackerPage() {
                                 <div className="relative z-10 pt-1">
                                   {isCompleted ? (
                                     <motion.div
-                                      initial={{ scale: 0.8 }}
-                                      animate={{ scale: 1 }}
+                                      initial={shouldReduceMotion ? false : { scale: 0.82, opacity: 0.72 }}
+                                      animate={{ scale: 1, opacity: 1 }}
                                       transition={{ type: 'spring', stiffness: 260, damping: 18 }}
-                                      className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow-[0_12px_30px_rgba(232,101,10,0.2)]"
+                                      className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow-[0_12px_30px_rgba(249,115,22,0.24)]"
                                       style={{ backgroundColor: BRAND_ORANGE }}
                                     >
                                       <Check size={16} />
                                     </motion.div>
                                   ) : isActive ? (
                                     <div className="relative w-11 h-11 flex items-center justify-center">
-                                      <span className="absolute inset-0 rounded-full animate-ping border" style={{ borderColor: BRAND_ORANGE, opacity: 0.35 }}></span>
-                                      <span className="absolute inset-[4px] rounded-full border bg-white" style={{ borderColor: '#fdba74' }}></span>
+                                      <motion.span
+                                        className="absolute inset-0 rounded-full border"
+                                        animate={shouldReduceMotion ? undefined : { scale: [1, 1.18, 1], opacity: [0.32, 0.08, 0.32] }}
+                                        transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+                                        style={{ borderColor: BRAND_ORANGE }}
+                                      ></motion.span>
+                                      <span className="absolute inset-[4px] rounded-full border bg-zinc-950" style={{ borderColor: '#fdba74' }}></span>
                                       <motion.span
                                         className="relative w-3.5 h-3.5 rounded-full"
-                                        animate={{ scale: [1, 1.18, 1] }}
-                                        transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+                                        animate={shouldReduceMotion ? undefined : { scale: [1, 1.16, 1] }}
+                                        transition={{ duration: 3.1, repeat: Infinity, ease: 'easeInOut' }}
                                         style={{ backgroundColor: BRAND_ORANGE }}
                                       ></motion.span>
                                     </div>
                                   ) : (
-                                    <div className="w-11 h-11 rounded-full border-2 border-slate-300 bg-white flex items-center justify-center text-xs font-semibold text-slate-400">
+                                    <div className="w-11 h-11 rounded-full border-2 border-white/10 bg-white/[0.04] flex items-center justify-center text-xs font-semibold text-zinc-500">
                                       {index + 1}
                                     </div>
                                   )}
                                 </div>
 
                                 <motion.div
-                                  whileHover={{ y: -2 }}
-                                  className={`min-w-0 flex-1 rounded-[24px] border p-4 transition-all ${isActive
-                                      ? 'border-orange-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_100%)] shadow-[0_16px_40px_rgba(232,101,10,0.08)]'
+                                  whileHover={shouldReduceMotion ? undefined : { y: -3, scale: 1.006 }}
+                                  transition={{ duration: 0.2, ease: LUXURY_EASE }}
+                                  className={`customer-tracker-stage-card relative min-w-0 flex-1 overflow-hidden rounded-[24px] border p-4 transition-all duration-200 ${isPickup ? 'customer-tracker-stage-card--pickup' : ''} ${isActive
+                                      ? 'customer-tracker-stage-card--active border-orange-300/30 bg-[linear-gradient(135deg,rgba(249,115,22,0.13)_0%,rgba(255,255,255,0.055)_100%)] shadow-[0_22px_54px_rgba(249,115,22,0.13)]'
                                       : isCompleted
-                                        ? 'border-slate-200 bg-slate-50/90'
-                                        : 'border-slate-100 bg-white'
+                                        ? 'border-white/10 bg-white/[0.055]'
+                                        : 'border-white/10 bg-white/[0.035]'
                                     }`}
                                 >
                                   <div className="flex flex-wrap items-start justify-between gap-3">
                                     <div>
-                                      <p className={`text-sm font-semibold ${isCompleted ? 'text-slate-900' : isActive ? '' : 'text-slate-400'}`} style={isActive ? { color: BRAND_ORANGE } : undefined}>
+                                      <p className={`text-sm font-semibold ${isCompleted ? 'text-zinc-100' : isActive ? '' : 'text-zinc-500'}`} style={isActive ? { color: '#fed7aa' } : undefined}>
                                         {step.title}
                                       </p>
                                       {step.state === 'pending' && (
-                                        <p className="text-xs text-slate-400 mt-2">Pending</p>
+                                        <p className="text-xs text-zinc-500 mt-2">Pending</p>
                                       )}
                                     </div>
 
                                     {isCompleted && (
-                                      <span className="rounded-full bg-white border border-slate-200 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                      <span className="rounded-full bg-white/[0.05] border border-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
                                         Completed
                                       </span>
                                     )}
@@ -1635,7 +1773,7 @@ export default function CustomerLiveTrackerPage() {
                                     {isActive && (
                                       <span
                                         className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
-                                        style={{ backgroundColor: '#fff7ed', color: BRAND_ORANGE }}
+                                        style={{ backgroundColor: 'rgba(249,115,22,0.13)', color: '#fed7aa' }}
                                       >
                                         Live
                                       </span>
@@ -1644,14 +1782,14 @@ export default function CustomerLiveTrackerPage() {
 
                                   {(isCompleted || isActive) && (
                                     <>
-                                      <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                                      <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
                                         {step.customerDescription}
                                       </p>
                                       {step.stageSlotPhotos.length > 0 ? (
-                                        <div className="mt-3 rounded-xl border border-slate-200/90 bg-slate-50/80 p-2">
+                                        <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-2">
                                           <div className="mb-2 flex items-center gap-2 px-1">
-                                            <Camera size={14} className="text-slate-400 shrink-0" aria-hidden />
-                                            <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                                            <Camera size={14} className="text-zinc-500 shrink-0" aria-hidden />
+                                            <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
                                               {step.id === 'completed' ? 'QC Form' : 'Service photos'}
                                             </span>
                                           </div>
@@ -1663,46 +1801,33 @@ export default function CustomerLiveTrackerPage() {
                                             }
                                           >
                                             {step.stageSlotPhotos.map((shot, shotIdx) => (
-                                              <div key={shot.label} className="min-w-0">
-                                                <p className="truncate text-[10px] font-semibold text-slate-500 mb-1">
-                                                  {shot.label}
-                                                </p>
-                                                <button
-                                                  type="button"
-                                                  className="block w-full cursor-zoom-in rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-1"
-                                                  aria-label={`${step.title} — ${shot.label} — enlarge`}
-                                                  onClick={() =>
-                                                    setStagePhotoLightbox({
-                                                      stepTitle: step.title,
-                                                      items: step.stageSlotPhotos.map((x) => ({ url: x.url, label: x.label })),
-                                                      index: shotIdx,
-                                                    })
-                                                  }
-                                                >
-                                                  <img
-                                                    src={toCloudinaryEvidenceThumbUrl(
-                                                      shot.url,
-                                                      typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
-                                                    )}
-                                                    alt=""
-                                                    className="aspect-square w-full rounded-lg object-cover border border-slate-200/80"
-                                                  />
-                                                </button>
-                                              </div>
+                                              <StagePhotoThumbnail
+                                                key={`${shot.label}-${shot.url}`}
+                                                shot={shot}
+                                                shotIdx={shotIdx}
+                                                stepTitle={step.title}
+                                                onOpen={() =>
+                                                  setStagePhotoLightbox({
+                                                    stepTitle: step.title,
+                                                    items: step.stageSlotPhotos.map((x) => ({ url: x.url, label: x.label })),
+                                                    index: shotIdx,
+                                                  })
+                                                }
+                                              />
                                             ))}
                                           </div>
                                         </div>
                                       ) : isActive && step.id === 'completed' ? (
-                                        <p className="text-xs text-slate-600 mt-3 leading-relaxed">
+                                        <p className="text-xs text-zinc-400 mt-3 leading-relaxed">
                                           Upload pending — awaiting QC form photo from the shop.
                                         </p>
                                       ) : null}
-                                      <p className="text-[11px] text-slate-400 mt-2">{step.timestamp}</p>
+                                      <p className="text-[11px] text-zinc-500 mt-2">{step.timestamp}</p>
                                     </>
                                   )}
 
                                   {isActive && (
-                                    <p className="text-xs font-medium mt-3" style={{ color: BRAND_ORANGE }}>
+                                    <p className="text-xs font-medium mt-3" style={{ color: '#fed7aa' }}>
                                       {step.helperText}
                                     </p>
                                   )}
@@ -1715,18 +1840,18 @@ export default function CustomerLiveTrackerPage() {
 
                       <motion.section
                         variants={revealUp}
-                        className="relative overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.08)] p-6 sm:p-7"
+                        className="relative overflow-hidden rounded-[30px] border border-white/10 bg-zinc-950/78 shadow-[0_30px_96px_rgba(0,0,0,0.42)] p-6 sm:p-7 backdrop-blur-xl"
                       >
-                        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200 to-transparent"></div>
+                        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-orange-300/35 to-transparent"></div>
                         <div className="relative flex items-start justify-between gap-4 mb-7">
                           <div>
                             <div className="flex items-center gap-2">
-                              <Wrench size={18} className="text-slate-700" />
-                              <h3 className="text-lg font-semibold tracking-tight text-slate-900">Service Details</h3>
+                              <Wrench size={18} className="text-orange-200" />
+                              <h3 className="text-lg font-semibold tracking-tight text-zinc-50">Service Details</h3>
                             </div>
-                            <p className="text-sm text-slate-500 mt-2">Booked services, bay placement, and customer-facing service notes.</p>
+                            <p className="text-sm text-zinc-400 mt-2">Booked services, bay placement, and customer-facing service notes.</p>
                           </div>
-	                          <span className="rounded-full bg-blue-50 border border-blue-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-700">
+                          <span className="rounded-full bg-orange-500/10 border border-orange-300/25 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-orange-200">
                             Active booking
                           </span>
                         </div>
@@ -1734,53 +1859,53 @@ export default function CustomerLiveTrackerPage() {
                         <div className="space-y-5">
                           <motion.div
                             variants={revealUp}
-                            className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-4"
+                            className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4"
                           >
-                            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500 mb-3">Booked Services</p>
+                            <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 mb-3">Booked Services</p>
                             <div className="space-y-3">
                               {displayServices.map((serviceName, index) => (
                                 <motion.div
                                   key={serviceName}
-                                  initial={{ opacity: 0, x: 14 }}
+                                  initial={shouldReduceMotion ? false : { opacity: 0, x: 14 }}
                                   animate={{ opacity: 1, x: 0 }}
-                                  transition={{ delay: 0.12 + index * 0.06, duration: 0.45, ease: LUXURY_EASE }}
-                                  whileHover={{ x: 4 }}
-                                  className="flex items-start gap-3 rounded-2xl bg-white border border-slate-200 px-4 py-3 shadow-sm"
+                                  transition={{ delay: shouldReduceMotion ? 0 : 0.12 + index * 0.06, duration: 0.45, ease: LUXURY_EASE }}
+                                  whileHover={shouldReduceMotion ? undefined : { x: 4 }}
+                                  className="flex items-start gap-3 rounded-2xl bg-white/[0.05] border border-white/10 px-4 py-3 shadow-sm"
                                 >
                                   <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: BRAND_ORANGE }}></span>
-                                  <p className="text-sm text-slate-700">{serviceName}</p>
+                                  <p className="text-sm text-zinc-300">{serviceName}</p>
                                 </motion.div>
                               ))}
                             </div>
                           </motion.div>
 
                           <div className="grid gap-3 sm:grid-cols-2">
-                            <motion.div variants={revealUp} className="rounded-[24px] border border-orange-100 bg-orange-50/80 p-4">
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: '#c2410c' }}>Bay Assignment</p>
-                              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white/80 px-3 py-1.5 text-xs font-semibold" style={{ color: BRAND_ORANGE }}>
+                            <motion.div variants={revealUp} className="rounded-[24px] border border-orange-300/25 bg-orange-500/10 p-4">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: '#fed7aa' }}>Bay Assignment</p>
+                              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-orange-300/25 bg-black/20 px-3 py-1.5 text-xs font-semibold" style={{ color: '#fed7aa' }}>
                                 <MapPin size={13} />
                                 {bayAssignment}
                               </div>
                             </motion.div>
 
-                            <motion.div variants={revealUp} className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-4">
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Vehicle Identity</p>
+                            <motion.div variants={revealUp} className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Vehicle Identity</p>
                               <div className="mt-3">
-                                <p className="text-sm font-semibold text-slate-900">{(activeBooking.vehiclePlate || 'TBA').toUpperCase()}</p>
-                                <p className="text-xs text-slate-500 mt-1">{activeBooking.vehicleColor || 'Color pending'} • {vehicleLabel}</p>
+                                <p className="text-sm font-semibold text-zinc-50">{(activeBooking.vehiclePlate || 'TBA').toUpperCase()}</p>
+                                <p className="text-xs text-zinc-500 mt-1">{activeBooking.vehicleColor || 'Color pending'} • {vehicleLabel}</p>
                               </div>
                             </motion.div>
                           </div>
 
                           <motion.div
                             variants={revealUp}
-                            className={`rounded-[24px] border p-4 ${latestStaffNote ? 'border-orange-100 bg-orange-50/70' : 'border-slate-200 bg-slate-50/80'}`}
+                            className={`rounded-[24px] border p-4 ${latestStaffNote ? 'border-orange-300/25 bg-orange-500/10' : 'border-white/10 bg-white/[0.04]'}`}
                           >
-                            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500 mb-3">Staff Notes</p>
+                            <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 mb-3">Staff Notes</p>
                             {latestStaffNote ? (
-                              <p className="text-sm leading-7 text-slate-700">{latestStaffNote}</p>
+                              <p className="text-sm leading-7 text-zinc-300">{latestStaffNote}</p>
                             ) : (
-                              <p className="text-sm leading-7 text-slate-500">
+                              <p className="text-sm leading-7 text-zinc-500">
                                 No staff note has been added yet. Any customer-safe remarks or readiness notes will appear here automatically.
                               </p>
                             )}
@@ -1788,15 +1913,15 @@ export default function CustomerLiveTrackerPage() {
 
                           <motion.div
                             variants={revealUp}
-                            className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm"
+                            className="rounded-[24px] border border-white/10 bg-white/[0.045] p-4 shadow-sm"
                           >
                             <div className="flex items-start gap-3">
-                              <div className="w-10 h-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600 shrink-0">
+                              <div className="w-10 h-10 rounded-2xl bg-white/[0.055] border border-white/10 flex items-center justify-center text-orange-200 shrink-0">
                                 <Clock3 size={16} />
                               </div>
                               <div>
-                                <p className="text-sm font-semibold text-slate-900">Live service timing</p>
-                                <p className="text-xs text-slate-500 mt-1 leading-6">
+                                <p className="text-sm font-semibold text-zinc-50">Live service timing</p>
+                                <p className="text-xs text-zinc-500 mt-1 leading-6">
                                   ETA {formatTimeValue(estimatedCompletion, activeBooking.bookingDate || activeBooking.date)} • Started {formatTimeValue(startTime, activeBooking.bookingDate || activeBooking.date)}
                                 </p>
                               </div>
@@ -1813,80 +1938,114 @@ export default function CustomerLiveTrackerPage() {
         </div>
       </div>
 
-      {stagePhotoLightbox && (() => {
-        const lb = stagePhotoLightbox;
-        const current = lb.items[lb.index];
-        if (!current) return null;
-        const total = lb.items.length;
-        const canPrev = lb.index > 0;
-        const canNext = lb.index < total - 1;
-        const ariaTitle = `${lb.stepTitle} — ${current.label}`;
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        const hiResSrc = toCloudinaryHighResDeliveryUrl(current.url, dpr);
-        return (
-        <div
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label={ariaTitle}
-          onClick={() => setStagePhotoLightbox(null)}
-        >
-          <div className="relative max-w-4xl w-full max-h-[90vh] flex flex-col px-10 sm:px-12" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
+      <AnimatePresence>
+        {stagePhotoLightbox ? (() => {
+          const lb = stagePhotoLightbox;
+          const current = lb.items[lb.index];
+          if (!current) return null;
+          const total = lb.items.length;
+          const canPrev = lb.index > 0;
+          const canNext = lb.index < total - 1;
+          const ariaTitle = `${lb.stepTitle} — ${current.label}`;
+          const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+          const hiResSrc = toCloudinaryHighResDeliveryUrl(current.url, dpr);
+          return (
+            <motion.div
+              className="fixed inset-0 z-[110] flex items-center justify-center bg-black/82 backdrop-blur-md p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-label={ariaTitle}
               onClick={() => setStagePhotoLightbox(null)}
-              className="absolute -top-11 right-0 text-white/85 hover:text-white text-sm font-semibold flex items-center gap-1 z-10"
+              initial={shouldReduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={shouldReduceMotion ? undefined : { opacity: 0 }}
+              transition={{ duration: 0.28, ease: LUXURY_EASE }}
             >
-              Close
-            </button>
-            <div className="relative flex w-full items-center justify-center">
-              {total > 1 && (
+              <motion.div
+                className="relative max-w-4xl w-full max-h-[90vh] flex flex-col px-10 sm:px-12"
+                onClick={(e) => e.stopPropagation()}
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 24, scale: 0.965 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={shouldReduceMotion ? undefined : { opacity: 0, y: 16, scale: 0.975 }}
+                transition={{ duration: 0.44, ease: LUXURY_EASE }}
+              >
                 <button
                   type="button"
-                  disabled={!canPrev}
-                  aria-label="Previous photo"
-                  onClick={() =>
-                    setStagePhotoLightbox((p) =>
-                      p && p.index > 0 ? { ...p, index: p.index - 1 } : p,
-                    )
-                  }
-                  className="absolute left-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg transition hover:bg-black/60 disabled:pointer-events-none disabled:opacity-25 sm:h-11 sm:w-11"
+                  onClick={() => setStagePhotoLightbox(null)}
+                  className="absolute -top-11 right-0 text-white/85 hover:text-white text-sm font-semibold flex items-center gap-1 z-10"
                 >
-                  <ChevronLeft size={22} strokeWidth={2.5} aria-hidden />
+                  Close
                 </button>
-              )}
-              <img
-                key={hiResSrc}
-                src={hiResSrc}
-                alt=""
-                className="w-full max-h-[min(85vh,900px)] object-contain rounded-2xl shadow-2xl border border-white/10 bg-slate-950/40"
-              />
-              {total > 1 && (
-                <button
-                  type="button"
-                  disabled={!canNext}
-                  aria-label="Next photo"
-                  onClick={() =>
-                    setStagePhotoLightbox((p) =>
-                      p && p.index < p.items.length - 1 ? { ...p, index: p.index + 1 } : p,
-                    )
-                  }
-                  className="absolute right-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg transition hover:bg-black/60 disabled:pointer-events-none disabled:opacity-25 sm:h-11 sm:w-11"
-                >
-                  <ChevronRight size={22} strokeWidth={2.5} aria-hidden />
-                </button>
-              )}
-            </div>
-            <p className="text-center text-white/85 text-xs mt-3 font-medium">{ariaTitle}</p>
-            {total > 1 && (
-              <p className="text-center text-white/50 text-[11px] mt-1 font-medium tabular-nums">
-                {lb.index + 1} / {total} — arrows or ← → keys
-              </p>
-            )}
-          </div>
-        </div>
-        );
-      })()}
+                <div className="relative flex w-full items-center justify-center">
+                  {total > 1 && (
+                    <motion.button
+                      type="button"
+                      disabled={!canPrev}
+                      aria-label="Previous photo"
+                      onClick={() =>
+                        setStagePhotoLightbox((p) =>
+                          p && p.index > 0 ? { ...p, index: p.index - 1 } : p,
+                        )
+                      }
+                      whileHover={shouldReduceMotion ? undefined : { x: -2, scale: 1.03 }}
+                      whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
+                      className="absolute left-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg transition hover:bg-black/60 disabled:pointer-events-none disabled:opacity-25 sm:h-11 sm:w-11"
+                    >
+                      <ChevronLeft size={22} strokeWidth={2.5} aria-hidden />
+                    </motion.button>
+                  )}
+                  <AnimatePresence mode="wait">
+                    <motion.img
+                      key={hiResSrc}
+                      src={hiResSrc}
+                      alt=""
+                      initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.975, filter: 'blur(8px)' }}
+                      animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                      exit={shouldReduceMotion ? undefined : { opacity: 0, scale: 0.985, filter: 'blur(4px)' }}
+                      transition={{ duration: 0.38, ease: LUXURY_EASE }}
+                      className="w-full max-h-[min(85vh,900px)] object-contain rounded-2xl shadow-2xl border border-white/10 bg-slate-950/40"
+                    />
+                  </AnimatePresence>
+                  {total > 1 && (
+                    <motion.button
+                      type="button"
+                      disabled={!canNext}
+                      aria-label="Next photo"
+                      onClick={() =>
+                        setStagePhotoLightbox((p) =>
+                          p && p.index < p.items.length - 1 ? { ...p, index: p.index + 1 } : p,
+                        )
+                      }
+                      whileHover={shouldReduceMotion ? undefined : { x: 2, scale: 1.03 }}
+                      whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
+                      className="absolute right-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg transition hover:bg-black/60 disabled:pointer-events-none disabled:opacity-25 sm:h-11 sm:w-11"
+                    >
+                      <ChevronRight size={22} strokeWidth={2.5} aria-hidden />
+                    </motion.button>
+                  )}
+                </div>
+                <AnimatePresence mode="wait">
+                  <motion.p
+                    key={ariaTitle}
+                    initial={shouldReduceMotion ? false : { opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={shouldReduceMotion ? undefined : { opacity: 0, y: -5 }}
+                    transition={{ duration: 0.25, ease: LUXURY_EASE }}
+                    className="text-center text-white/85 text-xs mt-3 font-medium"
+                  >
+                    {ariaTitle}
+                  </motion.p>
+                </AnimatePresence>
+                {total > 1 && (
+                  <p className="text-center text-white/50 text-[11px] mt-1 font-medium tabular-nums">
+                    {lb.index + 1} / {total} - arrows or left/right keys
+                  </p>
+                )}
+              </motion.div>
+            </motion.div>
+          );
+        })() : null}
+      </AnimatePresence>
 
       <style>{`
         @keyframes ring {
@@ -1897,6 +2056,80 @@ export default function CustomerLiveTrackerPage() {
           20% { transform: rotate(-10deg); }
           25% { transform: rotate(0); }
           100% { transform: rotate(0); }
+        }
+
+        @keyframes customerTrackerPickupSheen {
+          0%, 42% { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
+          54% { opacity: 0.22; }
+          72%, 100% { transform: translateX(180%) skewX(-18deg); opacity: 0; }
+        }
+
+        .customer-live-tracker-shell {
+          color-scheme: dark;
+        }
+
+        .customer-live-tracker-cinema {
+          background:
+            radial-gradient(circle at 16% 0%, rgba(249,115,22,0.10), transparent 30%),
+            radial-gradient(circle at 86% 12%, rgba(255,255,255,0.055), transparent 26%),
+            linear-gradient(180deg, #050505 0%, #080808 48%, #050505 100%);
+        }
+
+        .customer-tracker-stage-card {
+          transform: translateZ(0);
+          will-change: transform, box-shadow, border-color;
+        }
+
+        .customer-tracker-stage-card::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          pointer-events: none;
+          background:
+            radial-gradient(circle at top right, rgba(249,115,22,0.16), transparent 36%),
+            linear-gradient(135deg, rgba(255,255,255,0.065), transparent 40%);
+          opacity: 0;
+          transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .customer-tracker-stage-card:hover::before,
+        .customer-tracker-stage-card--active::before {
+          opacity: 1;
+        }
+
+        .customer-tracker-stage-card--pickup::after {
+          content: "";
+          position: absolute;
+          top: -35%;
+          bottom: -35%;
+          left: 0;
+          width: 32%;
+          pointer-events: none;
+          background: linear-gradient(90deg, transparent, rgba(251,191,36,0.22), transparent);
+          filter: blur(10px);
+          animation: customerTrackerPickupSheen 5.8s ease-in-out infinite;
+        }
+
+        .customer-tracker-stage-card--pickup.customer-tracker-stage-card--active {
+          box-shadow:
+            0 22px 58px rgba(249,115,22,0.14),
+            inset 0 1px 0 rgba(255,255,255,0.08);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .customer-live-tracker-shell *,
+          .customer-live-tracker-shell *::before,
+          .customer-live-tracker-shell *::after {
+            animation-duration: 0.001ms !important;
+            animation-iteration-count: 1 !important;
+            scroll-behavior: auto !important;
+            transition-duration: 0.001ms !important;
+          }
+
+          .customer-live-tracker-cinema {
+            background: #050505;
+          }
         }
       `}</style>
     </>

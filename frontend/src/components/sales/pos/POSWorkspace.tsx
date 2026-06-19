@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { CheckCircle2 } from 'lucide-react';
-import CustomerVehiclePanel from './CustomerVehiclePanel';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
+import CustomerVehiclePanel, { type CustomerVehiclePanelHandle } from './CustomerVehiclePanel';
 import ServiceCartPanel from './ServiceCartPanel';
 import PaymentSummaryPanel from './PaymentSummaryPanel';
 import ReceiptModal from './ReceiptModal';
 import BillingWorkspace, { type BillingChargesPayload } from '@/components/sales/billing/BillingWorkspace';
-import type { BillingDiscount } from '@/lib/billing-service';
+import type { BillingDiscount, BillingDoc } from '@/lib/billing-service';
 import InvoiceA4, { type InvoiceA4Snapshot } from '@/components/sales/billing/InvoiceA4';
 import { Customer, Vehicle, CartItem, formatPeso } from '@/lib/salesData';
 import { useServices, VehicleType, getEffectivePrice } from '@/hooks/useServices';
@@ -20,6 +20,15 @@ import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
 import { DEFAULT_SPF_ADDON_PRICES } from '@/lib/service-pricing';
 import { resolveReceiptPhone } from '@/lib/receipt-phone';
+import { normalizePlateNumber } from '@/lib/plate';
+import { VehicleService, mapApiVehicleToPosVehicle } from '@/lib/vehicle-service';
+import {
+  idString,
+  isValidMongoObjectId,
+  normalizeMoney,
+  normalizeQueuedPickupOrder,
+  posQueueDebug,
+} from '@/lib/pos-pickup-queue';
 
 // Map vehicle.type string → VehicleType key
 const VEHICLE_TYPE_MAP: Record<string, VehicleType> = {
@@ -52,37 +61,6 @@ const TINT_PRICES: Record<string, Partial<Record<VehicleType, number | null>>> =
   'SPF 99': DEFAULT_SPF_ADDON_PRICES.spf99,
 };
 
-const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
-  /** Sales-approved reservation — same success tone as customer tracker */
-  confirmed:        { bg: 'bg-emerald-50', text: 'text-emerald-800', dot: 'bg-emerald-500' },
-  approved:         { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
-  assigned:         { bg: 'bg-indigo-50', text: 'text-indigo-700', dot: 'bg-indigo-500' },
-  received:         { bg: 'bg-amber-50',  text: 'text-amber-700',  dot: 'bg-amber-500' },
-  in_progress:      { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-500' },
-  ready_for_payment: { bg: 'bg-amber-50',  text: 'text-amber-800',  dot: 'bg-amber-500' },
-  completed:        { bg: 'bg-green-50',  text: 'text-green-700',  dot: 'bg-green-500' },
-  pending_confirmation: { bg: 'bg-yellow-50', text: 'text-yellow-700', dot: 'bg-yellow-400' },
-};
-
-/**
- * Sales POS “balance / pickup” strip only — not reservation confirmation or bay arrival.
- * Show when the customer live tracker is at pickup (`ready_pickup`) and/or POS balance is due
- * (`ready_for_payment`, typical after QC approval + pickup gate).
- */
-function isSalesBalanceCheckoutQueueOrder(b: any): boolean {
-  if (b?.archived) return false;
-  if (String(b.paymentStatus || '').toLowerCase() === 'paid') return false;
-  const st = String(b.status || '').toLowerCase();
-  if (['cancelled', 'released'].includes(st)) return false;
-  const ts = String(b.serviceTrackingStage || '')
-    .toLowerCase()
-    .replace(/-/g, '_');
-  if (st === 'ready_for_payment') return true;
-  if (ts === 'ready_pickup') return true;
-  if (st === 'completed' && ts !== 'released') return true;
-  return false;
-}
-
 /** When billing + order have no stored reservation, assume ₱500 for booking-linked POS checkout. */
 const BOOKING_RESERVATION_DP_FALLBACK = 500;
 
@@ -91,6 +69,48 @@ type PosBillingCharges = {
   taxVatAmount: number;
   additionalFees: number;
   downpayment: number;
+};
+
+type PosCartItem = CartItem & {
+  source?: 'manual' | 'pickup_queue';
+  orderLinked?: boolean;
+  queuedOrderId?: string;
+  billingServiceId?: string | null;
+  queueLabel?: string;
+  vehicleType?: VehicleType;
+};
+
+type QueuedFinancialState = {
+  originalTotal: number;
+  discountTotal: number;
+  taxVatTotal: number;
+  additionalFeesTotal: number;
+  amountPaid: number;
+  downpaymentApplied: number;
+  remainingBalance: number;
+  totalDue: number;
+  grandTotal: number;
+};
+
+type QueuedOrderContext = {
+  orderId: string;
+  label: string;
+  bookingReference?: string;
+  orderNumber?: string;
+  customerName?: string;
+  financial: QueuedFinancialState;
+};
+
+type HydratedQueuedOrderState = {
+  orderId: string;
+  row: any;
+  order: any;
+  customer: Customer;
+  vehicle: Vehicle;
+  cartItems: PosCartItem[];
+  billingCharges: PosBillingCharges;
+  billingComputed: BillingComputed | null;
+  queuedContext: QueuedOrderContext;
 };
 
 const emptyBillingCharges = (): PosBillingCharges => ({
@@ -170,174 +190,217 @@ function resolvePosDownpayment(
   return isBookingOrder ? BOOKING_RESERVATION_DP_FALLBACK : 0;
 }
 
-// ── Check-In Queue (compact collapsible strip) ────────────────────────────────
+function money(value: unknown): number {
+  return normalizeMoney(value);
+}
+
+function orderReference(row: any): string {
+  const normalized = normalizeQueuedPickupOrder(row);
+  return String(normalized.bookingReference || row?.orderNumber || normalized.orderId || 'Queued order');
+}
+
+function financialFromQueueAndBilling(row: any, billing?: BillingDoc | null): QueuedFinancialState {
+  const normalized = normalizeQueuedPickupOrder(row);
+  const computed = billing?.computed;
+  const discountTotal = money(computed?.discountTotal ?? row?.discountAmount);
+  const taxVatTotal = money(computed?.taxVatTotal ?? row?.taxVatAmount);
+  const additionalFeesTotal = money(computed?.additionalFeesTotal ?? row?.additionalFees);
+  const grandTotal = money(computed?.grandTotal ?? row?.totalAmount ?? row?.totalPrice);
+  const downpaymentApplied = money(row?.downpaymentApplied ?? billing?.downpayment ?? row?.downPaymentAmount);
+  const amountPaid = money(row?.amountPaid ?? downpaymentApplied);
+  const remainingBalance = normalized.remainingBalance;
+  const billingBalanceDue = money(computed?.balanceDue);
+  if (Math.abs(remainingBalance - billingBalanceDue) > 0.009) {
+    posQueueDebug('[POS Queue] queue/billing balance mismatch', {
+      queueRemainingBalance: remainingBalance,
+      billingComputedBalanceDue: billingBalanceDue,
+      orderPaymentStatus: row?.paymentStatus,
+      billingStatus: billing?.status,
+      checkedOutState: billing?.status === 'checked_out',
+    });
+  }
+  return {
+    originalTotal: grandTotal,
+    discountTotal,
+    taxVatTotal,
+    additionalFeesTotal,
+    amountPaid,
+    downpaymentApplied,
+    remainingBalance,
+    totalDue: remainingBalance,
+    grandTotal,
+  };
+}
+
+function vehicleSnapshotFromOrder(order: any, orderId: string): Vehicle {
+  const plate = sanitizeVehiclePlate(order?.vehiclePlate || '');
+  return {
+    id: String(order?.vehicleId || order?.vehicle || (plate ? `plate-${plate}` : `order-${orderId}-vehicle`)),
+    plate,
+    make: String(order?.vehicleMake || ''),
+    model: String(order?.vehicleModel || ''),
+    year:
+      typeof order?.vehicleYear === 'number'
+        ? order.vehicleYear
+        : parseInt(String(order?.vehicleYear || '0'), 10) || 0,
+    color: String(order?.vehicleColor || ''),
+    type: String(order?.vehicleType || order?.vehicleClass || order?.vehicleCategory || 'sedan'),
+  };
+}
+
+function customerFromOrder(order: any): Customer {
+  const rawCustomer = order?.customer && typeof order.customer === 'object' ? order.customer : null;
+  const id = String(
+    order?.customerId ||
+    rawCustomer?._id ||
+    rawCustomer?.id ||
+    order?.customer ||
+    ''
+  );
+  return {
+    id,
+    name: String(order?.customerName || rawCustomer?.name || 'Customer'),
+    phone: resolveReceiptPhone(rawCustomer, order) || '',
+    email: String(rawCustomer?.email || order?.customerEmail || ''),
+    vehicles: [],
+    totalSpent: 0,
+    visitCount: 0,
+    lastVisit: new Date().toISOString(),
+    memberSince: rawCustomer?.createdAt ? new Date(rawCustomer.createdAt).toISOString() : new Date().toISOString(),
+    notes: '',
+    tier: 'bronze',
+    isSynthetic: false,
+    garagePlateHints: [],
+  };
+}
+
+function findExactQueuedVehicle(vehicles: Vehicle[], order: any, fallback: Vehicle): Vehicle {
+  const wantedVehicleId = String(order?.vehicleId || order?.vehicle || '').trim();
+  if (wantedVehicleId) {
+    const byId = vehicles.find((v) => String(v.id) === wantedVehicleId);
+    if (byId) return byId;
+  }
+  const wantedPlate = normalizePlateNumber(order?.vehiclePlate || fallback.plate || '');
+  if (wantedPlate) {
+    const byPlate = vehicles.find((v) => normalizePlateNumber(v.plate || '') === wantedPlate);
+    if (byPlate) return byPlate;
+  }
+  return fallback;
+}
+
+function cartItemsFromBillingOrOrder(orderId: string, order: any, billing: BillingDoc | null, services: any[]): PosCartItem[] {
+  if (billing?.lineItems?.length) {
+    return billing.lineItems.map((li, i) => {
+      const serviceId = li.serviceId ? String(li.serviceId) : null;
+      const svc = serviceId ? services.find((s) => s._id === serviceId) : undefined;
+      return {
+        id: serviceId || `billing-line-${orderId}-${i}`,
+        name: li.name || 'Service',
+        category: (svc as { category?: string } | undefined)?.category || 'Service',
+        price: money(li.unitPrice),
+        duration: (svc as { duration?: string } | undefined)?.duration || '',
+        description: 'Included in original booking',
+        quantity: Math.max(1, Math.floor(Number(li.quantity)) || 1),
+        source: 'pickup_queue',
+        orderLinked: true,
+        queuedOrderId: orderId,
+        billingServiceId: serviceId,
+        queueLabel: 'Included in original booking',
+      };
+    });
+  }
+
+  const rawItems = Array.isArray(order?.items) ? order.items : [];
+  if (rawItems.length > 0) {
+    return rawItems.map((it: any, i: number) => {
+      const product = it.product;
+      const serviceId = typeof product === 'object' && product?._id ? String(product._id) : null;
+      return {
+        id: serviceId || `order-line-${orderId}-${i}`,
+        name: String((typeof product === 'object' && product?.name) || it.name || order?.serviceType || 'Service'),
+        category: String((typeof product === 'object' && product?.category) || 'Service'),
+        price: money(it.price),
+        duration: '',
+        description: 'Included in original booking',
+        quantity: Math.max(1, Math.floor(Number(it.quantity)) || 1),
+        source: 'pickup_queue',
+        orderLinked: true,
+        queuedOrderId: orderId,
+        billingServiceId: serviceId,
+        queueLabel: 'Included in original booking',
+      };
+    });
+  }
+
+  const total = money(order?.totalPrice ?? order?.totalAmount);
+  if (total <= 0) return [];
+  return [
+    {
+      id: `order-${orderId}-total`,
+      name: String(order?.serviceType || order?.serviceName || 'Booked service'),
+      category: 'Service',
+      price: total,
+      duration: '',
+      description: 'Included in original booking',
+      quantity: 1,
+      source: 'pickup_queue',
+      orderLinked: true,
+      queuedOrderId: orderId,
+      billingServiceId: null,
+      queueLabel: 'Included in original booking',
+    },
+  ];
+}
+
+// ── Balance / Pickup Queue indicator ─────────────────────────────────────────
 function CheckInQueuePanel({
-  onSelectBooking,
-  refreshKey = 0,
+  bookings,
+  loading,
+  onOpenSearch,
+  onRefresh,
 }: {
-  onSelectBooking: (b: any) => void;
-  /** Increment after POS checkout so the strip refetches without manual refresh. */
-  refreshKey?: number;
+  bookings: any[];
+  loading: boolean;
+  onOpenSearch: () => void;
+  onRefresh: () => void;
 }) {
-  const [bookings, setBookings] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(false);
-
-  const loadBookings = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { OrderService } = await import('@/lib/order-service');
-      const res = await OrderService.getAllOrders({
-        suppressErrorToast: true,
-        limit: 100,
-        paymentStatus: 'unpaid',
-        status: 'ready_for_payment,completed',
-        sortBy: 'bookingDate',
-        sortOrder: 'asc',
-      });
-      if (res.success && Array.isArray(res.data)) {
-        const queue = res.data
-          .filter(isSalesBalanceCheckoutQueueOrder)
-          .sort((a: any, b: any) => (a.bookingTime || '').localeCompare(b.bookingTime || ''));
-        setBookings(queue);
-      }
-    } catch { /* silent */ }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    void loadBookings();
-  }, [loadBookings, refreshKey]);
-
   const queueCount = bookings.length;
+  const first = bookings[0] || null;
 
   return (
-    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, boxShadow: '0 1px 6px rgba(0,0,0,.05)', overflow: 'hidden', flexShrink: 0 }}>
-      {/* Compact header — always visible, click to expand */}
-      <div
-        onClick={() => setExpanded(e => !e)}
-        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', userSelect: 'none', borderBottom: expanded ? '1px solid #f1f5f9' : 'none' }}
-      >
-        {/* Label + count badges */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block', animation: 'posQPulse 1.5s ease-in-out infinite' }} />
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>Balance / pickup queue</span>
-          {queueCount > 0 && (
-            <span style={{ fontSize: 10, fontWeight: 700, background: '#f0fdf4', color: '#15803d', padding: '1px 8px', borderRadius: 20 }}>
-              {queueCount} due
+    <div className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-[0_1px_6px_rgba(15,23,42,0.05)]">
+      <div className="flex min-w-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={onOpenSearch}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        >
+          <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" style={{ animation: 'posQPulse 1.5s ease-in-out infinite' }} />
+          <span className="shrink-0 text-xs font-bold text-slate-800">Balance / Pickup Queue</span>
+          <span className="shrink-0 text-xs font-semibold text-slate-400">·</span>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+            queueCount > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+          }`}>
+            {loading ? 'Syncing...' : `${queueCount} due`}
+          </span>
+          {first && !loading && (
+            <span className="ml-1 min-w-0 truncate rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
+              {(first.customerName || 'Customer').split(' ')[0]} · {first.bookingTime || 'Ready'} · {formatPeso(money(first.remainingBalance ?? first.totalAmount ?? first.totalPrice))}
             </span>
           )}
-        </div>
-
-        {/* Scrollable booking pills */}
-        {!loading && bookings.length > 0 && (
-          <div style={{ flex: 1, display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none', padding: '2px 0' }}>
-            {bookings.map((b: any) => {
-              const st = (b.status || '').toLowerCase();
-              const ts = String(b.serviceTrackingStage || '')
-                .toLowerCase()
-                .replace(/-/g, '_');
-              const dotColor =
-                st === 'ready_for_payment' || ts === 'ready_pickup'
-                  ? '#16a34a'
-                  : st === 'completed'
-                    ? '#22c55e'
-                    : '#0ea5e9';
-              return (
-                <button
-                  key={b._id || b.id}
-                  onClick={e => { e.stopPropagation(); onSelectBooking(b); }}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 20, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', flexShrink: 0, fontSize: 11, fontWeight: 600, color: '#334155' }}
-                >
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
-                  <span>{(b.customerName || '?').split(' ')[0]}</span>
-                  <span style={{ fontSize: 10, color: '#94a3b8' }}>{b.bookingTime || '—'}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-        {!loading && bookings.length === 0 && (
-          <span style={{ fontSize: 11, color: '#94a3b8', flex: 1 }}>
-            No balance due — appears when tracker is pickup-ready or QC releases the job
-          </span>
-        )}
-
-        {/* Refresh + chevron */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 4 }}>
-          <button
-            onClick={e => { e.stopPropagation(); loadBookings(); }}
-            style={{ width: 26, height: 26, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
-          </button>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5"
-            style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform .2s' }}>
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </div>
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRefresh();
+          }}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:bg-white hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          aria-label="Refresh pickup queue"
+        >
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+        </button>
       </div>
-
-      {/* Expanded detail rows */}
-      {expanded && (
-        <div style={{ maxHeight: 220, overflowY: 'auto' }}>
-          {loading ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px 0', gap: 8 }}>
-              <div style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid #e2e8f0', borderTop: '2px solid #3b82f6', animation: 'posQSpin 1s linear infinite' }} />
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>Loading…</span>
-            </div>
-          ) : bookings.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '20px 12px', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-              No vehicles awaiting balance payment. Jobs land here when the customer live tracker reaches{' '}
-              <strong style={{ color: '#0f172a' }}>pickup / ready for release</strong> or QC has finished and the job is
-              released for payment.
-            </div>
-          ) : (
-            bookings.map((b: any) => {
-              const id = b._id || b.id;
-              const st = (b.status || 'confirmed').toLowerCase();
-              const colors = STATUS_COLORS[st] || STATUS_COLORS.ready_for_payment;
-              const isReadyToPay =
-                String(b.paymentStatus || '').toLowerCase() !== 'paid' &&
-                ['completed', 'ready_for_payment'].includes(st);
-              return (
-                <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderTop: '1px solid #f8fafc' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#16a34a,#15803d)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
-                    {(b.customerName || 'C').charAt(0).toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{b.customerName || 'Unknown'}</span>
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20 }} className={`${colors.bg} ${colors.text}`}>
-                        {st.replace('_', ' ')}
-                      </span>
-                      {isReadyToPay && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20, background: '#fffbeb', color: '#b45309' }}>
-                          {st === 'ready_for_payment' ? 'Balance due' : 'Ready to Pay'}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                      {b.vehiclePlate || '—'} · {b.serviceType || b.serviceName || '—'} · <strong style={{ color: '#2563eb' }}>{b.bookingTime || '—'}</strong>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    <button
-                      onClick={() => { onSelectBooking(b); setExpanded(false); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}
-                    >
-                      Open POS
-                    </button>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>₱{Number(b.totalPrice || b.totalAmount || 0).toLocaleString()}</div>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -370,10 +433,14 @@ export default function POSWorkspace({
   const effectiveVehicleType: VehicleType = manualVehicleType ?? customerVehicleType ?? 'sedan';
   const isVehicleFromCustomer = !manualVehicleType && customerVehicleType !== null;
 
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const customerPanelRef = useRef<CustomerVehiclePanelHandle>(null);
+  const staleToastKeysRef = useRef<Set<string>>(new Set());
+
+  const [cartItems, setCartItems] = useState<PosCartItem[]>([]);
   const [billingCharges, setBillingCharges] = useState<PosBillingCharges>(emptyBillingCharges);
   const [billingComputedLive, setBillingComputedLive] = useState<BillingComputed | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
+  const [transactionNotes, setTransactionNotes] = useState('');
   const [showReceipt, setShowReceipt] = useState(false);
   const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
   const [paymentConfirmAmountLabel, setPaymentConfirmAmountLabel] = useState('');
@@ -398,10 +465,13 @@ export default function POSWorkspace({
   const [posBillingOrderId, setPosBillingOrderId] = useState<string | null>(null);
   const [unpaidOrders, setUnpaidOrders] = useState<any[]>([]);
   const [unpaidOrdersLoading, setUnpaidOrdersLoading] = useState(false);
+  const [selectedOrderStale, setSelectedOrderStale] = useState(false);
   const [billingSyncNonce, setBillingSyncNonce] = useState(0);
   const [lastInvoiceSnap, setLastInvoiceSnap] = useState<InvoiceA4Snapshot | null>(null);
   const [lastInvoiceNumber, setLastInvoiceNumber] = useState<string | null>(null);
-  const [checkInQueueTick, setCheckInQueueTick] = useState(0);
+  const [queuedOrderContext, setQueuedOrderContext] = useState<QueuedOrderContext | null>(null);
+  const [pendingQueuedOrder, setPendingQueuedOrder] = useState<any | null>(null);
+  const [hydratingOrderId, setHydratingOrderId] = useState<string | null>(null);
 
   const handleBillingChargesChange = useCallback((payload: BillingChargesPayload) => {
     setBillingCharges({
@@ -420,27 +490,62 @@ export default function POSWorkspace({
     setLastInvoiceNumber(null);
   }, []);
 
-  const effectiveOrderId = linkedOrderId ?? posBillingOrderId;
+  const effectiveOrderId = idString(linkedOrderId ?? posBillingOrderId);
 
-  const loadUnpaidOrders = useCallback(async () => {
+  const showStaleToastOnce = useCallback((orderId: unknown) => {
+    const key = idString(orderId) || 'unknown';
+    if (staleToastKeysRef.current.has(key)) return;
+    staleToastKeysRef.current.add(key);
+    toast.warning('This order is no longer eligible for checkout.');
+  }, []);
+
+  const clearQueuedOrderContext = useCallback(() => {
+    const queuedOrderId = idString(queuedOrderContext?.orderId);
+    setQueuedOrderContext(null);
+    setPendingQueuedOrder(null);
+    setSelectedOrderStale(false);
+    setBillingComputedLive(null);
+    setBillingCharges(emptyBillingCharges());
+    setLastInvoiceSnap(null);
+    setLastInvoiceNumber(null);
+    if (queuedOrderId) {
+      setCartItems((prev) =>
+        prev.filter((item) => item.source !== 'pickup_queue' || idString(item.queuedOrderId) !== queuedOrderId)
+      );
+      setLinkedOrderId((current) => (idString(current) === queuedOrderId ? null : current));
+      setPosBillingOrderId((current) => (idString(current) === queuedOrderId ? null : current));
+    }
+  }, [queuedOrderContext?.orderId]);
+
+  const loadUnpaidOrders = useCallback(async (options?: { notifyStale?: boolean; clearStale?: boolean }) => {
     setUnpaidOrdersLoading(true);
     try {
       const { OrderService } = await import('@/lib/order-service');
-      const res = await OrderService.getAllOrders({
+      const res = await OrderService.getBalancePickupQueue({
         suppressErrorToast: true,
         limit: 100,
-        paymentStatus: 'unpaid',
-        sortBy: 'createdAt',
-        sortOrder: 'desc',
       });
       if (res.success && Array.isArray(res.data)) {
-        setUnpaidOrders(res.data.filter((o: any) => o.paymentStatus !== 'paid'));
+        const queueRows = res.data.filter((o: any) => o.paymentStatus !== 'paid');
+        setUnpaidOrders(queueRows);
+        if (effectiveOrderId) {
+          const stillEligible = queueRows.some((o: any) => idString(normalizeQueuedPickupOrder(o).orderId) === effectiveOrderId);
+          setSelectedOrderStale(!stillEligible);
+          if (!stillEligible && options?.notifyStale) {
+            showStaleToastOnce(effectiveOrderId);
+          }
+          if (!stillEligible && options?.clearStale && idString(queuedOrderContext?.orderId) === effectiveOrderId) {
+            clearQueuedOrderContext();
+          }
+        } else {
+          setSelectedOrderStale(false);
+        }
       }
     } catch {
       /* silent */
     }
     setUnpaidOrdersLoading(false);
-  }, []);
+  }, [clearQueuedOrderContext, effectiveOrderId, queuedOrderContext?.orderId, showStaleToastOnce]);
 
   useEffect(() => {
     loadUnpaidOrders();
@@ -448,25 +553,40 @@ export default function POSWorkspace({
 
   useEffect(() => {
     const socket = getSharedSocket();
+    const refreshQueue = () => {
+      void loadUnpaidOrders({ notifyStale: true, clearStale: true });
+    };
     const onBalancePickupNotif = (payload: { metadata?: { kind?: string } }) => {
       if (payload?.metadata?.kind === 'balance_pickup') {
-        setCheckInQueueTick((t) => t + 1);
-        void loadUnpaidOrders();
+        refreshQueue();
       }
     };
     socket.on('notification:booking-manager', onBalancePickupNotif);
+    socket.on('orderUpdated', refreshQueue);
+    socket.on('pos:queue_updated', refreshQueue);
     return () => {
       socket.off('notification:booking-manager', onBalancePickupNotif);
+      socket.off('orderUpdated', refreshQueue);
+      socket.off('pos:queue_updated', refreshQueue);
     };
   }, [loadUnpaidOrders]);
 
   const buildLineItemsFromCart = useCallback(() => {
     return cartItems.map((c) => {
+      const explicitServiceId = c.billingServiceId;
       const baseId = String(c.id).split('-')[0];
-      const svc = services.find((s) => s._id === baseId || s._id === c.id);
+      const serviceId =
+        explicitServiceId !== undefined
+          ? explicitServiceId
+          : String(c.id).startsWith('billing-line-') ||
+              String(c.id).startsWith('order-line-') ||
+              String(c.id).startsWith('order-')
+            ? null
+            : baseId;
+      const svc = serviceId ? services.find((s) => s._id === serviceId || s._id === c.id) : undefined;
       const isTintBundle = String(c.id).includes('-tint');
       return {
-        serviceId: isTintBundle ? null : baseId,
+        serviceId: isTintBundle ? null : serviceId,
         name: c.name,
         billingGroup: (svc as { billingGroup?: string } | undefined)?.billingGroup || 'uncategorized',
         unitPrice: c.price,
@@ -475,112 +595,135 @@ export default function POSWorkspace({
     });
   }, [cartItems, services]);
 
-  /** Load server billing lines (or order.items) into POS cart + payment summary. */
-  const hydrateCartFromOrder = useCallback(async (orderId: string) => {
-    try {
+  const buildHydratedQueuedOrderState = useCallback(
+    async (seedRow: any): Promise<HydratedQueuedOrderState> => {
+      const selectedQueueRow = normalizeQueuedPickupOrder(seedRow);
+      const orderId = idString(selectedQueueRow.orderId);
+      posQueueDebug('[POS Queue] normalized row', selectedQueueRow);
+      posQueueDebug('[POS Queue] selected orderId', orderId);
+      if (!orderId || !isValidMongoObjectId(orderId)) {
+        const invalidError = new Error(selectedQueueRow.disabledReason || 'Invalid queue record');
+        (invalidError as Error & { code?: string }).code = 'POS_QUEUE_INVALID';
+        throw invalidError;
+      }
+
       const { OrderService } = await import('@/lib/order-service');
-      const [billRes, ordRes] = await Promise.all([
-        BillingService.getBilling(orderId),
+      const queueRes = await OrderService.getBalancePickupQueue({
+        suppressErrorToast: true,
+        limit: 100,
+      });
+      if (!queueRes.success || !Array.isArray(queueRes.data)) {
+        throw new Error('Queue refresh failed');
+      }
+      const normalizedRows = queueRes.data.map((row: any) => normalizeQueuedPickupOrder(row));
+      posQueueDebug('[POS Queue] refetched ids', normalizedRows.map((row) => row.orderId));
+      const freshNormalized = normalizedRows.find((row) => idString(row.orderId) === orderId);
+      posQueueDebug('[POS Queue] revalidation found', Boolean(freshNormalized));
+      if (!freshNormalized) {
+        posQueueDebug('[POS Queue] stale reason', {
+          selectedOrderId: orderId,
+          refetchedOrderIds: normalizedRows.map((row) => row.orderId),
+        });
+        const staleError = new Error('This order is no longer eligible for checkout.');
+        (staleError as Error & { code?: string }).code = 'POS_QUEUE_STALE';
+        throw staleError;
+      }
+      const freshRow = freshNormalized.raw;
+
+      const [orderRes, billingRes] = await Promise.all([
         OrderService.getOrderById(orderId),
+        BillingService.getBilling(orderId),
       ]);
-      const order = ordRes.success ? (ordRes.data as any) : null;
-      const bd =
-        billRes.success && 'data' in billRes && billRes.data ? (billRes.data as any) : null;
-      if (bd && Array.isArray(bd.lineItems) && bd.lineItems.length > 0) {
-        const items: CartItem[] = bd.lineItems.map((li: any, i: number) => {
-          const sid = li.serviceId ? String(li.serviceId) : `billing-line-${orderId}-${i}`;
-          const svc = li.serviceId ? services.find((s) => s._id === String(li.serviceId)) : undefined;
-          return {
-            id: sid,
-            name: li.name || 'Service',
-            category: (svc as { category?: string } | undefined)?.category || 'Service',
-            price: Number(li.unitPrice) || 0,
-            duration: (svc as { duration?: string } | undefined)?.duration || '',
-            description: '',
-            quantity: Math.max(1, Math.floor(Number(li.quantity)) || 1),
-          };
-        });
-        setCartItems(items);
-        setBillingCharges(chargesFromBillingDoc(bd, order?.downPaymentAmount, Boolean(orderId)));
-        setBillingSyncNonce((n) => n + 1);
-        return;
+      const order = orderRes.success ? (orderRes.data as any) : null;
+      const billing =
+        billingRes.success && 'data' in billingRes && billingRes.data
+          ? (billingRes.data as BillingDoc)
+          : null;
+      if (!order || !billing) {
+        throw new Error('Order or billing could not be loaded');
       }
 
-      if (!order) {
-        setCartItems([]);
-        setBillingCharges(emptyBillingCharges());
-        setBillingSyncNonce((n) => n + 1);
-        return;
-      }
-      const rawItems = order.items || [];
-      if (rawItems.length > 0) {
-        const mapped: CartItem[] = rawItems.map((it: any, i: number) => {
-          const prod = it.product;
-          const name =
-            typeof prod === 'object' && prod?.name ? prod.name : order.serviceType || 'Service';
-          const id =
-            typeof prod === 'object' && prod?._id ? String(prod._id) : `order-line-${orderId}-${i}`;
-          const cat =
-            typeof prod === 'object' && prod?.category ? String(prod.category) : 'Service';
-          return {
-            id,
-            name,
-            category: cat,
-            price: Number(it.price) || 0,
-            duration: '',
-            description: '',
-            quantity: Math.max(1, Math.floor(Number(it.quantity)) || 1),
-          };
-        });
-        setCartItems(mapped);
-        setBillingCharges(
-          chargesFromBillingDoc(null, order.downPaymentAmount, Boolean(orderId))
-        );
-        setBillingSyncNonce((n) => n + 1);
-        return;
+      const cart = cartItemsFromBillingOrOrder(orderId, order, billing, services);
+      if (cart.length === 0) {
+        throw new Error('Queued order has no payable line items');
       }
 
-      const total = Number(order.totalPrice ?? order.totalAmount ?? 0);
-      const svcName = order.serviceType || 'Booked service';
-      if (total > 0) {
-        setCartItems([
-          {
-            id: `order-${orderId}-total`,
-            name: svcName,
-            category: 'Service',
-            price: total,
-            duration: '',
-            description: '',
-            quantity: 1,
-          },
-        ]);
-      } else {
-        setCartItems([]);
+      const baseCustomer = customerFromOrder(order);
+      if (!baseCustomer.id) {
+        throw new Error('Queued order is missing a customer profile');
       }
-      setBillingCharges(chargesFromBillingDoc(null, order?.downPaymentAmount, Boolean(orderId)));
-      setBillingSyncNonce((n) => n + 1);
-    } catch {
-      toast.error('Could not load order line items');
-      setCartItems([]);
-      setBillingCharges(emptyBillingCharges());
-    }
-  }, [services]);
+
+      let garageVehicles: Vehicle[] = [];
+      try {
+        const vehRes = await VehicleService.getVehiclesForUser(baseCustomer.id);
+        if (vehRes.success && Array.isArray(vehRes.data)) {
+          garageVehicles = vehRes.data.map(mapApiVehicleToPosVehicle);
+        }
+      } catch {
+        garageVehicles = [];
+      }
+
+      const fallbackVehicle = vehicleSnapshotFromOrder(order, orderId);
+      const selectedQueuedVehicle = findExactQueuedVehicle(garageVehicles, order, fallbackVehicle);
+      const vehicleHints = new Set<string>();
+      garageVehicles.forEach((v) => {
+        const plate = normalizePlateNumber(v.plate || '');
+        if (plate) vehicleHints.add(plate);
+      });
+      const fallbackPlate = normalizePlateNumber(fallbackVehicle.plate || '');
+      if (fallbackPlate) vehicleHints.add(fallbackPlate);
+      const customer = {
+        ...baseCustomer,
+        vehicles: garageVehicles.some((v) => v.id === selectedQueuedVehicle.id)
+          ? garageVehicles
+          : [selectedQueuedVehicle, ...garageVehicles],
+        garagePlateHints: [...vehicleHints],
+      };
+      const financial = financialFromQueueAndBilling(freshRow, billing);
+      if (financial.remainingBalance <= 0) {
+        const staleError = new Error('This order is no longer eligible for checkout.');
+        (staleError as Error & { code?: string }).code = 'POS_QUEUE_STALE';
+        throw staleError;
+      }
+
+      const ref = orderReference(freshRow);
+      return {
+        orderId,
+        row: freshRow,
+        order,
+        customer,
+        vehicle: selectedQueuedVehicle,
+        cartItems: cart,
+        billingCharges: chargesFromBillingDoc(billing, order?.downPaymentAmount, true),
+        billingComputed: billing.computed ?? null,
+        queuedContext: {
+          orderId,
+          label: ref,
+          bookingReference: freshRow.bookingReference || order.bookingReference,
+          orderNumber: freshRow.orderNumber || order.orderNumber,
+          customerName: freshRow.customerName || order.customerName,
+          financial,
+        },
+      };
+    },
+    [services]
+  );
 
   useEffect(() => {
-    if (!effectiveOrderId || cartItems.length === 0) return undefined;
+    if (!effectiveOrderId || hydratingOrderId || cartItems.length === 0) return undefined;
     const t = window.setTimeout(() => {
       void (async () => {
         const put = await BillingService.putBilling(effectiveOrderId, {
           lineItems: buildLineItemsFromCart(),
         });
-        if (put.success && put.data?.computed) {
+        if (put.success && 'data' in put && put.data?.computed) {
           setBillingComputedLive(put.data.computed);
           setBillingCharges(chargesFromBillingDoc(put.data, undefined, true));
         }
       })();
     }, 450);
     return () => window.clearTimeout(t);
-  }, [effectiveOrderId, cartItems, buildLineItemsFromCart]);
+  }, [effectiveOrderId, hydratingOrderId, cartItems, buildLineItemsFromCart]);
 
   const persistInvoiceAfterCheckout = useCallback(
     async (invoiceNumber: string, snapshotFromCheckout?: InvoiceA4Snapshot) => {
@@ -609,115 +752,128 @@ export default function POSWorkspace({
       setReceiptData(null);
       setLinkedOrderId(null);
       setPosBillingOrderId(null);
+      setQueuedOrderContext(null);
+      setPendingQueuedOrder(null);
       loadUnpaidOrders();
-      setCheckInQueueTick((n) => n + 1);
     },
     [loadUnpaidOrders, persistInvoiceAfterCheckout]
   );
 
-  const handleUnpaidOrderSelect = useCallback(
-    (orderId: string) => {
-      if (!orderId) {
-        setPosBillingOrderId(null);
-        return;
+  const hasActivePosTransaction = useMemo(() => {
+    const chargesChanged =
+      money(billingCharges.discount.value) > 0 ||
+      money(billingCharges.taxVatAmount) > 0 ||
+      money(billingCharges.additionalFees) > 0 ||
+      money(billingCharges.downpayment) > 0;
+    return Boolean(
+      selectedCustomer ||
+      selectedVehicle ||
+      cartItems.length > 0 ||
+      transactionNotes.trim() ||
+      chargesChanged ||
+      paymentMethod !== 'cash' ||
+      linkedOrderId ||
+      posBillingOrderId ||
+      queuedOrderContext
+    );
+  }, [
+    billingCharges,
+    cartItems.length,
+    linkedOrderId,
+    paymentMethod,
+    posBillingOrderId,
+    queuedOrderContext,
+    selectedCustomer,
+    selectedVehicle,
+    transactionNotes,
+  ]);
+
+  const applyHydratedQueuedOrder = useCallback((hydrated: HydratedQueuedOrderState) => {
+    setSelectedCustomer(hydrated.customer);
+    setSelectedVehicle(hydrated.vehicle);
+    setManualVehicleType(null);
+    setCartItems(hydrated.cartItems);
+    setBillingCharges(hydrated.billingCharges);
+    setBillingComputedLive(hydrated.billingComputed);
+    setLinkedOrderId(hydrated.orderId);
+    setPosBillingOrderId(null);
+    setQueuedOrderContext(hydrated.queuedContext);
+    setSelectedOrderStale(false);
+    setLastInvoiceSnap(null);
+    setLastInvoiceNumber(null);
+    setBillingSyncNonce((n) => n + 1);
+  }, []);
+
+  const loadQueuedOrder = useCallback(
+    async (row: any): Promise<boolean> => {
+      posQueueDebug('[POS Queue] clicked row', row);
+      const normalized = normalizeQueuedPickupOrder(row);
+      const orderId = idString(normalized.orderId);
+      posQueueDebug('[POS Queue] normalized row', normalized);
+      if (!orderId) return false;
+      if (!isValidMongoObjectId(orderId)) {
+        posQueueDebug('[POS Queue] load disabled reason', {
+          reason: normalized.disabledReason || 'Invalid queue record',
+          row,
+        });
+        toast.error('Could not load this queued order. Please refresh the queue.');
+        return false;
       }
-      setLinkedOrderId(null);
-      setPosBillingOrderId(orderId);
-      const o = unpaidOrders.find((x: any) => String(x._id) === orderId);
-      if (!o) return;
-      const cleanPlate = sanitizeVehiclePlate(o.vehiclePlate || '');
-      const syntheticCustomer: Customer = {
-        id: String(o.customer || o._id || ''),
-        name: o.customerName || 'Customer',
-        phone: resolveReceiptPhone(o) || '',
-        email: o.customerEmail || '',
-        tier: 'bronze',
-        visitCount: 0,
-        totalSpent: 0,
-        lastVisit: new Date().toISOString(),
-        memberSince: new Date().toISOString(),
-        notes: '',
-        isSynthetic: true,
-        vehicles: [
-          {
-            id: cleanPlate
-              ? `plate-${String(cleanPlate).replace(/\W/g, '-')}`
-              : `order-${orderId}-veh`,
-            plate: cleanPlate,
-            make: o.vehicleMake || '',
-            model: o.vehicleModel || '',
-            year:
-              typeof o.vehicleYear === 'number'
-                ? o.vehicleYear
-                : parseInt(String(o.vehicleYear || '0'), 10) || 0,
-            color: o.vehicleColor || '',
-            type: o.vehicleType || 'sedan',
-          },
-        ],
-      };
-      setSelectedCustomer(syntheticCustomer);
-      setSelectedVehicle(syntheticCustomer.vehicles[0]);
-      setManualVehicleType(null);
-      toast.success(`Loaded order ${o.orderNumber || orderId}`);
-      void hydrateCartFromOrder(orderId);
+      setHydratingOrderId(orderId);
+      try {
+        const hydrated = await buildHydratedQueuedOrderState(row);
+        applyHydratedQueuedOrder(hydrated);
+        setPendingQueuedOrder(null);
+        toast.success(`Loaded pickup payment: ${hydrated.customer.name}`);
+        void loadUnpaidOrders();
+        return true;
+      } catch (err: any) {
+        if (err?.code === 'POS_QUEUE_STALE') {
+          showStaleToastOnce(orderId);
+          if (idString(queuedOrderContext?.orderId) === orderId) clearQueuedOrderContext();
+          void loadUnpaidOrders({ notifyStale: false });
+        } else {
+          toast.error('Could not load this queued order. Please refresh the queue.');
+        }
+        return false;
+      } finally {
+        setHydratingOrderId(null);
+      }
     },
-    [unpaidOrders, hydrateCartFromOrder]
+    [
+      applyHydratedQueuedOrder,
+      buildHydratedQueuedOrderState,
+      clearQueuedOrderContext,
+      loadUnpaidOrders,
+      queuedOrderContext?.orderId,
+      showStaleToastOnce,
+    ]
   );
 
-  const applyBookingToPos = useCallback(
-    (b: any) => {
-      const orderId = String(b._id || b.id || '');
-      if (!orderId) return;
-      const cleanPlate = sanitizeVehiclePlate(b.vehiclePlate || '');
-      const syntheticCustomer: Customer = {
-        id: String(b.customer || b._id || ''),
-        name: b.customerName || 'Customer',
-        phone: resolveReceiptPhone(b) || '',
-        email: b.customerEmail || '',
-        tier: 'bronze',
-        visitCount: 0,
-        totalSpent: 0,
-        lastVisit: new Date().toISOString(),
-        memberSince: new Date().toISOString(),
-        notes: '',
-        isSynthetic: true,
-        vehicles: [{
-          id: cleanPlate
-            ? `plate-${String(cleanPlate).replace(/\W/g, '-')}`
-            : `booking-${orderId}-veh`,
-          plate: cleanPlate,
-          make: b.vehicleMake || '',
-          model: b.vehicleModel || '',
-          year:
-            typeof b.vehicleYear === 'number'
-              ? b.vehicleYear
-              : parseInt(String(b.vehicleYear || '0'), 10) || 0,
-          color: b.vehicleColor || '',
-          type: b.vehicleType || 'sedan',
-        }],
-      };
-      setSelectedCustomer(syntheticCustomer);
-      setSelectedVehicle(syntheticCustomer.vehicles[0]);
-      setManualVehicleType(null);
-      setLinkedOrderId(orderId);
-      setPosBillingOrderId(null);
-      setLastInvoiceSnap(null);
-      setLastInvoiceNumber(null);
-      void hydrateCartFromOrder(orderId);
+  const requestLoadQueuedOrder = useCallback(
+    async (row: any): Promise<boolean> => {
+      const normalized = normalizeQueuedPickupOrder(row);
+      const orderId = idString(normalized.orderId);
+      if (!orderId) return false;
+      if (hasActivePosTransaction && idString(queuedOrderContext?.orderId) !== orderId) {
+        setPendingQueuedOrder(row);
+        return false;
+      }
+      return loadQueuedOrder(row);
     },
-    [hydrateCartFromOrder]
+    [hasActivePosTransaction, loadQueuedOrder, queuedOrderContext?.orderId]
   );
 
-  const handleSelectBooking = (b: any) => {
-    applyBookingToPos(b);
-    toast.success(`Loaded booking: ${b.customerName || 'Customer'}`);
-  };
+  const confirmPendingQueuedOrder = useCallback(async () => {
+    if (!pendingQueuedOrder) return false;
+    return loadQueuedOrder(pendingQueuedOrder);
+  }, [loadQueuedOrder, pendingQueuedOrder]);
 
   const loadOrderForCheckout = useCallback(
     async (orderId: string) => {
       const id = String(orderId).trim();
       if (!id) return;
-      let b = unpaidOrders.find((x: any) => String(x._id || x.id) === id);
+      let b = unpaidOrders.find((x: any) => idString(normalizeQueuedPickupOrder(x).orderId) === idString(id));
       if (!b) {
         const { OrderService } = await import('@/lib/order-service');
         const res = await OrderService.getOrderById(id);
@@ -727,12 +883,9 @@ export default function POSWorkspace({
         toast.error('Could not load order for POS');
         return;
       }
-      applyBookingToPos(b);
-      toast.success(
-        `Ready to collect payment — ${b.customerName || b.orderNumber || 'customer'}`
-      );
+      await loadQueuedOrder(b);
     },
-    [unpaidOrders, applyBookingToPos]
+    [loadQueuedOrder, unpaidOrders]
   );
 
   useEffect(() => {
@@ -759,8 +912,9 @@ export default function POSWorkspace({
             duration: '',
             description: 'Bundle with Nano Ceramic Window Tint',
             quantity: 1,
+            source: 'manual',
             vehicleType: lockedVehicleType,
-          } as CartItem & { vehicleType: VehicleType }]);
+          } as PosCartItem]);
         }
         toast.success(`Tint bundle added: ${svc.name}`);
         return;
@@ -780,8 +934,9 @@ export default function POSWorkspace({
         duration: svc.duration || '',
         description: '',
         quantity: 1,
+        source: 'manual',
         vehicleType: lockedVehicleType,
-      } as CartItem & { vehicleType: VehicleType }]);
+      } as PosCartItem]);
     }
     toast.success(`Added: ${svc.name} (${lockedVehicleType})`);
   };
@@ -823,29 +978,52 @@ export default function POSWorkspace({
 
   const balanceCheckoutPreview = useMemo(() => {
     if (!effectiveOrderId || cartItems.length === 0) return null;
+    const queuedFinancial =
+      idString(queuedOrderContext?.orderId) === effectiveOrderId ? queuedOrderContext.financial : null;
+    if (queuedFinancial) {
+      return {
+        originalTotal: queuedFinancial.originalTotal,
+        grandTotal: billingComputedLive?.grandTotal ?? queuedFinancial.grandTotal,
+        reservationApplied: queuedFinancial.downpaymentApplied,
+        amountPaid: queuedFinancial.amountPaid,
+        balanceDue: queuedFinancial.remainingBalance,
+        remainingBalance: queuedFinancial.remainingBalance,
+        totalDue: queuedFinancial.totalDue,
+        discountTotal: billingComputedLive?.discountTotal ?? queuedFinancial.discountTotal,
+        taxVatTotal: billingComputedLive?.taxVatTotal ?? queuedFinancial.taxVatTotal,
+        additionalFeesTotal: billingComputedLive?.additionalFeesTotal ?? queuedFinancial.additionalFeesTotal,
+        queued: true,
+      };
+    }
     const computed =
       billingComputedLive ??
       totalsFromCharges(buildLineItemsFromCart() as BillingLineItem[]);
     return {
+      originalTotal: computed.grandTotal,
       grandTotal: computed.grandTotal,
       reservationApplied: billingCharges.downpayment,
+      amountPaid: billingCharges.downpayment,
       balanceDue: computed.balanceDue,
+      remainingBalance: computed.balanceDue,
+      totalDue: computed.balanceDue,
       discountTotal: computed.discountTotal,
       taxVatTotal: computed.taxVatTotal,
       additionalFeesTotal: computed.additionalFeesTotal,
+      queued: false,
     };
   }, [
     effectiveOrderId,
     cartItems.length,
     billingComputedLive,
     billingCharges.downpayment,
+    queuedOrderContext,
     totalsFromCharges,
     buildLineItemsFromCart,
   ]);
 
   const activeUnpaidOrder = useMemo(() => {
     if (!effectiveOrderId) return null;
-    return unpaidOrders.find((o: any) => String(o._id) === effectiveOrderId) ?? null;
+    return unpaidOrders.find((o: any) => idString(normalizeQueuedPickupOrder(o).orderId) === effectiveOrderId) ?? null;
   }, [effectiveOrderId, unpaidOrders]);
 
   /** Live A4 preview while order is loaded (not a static screenshot). */
@@ -917,13 +1095,19 @@ export default function POSWorkspace({
       : '(A4)';
 
   const handleProcessPayment = () => {
+    if (selectedOrderStale) {
+      showStaleToastOnce(effectiveOrderId);
+      clearQueuedOrderContext();
+      void loadUnpaidOrders({ notifyStale: false });
+      return;
+    }
     if (!selectedCustomer) { toast.error('Please select a customer before processing payment.'); return; }
     if (!selectedVehicle) { toast.error('Please select a vehicle for this transaction.'); return; }
     if (cartItems.length === 0) { toast.error('Add at least one service to proceed.'); return; }
 
     const lineItemsForConfirm = buildLineItemsFromCart() as BillingLineItem[];
     const confirmBalance = effectiveOrderId
-      ? (billingComputedLive?.balanceDue ?? totalsFromCharges(lineItemsForConfirm).balanceDue)
+      ? (balanceCheckoutPreview?.remainingBalance ?? totalsFromCharges(lineItemsForConfirm).balanceDue)
       : total;
 
     setPaymentConfirmAmountLabel(
@@ -962,6 +1146,14 @@ export default function POSWorkspace({
           cashReceived: pm === 'cash' ? balanceDue : undefined,
         });
         if (!chk.success || !('data' in chk) || !chk.data) {
+          if ((chk as { status?: number; code?: string }).status === 409 || (chk as { code?: string }).code === 'POS_QUEUE_STALE') {
+            setSelectedOrderStale(true);
+            showStaleToastOnce(effectiveOrderId);
+            clearQueuedOrderContext();
+            void loadUnpaidOrders({ notifyStale: false });
+            setProcessing(false);
+            return;
+          }
           toast.error(chk.message || 'Checkout failed');
         } else {
           const chkData = chk.data;
@@ -1001,8 +1193,9 @@ export default function POSWorkspace({
           setBillingComputedLive(null);
           setLinkedOrderId(null);
           setPosBillingOrderId(null);
+          setQueuedOrderContext(null);
+          setPendingQueuedOrder(null);
           loadUnpaidOrders();
-          setCheckInQueueTick((n) => n + 1);
         }
         setProcessing(false);
         return;
@@ -1036,7 +1229,7 @@ export default function POSWorkspace({
         totalAmount: computed.grandTotal,
         totalPrice: computed.grandTotal,
         price: computed.grandTotal,
-        notes: '',
+        notes: transactionNotes,
       };
       const createRes = await OrderService.createOrder(orderPayload);
       if (!createRes.success) {
@@ -1108,10 +1301,18 @@ export default function POSWorkspace({
       setBillingComputedLive(null);
       setLinkedOrderId(null);
       setPosBillingOrderId(null);
+      setQueuedOrderContext(null);
+      setPendingQueuedOrder(null);
       loadUnpaidOrders();
-      setCheckInQueueTick((n) => n + 1);
     } catch (err: any) {
       console.error('POS Payment Error:', err);
+      if (err?.response?.status === 409 || err?.response?.data?.code === 'POS_QUEUE_STALE') {
+        setSelectedOrderStale(true);
+        clearQueuedOrderContext();
+        void loadUnpaidOrders({ notifyStale: false });
+        showStaleToastOnce(effectiveOrderId);
+        return;
+      }
       toast.error(
         err?.response?.data?.message ||
         err?.message ||
@@ -1129,12 +1330,16 @@ export default function POSWorkspace({
     setCartItems([]);
     resetPosTransaction();
     setPaymentMethod('cash');
+    setTransactionNotes('');
     setShowReceipt(false);
     setShowPaymentConfirm(false);
     setCompletedTxnId('');
     setReceiptData(null);
     setLinkedOrderId(null);
     setPosBillingOrderId(null);
+    setQueuedOrderContext(null);
+    setPendingQueuedOrder(null);
+    setSelectedOrderStale(false);
   };
 
   const receiptSnap = receiptData;
@@ -1156,53 +1361,31 @@ export default function POSWorkspace({
         @keyframes posQPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .5; transform: scale(.8); } }
       ` }} />
       <div className="h-full flex flex-col gap-3">
-        {/* Check-In Queue — compact collapsible strip */}
-        <CheckInQueuePanel onSelectBooking={handleSelectBooking} refreshKey={checkInQueueTick} />
-
-        <div
-          className="shrink-0 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
-          style={{ boxShadow: '0 1px 6px rgba(0,0,0,.05)' }}
-        >
-          <label className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
-            <span>Unpaid order</span>
-            <select
-              className="min-w-[200px] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm font-medium text-slate-800"
-              value={
-                effectiveOrderId && unpaidOrders.some((o: any) => String(o._id) === effectiveOrderId)
-                  ? effectiveOrderId
-                  : ''
-              }
-              onChange={(e) => handleUnpaidOrderSelect(e.target.value)}
-            >
-              <option value="">— Walk-in / none —</option>
-              {unpaidOrdersLoading ? (
-                <option disabled>Loading…</option>
-              ) : (
-                unpaidOrders.map((o: any) => (
-                  <option key={o._id} value={o._id}>
-                    {o.orderNumber || o._id} · {o.customerName || 'Customer'} · ₱
-                    {Number(o.totalPrice || o.totalAmount || 0).toLocaleString()}
-                  </option>
-                ))
-              )}
-            </select>
-          </label>
-          <button
-            type="button"
-            onClick={() => loadUnpaidOrders()}
-            className="ml-auto text-xs font-bold text-blue-700 hover:underline"
-          >
-            Refresh list
-          </button>
-        </div>
+        <CheckInQueuePanel
+          bookings={unpaidOrders}
+          loading={unpaidOrdersLoading}
+          onOpenSearch={() => customerPanelRef.current?.focusQueueSearch()}
+          onRefresh={() => void loadUnpaidOrders()}
+        />
 
         {/* POS 3-column area — fills remaining space */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch flex-1 min-h-0">
           <div className="lg:col-span-3 flex flex-col overflow-hidden">
             <CustomerVehiclePanel
+              ref={customerPanelRef}
               selectedCustomer={selectedCustomer}
               selectedVehicle={selectedVehicle}
+              pickupQueueOrders={unpaidOrders}
+              unpaidOrderOptions={unpaidOrders}
+              queueLoading={unpaidOrdersLoading}
+              hydratingOrderId={hydratingOrderId}
+              pendingQueuedOrder={pendingQueuedOrder}
+              selectedQueuedOrderId={queuedOrderContext?.orderId ?? null}
+              onRequestLoadQueuedOrder={requestLoadQueuedOrder}
+              onConfirmPendingQueuedOrder={confirmPendingQueuedOrder}
+              onCancelPendingQueuedOrder={() => setPendingQueuedOrder(null)}
               onSelectCustomer={(c) => {
+                clearQueuedOrderContext();
                 setSelectedCustomer(c);
                 setSelectedVehicle(null);
                 setManualVehicleType(null);
@@ -1247,6 +1430,11 @@ export default function POSWorkspace({
                 compact={Boolean(effectiveOrderId)}
                 paymentMethod={paymentMethod}
                 processing={processing}
+                paymentDisabled={selectedOrderStale || Boolean(hydratingOrderId)}
+                queuedOrderLabel={queuedOrderContext?.label ?? null}
+                onClearQueuedOrder={queuedOrderContext ? clearQueuedOrderContext : undefined}
+                transactionNotes={transactionNotes}
+                onTransactionNotesChange={setTransactionNotes}
                 onDiscountChange={(v) =>
                   setBillingCharges((c) => ({
                     ...c,
@@ -1284,7 +1472,7 @@ export default function POSWorkspace({
                 <div className="p-2 max-h-[min(70vh,560px)] overflow-y-auto overflow-x-auto min-w-0">
                   {liveInvoicePreview && !lastInvoiceSnap && (
                     <p className="text-[10px] text-amber-800 font-medium mb-2 px-1">
-                      Live preview — matches Billing discount/VAT. Final invoice number appears after Collect balance.
+                      Live preview — matches Billing discount/VAT. Final invoice number appears after Process Payment.
                     </p>
                   )}
                   <InvoiceA4 snapshot={displayInvoiceSnap} embedded />

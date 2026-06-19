@@ -354,6 +354,17 @@ function normTrackerStr(s: unknown) {
   return String(s ?? '').trim().toLowerCase().replace(/-/g, '_');
 }
 
+function normalizeTrackerDeepLinkStage(value: unknown) {
+  const stage = normTrackerStr(value);
+  const aliases: Record<string, string> = {
+    completed: 'quality_check',
+    paid: 'ready_pickup',
+    ready_for_pickup: 'ready_pickup',
+    ready_for_payment: 'payment_due',
+  };
+  return aliases[stage] || stage;
+}
+
 /** True when this booking should surface the technician/QC live tracker (excludes fully paid / receipt issued). */
 function bookingShowsCustomerLiveTracker(b: unknown): boolean {
   const row = b as Record<string, unknown> | null | undefined;
@@ -612,6 +623,14 @@ export default function CustomerDashboard() {
     const params = new URLSearchParams(location.search);
     return normalizeAppointmentReference(params.get('ref'));
   }, [location.search]);
+  const targetTrackerBookingId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return String(params.get('bookingId') || '').trim();
+  }, [location.search]);
+  const targetTrackerStage = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return normalizeTrackerDeepLinkStage(params.get('stage'));
+  }, [location.search]);
   const [activeSection, setActiveSection] = useState<DashboardSection>(() =>
     resolveCustomerDashboardSection(location.pathname, location.search)
   );
@@ -666,7 +685,10 @@ export default function CustomerDashboard() {
   const [bookingsFilter, setBookingsFilter] = useState<'all' | 'upcoming' | 'active' | 'completed' | 'cancelled'>('all');
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
   const [highlightedAppointmentRef, setHighlightedAppointmentRef] = useState('');
+  const [highlightedTrackerStage, setHighlightedTrackerStage] = useState('');
   const bookingCardRefs = useRef<Record<string, HTMLElement | null>>({});
+  const trackerStageCardRefs = useRef<Record<string, HTMLElement | null>>({});
+  const trackerDetailPanelRef = useRef<HTMLDivElement | null>(null);
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
   // Payment History lightbox
   const [paymentLightboxUrl, setPaymentLightboxUrl] = useState<string | null>(null);
@@ -852,8 +874,21 @@ export default function CustomerDashboard() {
     if (!notif || !notif.id) return;
     setNotifications((prev: any[]) => {
       // Avoid duplicates if the server emits more than once
-      if (prev.some((n: any) => n.id === notif.id || n._id === notif.id)) return prev;
-      return [{ ...notif, isRead: false }, ...prev];
+      const incomingKey = String(notif.metadata?.idempotencyKey || '');
+      if (
+        prev.some((n: any) =>
+          n.id === notif.id ||
+          n._id === notif.id ||
+          (incomingKey && String(n.metadata?.idempotencyKey || '') === incomingKey)
+        )
+      ) {
+        return prev;
+      }
+      return [{ ...notif, isRead: notif.isRead ?? false }, ...prev].sort((a: any, b: any) => {
+        const bt = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        const at = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        return bt - at;
+      });
     });
     if (notif.metadata?.kind === 'receipt_ready') {
       const orderId = String(notif.metadata?.orderId || '').trim();
@@ -1897,7 +1932,14 @@ export default function CustomerDashboard() {
       const res = await NotificationService.getNotifications();
       if (res.success) {
         // Validation: Ensure it's an array, or fallback to empty array
-        setNotifications(Array.isArray(res.data) ? res.data : []);
+        const rows = Array.isArray(res.data) ? res.data : [];
+        setNotifications(
+          [...rows].sort((a: any, b: any) => {
+            const bt = new Date(b.updatedAt || b.createdAt || 0).getTime();
+            const at = new Date(a.updatedAt || a.createdAt || 0).getTime();
+            return bt - at;
+          })
+        );
       }
       setNotificationsLoading(false);
     };
@@ -2272,16 +2314,59 @@ export default function CustomerDashboard() {
     };
   }, [targetAppointmentRef, customerBookingsLoadedOnce, myBookingsLoading, myBookings]);
 
-  const activeTrackerBooking = useMemo(() => pickCustomerLiveTrackerBooking(myBookings), [myBookings]);
+  const activeTrackerBooking = useMemo(() => {
+    if (targetTrackerBookingId) {
+      const targeted = myBookings.find((booking) => bookingRowId(booking) === targetTrackerBookingId);
+      if (targeted && bookingShowsCustomerLiveTracker(targeted)) return targeted;
+    }
+    return pickCustomerLiveTrackerBooking(myBookings);
+  }, [myBookings, targetTrackerBookingId]);
   const stableTrackerBookingRef = useRef<any | undefined>(undefined);
   useEffect(() => {
     if (activeTrackerBooking) stableTrackerBookingRef.current = activeTrackerBooking;
   }, [activeTrackerBooking]);
   // Keep last known tracker booking during refetch/remount so sidebar + tracker section do not flicker.
   const displayedTrackerBooking = activeTrackerBooking ?? stableTrackerBookingRef.current;
+  const displayedTrackerBookingId = bookingRowId(displayedTrackerBooking);
   const hasActiveTrackerBooking = Boolean(
     displayedTrackerBooking && bookingShowsCustomerLiveTracker(displayedTrackerBooking)
   );
+
+  useEffect(() => {
+    if (
+      activeSection !== 'tracker' ||
+      !targetTrackerStage ||
+      !displayedTrackerBookingId ||
+      !customerBookingsLoadedOnce ||
+      myBookingsLoading
+    ) {
+      return;
+    }
+
+    setHighlightedTrackerStage(targetTrackerStage);
+
+    const scrollTimer = window.setTimeout(() => {
+      const el = trackerStageCardRefs.current[targetTrackerStage] || trackerDetailPanelRef.current;
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 220);
+
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedTrackerStage((current) => current === targetTrackerStage ? '' : current);
+    }, 6500);
+
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [
+    activeSection,
+    targetTrackerStage,
+    displayedTrackerBookingId,
+    displayedTrackerBooking?.serviceTrackingStage,
+    displayedTrackerBooking?.updatedAt,
+    customerBookingsLoadedOnce,
+    myBookingsLoading,
+  ]);
 
   useEffect(() => {
     const activeId = bookingRowId(activeTrackerBooking);
@@ -3050,16 +3135,35 @@ export default function CustomerDashboard() {
                           </div>
                         ) : (
                           <div className="divide-y divide-slate-50">
-                            {notifications.map(n => (
-                              <button key={n.id || n._id} onClick={() => void handleCustomerNotificationClick(n)} className={`customer-notification-item w-full text-left p-4 hover:bg-slate-50 transition-colors flex gap-3 ${!n.isRead ? 'bg-slate-50/50' : ''}`}>
-                                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${!n.isRead ? 'bg-blue-500' : 'bg-transparent'}`}></div>
-                                <div className="flex-1 min-w-0">
-                                  <p className={`text-[13px] text-slate-900 truncate ${!n.isRead ? 'font-semibold' : 'font-medium'}`}>{n.title}</p>
-                                  <p className="text-[12px] text-slate-500 line-clamp-2 mt-0.5 leading-snug">{n.message}</p>
-                                  <p className="text-[10px] text-slate-400 mt-1">{new Date(n.createdAt).toLocaleDateString()}</p>
-                                </div>
-                              </button>
-                            ))}
+                            {notifications.map(n => {
+                              const isHighPriority = n.priority === 'high' || n.metadata?.priority === 'high';
+                              const rowTone = isHighPriority
+                                ? 'bg-amber-50/80 hover:bg-amber-50'
+                                : !n.isRead
+                                  ? 'bg-slate-50/50 hover:bg-slate-50'
+                                  : 'hover:bg-slate-50';
+                              return (
+                                <button
+                                  key={n.id || n._id}
+                                  onClick={() => void handleCustomerNotificationClick(n)}
+                                  className={`customer-notification-item w-full text-left p-4 transition-colors flex gap-3 ${rowTone}`}
+                                >
+                                  <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${isHighPriority ? 'bg-amber-500' : !n.isRead ? 'bg-blue-500' : 'bg-transparent'}`}></div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex min-w-0 items-center gap-2">
+                                      <p className={`min-w-0 flex-1 text-[13px] text-slate-900 truncate ${!n.isRead || isHighPriority ? 'font-semibold' : 'font-medium'}`}>{n.title}</p>
+                                      {isHighPriority ? (
+                                        <span className="shrink-0 rounded-full border border-amber-200 bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-amber-700">
+                                          Important
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className="text-[12px] text-slate-500 line-clamp-2 mt-0.5 leading-snug">{n.message}</p>
+                                    <p className="text-[10px] text-slate-400 mt-1">{new Date(n.createdAt).toLocaleDateString()}</p>
+                                  </div>
+                                </button>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -5302,7 +5406,14 @@ export default function CustomerDashboard() {
                             <CustomerLiveTrackerHorizontalStepper currentStep={currentStep} />
 
                             {currentStep >= 0 && TRACKER_STEPS[currentStep] ? (
-                              <div className="customer-h-tracker-stepper-detail">
+                              <div
+                                ref={trackerDetailPanelRef}
+                                className={`customer-h-tracker-stepper-detail transition-shadow duration-300 ${
+                                  highlightedTrackerStage
+                                    ? 'ring-2 ring-amber-300/80 shadow-[0_0_0_4px_rgba(245,158,11,0.12)]'
+                                    : ''
+                                }`}
+                              >
                                 {(() => {
                                   const step = TRACKER_STEPS[currentStep];
                                   const apiStage = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[step.id];
@@ -6259,6 +6370,8 @@ export default function CustomerDashboard() {
                             const statusLabel = isDone ? 'Complete' : isActive ? 'Live now' : 'Upcoming';
                             const hasPhotos = shots.length > 0;
                             const isQcEvidence = mediaStageKey === 'quality_check';
+                            const stageKey = normalizeTrackerDeepLinkStage(mediaStageKey || step.id);
+                            const isDeepLinkedStage = highlightedTrackerStage === stageKey;
                             /** Booking confirmation is informational only — no customer photo slot or "awaiting" state. */
                             const suppressEvidencePanel = step.id === 'confirmed' && !hasPhotos;
                             const evidenceGridClass = isQcEvidence
@@ -6268,7 +6381,15 @@ export default function CustomerDashboard() {
                             return (
 	                              <article
 	                                key={step.id}
-	                                className={`customer-live-step ${isDone ? 'is-done' : ''} ${isActive ? 'is-active' : ''}${suppressEvidencePanel ? ' customer-live-step--confirmation' : ''}`}
+	                                ref={(node) => {
+	                                  trackerStageCardRefs.current[stageKey] = node;
+	                                }}
+	                                data-tracker-stage={stageKey}
+	                                className={`customer-live-step ${isDone ? 'is-done' : ''} ${isActive ? 'is-active' : ''}${suppressEvidencePanel ? ' customer-live-step--confirmation' : ''} ${
+	                                  isDeepLinkedStage
+	                                    ? 'ring-2 ring-amber-300/80 shadow-[0_0_0_4px_rgba(245,158,11,0.16)]'
+	                                    : ''
+	                                }`}
 	                                aria-current={isActive ? 'step' : undefined}
 	                                style={{ '--live-step-delay': `${i * 95}ms` } as React.CSSProperties}
 	                              >

@@ -17,10 +17,10 @@ import { getIO } from './socket.utils.js';
 import { sendExpoPushNotification } from './push.utils.js';
 import { reserveInventory, commitReservation, releaseReservation } from './inventory.utils.js';
 import User from '../models/user.model.js';
-import Service from '../models/service.model.js';
 import Notification from '../models/notification.model.js';
 import { logActivity } from './logActivity.utils.js';
-import emailService from './emailService.utils.js';
+import { createCustomerStageNotification } from './customerStageNotifications.utils.js';
+import { notifyCustomerReceiptReady } from './customerReceiptNotification.utils.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -192,30 +192,9 @@ async function onConfirmed(order, orderRef, customerId, rooms, actor) {
   // 6. Customer push notification
   await pushToCustomer(order, 'Booking Confirmed ✓', `Your AutoSPF+ appointment (${orderRef}) is confirmed! We'll notify you when your vehicle check-in begins.`);
 
-  // 7. Customer in-app notification
+  // 7. Customer in-app/email notification, idempotent with controller-created records
   if (customerId) {
-    const notif = await createNotification({
-      title: 'Booking Confirmed',
-      message: `Your booking ${orderRef} is confirmed. Schedule: ${order.bookingDate || 'TBD'} at ${order.bookingTime || 'TBD'}.`,
-      type: 'booking',
-      recipientRole: 'customer',
-      recipientUserId: customerId,
-      link: '/customer/dashboard?tab=tracking',
-      metadata: { orderId: order._id, customerId },
-    });
-    if (notif) {
-      try {
-        getIO().to(`user:${customerId}`).emit('notification:customer', {
-          id: notif._id,
-          title: notif.title,
-          message: notif.message,
-          type: notif.type,
-          isRead: false,
-          createdAt: notif.createdAt,
-          link: notif.link,
-        });
-      } catch (_) { /* socket may not be connected */ }
-    }
+    await createCustomerStageNotification(order, 'confirmed');
   }
 
   console.log(`[WORKFLOW] ✅ ${orderRef}: Confirmed → Job queued, inventory reserved`);
@@ -240,6 +219,9 @@ async function onCheckedIn(order, orderRef, customerId, rooms) {
   }, rooms);
 
   await pushToCustomer(order, 'Vehicle Received', `Your vehicle has been checked in at AutoSPF+. Our team is preparing your service.`);
+  if (customerId) {
+    await createCustomerStageNotification(order, 'received');
+  }
 
   console.log(`[WORKFLOW] ✅ ${orderRef}: Checked in → customerStatus=queued`);
 }
@@ -262,6 +244,9 @@ async function onServiceStarted(order, orderRef, customerId, rooms) {
   }, rooms);
 
   await pushToCustomer(order, 'Service Started 🔧', `Our team has started working on your vehicle!`);
+  if (customerId) {
+    await createCustomerStageNotification(order, 'in_progress');
+  }
 
   console.log(`[WORKFLOW] ✅ ${orderRef}: Service started → customerStatus=in-progress`);
 }
@@ -356,30 +341,9 @@ async function onReleased(order, orderRef, customerId, rooms) {
     timestamp: new Date().toISOString(),
   }, rooms);
 
-  // Customer notification
+  // Customer notification, idempotent with controller-created records
   if (customerId) {
-    const notif = await createNotification({
-      title: 'Vehicle Released',
-      message: `Your vehicle has been released. Thank you for choosing AutoSPF+!`,
-      type: 'success',
-      recipientRole: 'customer',
-      recipientUserId: customerId,
-      link: '/customer/dashboard?tab=bookings',
-      metadata: { orderId: order._id, customerId },
-    });
-    if (notif) {
-      try {
-        getIO().to(`user:${customerId}`).emit('notification:customer', {
-          id: notif._id,
-          title: notif.title,
-          message: notif.message,
-          type: notif.type,
-          isRead: false,
-          createdAt: notif.createdAt,
-          link: notif.link,
-        });
-      } catch (_) { /* socket may not be connected */ }
-    }
+    await createCustomerStageNotification(order, 'released');
   }
 
   await pushToCustomer(order, 'Vehicle Released! 🚗', `Your vehicle is ready for pickup. Thank you for choosing AutoSPF+!`);
@@ -473,45 +437,18 @@ async function awardLoyaltyPoints(order) {
 async function sendReceiptEmail(order, orderRef) {
   const customerId = getCustomerId(order);
   if (!customerId) return;
+  if (order.invoiceId) return;
 
-  const customer = await User.findById(customerId);
-  if (!customer?.email) {
-    console.warn(`[WORKFLOW] No email for customer ${customerId}, skipping receipt email`);
-    return;
-  }
-
-  // Resolve service name
-  let serviceName = order.serviceType || 'Premium Detailing';
-  if (order.items?.length && order.items[0]?.product) {
-    try {
-      const svc = await Service.findById(order.items[0].product);
-      if (svc?.name) serviceName = svc.name;
-    } catch (_) { /* use fallback */ }
-  }
-
-  const totalAmount = order.totalAmount || order.totalPrice || 0;
-  const pointsEarned = totalAmount > 0 ? Math.floor(totalAmount * 0.05) : 0;
-
-  const receiptData = {
-    bookingReference: order.bookingReference || orderRef,
+  const notification = await notifyCustomerReceiptReady({
+    customerId,
+    orderId: order._id,
     orderNumber: order.orderNumber,
-    customerName: customer.name || order.customerName || 'Valued Customer',
-    serviceName,
-    vehicleInfo: `${order.vehicleYear || ''} ${order.vehicleMake || ''} ${order.vehicleModel || ''}`.trim() || 'N/A',
-    plateNumber: order.vehiclePlate || 'N/A',
-    detailerName: order.assignedDetailer?.name || null,
-    downPayment: order.downPaymentAmount || null,
-    finalPayment: order.finalPaymentAmount || null,
-    totalAmount,
-    paymentMethod: order.paymentMethod || order.paymentType || 'cash',
-    pointsEarned: pointsEarned > 0 ? pointsEarned : null,
-    totalPoints: customer.loyaltyPoints || 0,
-    loyaltyTier: customer.loyaltyTier || 'Bronze',
-  };
-
-  const result = await emailService.sendDigitalReceiptEmail(customer.email, receiptData);
-  if (result.success) {
-    console.log(`[WORKFLOW] 🧾 Receipt email sent to ${customer.email} for ${orderRef}`);
+    bookingReference: order.bookingReference || orderRef,
+    invoiceNumber: order.invoiceId,
+    paymentId: null,
+    amountCollected: order.finalPaymentAmount || order.amountCollected || order.totalAmount || order.totalPrice || 0,
+  });
+  if (notification) {
+    console.log(`[WORKFLOW] 🧾 Receipt notification synced for ${orderRef}`);
   }
 }
-

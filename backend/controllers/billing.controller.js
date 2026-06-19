@@ -337,6 +337,12 @@ export const checkoutBilling = async (req, res, next) => {
     }
 
     await syncOrderItemsFromBilling(order, billing);
+    const checkoutReference = [
+      'billing-checkout',
+      order._id.toString(),
+      billing._id.toString(),
+      `v${billing.version}`,
+    ].join(':');
 
     const invoiceNumber = await generateUniqueInvoiceNumber();
     const snapshot = buildInvoiceSnapshot({ invoiceNumber, order, billing, computed: totals });
@@ -375,7 +381,7 @@ export const checkoutBilling = async (req, res, next) => {
       splitPayments,
       invoiceRecordId: invoiceRecord._id,
       billingVersion: billing.version,
-      metadataExtra: { invoiceRecordNumber: invoiceNumber, billingCheckout: true },
+      metadataExtra: { invoiceRecordNumber: invoiceNumber, billingCheckout: true, checkoutReference },
     });
 
     invoiceRecord.payment = payment._id;
@@ -459,8 +465,8 @@ export const checkoutBilling = async (req, res, next) => {
     if (invoiceRecord?._id) {
       await InvoiceRecord.deleteOne({ _id: invoiceRecord._id }).catch(() => {});
     }
-    if (err.statusCode === 400) {
-      return res.status(400).json({ success: false, message: err.message });
+    if (err.statusCode === 400 || err.statusCode === 409) {
+      return res.status(err.statusCode).json({ success: false, message: err.message, code: err.code });
     }
     next(err);
   }

@@ -15,6 +15,11 @@ const notificationSchema = new mongoose.Schema({
     enum: NOTIFICATION_RECIPIENT_ROLES, 
     default: 'admin_family' 
   },
+  priority: {
+    type: String,
+    enum: ['low', 'normal', 'high'],
+    default: 'normal',
+  },
   // Per-user targeting: when set, only this specific user sees the notification
   recipientUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   link: String,
@@ -25,5 +30,16 @@ const notificationSchema = new mongoose.Schema({
 notificationSchema.index({ recipientUserId: 1, createdAt: -1 });
 // Role-based broadcast notifications (recipientUserId is null for broadcasts)
 notificationSchema.index({ recipientRole: 1, recipientUserId: 1, createdAt: -1 });
+// Customer notification idempotency guard. Only documents with a real idempotency key participate.
+notificationSchema.index(
+  { recipientUserId: 1, 'metadata.idempotencyKey': 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      recipientUserId: { $type: 'objectId' },
+      'metadata.idempotencyKey': { $type: 'string' },
+    },
+  }
+);
 
 export default mongoose.model('Notification', notificationSchema);

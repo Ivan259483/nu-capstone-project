@@ -30,6 +30,7 @@ const paymentSchema = new mongoose.Schema(
     },
     provider: { type: String, default: 'stripe' },
     providerReference: String,
+    checkoutReference: { type: String, default: null },
     metadata: mongoose.Schema.Types.Mixed,
 
     // POS-specific fields
@@ -77,6 +78,7 @@ paymentSchema.index({ createdAt: -1 });
 paymentSchema.index({ order: 1, status: 1 });
 // Stripe & Maya webhook handlers look up by provider reference
 paymentSchema.index({ providerReference: 1 }, { sparse: true });
+paymentSchema.index({ checkoutReference: 1 }, { unique: true, sparse: true });
 // Customer payment history page
 paymentSchema.index({ customer: 1, createdAt: -1 });
 

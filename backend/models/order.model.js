@@ -56,6 +56,16 @@ const orderSchema = new mongoose.Schema(
     paymentMethod: String,
     paymentProvider: String,
     paidAt: Date,
+    posQueueStatus: {
+      type: String,
+      enum: [null, 'balance_pickup_queue'],
+      default: null,
+    },
+    readyForPickupEvidenceComplete: {
+      type: Boolean,
+      default: false,
+    },
+    readyForPaymentAt: Date,
     inventoryDeductedAt: Date,
     customerStatus: {
       type: String,
@@ -434,6 +444,7 @@ orderSchema.index({ assignedDetailer: 1, status: 1 });                // Detaile
 orderSchema.index({ status: 1 });                                     // QC/admin status filters
 orderSchema.index({ createdAt: -1 });                                 // Recent-first queues
 orderSchema.index({ paymentStatus: 1, createdAt: -1 });               // POS unpaid/paid queues
+orderSchema.index({ posQueueStatus: 1, readyForPaymentAt: -1 });       // POS Balance / Pickup queue
 orderSchema.index({ serviceId: 1 });                                  // Service-specific booking filters
 orderSchema.index({ serviceId: 1, createdAt: -1 });                   // Service-specific booking history
 orderSchema.index({ qcCompletedAt: -1 });                             // QC review/report lookups

@@ -105,6 +105,13 @@ interface Props {
   onUpdateQty: (id: string, qty: number) => void;
 }
 
+type PosCartItemMeta = CartItem & {
+  source?: 'manual' | 'pickup_queue';
+  orderLinked?: boolean;
+  queueLabel?: string;
+  vehicleType?: VehicleType;
+};
+
 export default function ServiceCartPanel({
   services,
   servicesLoading,
@@ -203,10 +210,15 @@ export default function ServiceCartPanel({
               </p>
             </div>
             <div className="max-h-44 space-y-2 overflow-y-auto px-3 pb-3">
-              {cartItems.map((item) => (
+              {cartItems.map((item) => {
+                const meta = item as PosCartItemMeta;
+                const fromQueue = meta.source === 'pickup_queue' || meta.orderLinked;
+                return (
                 <div
                   key={`cart-item-${item.id}`}
-                  className="grid items-center gap-2 rounded-2xl border-0 bg-white px-3 py-2.5 shadow-[0_2px_8px_rgba(15,23,42,0.05),0_8px_20px_-10px_rgba(15,23,42,0.08)]"
+                  className={`grid items-center gap-2 rounded-2xl border-0 px-3 py-2.5 shadow-[0_2px_8px_rgba(15,23,42,0.05),0_8px_20px_-10px_rgba(15,23,42,0.08)] ${
+                    fromQueue ? 'bg-blue-50/80 ring-1 ring-blue-100' : 'bg-white'
+                  }`}
                   style={{ gridTemplateColumns: '1fr auto auto auto' }}
                 >
                   <div className="min-w-0">
@@ -216,10 +228,23 @@ export default function ServiceCartPanel({
                         {item.category}
                       </span>
                       <span className="text-[11px] text-slate-400">{formatPeso(item.price)}</span>
+                      {fromQueue && (
+                        <>
+                          <span className="text-[9px] font-black uppercase tracking-wide text-blue-700 bg-white px-1.5 py-0.5 rounded-full shadow-sm shadow-blue-600/10">
+                            From queue
+                          </span>
+                          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                            Order-linked
+                          </span>
+                          <span className="text-[9px] font-semibold text-slate-500 bg-white/80 px-1.5 py-0.5 rounded-full">
+                            {meta.queueLabel || 'Included in original booking'}
+                          </span>
+                        </>
+                      )}
                       {/* Locked vehicle type badge */}
-                      {(item as any).vehicleType && (
+                      {meta.vehicleType && (
                         <span className="text-[9px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full shadow-sm shadow-blue-600/10">
-                          {VEHICLE_TABS.find(t => t.key === (item as any).vehicleType)?.label ?? (item as any).vehicleType}
+                          {VEHICLE_TABS.find(t => t.key === meta.vehicleType)?.label ?? meta.vehicleType}
                         </span>
                       )}
                     </div>
@@ -252,7 +277,8 @@ export default function ServiceCartPanel({
                       <Trash2 size={13} />
                     </button>
                 </div>
-              ))}
+                  );
+              })}
             </div>
           </div>
         )}

@@ -25,10 +25,16 @@ import {
   normalizeToCanonical,
 } from '../constants/roles.js';
 import { emitBookingManagerNotification } from '../utils/bookingManagerNotifications.utils.js';
+import { createCustomerStageNotification } from '../utils/customerStageNotifications.utils.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { decrypt } from '../utils/encryption.utils.js';
 import { countGatePhotos, REQUIRED_GATE_PHOTOS } from '../utils/trackerGatePhotos.utils.js';
+import {
+  buildQueueReason,
+  computeOrderFinancialState,
+  evaluateReadyForPickupQueueEligibility,
+} from '../utils/readyPickupPaymentFlow.utils.js';
 import {
   resolveReceiptPhoneForClient,
   USER_PHONE_SELECT_FIELDS,
@@ -81,6 +87,7 @@ const SERVICE_INVENTORY_MAP = [
 
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const CUSTOMER_STATUS_VALUES = ['queued', 'in-progress', 'finishing', 'ready'];
+const BALANCE_PICKUP_QUEUE_LIMIT = 100;
 
 const normalizeCustomerStatus = (value = '') => {
   if (typeof value !== 'string') return null;
@@ -787,6 +794,112 @@ export const getAllOrders = async (req, res, next) => {
       success: true,
       data: ordersWithReceipts.map((o) => formatBookingListDto(o)),
       pagination,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+function buildBalancePickupQueueDto(order, evaluation, financial) {
+  const raw = order?.toObject ? order.toObject({ virtuals: true }) : order;
+  const base = formatBookingListDto(raw);
+  const orderId = order._id?.toString?.() || raw._id?.toString?.() || base.id;
+  const readyForPaymentAt = order.readyForPaymentAt || raw.readyForPaymentAt || order.updatedAt || raw.updatedAt;
+
+  return {
+    ...base,
+    orderId,
+    bookingId: orderId,
+    posQueueStatus: order.posQueueStatus || null,
+    readyForPickupEvidenceComplete: Boolean(order.readyForPickupEvidenceComplete),
+    readyForPaymentAt,
+    queueReason: buildQueueReason(evaluation),
+    eligibilitySummary: evaluation.eligibilitySummary || {
+      readyForFinalPayment: true,
+      readyPickupEvidenceComplete: true,
+      remainingBalanceDue: financial.remainingBalance,
+    },
+    readyPickupSlotCount: evaluation.readyPickupSlotCount,
+    evidenceCount: evaluation.readyPickupSlotCount,
+    missingSlots: evaluation.missingSlots || [],
+    trackerStage: order.serviceTrackingStage || null,
+    amountPaid: financial.amountPaid,
+    downpaymentApplied: financial.downpaymentApplied,
+    remainingBalance: financial.remainingBalance,
+    totalAmount: financial.totalAmount || base.totalAmount || base.totalPrice || 0,
+    paymentStatus: order.paymentStatus || base.paymentStatus || 'unpaid',
+    billingStatus: financial.billingStatus,
+  };
+}
+
+/**
+ * GET /api/orders/queue/balance-pickup
+ * POS Balance / Pickup queue from backend order/payment/tracker truth.
+ */
+export const getBalancePickupQueue = async (req, res, next) => {
+  try {
+    const debugQueue =
+      process.env.POS_QUEUE_DEBUG === 'true' ||
+      (process.env.NODE_ENV !== 'production' && req.query.debug === 'true');
+    const limit = parsePositiveInt(req.query.limit, BALANCE_PICKUP_QUEUE_LIMIT, {
+      min: 1,
+      max: BALANCE_PICKUP_QUEUE_LIMIT,
+    });
+
+    const candidateOrders = await Order.find({
+      archived: { $ne: true },
+      paymentStatus: { $ne: 'paid' },
+      status: { $nin: ['cancelled', 'rejected', 'released', 'completed'] },
+      $or: [
+        { posQueueStatus: 'balance_pickup_queue' },
+        { status: 'ready_for_payment' },
+        { serviceTrackingStage: 'ready_pickup' },
+        { 'trackerStageMedia.stage': 'ready_pickup' },
+      ],
+    })
+      .select(
+        `${ORDER_LIST_SELECT_FIELDS} bookingReference qcCompletedAt posQueueStatus readyForPickupEvidenceComplete readyForPaymentAt ` +
+        'trackerStageMedia.stage trackerStageMedia.slot trackerStageMedia.photoUrl'
+      )
+      .sort({ readyForPaymentAt: 1, updatedAt: -1 })
+      .limit(limit * 3);
+
+    const rows = [];
+    for (const order of candidateOrders) {
+      const evaluation = await evaluateReadyForPickupQueueEligibility(order, {
+        persist: true,
+        emit: true,
+        notify: true,
+      });
+      if (!evaluation.eligible) {
+        if (debugQueue) {
+          console.debug('[POS Queue] backend eligibility reason', {
+            orderId: order._id?.toString?.(),
+            reason: evaluation.reason,
+            remainingBalance: evaluation.remainingBalance,
+            missingSlots: evaluation.missingSlots,
+            status: order.status,
+            paymentStatus: order.paymentStatus,
+            posQueueStatus: order.posQueueStatus,
+          });
+        }
+        continue;
+      }
+      const financial = await computeOrderFinancialState(order);
+      rows.push(buildBalancePickupQueueDto(order, evaluation, financial));
+      if (rows.length >= limit) break;
+    }
+
+    rows.sort((a, b) => {
+      const at = new Date(a.readyForPaymentAt || a.updatedAt || 0).getTime();
+      const bt = new Date(b.readyForPaymentAt || b.updatedAt || 0).getTime();
+      return at - bt;
+    });
+
+    res.json({
+      success: true,
+      data: rows,
+      count: rows.length,
     });
   } catch (error) {
     next(error);
@@ -1716,6 +1829,13 @@ export const updateOrder = async (req, res, next) => {
     // Update fields
     Object.assign(order, req.body);
     await order.save();
+    if (previousStatus !== order.status || previousPaymentStatus !== order.paymentStatus) {
+      await evaluateReadyForPickupQueueEligibility(order, {
+        persist: true,
+        emit: true,
+        notify: true,
+      });
+    }
     reservedSlot = null;
 
     if (
@@ -3589,27 +3709,10 @@ export const approveBooking = async (req, res, next) => {
     );
 
     try {
-      const scheduleInfo = order.bookingDate && order.bookingTime
-        ? ` Your appointment is on ${order.bookingDate} at ${order.bookingTime}.`
-        : '';
-      const customerId = typeof order.customer === 'object'
-        ? order.customer?._id : order.customer;
-      const notif = await Notification.create({
-        title: '✅ Appointment Confirmed!',
-        message: `Your appointment has been confirmed.${scheduleInfo} Your vehicle is now tracked in the Live Tracker.`,
-        type: 'booking',
-        recipientUserId: customerId,
-        metadata: { orderId: order._id, orderNumber: order.orderNumber }
-      });
-      // Push in real-time so customer sees it instantly
-      try {
-        const io = getIO();
-        io.to(`user:${customerId.toString()}`).emit('notification:customer', {
-          id: notif._id, title: notif.title, message: notif.message,
-          type: notif.type, isRead: false, createdAt: notif.createdAt,
-        });
-      } catch (_) {}
-    } catch (_) {}
+      await createCustomerStageNotification(order, 'confirmed');
+    } catch (ne) {
+      console.warn('[orders] Failed to create confirmed customer notification:', ne.message);
+    }
 
     logActivity({ req, type: 'status_change', module: 'Booking', action: 'BOOKING_APPROVED',
       description: `${req.user?.name} approved booking ${order.orderNumber}.`, status: 'success',

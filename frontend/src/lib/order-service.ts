@@ -124,6 +124,8 @@ export const normalizeBooking = (raw: any): Booking => {
 
         // Preserve backend fields too (used elsewhere)
         _id: raw?._id,
+        orderId: raw?.orderId,
+        bookingId: raw?.bookingId,
         customer: raw?.customer,
         items: raw?.items,
         latestPayment: raw?.latestPayment,
@@ -185,6 +187,15 @@ export const normalizeBooking = (raw: any): Booking => {
         serviceTrackingStage: raw?.serviceTrackingStage ?? null,
         serviceTrackingUpdatedAt: raw?.serviceTrackingUpdatedAt ?? null,
         serviceStaffAssignments: raw?.serviceStaffAssignments ?? [],
+        posQueueStatus: raw?.posQueueStatus ?? null,
+        readyForPickupEvidenceComplete: raw?.readyForPickupEvidenceComplete ?? false,
+        readyForPaymentAt: raw?.readyForPaymentAt ?? null,
+        readyPickupSlotCount: raw?.readyPickupSlotCount,
+        evidenceCount: raw?.evidenceCount,
+        amountPaid: raw?.amountPaid,
+        remainingBalance: raw?.remainingBalance,
+        queueReason: raw?.queueReason,
+        eligibilitySummary: raw?.eligibilitySummary,
     } as Booking;
 
     if (Array.isArray(raw?.trackerStageMedia)) {
@@ -243,6 +254,20 @@ export const OrderService = {
     async getStaffQueue() {
         const response = await api.get('/bookings/queue/staff', {
             meta: { suppressErrorToast: true },
+        } as any);
+        if (response.data.success && Array.isArray(response.data.data)) {
+            response.data.data = response.data.data.map((o: any) => normalizeBooking(o));
+        }
+        return response.data;
+    },
+
+    /**
+     * Fetches real Ready-for-Pickup balance queue rows for Sales POS.
+     */
+    async getBalancePickupQueue(options?: { suppressErrorToast?: boolean; limit?: number }) {
+        const response = await api.get('/bookings/queue/balance-pickup', {
+            params: { limit: options?.limit ?? 100 },
+            meta: { suppressErrorToast: options?.suppressErrorToast ?? true },
         } as any);
         if (response.data.success && Array.isArray(response.data.data)) {
             response.data.data = response.data.data.map((o: any) => normalizeBooking(o));

@@ -132,6 +132,9 @@ export const BillingService = {
     } catch (error: any) {
       return {
         success: false,
+        data: undefined,
+        status: error.response?.status,
+        code: error.response?.data?.code,
         message: error.response?.data?.message || 'Checkout failed',
       };
     }
@@ -152,10 +155,11 @@ export const BillingService = {
   /** PDF blob for customer / sales — uses order-scoped route (not /invoices/.../pdf). */
   getOrderReceiptPdfBlob: async (orderId: string) => {
     try {
-      const { data, headers } = await api.get(`/orders/${encodeURIComponent(orderId)}/billing/receipt-pdf`, {
+      const receiptPdfConfig = {
         responseType: 'blob',
-        meta: { suppressErrorToast: true } as any,
-      });
+        meta: { suppressErrorToast: true },
+      } as any;
+      const { data, headers } = await api.get(`/orders/${encodeURIComponent(orderId)}/billing/receipt-pdf`, receiptPdfConfig);
       const ct = String(headers['content-type'] || '');
       if (ct.includes('application/json')) {
         const text = await (data as Blob).text();

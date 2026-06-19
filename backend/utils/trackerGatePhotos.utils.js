@@ -9,10 +9,24 @@ export const TRACKER_GATE_STAGES = ['received', 'in_progress', 'quality_check', 
 
 export const TRACKER_STANDARD_SLOTS = ['front', 'rear', 'left', 'right', 'close_up'];
 
+export const REQUIRED_READY_PICKUP_SLOTS = Object.freeze(['front', 'rear', 'left', 'right', 'close_up']);
+
 /** @deprecated Use TRACKER_STANDARD_SLOTS — kept for imports that expect TRACKER_PHOTO_SLOTS */
 export const TRACKER_PHOTO_SLOTS = TRACKER_STANDARD_SLOTS;
 
 export const REQUIRED_GATE_PHOTOS = 5;
+
+const SLOT_ALIASES = Object.freeze({
+  closeup: 'close_up',
+  close_up: 'close_up',
+  close: 'close_up',
+  closeup_shot: 'close_up',
+  handover: 'close_up',
+  pickup: 'close_up',
+  pickup_handover: 'close_up',
+  final: 'close_up',
+  final_slot: 'close_up',
+});
 
 /** Vehicle Arrive gate when the advancing user is `staff_quality_checker`. */
 export const QC_RECEIVED_REQUIRED_PHOTOS = 6;
@@ -25,22 +39,49 @@ export const QC_QUALITY_CHECK_REQUIRED_PHOTOS = 1;
  * @param {string | undefined | null} [stage] row stage — required to accept `preassessment_form` on `received` only
  */
 export function normalizePhotoSlot(slot, stage) {
-  const s = String(slot || '').trim().toLowerCase().replace(/-/g, '_');
+  const s = String(slot || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const compact = s.replace(/_/g, '');
+  const aliased = SLOT_ALIASES[s] || SLOT_ALIASES[compact] || s;
   const st = String(stage || '').trim();
   if (
-    (s === 'preassessment_form' || s === 'checklist_photo' || s === 'checklist') &&
+    (aliased === 'preassessment_form' || aliased === 'checklist_photo' || aliased === 'checklist') &&
     st === 'received'
   ) {
     return 'preassessment_form';
   }
   if (
-    (s === 'qc_form' || s === 'qc_checklist' || s === 'final_inspection') &&
+    (aliased === 'qc_form' || aliased === 'qc_checklist' || aliased === 'final_inspection') &&
     st === 'quality_check'
   ) {
     return 'qc_form';
   }
-  if (TRACKER_STANDARD_SLOTS.includes(s)) return s;
+  if (TRACKER_STANDARD_SLOTS.includes(aliased)) return aliased;
   return null;
+}
+
+export function getFilledGatePhotoSlots(order, stage) {
+  const requiredSlots = stage === 'ready_pickup' ? REQUIRED_READY_PICKUP_SLOTS : TRACKER_STANDARD_SLOTS;
+  const list = Array.isArray(order?.trackerStageMedia) ? order.trackerStageMedia : [];
+  const slots = new Set();
+  for (const entry of list) {
+    if (entry?.stage !== stage) continue;
+    if (!String(entry?.photoUrl || '').trim()) continue;
+    const slot = normalizePhotoSlot(entry.slot, entry.stage);
+    if (slot && requiredSlots.includes(slot)) slots.add(slot);
+  }
+  return [...slots];
+}
+
+export function readyPickupSlotProgress(order) {
+  const filledSlots = getFilledGatePhotoSlots(order, 'ready_pickup');
+  const filled = new Set(filledSlots);
+  return {
+    readyPickupSlotCount: filledSlots.length,
+    filledSlots,
+    missingSlots: REQUIRED_READY_PICKUP_SLOTS.filter((slot) => !filled.has(slot)),
+    requiredSlots: [...REQUIRED_READY_PICKUP_SLOTS],
+    complete: filledSlots.length >= REQUIRED_READY_PICKUP_SLOTS.length,
+  };
 }
 
 /**
@@ -66,6 +107,9 @@ export function requiredGatePhotosForValidation(validateStage, actorCanonicalRol
  */
 export function countGatePhotos(order, stage) {
   const st = String(stage || '').trim();
+  if (st === 'ready_pickup') {
+    return readyPickupSlotProgress(order).readyPickupSlotCount;
+  }
   if (st === 'quality_check') {
     const list = order?.trackerStageMedia || [];
     const has = list.some(
