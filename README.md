@@ -1,4 +1,4 @@
-# AutoSPF+ / AutoGloss
+# AutoSPF+
 
 AutoSPF+ / AutoGloss is a full-stack automotive service management platform for detailing, paint protection, billing, inventory, and customer service tracking. The system includes web dashboards, a mobile app surface, real-time updates, AI-assisted vehicle inspection workflows, and AR visualization support.
 
