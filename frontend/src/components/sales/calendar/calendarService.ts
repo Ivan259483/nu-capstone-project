@@ -8,13 +8,8 @@ import type { CalendarBooking } from './calendarTypes';
 import type { RecurringScheduleRow } from '@/lib/shopSlotBands';
 
 function getToken(): string {
-  return (
-    localStorage.getItem('autospf_token') ||
-    sessionStorage.getItem('autospf_token') ||
-    localStorage.getItem('token') ||
-    sessionStorage.getItem('token') ||
-    ''
-  );
+  const token = localStorage.getItem('autospf_token') || '';
+  return token && token !== 'undefined' && token !== 'null' ? token : '';
 }
 
 const authHeaders = (): HeadersInit => ({

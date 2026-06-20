@@ -20,6 +20,8 @@ export const STAFF_ASSIGNABLE_ROLES = Object.freeze([
 
 export const LEGACY_USER_ROLE_MAP = Object.freeze({
   admin: 'administrator',
+  qc: 'staff_quality_checker',
+  quality_checker: 'staff_quality_checker',
   detailer: 'staff_quality_checker',
   operation_manager: 'office_admin',
   hr: 'office_admin',

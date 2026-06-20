@@ -68,15 +68,8 @@ function isInsecureRemoteHttp(origin: string) {
 
 function getStoredAuthToken() {
   if (typeof window === 'undefined') return '';
-  return (
-    localStorage.getItem('autospf_token') ||
-    sessionStorage.getItem('autospf_token') ||
-    localStorage.getItem('token') ||
-    sessionStorage.getItem('token') ||
-    localStorage.getItem('authToken') ||
-    sessionStorage.getItem('authToken') ||
-    ''
-  );
+  const token = localStorage.getItem('autospf_token') || '';
+  return token && token !== 'undefined' && token !== 'null' ? token : '';
 }
 
 function postScanImage(formData: FormData, onProgress: (progress: number) => void) {

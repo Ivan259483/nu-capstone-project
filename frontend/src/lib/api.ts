@@ -37,23 +37,9 @@ export const BACKEND_API_URL = getBaseApiUrl();
 export const getStoredAuthToken = () => {
     if (typeof window === 'undefined') return '';
 
-    const token =
-        localStorage.getItem('autospf_token') ||
-        sessionStorage.getItem('autospf_token') ||
-        localStorage.getItem('token') ||
-        sessionStorage.getItem('token') ||
-        localStorage.getItem('authToken') ||
-        sessionStorage.getItem('authToken') ||
-        '';
+    const token = localStorage.getItem('autospf_token') || '';
 
-    if (token && token !== 'undefined' && token !== 'null') {
-        if (!localStorage.getItem('autospf_token')) {
-            localStorage.setItem('autospf_token', token);
-        }
-        return token;
-    }
-
-    return '';
+    return token && token !== 'undefined' && token !== 'null' ? token : '';
 };
 
 export const clearStoredAuthToken = () => {

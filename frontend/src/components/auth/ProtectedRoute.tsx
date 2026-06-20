@@ -6,7 +6,7 @@
  * Behaviour:
  *  1. Loading  → shows skeleton loader (matches existing App.tsx skeleton)
  *  2. No user  → redirects to /login (saves intended destination in sessionStorage)
- *  3. Role not in allowedRoles → renders <UnauthorizedPage> (403)
+ *  3. Role not in allowedRoles → redirects to the user's own dashboard
  *  4. Authenticated + role allowed → renders children
  *
  * Usage:
@@ -16,7 +16,7 @@
  */
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import UnauthorizedPage from '@/pages/errors/UnauthorizedPage';
+import { getDashboardPathForRole, getSafeUserRole } from '@/lib/roles';
 
 interface ProtectedRouteProps {
   /** Roles that are allowed to render children. Pass empty array for "all authenticated". */
@@ -25,11 +25,11 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ allowedRoles, children }: ProtectedRouteProps) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isFirebaseAuthReady } = useAuth();
   const location = useLocation();
 
   // ── Loading state — show skeleton rather than blank/flicker ──────────────
-  if (isLoading && !user) {
+  if (!isFirebaseAuthReady || isLoading) {
     return (
       <div className="min-h-screen flex bg-[#0a0e1a]">
         {/* Skeleton sidebar */}
@@ -69,18 +69,21 @@ export default function ProtectedRoute({ allowedRoles, children }: ProtectedRout
 
   // ── Not authenticated → redirect to login ──────────────────────────────
   if (!user) {
+    const redirectPath = location.pathname + location.search + location.hash;
     if (location.pathname !== '/' && location.pathname !== '/login') {
       sessionStorage.setItem(
         'redirect_after_login',
-        location.pathname + location.search + location.hash
+        redirectPath
       );
     }
-    return <Navigate to="/login" replace />;
+    return <Navigate to={`/login?redirect=${encodeURIComponent(redirectPath)}`} replace />;
   }
 
-  // ── Authenticated but role not permitted → 403 ─────────────────────────
-  if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
-    return <UnauthorizedPage />;
+  // ── Authenticated but role not permitted → own dashboard ────────────────
+  const safeRole = getSafeUserRole(user.role);
+  const normalizedAllowedRoles = allowedRoles.map((role) => getSafeUserRole(role));
+  if (allowedRoles.length > 0 && !normalizedAllowedRoles.includes(safeRole)) {
+    return <Navigate to={getDashboardPathForRole(safeRole)} replace />;
   }
 
   // ── Authenticated + role allowed → render children ─────────────────────

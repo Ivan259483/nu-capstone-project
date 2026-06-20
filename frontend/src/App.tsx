@@ -158,6 +158,20 @@ function ActivityHeartbeatHost() {
     return null;
 }
 
+function AuthenticatedHomeEntry() {
+    const { user, isLoading, isFirebaseAuthReady } = useAuth();
+
+    if (!isFirebaseAuthReady || isLoading) {
+        return <RoutePageSkeleton />;
+    }
+
+    if (user) {
+        return <Navigate to={getDashboardPathForRole(user.role)} replace />;
+    }
+
+    return <Home />;
+}
+
 function AppRoutes() {
     // NOTE: Role-based redirect after login is handled by AuthContext + Login.tsx useEffect.
     // Do NOT add a separate auth.onAuthStateChanged here — it causes race conditions and
@@ -176,7 +190,7 @@ function AppRoutes() {
             {!isDashboardRoute && !isAuthRoute && !isStandaloneRoute && <Navbar />}
             <Suspense fallback={<RoutePageSkeleton />}>
                 <Routes>
-                    <Route path="/" element={<Home />} />
+                    <Route path="/" element={<AuthenticatedHomeEntry />} />
                     <Route path="/about" element={<About />} />
                     <Route path="/contact" element={<Contact />} />
                     <Route path="/gallery" element={<Gallery />} />

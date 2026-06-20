@@ -678,7 +678,8 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
 
   const handleRescheduleConfirm = async (bookingId: string, newDate: string, newTime: string) => {
     try {
-      const token = localStorage.getItem('autospf_token') || sessionStorage.getItem('autospf_token') || localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+      const storedToken = localStorage.getItem('autospf_token') || '';
+      const token = storedToken && storedToken !== 'undefined' && storedToken !== 'null' ? storedToken : '';
       const res = await fetch(`/api/orders/${bookingId}/reschedule`, {
         method: 'PATCH',
         headers: {

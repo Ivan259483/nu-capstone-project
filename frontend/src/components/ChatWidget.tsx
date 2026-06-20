@@ -60,6 +60,25 @@ const TRACKER_PHONE_LOOKUP_PROMPT = 'No worries — just share your registered m
 const TRACKER_PHONE_LOOKUP_REPLY = 'Thanks! Please log in to your dashboard or let our studio\nteam assist you directly via the option below. 🙌';
 const TRACKER_INVALID_REFERENCE_REPLY = 'That does not look like an AutoSPF+ Appointment Reference Number yet. Please send it in this format: ASPF-XXXXXX-XXXX.';
 const TRACKER_REPLY_DELAY_MS = 1200;
+const CHAT_AUTO_SCROLL_THRESHOLD_PX = 96;
+type ChatScrollLockSnapshot = {
+    scrollY: number;
+    body: {
+        position: string;
+        top: string;
+        left: string;
+        right: string;
+        width: string;
+        overflow: string;
+        overscrollBehavior: string;
+        paddingRight: string;
+    };
+    html: {
+        overflow: string;
+        overscrollBehavior: string;
+    };
+};
+
 const normalizeHandoffStatus = (status?: string): SalesHandoffStatus => {
     if (status === 'open') return 'ai_handling';
     if (status === 'closed') return 'resolved';
@@ -412,8 +431,64 @@ export default function ChatWidget({
     const [contactCapturePurpose, setContactCapturePurpose] = useState<'quote' | 'handoff' | null>(null);
     const [defaultSalesAgent, setDefaultSalesAgent] = useState<ChatAgentProfile | null>(null);
 
+    const messagesScrollRef = useRef<HTMLDivElement | null>(null);
     const endRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
+    const shouldAutoScrollRef = useRef(true);
+    const forceNextAutoScrollRef = useRef(false);
+    const autoScrollLockTimeoutRef = useRef<number | null>(null);
+    const bodyScrollLockRef = useRef<ChatScrollLockSnapshot | null>(null);
+
+    const updateAutoScrollIntent = useCallback(() => {
+        const node = messagesScrollRef.current;
+        if (!node) return;
+
+        const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
+        shouldAutoScrollRef.current = distanceFromBottom <= CHAT_AUTO_SCROLL_THRESHOLD_PX;
+    }, []);
+
+    const handleMessagesScroll = useCallback(() => {
+        if (autoScrollLockTimeoutRef.current) return;
+        updateAutoScrollIntent();
+    }, [updateAutoScrollIntent]);
+
+    const handleMessagesUserScroll = useCallback(() => {
+        forceNextAutoScrollRef.current = false;
+        if (autoScrollLockTimeoutRef.current) {
+            window.clearTimeout(autoScrollLockTimeoutRef.current);
+            autoScrollLockTimeoutRef.current = null;
+        }
+
+        window.requestAnimationFrame(updateAutoScrollIntent);
+    }, [updateAutoScrollIntent]);
+
+    const scrollChatToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+        const node = messagesScrollRef.current;
+        if (!node) {
+            endRef.current?.scrollIntoView({ behavior, block: 'end' });
+            forceNextAutoScrollRef.current = false;
+            return;
+        }
+
+        shouldAutoScrollRef.current = true;
+        forceNextAutoScrollRef.current = false;
+        if (autoScrollLockTimeoutRef.current) {
+            window.clearTimeout(autoScrollLockTimeoutRef.current);
+        }
+        autoScrollLockTimeoutRef.current = window.setTimeout(() => {
+            autoScrollLockTimeoutRef.current = null;
+            updateAutoScrollIntent();
+        }, behavior === 'smooth' ? 380 : 0);
+
+        node.scrollTo({
+            top: node.scrollHeight,
+            behavior,
+        });
+    }, [updateAutoScrollIntent]);
+
+    const containChatScrollGesture = useCallback((event: React.WheelEvent | React.TouchEvent) => {
+        event.stopPropagation();
+    }, []);
 
     const latestThread = useMemo(
         () =>
@@ -547,6 +622,8 @@ export default function ChatWidget({
         conversationId: string,
         returnTo: 'home' | 'messages' = 'messages'
     ) => {
+        shouldAutoScrollRef.current = true;
+        forceNextAutoScrollRef.current = true;
         setIsSending(true);
         try {
             resetThreadLocalState();
@@ -584,6 +661,8 @@ export default function ChatWidget({
     };
 
     const createNewConversation = async (returnTo: 'home' | 'messages' = 'home') => {
+        shouldAutoScrollRef.current = true;
+        forceNextAutoScrollRef.current = true;
         setIsSending(true);
         try {
             resetThreadLocalState();
@@ -622,6 +701,8 @@ export default function ChatWidget({
     };
 
     const openChat = (returnTo: 'home' | 'messages' = 'home') => {
+        shouldAutoScrollRef.current = true;
+        forceNextAutoScrollRef.current = true;
         setChatReturnTo(returnTo);
         setScreen('chat');
     };
@@ -674,11 +755,89 @@ export default function ChatWidget({
     }, [isOpen]);
 
     useEffect(() => {
+        if (!isOpen || typeof window === 'undefined') return undefined;
+
+        const body = document.body;
+        const html = document.documentElement;
+        const scrollY = window.scrollY || html.scrollTop || body.scrollTop || 0;
+        const scrollbarGap = Math.max(0, window.innerWidth - html.clientWidth);
+
+        bodyScrollLockRef.current = {
+            scrollY,
+            body: {
+                position: body.style.position,
+                top: body.style.top,
+                left: body.style.left,
+                right: body.style.right,
+                width: body.style.width,
+                overflow: body.style.overflow,
+                overscrollBehavior: body.style.overscrollBehavior,
+                paddingRight: body.style.paddingRight,
+            },
+            html: {
+                overflow: html.style.overflow,
+                overscrollBehavior: html.style.overscrollBehavior,
+            },
+        };
+
+        html.style.overflow = 'hidden';
+        html.style.overscrollBehavior = 'none';
+        body.style.position = 'fixed';
+        body.style.top = `-${scrollY}px`;
+        body.style.left = '0';
+        body.style.right = '0';
+        body.style.width = '100%';
+        body.style.overflow = 'hidden';
+        body.style.overscrollBehavior = 'none';
+        if (scrollbarGap > 0) {
+            body.style.paddingRight = `${scrollbarGap}px`;
+        }
+
+        return () => {
+            const snapshot = bodyScrollLockRef.current;
+            if (!snapshot) return;
+
+            html.style.overflow = snapshot.html.overflow;
+            html.style.overscrollBehavior = snapshot.html.overscrollBehavior;
+            body.style.position = snapshot.body.position;
+            body.style.top = snapshot.body.top;
+            body.style.left = snapshot.body.left;
+            body.style.right = snapshot.body.right;
+            body.style.width = snapshot.body.width;
+            body.style.overflow = snapshot.body.overflow;
+            body.style.overscrollBehavior = snapshot.body.overscrollBehavior;
+            body.style.paddingRight = snapshot.body.paddingRight;
+            bodyScrollLockRef.current = null;
+            window.scrollTo({ top: snapshot.scrollY, behavior: 'auto' });
+        };
+    }, [isOpen]);
+
+    useEffect(() => {
+        return () => {
+            if (autoScrollLockTimeoutRef.current) {
+                window.clearTimeout(autoScrollLockTimeoutRef.current);
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!isOpen || screen !== 'chat') return;
+        shouldAutoScrollRef.current = true;
+        window.requestAnimationFrame(() => scrollChatToBottom('auto'));
+    }, [activeConversationId, isOpen, screen, scrollChatToBottom]);
+
+    useEffect(() => {
         if (!isOpen || screen !== 'chat' || (messages.length === 0 && !isSending)) return;
-        window.requestAnimationFrame(() => {
-            endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        if (!shouldAutoScrollRef.current && !forceNextAutoScrollRef.current) return;
+
+        const frameId = window.requestAnimationFrame(() => {
+            if (shouldAutoScrollRef.current || forceNextAutoScrollRef.current) {
+                scrollChatToBottom('smooth');
+            }
         });
-    }, [messages, isOpen, isSending, screen]);
+
+        return () => window.cancelAnimationFrame(frameId);
+    }, [messages, isOpen, isSending, screen, scrollChatToBottom]);
 
     useEffect(() => {
         if (isOpen) {
@@ -1318,6 +1477,8 @@ export default function ChatWidget({
             return;
         }
 
+        shouldAutoScrollRef.current = true;
+        forceNextAutoScrollRef.current = true;
         if (screen !== 'chat') {
             openChat(chatReturnTo);
         }
@@ -1597,10 +1758,13 @@ export default function ChatWidget({
                 {isOpen && (
                     <motion.div
                         key="chat-window"
+                        data-lenis-prevent="true"
                         variants={windowVariants}
                         initial="hidden"
                         animate="visible"
                         exit="exit"
+                        onWheelCapture={containChatScrollGesture}
+                        onTouchMoveCapture={containChatScrollGesture}
                         className={`${chatWindowClass} h-[min(680px,calc(100dvh_-_48px))] max-h-[calc(100dvh_-_48px)] w-[calc(100vw_-_24px)] sm:h-[min(620px,calc(100dvh_-_120px))] sm:max-h-[calc(100dvh_-_120px)] sm:w-[min(380px,calc(100vw_-_32px))] sm:max-w-[380px]`}
                     >
                         {screen === 'home' && (
@@ -1642,8 +1806,11 @@ export default function ChatWidget({
                                 leadName={leadName}
                                 leadPhone={leadPhone}
                                 currentUserName={currentUserName}
+                                messagesScrollRef={messagesScrollRef}
                                 endRef={endRef}
                                 inputRef={inputRef}
+                                onMessagesScroll={handleMessagesScroll}
+                                onMessagesUserScroll={handleMessagesUserScroll}
                                 onBack={() => setScreen(chatReturnTo)}
                                 onClose={() => setIsOpen(false)}
                                 onInputChange={setInput}

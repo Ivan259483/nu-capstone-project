@@ -24,6 +24,7 @@ import {
     persistBackendUser,
     patchBackendUser,
     purgeAvatarLocalStorage,
+    readBackendUserRaw,
     repairAuthLocalStorage,
     safeLocalStorageSet,
     stripAvatarForStorage,
@@ -137,6 +138,44 @@ async function fetchAuthMe(
         return me && typeof me === 'object' ? me : null;
     } catch {
         return null;
+    }
+}
+
+interface AuthMeRestoreResult {
+    me: Record<string, unknown> | null;
+    rejected: boolean;
+    status?: number;
+    code?: string;
+}
+
+async function validateAuthMeForRestore(
+    token: string,
+    signal?: AbortSignal,
+): Promise<AuthMeRestoreResult> {
+    try {
+        const resp = await fetch(`${apiUrl()}/auth/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: signal ?? AbortSignal.timeout(8000),
+        });
+        if (resp.ok) {
+            const json = await resp.json();
+            const me = json.data as Record<string, unknown> | undefined;
+            return {
+                me: me && typeof me === 'object' ? me : null,
+                rejected: false,
+                status: resp.status,
+            };
+        }
+
+        const body = await resp.json().catch(() => ({}));
+        return {
+            me: null,
+            rejected: [401, 403, 404, 423].includes(resp.status),
+            status: resp.status,
+            code: typeof body?.code === 'string' ? body.code : undefined,
+        };
+    } catch {
+        return { me: null, rejected: false };
     }
 }
 
@@ -550,12 +589,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 // Firebase reports no signed-in user.
                 // Staff/admin accounts are backend-only — they authenticate via OTP and have
                 // no Firebase Auth entry. Preserve their session if backend token exists.
-                const backendToken = localStorage.getItem('autospf_token');
-                const backendUserRaw = localStorage.getItem('autospf_backend_user');
+                const backendToken = localStorage.getItem(TOKEN_KEY);
 
                 if (backendToken && backendToken !== 'undefined' && backendToken !== 'null') {
                     console.log('ℹ️ [AuthContext] No Firebase session — restoring from JWT /auth/me.');
-                    const me = await fetchAuthMe(backendToken);
+                    const restoreResult = await validateAuthMeForRestore(backendToken);
+                    const me = restoreResult.me;
                     if (me) {
                         if (me.isActive === false) {
                             console.warn('🔒 [AuthContext] Backend-only user inactive — clearing session.');
@@ -570,11 +609,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             persistBackendUser(me, restoredUser.role);
                             setSessionCache(restoredUser, backendToken);
                         }
-                    } else {
-                        console.warn('⚠️ [AuthContext] Invalid backend JWT — clearing session.');
+                    } else if (restoreResult.rejected) {
+                        console.warn('⚠️ [AuthContext] Backend JWT rejected — clearing session.', {
+                            status: restoreResult.status,
+                            code: restoreResult.code,
+                        });
                         clearAuthStorage();
                         userStorage.setCurrentUser(null);
                         setUser(null);
+                    } else {
+                        const cached = getSessionCache();
+                        const cachedUser = cached?.token === backendToken ? cached.user : null;
+                        const storedBackendUser = readBackendUserRaw();
+                        const fallbackUser = cachedUser || (storedBackendUser ? buildUserFromAuthMe(storedBackendUser) : null);
+
+                        if (fallbackUser) {
+                            const restoredUser: User = {
+                                ...fallbackUser,
+                                role: getSafeUserRole(fallbackUser.role, CUSTOMER_ROLE),
+                            } as User;
+                            const sanitized = sanitizeUser(restoredUser);
+                            userStorage.setCurrentUser(sanitized);
+                            setUser(restoredUser);
+                            setSessionCache(restoredUser, backendToken);
+                            if (storedBackendUser) {
+                                persistBackendUser(storedBackendUser, restoredUser.role);
+                            }
+                            console.warn('⚠️ [AuthContext] /auth/me unavailable — temporarily restored cached backend session.');
+                        } else {
+                            console.warn('⚠️ [AuthContext] /auth/me unavailable and no cached profile exists.');
+                            userStorage.setCurrentUser(null);
+                            setUser(null);
+                        }
                     }
                 } else {
                     console.log('ℹ️ [AuthContext] Firebase signed out — clearing full session.');

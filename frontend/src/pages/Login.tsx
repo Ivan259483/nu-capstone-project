@@ -143,7 +143,7 @@ export default function Login() {
     const { t } = useLanguage();
     const navigate = useNavigate();
     const location = useLocation();
-    const { login, user, isLoading: isAuthLoading, isFirebaseAuthReady, setAuthUser, prepareForLogin } = useAuth();
+    const { login, user, isLoading: isAuthLoading, isFirebaseAuthReady, setAuthUser } = useAuth();
     const redirectParamTo = useMemo(() => {
         const params = new URLSearchParams(window.location.search);
         return getSafeLoginRedirect(params.get("redirect") || params.get("next"));
@@ -202,8 +202,6 @@ export default function Login() {
 
     const legal = useRegisterLegalAcknowledgement();
     const prevTabRef = useRef<"login" | "register">(tab);
-    const [sessionClearedForLogin, setSessionClearedForLogin] = useState(false);
-
     const loginEmailValue = loginForm.email.trim();
     const isLoginEmailValid = LOGIN_EMAIL_PATTERN.test(loginEmailValue);
     const isPasswordStep = loginStep === "password";
@@ -286,18 +284,6 @@ export default function Login() {
         }
     }, []);
 
-    /* ── Clear stale admin/customer session so QC can sign in on a shared browser ── */
-    useEffect(() => {
-        let cancelled = false;
-        void (async () => {
-            await prepareForLogin();
-            if (!cancelled) setSessionClearedForLogin(true);
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [prepareForLogin]);
-
     /* ── Redirect helper ── */
     const performRedirect = useCallback((role: string) => {
         const redirectUrl = redirectParamTo || getSafeLoginRedirect(sessionStorage.getItem("redirect_after_login"));
@@ -320,13 +306,12 @@ export default function Login() {
         navigate(fallbackPath, { replace: true });
     }, [navigate, redirectParamTo, redirectTo]);
 
-    /* ── Redirect on auth state (only after stale session cleared on /login) ── */
+    /* ── Redirect on restored auth state ── */
     useEffect(() => {
-        if (!sessionClearedForLogin) return;
         if (user && !isAuthLoading && isFirebaseAuthReady) {
             performRedirect(user.role);
         }
-    }, [user, isAuthLoading, isFirebaseAuthReady, performRedirect, sessionClearedForLogin]);
+    }, [user, isAuthLoading, isFirebaseAuthReady, performRedirect]);
 
 
 

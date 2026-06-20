@@ -41,13 +41,8 @@ const moneyFormatter = new Intl.NumberFormat('en-PH', {
 });
 
 function getToken() {
-  return (
-    localStorage.getItem('autospf_token') ||
-    sessionStorage.getItem('autospf_token') ||
-    localStorage.getItem('token') ||
-    sessionStorage.getItem('token') ||
-    ''
-  );
+  const token = localStorage.getItem('autospf_token') || '';
+  return token && token !== 'undefined' && token !== 'null' ? token : '';
 }
 
 async function apiPatch(url: string, body?: object) {

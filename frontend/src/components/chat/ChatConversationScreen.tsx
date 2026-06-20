@@ -93,8 +93,11 @@ interface ChatConversationScreenProps {
     leadName: string;
     leadPhone: string;
     currentUserName?: string;
+    messagesScrollRef: React.RefObject<HTMLDivElement | null>;
     endRef: React.RefObject<HTMLDivElement | null>;
     inputRef: React.RefObject<HTMLTextAreaElement | null>;
+    onMessagesScroll: () => void;
+    onMessagesUserScroll: () => void;
     onBack: () => void;
     onClose: () => void;
     onInputChange: (value: string) => void;
@@ -272,8 +275,11 @@ export default function ChatConversationScreen({
     leadName,
     leadPhone,
     currentUserName,
+    messagesScrollRef,
     endRef,
     inputRef,
+    onMessagesScroll,
+    onMessagesUserScroll,
     onBack,
     onClose,
     onInputChange,
@@ -306,7 +312,7 @@ export default function ChatConversationScreen({
     );
 
     return (
-        <div className="flex min-h-0 flex-1 flex-col bg-white">
+        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white">
             <header className="flex shrink-0 items-center gap-2 border-b !border-[#EEF0F3] bg-white px-4 py-3.5">
                 <button
                     type="button"
@@ -349,7 +355,12 @@ export default function ChatConversationScreen({
             </header>
 
             <div
-                className="min-h-0 flex-1 scroll-smooth overflow-y-auto overscroll-contain bg-white px-5 py-7"
+                ref={messagesScrollRef}
+                data-chat-messages-scroll="true"
+                onScroll={onMessagesScroll}
+                onWheel={onMessagesUserScroll}
+                onTouchMove={onMessagesUserScroll}
+                className="min-h-0 flex-1 touch-pan-y scroll-smooth overflow-x-hidden overflow-y-auto overscroll-contain bg-white px-5 py-7 [-webkit-overflow-scrolling:touch]"
                 style={{ scrollbarWidth: 'thin', scrollbarColor: '#E5E7EB transparent' }}
             >
                 {messages.length === 0 && (
