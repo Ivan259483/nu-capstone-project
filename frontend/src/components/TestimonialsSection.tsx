@@ -1,325 +1,243 @@
-import { useState, useEffect, useRef } from "react";
-import { Star, Quote, X, ChevronLeft, ChevronRight, MessageSquareQuote, BadgeCheck } from "lucide-react";
-import { motion, useInView, AnimatePresence } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, MessageSquareQuote, Star, X } from "lucide-react";
+import { AnimatePresence, motion, useInView } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { cn } from "@/lib/utils";
 import { TRUSTED_BY_SECTION_BG_FOLLOW, TrustedBySectionAmbient } from "@/components/TrustedBySectionSurface";
+import {
+    demoReviews,
+    featuredDemoReviews,
+    REVIEWS_PER_TESTIMONIAL_PAGE,
+    type DemoReview,
+} from "@/data/sample-reviews";
 
-/* ─── Floating Particle ─── */
 function Particle({ delay, x, y, size }: { delay: number; x: string; y: string; size: number }) {
     return (
         <motion.div
             className="absolute rounded-full pointer-events-none"
-            style={{ left: x, top: y, width: size, height: size, background: "radial-gradient(circle, rgba(244,182,61,0.25), transparent 70%)" }}
-            animate={{ y: [0, -25, 0], opacity: [0.2, 0.6, 0.2], scale: [1, 1.4, 1] }}
+            style={{ left: x, top: y, width: size, height: size, background: "radial-gradient(circle, rgba(244,182,61,0.2), transparent 70%)" }}
+            animate={{ y: [0, -25, 0], opacity: [0.16, 0.46, 0.16], scale: [1, 1.32, 1] }}
             transition={{ duration: 5, repeat: Infinity, delay, ease: "easeInOut" }}
         />
     );
 }
 
-
-/* ─── Easing ─── */
 const EASE = [0.16, 1, 0.3, 1] as const;
+const GOLD = "#F4B63D";
+const featuredReviews = featuredDemoReviews.length > 0 ? featuredDemoReviews : demoReviews.slice(0, 8);
+const reviewPageCount = Math.ceil(demoReviews.length / REVIEWS_PER_TESTIMONIAL_PAGE);
 
-const testimonials = [
-    {
-        name: "ivan",
-        role: "BMW M3 Owner",
-        text: "Nagpa ceramic coating ako dito last month. Napansin ko agad after umulan, parang ayaw kumapit ng tubig sa pintura. Ang linis tignan palagi kahit ilang araw na. Maingat sila gumawa at kita mo na sanay na sanay.",
-        rating: 5,
-        image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=faces",
-    },
-    {
-        name: "Angelica",
-        role: "Toyota Fortuner Owner",
-        text: "Nagpa-full detail ako kasi madalas gamitin sa byahe. Pagkuha ko, parang bagong labas ng casa yung itsura. Malinis pati loob, pati amoy bago. Sulit yung bayad.",
-        rating: 5,
-        image: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&h=150&fit=crop&crop=faces",
-    },
-    {
-        name: "James",
-        role: "Porsche 911 Owner",
-        text: "May mga swirl marks na yung kotse ko dati. After paint correction, sobrang kintab na ulit. Kita mo yung difference lalo na sa ilaw. Tahimik lang sila magtrabaho pero pulido.",
-        rating: 5,
-        image: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&h=150&fit=crop&crop=faces",
-    },
-    {
-        name: "Ana",
-        role: "Honda Civic Owner",
-        text: "First time ko magpa-detailing at dito ko pinagawa. Hindi ako na-disappoint. Maayos kausap at malinaw magpaliwanag kung ano gagawin sa kotse.",
-        rating: 5,
-        image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop&crop=faces",
-    },
-    {
-        name: "Ricky",
-        role: "Ford Ranger Owner",
-        text: "On time sila mag-update habang ginagawa yung sasakyan ko. Hindi ako nag alala kasi may pictures pa silang sinend. Pagbalik, sobrang linis pati mga sulok na hindi ko nalilinis dati.",
-        rating: 5,
-        image: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=faces",
-    },
-    {
-        name: "Dianne",
-        role: "Hyundai Tucson Owner",
-        text: "May mga gasgas at watermarks na dati yung pintura. Ngayon halos hindi na makita. Mukhang inalagaan talaga nila habang ginagawa.",
-        rating: 5,
-        image: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop&crop=faces",
-    },
-];
+function formatReviewDate(date: string) {
+    return new Intl.DateTimeFormat("en-PH", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "Asia/Manila",
+    }).format(new Date(`${date}T00:00:00+08:00`));
+}
 
-/* ═══════════════════════════════════════
-   TESTIMONIAL CARD — Glass card in marquee
-═══════════════════════════════════════ */
-function TestimonialCard({
-    testimonial,
-    onClick,
-    index,
-}: {
-    testimonial: (typeof testimonials)[0];
-    onClick: () => void;
-    index: number;
-}) {
-    const [hovered, setHovered] = useState(false);
-
+function RatingStars({ rating, size = "h-3.5 w-3.5" }: { rating: DemoReview["rating"]; size?: string }) {
     return (
-        <div
-            onClick={onClick}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-            className="w-[340px] shrink-0 snap-center relative rounded-2xl p-6 cursor-pointer select-none transition-all duration-500"
-            style={{
-                background: hovered
-                    ? "linear-gradient(135deg, rgba(244,182,61,0.08) 0%, rgba(20,20,30,0.95) 50%, rgba(244,182,61,0.04) 100%)"
-                    : "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(15,15,25,0.9) 100%)",
-                border: hovered ? "1px solid rgba(244,182,61,0.3)" : "1px solid rgba(255,255,255,0.06)",
-                boxShadow: hovered
-                    ? "0 20px 60px rgba(0,0,0,0.4), 0 0 40px rgba(244,182,61,0.08)"
-                    : "0 8px 30px rgba(0,0,0,0.2)",
-                transform: hovered ? "translateY(-6px)" : "translateY(0)",
-                backdropFilter: "blur(20px)",
-            }}
-        >
-            {/* Quote icon — top right */}
-            <div
-                className="absolute top-5 right-5 transition-all duration-300"
-                style={{ opacity: hovered ? 0.5 : 0.15 }}
-            >
-                <Quote className="w-8 h-8 text-[#F4B63D]" />
-            </div>
-
-            {/* Stars */}
-            <div className="flex gap-1 mb-5">
-                {Array.from({ length: testimonial.rating }).map((_, i) => (
+        <div className="flex items-center gap-1" aria-label={`${rating} out of 5 stars`}>
+            {Array.from({ length: 5 }).map((_, index) => {
+                const filled = index < rating;
+                return (
                     <Star
-                        key={i}
-                        className="w-3.5 h-3.5 transition-all duration-300"
+                        key={index}
+                        className={`${size} transition-colors`}
                         style={{
-                            fill: "#F4B63D",
-                            color: "#F4B63D",
-                            filter: hovered ? "drop-shadow(0 0 4px rgba(244,182,61,0.5))" : "none",
-                            transitionDelay: `${i * 40}ms`,
+                            fill: filled ? GOLD : "transparent",
+                            color: filled ? GOLD : "rgba(255,255,255,0.2)",
+                            filter: filled ? "drop-shadow(0 0 5px rgba(244,182,61,0.3))" : "none",
                         }}
                     />
-                ))}
-            </div>
-
-            {/* Text */}
-            <p className="text-white/50 text-[14px] leading-[1.7] mb-6 line-clamp-4 font-light">
-                "{testimonial.text}"
-            </p>
-
-            {/* Author */}
-            <div className="flex items-center gap-3.5">
-                <div
-                    className="w-11 h-11 rounded-full overflow-hidden shrink-0 transition-all duration-300"
-                    style={{
-                        border: hovered ? "2px solid #F4B63D" : "2px solid rgba(255,255,255,0.1)",
-                        boxShadow: hovered ? "0 0 20px rgba(244,182,61,0.2)" : "none",
-                    }}
-                >
-                    <img
-                        src={testimonial.image}
-                        alt={testimonial.name}
-                        className="w-full h-full object-cover"
-                    />
-                </div>
-                <div>
-                    <div className="text-[14px] font-bold text-white tracking-tight flex items-center gap-1.5">
-                        {testimonial.name}
-                        <BadgeCheck className="w-3.5 h-3.5 text-[#F4B63D]" />
-                    </div>
-                    <div className="text-[12px] text-white/30 font-medium">
-                        {testimonial.role}
-                    </div>
-                </div>
-            </div>
-
-            {/* Bottom accent line */}
-            <div
-                className="absolute bottom-0 left-6 right-6 h-[2px] rounded-full transition-all duration-500"
-                style={{
-                    background: hovered
-                        ? "linear-gradient(90deg, transparent, #F4B63D, transparent)"
-                        : "linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent)",
-                }}
-            />
+                );
+            })}
         </div>
     );
 }
 
-/* ═══════════════════════════════════════
-   FEATURED TESTIMONIAL — Large spotlight card
-═══════════════════════════════════════ */
-function FeaturedTestimonial() {
-    const [current, setCurrent] = useState(0);
-    const featured = testimonials[current];
+function ReviewMeta({ review, compact = false }: { review: DemoReview; compact?: boolean }) {
+    return (
+        <div className={`flex flex-wrap items-center gap-2 ${compact ? "text-[11px]" : "text-xs"} text-white/38`}>
+            <span>{review.service}</span>
+            <span className="text-[#F4B63D]/35">/</span>
+            <span>{review.vehicle}</span>
+            <span className="text-[#F4B63D]/35">/</span>
+            <span>{formatReviewDate(review.date)}</span>
+        </div>
+    );
+}
 
-    const next = () => setCurrent((c) => (c + 1) % testimonials.length);
-    const prev = () => setCurrent((c) => (c - 1 + testimonials.length) % testimonials.length);
-
-    // Auto-rotate
-    useEffect(() => {
-        const timer = setInterval(next, 6000);
-        return () => clearInterval(timer);
-    }, []);
+function TestimonialCard({ review, onClick }: { review: DemoReview; onClick: () => void }) {
+    const [hovered, setHovered] = useState(false);
 
     return (
-        <div className="relative max-w-4xl mx-auto mb-20">
-            {/* Main card */}
+        <button
+            type="button"
+            onClick={onClick}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+            className="relative flex min-h-[286px] w-full flex-col overflow-hidden rounded-2xl p-5 text-left transition-all duration-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F4B63D]/70"
+            style={{
+                background: hovered
+                    ? "linear-gradient(135deg, rgba(244,182,61,0.08) 0%, rgba(13,13,20,0.96) 50%, rgba(244,182,61,0.035) 100%)"
+                    : "linear-gradient(135deg, rgba(255,255,255,0.032) 0%, rgba(11,12,18,0.92) 100%)",
+                border: hovered ? "1px solid rgba(244,182,61,0.26)" : "1px solid rgba(255,255,255,0.07)",
+                boxShadow: hovered
+                    ? "0 20px 60px rgba(0,0,0,0.38), 0 0 34px rgba(244,182,61,0.07)"
+                    : "0 8px 28px rgba(0,0,0,0.22)",
+                transform: hovered ? "translateY(-4px)" : "translateY(0)",
+                backdropFilter: "blur(18px)",
+            }}
+        >
+            <div className="mb-5 flex items-start justify-between gap-3">
+                <RatingStars rating={review.rating} />
+                <MessageSquareQuote className="h-5 w-5 text-[#F4B63D]/45" aria-hidden="true" />
+            </div>
+
+            <p className="line-clamp-5 flex-1 text-[14px] font-light leading-[1.7] text-white/58">
+                "{review.comment}"
+            </p>
+
             <div
-                className="relative rounded-3xl overflow-hidden px-8 sm:px-14 py-12 sm:py-16"
+                className="mt-5 border-t pt-4 transition-colors duration-300"
+                style={{ borderColor: hovered ? "rgba(244,182,61,0.18)" : "rgba(255,255,255,0.07)" }}
+            >
+                <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 text-[14px] font-bold tracking-tight text-white">
+                        <span className="truncate">{review.name}</span>
+                    </div>
+                    <div className="mt-1 text-[12px] font-medium leading-none text-[#F4B63D]/62">Vehicle Owner</div>
+                </div>
+                <div className="mt-3">
+                    <ReviewMeta review={review} compact />
+                </div>
+            </div>
+
+            <div
+                className="absolute bottom-0 left-5 right-5 h-px rounded-full transition-all duration-500"
                 style={{
-                    background: "linear-gradient(135deg, rgba(244,182,61,0.06) 0%, rgba(10,10,20,0.95) 40%, rgba(244,182,61,0.03) 100%)",
-                    border: "1px solid rgba(244,182,61,0.15)",
-                    boxShadow: "0 30px 80px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03)",
+                    background: hovered
+                        ? "linear-gradient(90deg, transparent, rgba(244,182,61,0.72), transparent)"
+                        : "linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent)",
+                }}
+            />
+        </button>
+    );
+}
+
+function FeaturedTestimonial() {
+    const [current, setCurrent] = useState(0);
+    const featured = featuredReviews[current];
+
+    const next = () => setCurrent((value) => (value + 1) % featuredReviews.length);
+    const prev = () => setCurrent((value) => (value - 1 + featuredReviews.length) % featuredReviews.length);
+
+    useEffect(() => {
+        const timer = window.setInterval(next, 6500);
+        return () => window.clearInterval(timer);
+    }, []);
+
+    if (!featured) return null;
+
+    return (
+        <div className="relative mx-auto mb-14 max-w-4xl sm:mb-16">
+            <div
+                className="relative overflow-hidden rounded-3xl px-7 py-10 sm:px-12 sm:py-14"
+                style={{
+                    background: "linear-gradient(135deg, rgba(244,182,61,0.065) 0%, rgba(8,9,15,0.96) 42%, rgba(244,182,61,0.025) 100%)",
+                    border: "1px solid rgba(244,182,61,0.16)",
+                    boxShadow: "0 30px 80px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.035)",
                 }}
             >
-                {/* Shimmer sweep — pure CSS so it never resets */}
                 <div
-                    className="absolute inset-0 pointer-events-none z-20"
+                    className="pointer-events-none absolute inset-0 z-0"
                     style={{
-                        background: "linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.04) 48%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 52%, transparent 60%)",
-                        backgroundSize: "200% 100%",
-                        animation: "testimonial-shine 4s linear infinite",
+                        background: "radial-gradient(circle at 18% 0%, rgba(244,182,61,0.12), transparent 34%)",
                     }}
                 />
 
-                {/* Giant quote watermark */}
-                <motion.div
-                    className="absolute top-8 left-8 opacity-[0.04] pointer-events-none"
-                    animate={{ rotate: [0, 5, 0], scale: [1, 1.05, 1] }}
-                    transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-                >
-                    <Quote className="w-32 h-32 text-[#F4B63D]" />
-                </motion.div>
-
                 <AnimatePresence mode="wait">
                     <motion.div
-                        key={current}
-                        initial={{ opacity: 0, y: 20 }}
+                        key={featured.id}
+                        initial={{ opacity: 0, y: 18 }}
                         animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        transition={{ duration: 0.5, ease: EASE }}
+                        exit={{ opacity: 0, y: -18 }}
+                        transition={{ duration: 0.45, ease: EASE }}
                         className="relative z-10"
                     >
-                        {/* Stars */}
-                        <div className="flex gap-1.5 mb-6">
-                            {Array.from({ length: featured.rating }).map((_, i) => (
-                                <motion.div
-                                    key={i}
-                                    initial={{ opacity: 0, scale: 0 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    transition={{ delay: i * 0.08, duration: 0.3 }}
-                                >
-                                    <Star
-                                        className="w-5 h-5"
-                                        style={{
-                                            fill: "#F4B63D",
-                                            color: "#F4B63D",
-                                            filter: "drop-shadow(0 0 8px rgba(244,182,61,0.4))",
-                                        }}
-                                    />
-                                </motion.div>
-                            ))}
+                        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+                            <RatingStars rating={featured.rating} size="h-5 w-5" />
+                            <MessageSquareQuote className="h-6 w-6 text-[#F4B63D]/45" aria-hidden="true" />
                         </div>
 
-                        {/* Quote text */}
-                        <p className="text-white/70 text-lg sm:text-xl md:text-2xl leading-[1.6] font-light mb-10 max-w-3xl" style={{ fontStyle: "italic" }}>
-                            "{featured.text}"
+                        <p className="mb-8 max-w-3xl text-lg font-light italic leading-[1.65] text-white/72 sm:text-xl md:text-2xl">
+                            "{featured.comment}"
                         </p>
 
-                        {/* Author row */}
-                        <div className="flex items-center gap-4">
-                            <div
-                                className="w-14 h-14 rounded-full overflow-hidden shrink-0"
-                                style={{
-                                    border: "2px solid rgba(244,182,61,0.4)",
-                                    boxShadow: "0 0 25px rgba(244,182,61,0.15)",
-                                }}
-                            >
-                                <img
-                                    src={featured.image}
-                                    alt={featured.name}
-                                    className="w-full h-full object-cover"
-                                />
-                            </div>
-                            <div>
-                                <div className="text-base font-bold text-white tracking-tight">
-                                    {featured.name}
+                        <div className="flex flex-col gap-5 border-t border-[#F4B63D]/15 pt-6 sm:flex-row sm:items-end">
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2 text-base font-bold tracking-tight text-white">
+                                    <span className="truncate">{featured.name}</span>
                                 </div>
-                                <div className="text-sm text-[#F4B63D]/70 font-medium">
-                                    {featured.role}
+                                <div className="mt-1.5 text-sm font-medium leading-none text-[#F4B63D]/70">Vehicle Owner</div>
+                                <div className="mt-3">
+                                    <ReviewMeta review={featured} />
                                 </div>
                             </div>
 
-                            {/* Navigation arrows */}
-                            <div className="ml-auto flex items-center gap-2">
+                            <div className="flex items-center gap-2 sm:ml-auto">
                                 <button
+                                    type="button"
                                     onClick={prev}
-                                    className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 hover:bg-white/5 border border-white/10 hover:border-[#F4B63D]/30"
+                                    className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 transition-all duration-300 hover:border-[#F4B63D]/30 hover:bg-white/5"
+                                    aria-label="Previous featured review"
                                 >
-                                    <ChevronLeft className="w-4 h-4 text-white/50" />
+                                    <ChevronLeft className="h-4 w-4 text-white/54" />
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={next}
-                                    className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 hover:bg-white/5 border border-white/10 hover:border-[#F4B63D]/30"
+                                    className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 transition-all duration-300 hover:border-[#F4B63D]/30 hover:bg-white/5"
+                                    aria-label="Next featured review"
                                 >
-                                    <ChevronRight className="w-4 h-4 text-white/50" />
+                                    <ChevronRight className="h-4 w-4 text-white/54" />
                                 </button>
                             </div>
                         </div>
                     </motion.div>
                 </AnimatePresence>
 
-                {/* Progress dots */}
-                <div className="flex items-center justify-center gap-2 mt-10">
-                    {testimonials.map((_, i) => (
+                <div className="mt-9 flex items-center justify-center gap-2">
+                    {featuredReviews.map((review, index) => (
                         <button
-                            key={i}
-                            onClick={() => setCurrent(i)}
-                            className="transition-all duration-300"
+                            type="button"
+                            key={review.id}
+                            onClick={() => setCurrent(index)}
+                            className="rounded-full transition-all duration-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F4B63D]/70"
+                            aria-label={`Show featured review ${index + 1}`}
                         >
-                            <div
-                                className="rounded-full transition-all duration-500"
+                            <span
+                                className="block rounded-full transition-all duration-300"
                                 style={{
-                                    width: i === current ? 28 : 8,
+                                    width: index === current ? 28 : 8,
                                     height: 8,
-                                    background: i === current
+                                    background: index === current
                                         ? "linear-gradient(90deg, #F4B63D, #D58A12)"
-                                        : "rgba(255,255,255,0.1)",
-                                    boxShadow: i === current ? "0 0 12px rgba(244,182,61,0.3)" : "none",
+                                        : "rgba(255,255,255,0.12)",
+                                    boxShadow: index === current ? "0 0 12px rgba(244,182,61,0.26)" : "none",
                                 }}
                             />
                         </button>
                     ))}
                 </div>
 
-                {/* Corner accents (Gradient Border) */}
-                <div 
-                    className="absolute inset-0 pointer-events-none rounded-3xl"
+                <div
+                    className="pointer-events-none absolute inset-0 rounded-3xl"
                     style={{
-                        boxShadow: "inset 0 0 0 1px rgba(244,182,61,0.6)",
+                        boxShadow: "inset 0 0 0 1px rgba(244,182,61,0.46)",
                         maskImage: "linear-gradient(135deg, black 0%, transparent 30%, transparent 70%, black 100%)",
-                        WebkitMaskImage: "linear-gradient(135deg, black 0%, transparent 30%, transparent 70%, black 100%)"
+                        WebkitMaskImage: "linear-gradient(135deg, black 0%, transparent 30%, transparent 70%, black 100%)",
                     }}
                 />
             </div>
@@ -327,22 +245,20 @@ function FeaturedTestimonial() {
     );
 }
 
-/* ═══════════════════════════════════════
-   TESTIMONIALS SECTION
-═══════════════════════════════════════ */
 export default function TestimonialsSection() {
     const { t } = useLanguage();
     const headingRef = useRef<HTMLDivElement>(null);
     const isInView = useInView(headingRef, { once: true, margin: "-80px" });
-    const [selected, setSelected] = useState<(typeof testimonials)[0] | null>(null);
+    const [selected, setSelected] = useState<DemoReview | null>(null);
+    const [reviewPage, setReviewPage] = useState(0);
+    const start = reviewPage * REVIEWS_PER_TESTIMONIAL_PAGE;
+    const visibleReviews = demoReviews.slice(start, start + REVIEWS_PER_TESTIMONIAL_PAGE);
 
-    // Prevent body scroll when modal is open
+    const nextPage = () => setReviewPage((page) => (page + 1) % reviewPageCount);
+    const prevPage = () => setReviewPage((page) => (page - 1 + reviewPageCount) % reviewPageCount);
+
     useEffect(() => {
-        if (selected) {
-            document.body.style.overflow = "hidden";
-        } else {
-            document.body.style.overflow = "";
-        }
+        document.body.style.overflow = selected ? "hidden" : "";
         return () => {
             document.body.style.overflow = "";
         };
@@ -352,7 +268,6 @@ export default function TestimonialsSection() {
         <section className="relative overflow-hidden pt-24 pb-28 sm:pt-32 sm:pb-36" style={TRUSTED_BY_SECTION_BG_FOLLOW}>
             <TrustedBySectionAmbient />
 
-            {/* Floating particles */}
             <Particle delay={0} x="10%" y="25%" size={5} />
             <Particle delay={1.8} x="88%" y="35%" size={4} />
             <Particle delay={0.6} x="70%" y="75%" size={6} />
@@ -361,88 +276,59 @@ export default function TestimonialsSection() {
             <Particle delay={1.2} x="40%" y="60%" size={5} />
 
             <div className="container relative z-10 mx-auto max-w-7xl px-6">
-                {/* ── Heading ── */}
-                <div ref={headingRef} className="text-center mb-16 sm:mb-20">
-                    {/* Badge */}
+                <div ref={headingRef} className="mb-16 text-center sm:mb-20">
                     <motion.div
                         initial={{ opacity: 0, y: 20, scale: 0.9 }}
                         animate={isInView ? { opacity: 1, y: 0, scale: 1 } : {}}
                         transition={{ duration: 0.6, ease: EASE }}
-                        className="inline-flex items-center gap-2.5 rounded-full border border-[#F4B63D]/25 bg-[#F4B63D]/[0.06] px-6 py-2.5 text-[11px] font-bold tracking-[0.25em] text-[#F4B63D] uppercase backdrop-blur-sm mb-8"
+                        className="mb-8 inline-flex items-center gap-2.5 rounded-full border border-[#F4B63D]/25 bg-[#F4B63D]/[0.06] px-6 py-2.5 text-[11px] font-bold uppercase tracking-[0.25em] text-[#F4B63D] backdrop-blur-sm"
                     >
-                        <MessageSquareQuote className="w-3.5 h-3.5" />
+                        <MessageSquareQuote className="h-3.5 w-3.5" />
                         {t("testimonialsPublic.badge")}
                     </motion.div>
 
-                    {/* Title */}
-                    <div className="overflow-hidden mb-3">
+                    <div className="mb-3 overflow-hidden">
                         <motion.h2
                             initial={{ opacity: 0, y: 60 }}
                             animate={isInView ? { opacity: 1, y: 0 } : {}}
                             transition={{ duration: 0.8, ease: EASE, delay: 0.15 }}
-                            className="text-4xl font-serif font-medium leading-[1.05] tracking-tight text-[#F8F7F2] sm:text-5xl md:text-6xl lg:text-[68px]"
+                            className="font-serif text-4xl font-medium leading-[1.05] tracking-tight text-[#F8F7F2] sm:text-5xl md:text-6xl lg:text-[68px]"
                         >
-                            {t("testimonialsPublic.title")}
-                        </motion.h2>
-                    </div>
-                    <div className="overflow-hidden mb-7">
-                        <motion.h2
-                            initial={{ opacity: 0, y: 60 }}
-                            animate={isInView ? { opacity: 1, y: 0 } : {}}
-                            transition={{ duration: 0.8, ease: EASE, delay: 0.3 }}
-                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[68px] font-serif font-medium leading-[1.05] tracking-tight italic"
-                        >
-                            <span className="animate-shimmer bg-gradient-to-r from-[#F4B63D] via-amber-200 to-[#D58A12] bg-[length:200%_100%] bg-clip-text text-transparent">
-                                {t("testimonialsPublic.titleHighlight")}
+                            <span className="animate-shimmer bg-gradient-to-r from-[#F8F7F2] via-[#F4B63D] to-[#F8F7F2] bg-[length:200%_100%] bg-clip-text text-transparent">
+                                {t("testimonialsPublic.title")}
                             </span>
                         </motion.h2>
                     </div>
 
-                    {/* Subtitle */}
                     <motion.p
                         initial={{ opacity: 0, y: 20 }}
                         animate={isInView ? { opacity: 1, y: 0 } : {}}
                         transition={{ duration: 0.6, ease: EASE, delay: 0.45 }}
-                        className="mx-auto max-w-lg text-sm leading-relaxed font-light text-[#B8BEC8] sm:text-base"
+                        className="mx-auto max-w-2xl text-sm font-light leading-relaxed text-[#B8BEC8] sm:text-base"
                     >
                         {t("testimonialsPublic.subtitle")}
                     </motion.p>
 
-                    {/* Accent divider */}
                     <motion.div
                         initial={{ opacity: 0, scale: 0.5 }}
                         animate={isInView ? { opacity: 1, scale: 1 } : {}}
-                        transition={{ duration: 0.5, ease: EASE, delay: 0.55 }}
-                        className="flex items-center justify-center gap-3 mt-10"
+                        transition={{ duration: 0.5, ease: EASE, delay: 0.58 }}
+                        className="mt-10 flex flex-wrap items-center justify-center gap-3"
                     >
-                        <motion.div
-                            className="h-px bg-gradient-to-r from-transparent to-white/15"
-                            initial={{ width: 0 }}
-                            animate={isInView ? { width: 50 } : {}}
-                            transition={{ duration: 0.8, ease: EASE, delay: 0.6 }}
-                        />
-                        <motion.div
-                            className="w-2.5 h-2.5 rounded-full border border-[#F4B63D]/40"
-                            animate={{
-                                boxShadow: [
-                                    "0 0 0 0 rgba(244,182,61,0)",
-                                    "0 0 0 6px rgba(244,182,61,0.1)",
-                                    "0 0 0 0 rgba(244,182,61,0)",
-                                ],
-                            }}
-                            transition={{ duration: 2.5, repeat: Infinity }}
-                            style={{ background: "rgba(244,182,61,0.3)" }}
-                        />
-                        <motion.div
-                            className="h-px bg-gradient-to-l from-transparent to-white/15"
-                            initial={{ width: 0 }}
-                            animate={isInView ? { width: 50 } : {}}
-                            transition={{ duration: 0.8, ease: EASE, delay: 0.6 }}
-                        />
+                        <div className="h-px w-12 bg-gradient-to-r from-transparent to-white/15" />
+                        <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">
+                            Detailing
+                        </span>
+                        <span className="rounded-full border border-[#F4B63D]/20 bg-[#F4B63D]/[0.06] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#F4B63D]/78">
+                            Coating
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">
+                            Paint Protection
+                        </span>
+                        <div className="h-px w-12 bg-gradient-to-l from-transparent to-white/15" />
                     </motion.div>
                 </div>
 
-                {/* ── Featured Testimonial (Spotlight) ── */}
                 <motion.div
                     initial={{ opacity: 0, y: 40 }}
                     whileInView={{ opacity: 1, y: 0 }}
@@ -452,31 +338,57 @@ export default function TestimonialsSection() {
                     <FeaturedTestimonial />
                 </motion.div>
 
-            </div>
-
-            {/* ── Marquee Strip ── */}
-            <div className="relative mt-4">
-                {/* Fade edges */}
-                <div className="absolute left-0 top-0 bottom-0 w-40 z-10 pointer-events-none"
-                    style={{ background: "linear-gradient(to right, #080c18, transparent)" }}
-                />
-                <div className="absolute right-0 top-0 bottom-0 w-40 z-10 pointer-events-none"
-                    style={{ background: "linear-gradient(to left, #080c18, transparent)" }}
-                />
-
-                <div className="flex gap-5 animate-marquee w-max py-4 hover:[animation-play-state:paused]">
-                    {[...testimonials, ...testimonials].map((testimonial, i) => (
-                        <TestimonialCard
-                            key={i}
-                            testimonial={testimonial}
-                            onClick={() => setSelected(testimonial)}
-                            index={i}
-                        />
-                    ))}
+                <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#F4B63D]/72">
+                            More owner feedback
+                        </p>
+                        <p className="mt-1 text-sm text-white/44">
+                            Browse a few recent experiences from booked car care services.
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={prevPage}
+                            className="inline-flex h-10 items-center gap-2 rounded-full border border-white/10 px-4 text-xs font-bold uppercase tracking-[0.14em] text-white/58 transition-colors hover:border-[#F4B63D]/30 hover:text-[#F4B63D]"
+                            aria-label="Show previous reviews"
+                        >
+                            <ChevronLeft className="h-4 w-4" />
+                            Prev
+                        </button>
+                        <button
+                            type="button"
+                            onClick={nextPage}
+                            className="inline-flex h-10 items-center gap-2 rounded-full border border-[#F4B63D]/24 bg-[#F4B63D]/[0.07] px-4 text-xs font-bold uppercase tracking-[0.14em] text-[#F4B63D] transition-colors hover:bg-[#F4B63D]/[0.12]"
+                            aria-label="Show next reviews"
+                        >
+                            Next
+                            <ChevronRight className="h-4 w-4" />
+                        </button>
+                    </div>
                 </div>
+
+                <AnimatePresence mode="wait">
+                    <motion.div
+                        key={reviewPage}
+                        initial={{ opacity: 0, y: 18 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -18 }}
+                        transition={{ duration: 0.32, ease: EASE }}
+                        className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3"
+                    >
+                        {visibleReviews.map((review) => (
+                            <TestimonialCard
+                                key={review.id}
+                                review={review}
+                                onClick={() => setSelected(review)}
+                            />
+                        ))}
+                    </motion.div>
+                </AnimatePresence>
             </div>
 
-            {/* ── Modal ── */}
             <AnimatePresence>
                 {selected && (
                     <motion.div
@@ -485,7 +397,6 @@ export default function TestimonialsSection() {
                         exit={{ opacity: 0 }}
                         className="fixed inset-0 z-[999999] flex items-center justify-center p-4"
                     >
-                        {/* Backdrop */}
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -495,76 +406,57 @@ export default function TestimonialsSection() {
                             onClick={() => setSelected(null)}
                         />
 
-                        {/* Modal Content */}
                         <motion.div
-                            initial={{ opacity: 0, scale: 0.9, y: 30 }}
+                            initial={{ opacity: 0, scale: 0.92, y: 24 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                            transition={{ duration: 0.4, ease: EASE }}
-                            className="relative w-full max-w-md rounded-3xl p-8 sm:p-10"
+                            exit={{ opacity: 0, scale: 0.96, y: 18 }}
+                            transition={{ duration: 0.35, ease: EASE }}
+                            className="relative w-full max-w-xl rounded-3xl p-7 sm:p-9"
                             style={{
-                                background: "linear-gradient(135deg, rgba(244,182,61,0.06) 0%, rgba(10,10,20,0.98) 40%, rgba(244,182,61,0.03) 100%)",
+                                background: "linear-gradient(135deg, rgba(244,182,61,0.06) 0%, rgba(10,10,20,0.98) 42%, rgba(244,182,61,0.03) 100%)",
                                 border: "1px solid rgba(244,182,61,0.2)",
                                 boxShadow: "0 0 80px rgba(244,182,61,0.1), 0 30px 80px rgba(0,0,0,0.5)",
                             }}
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(event) => event.stopPropagation()}
                         >
                             <button
+                                type="button"
                                 onClick={() => setSelected(null)}
-                                className="absolute right-4 top-4 w-8 h-8 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 transition-all duration-200"
+                                className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 transition-all duration-200 hover:bg-white/10"
+                                aria-label="Close review"
                             >
-                                <X className="w-4 h-4 text-white/50" />
+                                <X className="h-4 w-4 text-white/50" />
                             </button>
 
-                            {/* Giant quote watermark */}
-                            <div className="absolute top-6 left-6 opacity-[0.04]">
-                                <Quote className="w-24 h-24 text-[#F4B63D]" />
-                            </div>
-
-                            <div className="flex flex-col items-center text-center relative z-10 mt-2">
-                                <div
-                                    className="w-20 h-20 rounded-full overflow-hidden mb-5"
-                                    style={{
-                                        border: "3px solid rgba(244,182,61,0.4)",
-                                        boxShadow: "0 0 30px rgba(244,182,61,0.2)",
-                                    }}
-                                >
-                                    <img
-                                        src={selected.image}
-                                        alt={selected.name}
-                                        className="w-full h-full object-cover"
-                                    />
+                            <div className="relative z-10 mt-2">
+                                <div className="mb-6 flex flex-wrap items-center justify-between gap-3 pr-10">
+                                    <RatingStars rating={selected.rating} size="h-5 w-5" />
+                                    <MessageSquareQuote className="h-6 w-6 text-[#F4B63D]/45" aria-hidden="true" />
                                 </div>
 
-                                <div className="text-lg font-bold text-white mb-1 tracking-tight">{selected.name}</div>
-                                <div className="text-sm text-[#F4B63D]/60 font-medium mb-5">{selected.role}</div>
-
-                                <div className="flex gap-1.5 mb-6">
-                                    {Array.from({ length: selected.rating }).map((_, i) => (
-                                        <Star
-                                            key={i}
-                                            className="w-5 h-5"
-                                            style={{
-                                                fill: "#F4B63D",
-                                                color: "#F4B63D",
-                                                filter: "drop-shadow(0 0 8px rgba(244,182,61,0.4))",
-                                            }}
-                                        />
-                                    ))}
-                                </div>
-
-                                <p className="text-white/50 text-base leading-relaxed font-light px-2" style={{ fontStyle: "italic" }}>
-                                    "{selected.text}"
+                                <p className="text-base font-light italic leading-relaxed text-white/64 sm:text-lg">
+                                    "{selected.comment}"
                                 </p>
+
+                                <div className="mt-7 border-t border-[#F4B63D]/15 pt-5">
+                                    <div className="flex items-center gap-1.5 text-lg font-bold tracking-tight text-white">
+                                        <span>{selected.name}</span>
+                                    </div>
+                                    <div className="mt-1.5 text-sm font-medium leading-none text-[#F4B63D]/68">Vehicle Owner</div>
+                                    <div className="mt-4 grid gap-2 text-sm text-white/48">
+                                        <div>Service: <span className="text-white/70">{selected.service}</span></div>
+                                        <div>Vehicle: <span className="text-white/70">{selected.vehicle}</span></div>
+                                        <div>Date: <span className="text-white/70">{formatReviewDate(selected.date)}</span></div>
+                                    </div>
+                                </div>
                             </div>
 
-                            {/* Corner accents (Gradient Border) */}
-                            <div 
-                                className="absolute inset-0 pointer-events-none rounded-3xl"
+                            <div
+                                className="pointer-events-none absolute inset-0 rounded-3xl"
                                 style={{
-                                    boxShadow: "inset 0 0 0 1px rgba(244,182,61,0.5)",
+                                    boxShadow: "inset 0 0 0 1px rgba(244,182,61,0.48)",
                                     maskImage: "linear-gradient(135deg, black 0%, transparent 30%, transparent 70%, black 100%)",
-                                    WebkitMaskImage: "linear-gradient(135deg, black 0%, transparent 30%, transparent 70%, black 100%)"
+                                    WebkitMaskImage: "linear-gradient(135deg, black 0%, transparent 30%, transparent 70%, black 100%)",
                                 }}
                             />
                         </motion.div>

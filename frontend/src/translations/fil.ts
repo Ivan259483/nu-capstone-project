@@ -25,7 +25,7 @@ export const fil = {
         viewWork: "Tingnan ang Resulta",
         scrollDown: "Mag-scroll Pababa",
         scrollCue: "Mag-scroll para tumuklas",
-        reviews: "68 Review · 100% Recommend",
+        reviews: "5K+ Reviews · 100% Recommend",
         imageAlt: "Luxury car detailing",
         serviceTags: {
             ceramicCoating: "Ceramic Coating",
@@ -62,10 +62,11 @@ export const fil = {
     },
 
     testimonialsPublic: {
-        badge: "Kwento ng Kliyente",
-        title: "Pinagkakatiwalaan ng",
-        titleHighlight: "Mga Car Enthusiast",
-        subtitle: "Huwag lang kami ang makinig — marinig mo mismo ang mga may-ari na nagtitiwala sa amin sa kanilang sasakyan.",
+        badge: "Owner Feedback",
+        title: "Trusted by Car Owners",
+        titleHighlight: "Trusted by Car Owners",
+        subtitle: "Feedback from car owners who booked detailing, coating, and paint protection services.",
+        demoNotice: "",
     },
 
     servicesPage: {

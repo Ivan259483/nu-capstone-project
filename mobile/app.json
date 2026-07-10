@@ -40,7 +40,6 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-dev-client",
       "./plugins/withIosMetroLanHost.js",
       "expo-router",
       [

@@ -10,6 +10,9 @@
     "lint": "cd frontend && eslint .",
     "preview": "cd frontend && vite preview",
     "mobile:start": "cd mobile && npx expo start",
+    "mobile:start:lan": "cd mobile && npx expo start --lan",
+    "mobile:start:tunnel": "cd mobile && npx expo start --tunnel",
+    "mobile:start:clear": "cd mobile && npx expo start --clear",
     "mobile:android": "cd mobile && npx expo start --android",
     "mobile:ios": "cd mobile && npx expo start --ios",
     "mobile:web": "cd mobile && npx expo start --web"

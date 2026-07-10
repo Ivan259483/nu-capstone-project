@@ -88,7 +88,11 @@ cp .env.example .env
 npx expo start
 ```
 
-Set `EXPO_PUBLIC_API_URL` when testing against a LAN, ngrok, or deployed backend API.
+For a physical iPhone, install Expo Go and run the Expo command from `mobile/`.
+Use `npx expo start --lan` when the phone and laptop are on the same Wi-Fi,
+`npx expo start --tunnel` when LAN discovery fails, and
+`npx expo start --clear` after config or dependency changes. Set
+`EXPO_PUBLIC_API_URL` when testing against a LAN, ngrok, or deployed backend API.
 
 ## Environment Variables
 
@@ -164,8 +168,9 @@ EXPO_PUBLIC_DEV_API_PORT=3000
 ### Expo
 
 - Configure mobile environment variables before starting Metro or creating EAS builds.
-- Use `npx expo start` for development.
-- Use EAS profiles from `eas.json` or `mobile/eas.json` for preview and production builds.
+- Run Expo commands from `mobile/` so the QR uses the mobile app config.
+- Use `npx expo start`, `npx expo start --lan`, `npx expo start --tunnel`, or `npx expo start --clear` for Expo Go development.
+- Use EAS profiles from `mobile/eas.json` for preview and production builds.
 
 ## Security
 

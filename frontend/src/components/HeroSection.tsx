@@ -240,15 +240,15 @@ export default function HeroSection() {
                     {/* Rating */}
                     <motion.div
                         variants={heroFadeUp}
-                        className="my-8 inline-flex w-fit items-center gap-3 rounded-full border border-[#f4c96b]/24 bg-[linear-gradient(135deg,rgba(255,255,255,0.115),rgba(255,255,255,0.04)_48%,rgba(7,7,10,0.58))] px-3.5 py-2 shadow-[0_16px_36px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.11)] backdrop-blur-md"
+                        className="hero-rating-pill my-8 inline-flex w-fit items-center gap-3.5 rounded-full border border-[#f4c96b]/18 bg-[linear-gradient(135deg,rgba(255,255,255,0.09),rgba(255,255,255,0.028)_48%,rgba(7,7,10,0.68))] px-4 py-2.5 shadow-[0_17px_38px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-lg"
                         aria-label={`${t("stats.rating")}: 4.9, ${t("hero.reviews")}`}
                     >
-                        <span className="flex h-8 min-w-[3rem] items-center justify-center text-[28px] font-serif font-light leading-none text-white/95 tabular-nums">
-                            <span className="block -translate-y-[5px]">4.9</span>
+                        <span className="flex h-9 min-w-[3.25rem] items-center justify-center text-[31px] font-serif font-light leading-none text-white/95 tabular-nums">
+                            <span className="block -translate-y-[4px]">4.9</span>
                         </span>
-                        <span className="h-6 w-px bg-gradient-to-b from-transparent via-[#f4c96b]/22 to-transparent" aria-hidden />
-                        <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-[1px] text-[#f7c760]">
+                        <span className="h-7 w-px bg-gradient-to-b from-transparent via-[#f4c96b]/22 to-transparent" aria-hidden />
+                        <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center gap-0.5 text-[#f7c760]">
                                 {[...Array(5)].map((_, i) => (
                                     <motion.div
                                         key={i}
@@ -258,11 +258,11 @@ export default function HeroSection() {
                                         transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.58 + i * 0.08, type: "spring", stiffness: 280, damping: 20 }}
                                         className="shrink-0"
                                     >
-                                        <Star className="h-3 w-3 fill-current" />
+                                        <Star className="h-3.5 w-3.5 fill-current" />
                                     </motion.div>
                                 ))}
                             </div>
-                            <span className="text-[10px] font-sans font-medium uppercase tracking-[0.1em] text-white/74">
+                            <span className="text-[11px] font-sans font-medium uppercase tracking-[0.12em] text-white/76">
                                 {t("stats.rating")} · {t("hero.reviews")}
                             </span>
                         </div>

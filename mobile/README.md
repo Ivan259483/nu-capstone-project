@@ -16,12 +16,24 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+   For a physical iPhone, install **Expo Go** from the App Store first. This app
+   is configured to run in Expo Go by default, so the terminal QR should use a
+   normal Expo Go URL and should not say `Using development build`.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+   Recommended start modes:
+
+   ```bash
+   npx expo start --lan
+   npx expo start --tunnel
+   npx expo start --clear
+   ```
+
+   Use LAN when the iPhone and laptop are on the same Wi-Fi. Use tunnel when
+   LAN scanning does not connect across the network. Use clear after config or
+   dependency changes.
+
+In the output, you'll find options to open the app in
+[Expo Go](https://expo.dev/go), an Android emulator, an iOS simulator, or web.
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 

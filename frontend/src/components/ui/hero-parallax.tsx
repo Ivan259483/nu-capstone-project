@@ -51,10 +51,10 @@ export function ProductCard({
             transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
             className="group/product relative h-96 w-[30rem] shrink-0 overflow-hidden rounded-xl shadow-2xl will-change-transform"
         >
-            <a href={product.link} className="block h-full w-full" aria-label={product.title}>
+            <a href={product.link} className="block h-full w-full" aria-label={product.title || "View AutoSPF transformation gallery"}>
                 <img
                     src={product.thumbnail}
-                    alt={product.title}
+                    alt={product.title || "AutoSPF transformation photo"}
                     height={600}
                     width={600}
                     className="absolute inset-0 h-full w-full object-cover object-left-top transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/product:scale-[1.025] motion-reduce:transform-none"
@@ -62,9 +62,11 @@ export function ProductCard({
                 />
             </a>
             <div className="pointer-events-none absolute inset-0 h-full w-full bg-gradient-to-t from-black/75 via-black/12 to-black/18 opacity-45 transition-opacity duration-500 group-hover/product:opacity-76" />
-            <h2 className="absolute bottom-4 left-4 text-white opacity-0 transition-opacity duration-300 group-hover/product:opacity-100">
-                {product.title}
-            </h2>
+            {product.title ? (
+                <h2 className="absolute bottom-4 left-4 text-white opacity-0 transition-opacity duration-300 group-hover/product:opacity-100">
+                    {product.title}
+                </h2>
+            ) : null}
         </motion.div>
     );
 }
@@ -77,9 +79,10 @@ export function HeroParallax({
     className,
     sectionId,
 }: HeroParallaxProps) {
-    const firstRow = products.slice(0, 5);
-    const secondRow = products.slice(5, 10);
-    const thirdRow = products.slice(10, 15);
+    const rowSize = Math.ceil(products.length / 3);
+    const firstRow = products.slice(0, rowSize);
+    const secondRow = products.slice(rowSize, rowSize * 2);
+    const thirdRow = products.slice(rowSize * 2);
 
     const ref = React.useRef<HTMLDivElement>(null);
     const shouldReduceMotion = useReducedMotion();
@@ -155,18 +158,18 @@ export function HeroParallax({
                 className="relative z-0 w-full"
             >
                 <div className="mx-auto flex max-w-none flex-row-reverse gap-10 px-4 pb-14 md:gap-16">
-                    {firstRow.map((product) => (
-                        <ProductCard key={product.title} product={product} translate={translateX} reduceMotion={Boolean(shouldReduceMotion)} />
+                    {firstRow.map((product, index) => (
+                        <ProductCard key={`${product.thumbnail}-${index}`} product={product} translate={translateX} reduceMotion={Boolean(shouldReduceMotion)} />
                     ))}
                 </div>
                 <div className="mx-auto flex max-w-none flex-row gap-10 px-4 pb-14 md:gap-16">
-                    {secondRow.map((product) => (
-                        <ProductCard key={product.title} product={product} translate={translateXReverse} reduceMotion={Boolean(shouldReduceMotion)} />
+                    {secondRow.map((product, index) => (
+                        <ProductCard key={`${product.thumbnail}-${index}`} product={product} translate={translateXReverse} reduceMotion={Boolean(shouldReduceMotion)} />
                     ))}
                 </div>
                 <div className="mx-auto flex max-w-none flex-row-reverse gap-10 px-4 pb-16 md:gap-16">
-                    {thirdRow.map((product) => (
-                        <ProductCard key={product.title} product={product} translate={translateX} reduceMotion={Boolean(shouldReduceMotion)} />
+                    {thirdRow.map((product, index) => (
+                        <ProductCard key={`${product.thumbnail}-${index}`} product={product} translate={translateX} reduceMotion={Boolean(shouldReduceMotion)} />
                     ))}
                 </div>
             </motion.div>

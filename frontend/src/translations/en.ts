@@ -25,7 +25,7 @@ export const en = {
         viewWork: "View Results",
         scrollDown: "Scroll Down",
         scrollCue: "Scroll to explore",
-        reviews: "68 Reviews · 100% Recommend",
+        reviews: "5K+ Reviews · 100% Recommend",
         imageAlt: "Luxury car detailing",
         serviceTags: {
             ceramicCoating: "Ceramic Coating",
@@ -65,10 +65,11 @@ export const en = {
 
     // Testimonials (public)
     testimonialsPublic: {
-        badge: "Client Stories",
-        title: "Trusted by",
-        titleHighlight: "Car Enthusiasts",
-        subtitle: "Don't take our word for it — hear from the owners who trust us with their prized rides.",
+        badge: "Owner Feedback",
+        title: "Trusted by Car Owners",
+        titleHighlight: "Trusted by Car Owners",
+        subtitle: "Feedback from car owners who booked detailing, coating, and paint protection services.",
+        demoNotice: "",
     },
 
     // Services page

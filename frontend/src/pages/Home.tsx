@@ -6,24 +6,53 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import TransformationsSection from "@/components/TransformationsSection";
 import TestimonialsSection from "@/components/TestimonialsSection";
 import { useLandingSmoothScroll } from "@/hooks/useLandingSmoothScroll";
+import autospf1 from "@/assets/autospf-pictures/autospf-1.png";
+import autospf2 from "@/assets/autospf-pictures/autospf-2.png";
+import autospf3 from "@/assets/autospf-pictures/autospf-3.png";
+import autospf4 from "@/assets/autospf-pictures/autospf-4.png";
+import autospf5 from "@/assets/autospf-pictures/autospf-5.png";
+import autospf6 from "@/assets/autospf-pictures/autospf-6.png";
+import autospf7 from "@/assets/autospf-pictures/autospf-7.png";
+import autospf8 from "@/assets/autospf-pictures/autospf-8.png";
+import autospf9 from "@/assets/autospf-pictures/autospf-9.png";
+import autospf10 from "@/assets/autospf-pictures/autospf-10.png";
+import autospf11 from "@/assets/autospf-pictures/autospf-11.png";
+import autospf12 from "@/assets/autospf-pictures/autospf-12.png";
+import autospf13 from "@/assets/autospf-pictures/autospf-13.png";
+import autospf14 from "@/assets/autospf-pictures/autospf-14.png";
+import autospf15 from "@/assets/autospf-pictures/autospf-15.png";
+import autospf16 from "@/assets/autospf-pictures/autospf-16.png";
+import autospf17 from "@/assets/autospf-pictures/autospf-17.png";
+import autospf18 from "@/assets/autospf-pictures/autospf-18.png";
+import autospf19 from "@/assets/autospf-pictures/autospf-19.png";
 
-const PARALLAX_PRODUCTS: HeroParallaxProduct[] = [
-    { title: "Ceramic Coating Application", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1567808291548-fc3ee04dbcf0?auto=format&fit=crop&q=80&w=800" },
-    { title: "Paint Correction Detail", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1605437241278-c1806d14a4d9?auto=format&fit=crop&q=80&w=800" },
-    { title: "Full Interior Restoration", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1619431856706-ca2cc58258f6?auto=format&fit=crop&q=80&w=800" },
-    { title: "Premium Exterior Wash", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1528597469186-bddab681a37f?auto=format&fit=crop&q=80&w=800" },
-    { title: "Ceramic on BMW M4", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1620584899131-a5ff5f8fbb03?auto=format&fit=crop&q=80&w=800" },
-    { title: "Scratch & Swirl Removal", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1622329821376-a19fd6002562?auto=format&fit=crop&q=80&w=800" },
-    { title: "Leather Conditioning", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1632823469850-2f77dd9c7f93?auto=format&fit=crop&q=80&w=800" },
-    { title: "Supercar Detailing", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1632823471799-c3812077da2d?auto=format&fit=crop&q=80&w=800" },
-    { title: "Multi-Stage Polish", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1633014041037-f5446fb4ce99?auto=format&fit=crop&q=80&w=800" },
-    { title: "Nano Coating on Range Rover", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1633014332834-c94559ff5439?auto=format&fit=crop&q=80&w=800" },
-    { title: "SUV Exterior Detail", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1620584898989-d39f7f9ed1b7?auto=format&fit=crop&q=80&w=800" },
-    { title: "Dashboard & Console Detail", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1652454449601-e83b62eabe94?auto=format&fit=crop&q=80&w=800" },
-    { title: "Headlight Restoration", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1518306727298-4c17e1bf6942?auto=format&fit=crop&q=80&w=800" },
-    { title: "PPF Installation", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1619431856706-ca2cc58258f6?auto=format&fit=crop&q=80&w=800" },
-    { title: "Engine Bay Detailing", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1605437241278-c1806d14a4d9?auto=format&fit=crop&q=80&w=800" },
-];
+const AUTOSPF_TRANSFORMATION_IMAGES = [
+    autospf1,
+    autospf2,
+    autospf3,
+    autospf4,
+    autospf5,
+    autospf6,
+    autospf7,
+    autospf8,
+    autospf9,
+    autospf10,
+    autospf11,
+    autospf12,
+    autospf13,
+    autospf14,
+    autospf15,
+    autospf16,
+    autospf17,
+    autospf18,
+    autospf19,
+] as const;
+
+const PARALLAX_PRODUCTS: HeroParallaxProduct[] = AUTOSPF_TRANSFORMATION_IMAGES.map((thumbnail) => ({
+    title: "",
+    link: "/gallery",
+    thumbnail,
+}));
 
 export default function Home() {
     const { t } = useLanguage();
