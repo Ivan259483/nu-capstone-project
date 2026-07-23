@@ -6,10 +6,10 @@ import { auth } from '@/config/firebase';
 const PRODUCTION_API_URL = 'https://nu-capstone-project.onrender.com/api';
 const PRODUCTION_BACKEND_ORIGIN = 'https://nu-capstone-project.onrender.com';
 
-/** Default local API — match `PORT` in backend/.env (commonly 8080 or 3000). */
+/** Default local API — matches the backend's default `PORT` (3000). */
 const LOCAL_BACKEND_ORIGIN =
     String(import.meta.env.VITE_BACKEND_URL ?? '').trim().replace(/\/$/, '') ||
-    'http://localhost:8080';
+    'http://localhost:3000';
 const LOCAL_API_URL = `${LOCAL_BACKEND_ORIGIN}/api`;
 
 export const getBaseApiUrl = () => {
