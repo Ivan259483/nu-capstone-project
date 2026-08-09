@@ -52,20 +52,12 @@ const handleProfilePhotoUpload = (req, res, next) => {
   });
 };
 
-const requireUserDirectoryAccess = (req, res, next) => {
-  if (typeof req.query.email === 'string' && req.query.email.trim()) {
-    return next();
-  }
-
-  authenticate(req, res, () => authorizeUserDirectoryReaders(req, res, next));
-};
-
 /**
  * @route GET /api/users
  * @desc Get all users
- * @access Private - Staff managers, or public exact-email lookup for auth bootstrap
+ * @access Private - Staff managers and sales customer-directory readers
  */
-router.get('/', requireUserDirectoryAccess, userController.getAllUsers);
+router.get('/', authenticate, authorizeUserDirectoryReaders, userController.getAllUsers);
 
 /**
  * @route PATCH /api/users/profile
@@ -108,6 +100,14 @@ router.delete('/:id', authenticate, authorizeStaffManagers, userController.delet
  * @access Private - Staff managers
  */
 router.post('/', authenticate, authorizeStaffManagers, userController.createUser);
+
+/** Resend the activation email for a pending staff account. */
+router.post(
+  '/:id/resend-verification',
+  authenticate,
+  authorizeStaffManagers,
+  userController.resendStaffVerification,
+);
 
 /**
  * @route PATCH /api/users/:id/archive

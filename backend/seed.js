@@ -10,7 +10,6 @@ import Service from './models/service.model.js';
  * Seed Script for AutoSPF+ Local Database
  * 
  * Populates the local MongoDB with:
- * - Admin user (admin@test.com)
  * - Customer user (customer@test.com)
  * - 5 Car wash services
  * 
@@ -19,7 +18,18 @@ import Service from './models/service.model.js';
 
 const seedDatabase = async () => {
   try {
+    if (config.nodeEnv !== 'development' || process.env.ALLOW_DESTRUCTIVE_SEED !== 'true') {
+      console.error(
+        'Refusing destructive seed. Set NODE_ENV=development and ALLOW_DESTRUCTIVE_SEED=true to seed local customer/service data.',
+      );
+      process.exitCode = 1;
+      return;
+    }
+
     console.log('🌱 Starting database seed...\n');
+    console.log(
+      'Administrator accounts are never seeded here. Run `npm run bootstrap:administrator -- inspect` for the one-time workflow.\n',
+    );
 
     // Connect to MongoDB
     console.log(`📡 Connecting to MongoDB: ${config.mongodbUri}`);
@@ -27,8 +37,8 @@ const seedDatabase = async () => {
     console.log('✅ Connected to MongoDB\n');
 
     // Clear existing data (optional - comment out if you want to keep existing data)
-    console.log('🗑️  Clearing existing users and services...');
-    await User.deleteMany({});
+    console.log('🗑️  Clearing existing customer users and services...');
+    await User.deleteMany({ role: 'customer' });
     await Service.deleteMany({});
     console.log('✅ Cleared existing data\n');
 
@@ -42,15 +52,6 @@ const seedDatabase = async () => {
     const hashedPassword = await bcrypt.hash('Password123', salt);
 
     const users = [
-      {
-        name: 'Admin User',
-        email: 'admin@test.com',
-        password: hashedPassword,
-        role: 'administrator',
-        isVerified: true,
-        isActive: true,
-        loginAttempts: 0,
-      },
       {
         name: 'Customer User',
         email: 'customer@test.com',
@@ -128,10 +129,6 @@ const seedDatabase = async () => {
     console.log('🎉 DATABASE SEED COMPLETED SUCCESSFULLY!');
     console.log('═'.repeat(60));
     console.log('\n📋 DEMO ACCOUNTS:\n');
-    console.log('   Admin Account:');
-    console.log('   Email: admin@test.com');
-    console.log('   Password: Password123');
-    console.log('');
     console.log('   Customer Account:');
     console.log('   Email: customer@test.com');
     console.log('   Password: Password123');

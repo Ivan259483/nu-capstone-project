@@ -124,6 +124,10 @@ export const validateVerifyOtp = [
   handleValidationErrors,
 ];
 
+// Same input shape, but routed to a purpose-specific handler that can never
+// activate an account or issue an authentication token.
+export const validateVerifyResetOtp = validateVerifyOtp;
+
 /* ──────────────────────────────────────────────────────
    FORGOT PASSWORD VALIDATION
    ────────────────────────────────────────────────────── */
@@ -168,9 +172,15 @@ export const validateResetPassword = [
    SOCIAL LOGIN VALIDATION
    ────────────────────────────────────────────────────── */
 export const validateSocialLogin = [
-  body('email')
+  body('idToken')
+    .isString().withMessage('Firebase ID token is required')
     .trim()
-    .notEmpty().withMessage('Email is required')
+    .notEmpty().withMessage('Firebase ID token is required')
+    .isLength({ max: 8192 }).withMessage('Firebase ID token is invalid'),
+
+  body('email')
+    .optional()
+    .trim()
     .isEmail().withMessage('Please enter a valid email address')
     .normalizeEmail(),
 
@@ -202,6 +212,12 @@ export const validateVerifyLoginOtp = [
     .isLength({ min: 6, max: 6 }).withMessage('OTP must be exactly 6 digits')
     .isNumeric().withMessage('OTP must contain only numbers'),
 
+  body('challengeToken')
+    .isString().withMessage('Login challenge is required')
+    .trim()
+    .isLength({ min: 32, max: 128 }).withMessage('Invalid login challenge')
+    .matches(/^[A-Za-z0-9_-]+$/).withMessage('Invalid login challenge'),
+
   handleValidationErrors,
 ];
 
@@ -213,6 +229,12 @@ export const validateResendLoginOtp = [
     .trim()
     .notEmpty().withMessage('userId is required')
     .isMongoId().withMessage('Invalid userId format'),
+
+  body('challengeToken')
+    .isString().withMessage('Login challenge is required')
+    .trim()
+    .isLength({ min: 32, max: 128 }).withMessage('Invalid login challenge')
+    .matches(/^[A-Za-z0-9_-]+$/).withMessage('Invalid login challenge'),
 
   handleValidationErrors,
 ];

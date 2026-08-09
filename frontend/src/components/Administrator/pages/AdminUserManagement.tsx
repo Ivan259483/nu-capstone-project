@@ -36,6 +36,16 @@ const normalizeUserStatus = (status?: string) => {
   return status || 'pending';
 };
 
+const STAFF_ACCOUNT_ROLES = new Set(['administrator', 'office_admin', 'sales', 'staff_quality_checker']);
+
+const isPendingStaffVerification = (user: any) =>
+  STAFF_ACCOUNT_ROLES.has(getSafeUserRole(user?.role))
+  && user?.isVerified === false
+  && normalizeUserStatus(user?.status) !== 'suspended';
+
+const getEffectiveUserStatus = (user: any) =>
+  isPendingStaffVerification(user) ? 'pending' : normalizeUserStatus(user?.status);
+
 const getStatusBadgeLabel = (status?: string) => {
   const normalized = normalizeUserStatus(status);
   return normalized === 'suspended' ? 'archived' : normalized.replace(/_/g, ' ');
@@ -84,6 +94,8 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
   const [editUser, setEditUser] = useState<any>(null);
   const [viewUser, setViewUser] = useState<any>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const [resendingVerificationId, setResendingVerificationId] = useState('');
+  const [verificationResendWaits, setVerificationResendWaits] = useState<Record<string, number>>({});
 
   const assignableRoleOptions = useMemo(() => {
     const roles = getManageableUserRoles(currentUserRole);
@@ -132,7 +144,7 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
         || (user.email || '').toLowerCase().includes(normalizedSearch)
         || (user.id || user._id || '').toString().toLowerCase().includes(normalizedSearch);
       const matchRole = !roleFilter || getSafeUserRole(user.role) === roleFilter;
-      const matchStatus = !statusFilter || normalizeUserStatus(user.status) === statusFilter;
+      const matchStatus = !statusFilter || getEffectiveUserStatus(user) === statusFilter;
       return matchSearch && matchRole && matchStatus;
     });
 
@@ -160,6 +172,16 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
   }, []);
 
   useEffect(() => {
+    if (!Object.values(verificationResendWaits).some((seconds) => seconds > 0)) return;
+    const id = window.setInterval(() => {
+      setVerificationResendWaits((current) => Object.fromEntries(
+        Object.entries(current).map(([userId, seconds]) => [userId, Math.max(0, seconds - 1)]),
+      ));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [verificationResendWaits]);
+
+  useEffect(() => {
     const id = window.setInterval(() => {
       if (document.visibilityState === 'visible') onRefresh();
     }, 45000);
@@ -170,7 +192,7 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
     () =>
       users.filter(
         (u) =>
-          normalizeUserStatus(u.status) === 'active' &&
+          getEffectiveUserStatus(u) === 'active' &&
           lastSeenMs(u) != null &&
           nowTick - lastSeenMs(u)! < PRESENCE_ONLINE_MS,
       ).length,
@@ -179,15 +201,15 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
 
   const totalUsersCount = users.length;
   const activeAccountsCount = useMemo(
-    () => users.filter((u) => normalizeUserStatus(u.status) === 'active').length,
+    () => users.filter((u) => getEffectiveUserStatus(u) === 'active').length,
     [users],
   );
   const pendingAccountsCount = useMemo(
-    () => users.filter((u) => normalizeUserStatus(u.status) === 'pending').length,
+    () => users.filter((u) => getEffectiveUserStatus(u) === 'pending').length,
     [users],
   );
   const archivedAccountsCount = useMemo(
-    () => users.filter((u) => normalizeUserStatus(u.status) === 'suspended').length,
+    () => users.filter((u) => getEffectiveUserStatus(u) === 'suspended').length,
     [users],
   );
   const statusFilterLabel = statusFilter
@@ -250,6 +272,32 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
     }
   };
 
+  const handleResendPendingVerification = async (user: any) => {
+    const userId = String(user.id || user._id || '');
+    if (!userId || resendingVerificationId || (verificationResendWaits[userId] || 0) > 0) return;
+    setResendingVerificationId(userId);
+    try {
+      const res = await UserService.resendVerification(userId);
+      if (!res.success) {
+        toast.error(res.message || 'Failed to resend verification link');
+        return;
+      }
+      setVerificationResendWaits((current) => ({
+        ...current,
+        [userId]: Number(res.data?.resendAfter || 60),
+      }));
+      toast.success(`Verification link sent to ${user.email}.`);
+    } catch (error: any) {
+      const retryAfter = Number(error?.response?.data?.data?.retryAfterSeconds || 0);
+      if (retryAfter > 0) {
+        setVerificationResendWaits((current) => ({ ...current, [userId]: retryAfter }));
+      }
+      toast.error(error?.response?.data?.message || 'Failed to resend verification link');
+    } finally {
+      setResendingVerificationId('');
+    }
+  };
+
   const clearFilters = () => {
     setSearch('');
     setRoleFilter('');
@@ -270,7 +318,7 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
   };
 
   const renderActivity = (user: any) => {
-    const st = normalizeUserStatus(user.status);
+    const st = getEffectiveUserStatus(user);
     if (st !== 'active') {
       return statusBadge(user.status);
     }
@@ -449,12 +497,26 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
                           <button type="button" className="ah-user-action-btn" onClick={() => setEditUser(user)} title="Edit account" aria-label={`Edit ${user.name || 'user'}`}>
                             <Edit2 size={15} />
                           </button>
-                          {normalizeUserStatus(user.status) === 'active' && canArchiveOrRestoreAccount(user) && (
+                          {isPendingStaffVerification(user) && (
+                            <button
+                              type="button"
+                              className="ah-user-action-btn"
+                              onClick={() => handleResendPendingVerification(user)}
+                              disabled={resendingVerificationId === String(user.id || user._id) || (verificationResendWaits[String(user.id || user._id)] || 0) > 0}
+                              title={(verificationResendWaits[String(user.id || user._id)] || 0) > 0
+                                ? `Resend available in ${verificationResendWaits[String(user.id || user._id)]}s`
+                                : 'Resend verification link'}
+                              aria-label={`Resend verification link to ${user.name || 'user'}`}
+                            >
+                              <RotateCcw size={15} className={resendingVerificationId === String(user.id || user._id) ? 'animate-spin' : ''} />
+                            </button>
+                          )}
+                          {getEffectiveUserStatus(user) === 'active' && canArchiveOrRestoreAccount(user) && (
                             <button type="button" className="ah-user-action-btn ah-user-action-btn--danger" onClick={() => handleArchive(user)} title="Archive account" aria-label={`Archive ${user.name || 'user'}`}>
                               <Archive size={15} />
                             </button>
                           )}
-                          {normalizeUserStatus(user.status) === 'suspended' && canArchiveOrRestoreAccount(user) && (
+                          {getEffectiveUserStatus(user) === 'suspended' && canArchiveOrRestoreAccount(user) && (
                             <button type="button" className="ah-user-action-btn ah-user-action-btn--success" onClick={() => handleActivate(user)} title="Restore account" aria-label={`Restore ${user.name || 'user'}`}>
                               <RotateCcw size={15} />
                             </button>
@@ -487,7 +549,7 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
         </div>
       </div>
 
-      {createOpen && <CreateUserModalInline defaultRole={defaultCreateRole} roleOptions={createRoleOptions} onClose={() => setCreateOpen(false)} onCreated={() => { setCreateOpen(false); onRefresh(); }} />}
+      {createOpen && <CreateUserModalInline defaultRole={defaultCreateRole} roleOptions={createRoleOptions} onClose={() => setCreateOpen(false)} onCreated={onRefresh} />}
       {editUser && (
         <EditUserModalInline
           user={editUser}
@@ -503,6 +565,21 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
 }
 
 type CreateUserFormValues = { name: string; email: string; password: string; confirmPassword: string; role: string };
+type CreatedStaffResult = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  isVerified: boolean;
+  twoFactorRequired: boolean;
+  verification?: {
+    required?: boolean;
+    emailSent?: boolean;
+    expiresIn?: number;
+    resendAfter?: number;
+  } | null;
+};
 
 const CREATE_USER_PASSWORD_SPECIAL_RE = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/;
 
@@ -564,6 +641,9 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
   const [saving, setSaving] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [showConf, setShowConf] = useState(false);
+  const [created, setCreated] = useState<CreatedStaffResult | null>(null);
+  const [resending, setResending] = useState(false);
+  const [resendWait, setResendWait] = useState(0);
   const passwordRules = useMemo(() => getCreateUserPasswordRules(form.password), [form.password]);
   const passwordStrength = useMemo(() => getCreateUserPasswordStrength(form.password), [form.password]);
   const passwordChecklist = useMemo(
@@ -582,6 +662,12 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
       setForm((current) => ({ ...current, role: defaultRole }));
     }
   }, [defaultRole, form.role, roleOptions]);
+
+  useEffect(() => {
+    if (resendWait <= 0) return;
+    const timer = window.setInterval(() => setResendWait((current) => Math.max(0, current - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [resendWait]);
 
   const patchForm = (partial: Partial<CreateUserFormValues>) => {
     setForm((current) => ({ ...current, ...partial }));
@@ -603,10 +689,35 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
 
     setSaving(true);
     try {
-      const { confirmPassword, ...payload } = form;
-      const res = await UserService.createUser(payload);
+      const res = await UserService.createUser({
+        ...form,
+        name: form.name.trim(),
+        email: form.email.trim().toLowerCase(),
+      });
       if (res.success) {
-        toast.success(`${form.name} created successfully`);
+        const data = res.data || {};
+        const result: CreatedStaffResult = {
+          id: String(data.id || data._id || ''),
+          name: String(data.name || form.name.trim()),
+          email: String(data.email || form.email.trim().toLowerCase()),
+          role: String(data.role || form.role),
+          status: String(data.status || 'pending'),
+          isVerified: Boolean(data.isVerified),
+          twoFactorRequired: data.twoFactorRequired !== false,
+          verification: data.verification || null,
+        };
+        setCreated(result);
+        setForm((current) => ({ ...current, password: '', confirmPassword: '' }));
+        setResendWait(
+          result.verification?.emailSent
+            ? Number(result.verification?.resendAfter || 60)
+            : 0,
+        );
+        toast.success(
+          result.verification?.emailSent
+            ? 'User created. Verification email sent.'
+            : 'User created. Verification email needs to be resent.',
+        );
         onCreated();
       } else {
         toast.error(res.message || 'Failed to create user');
@@ -615,6 +726,30 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
       toast.error(error?.response?.data?.message || 'Failed');
     }
     setSaving(false);
+  };
+
+  const handleResendVerification = async () => {
+    if (!created?.id || resending || resendWait > 0) return;
+    setResending(true);
+    try {
+      const res = await UserService.resendVerification(created.id);
+      if (!res.success) {
+        toast.error(res.message || 'Failed to resend verification email');
+        return;
+      }
+      setCreated((current) => current ? {
+        ...current,
+        verification: { ...(current.verification || {}), emailSent: true },
+      } : current);
+      setResendWait(Number(res.data?.resendAfter || 60));
+      toast.success('Verification email sent.');
+    } catch (error: any) {
+      const retryAfter = Number(error?.response?.data?.data?.retryAfterSeconds || 0);
+      if (retryAfter > 0) setResendWait(retryAfter);
+      toast.error(error?.response?.data?.message || 'Failed to resend verification email');
+    } finally {
+      setResending(false);
+    }
   };
 
   return (
@@ -632,7 +767,7 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
       >
         <header className="ah-create-user-header flex shrink-0 items-center justify-between gap-3 px-6 py-4 bg-gradient-to-b from-slate-50/95 to-white">
           <h2 id="create-user-modal-title" className="text-lg font-semibold text-slate-900">
-            Create New User
+            {created ? 'User Created' : 'Create New User'}
           </h2>
           <button
             type="button"
@@ -644,6 +779,59 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
           </button>
         </header>
 
+        {created ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-7">
+              <div className="flex flex-col items-center text-center">
+                <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                  <CheckCircle2 size={30} aria-hidden />
+                </div>
+                <p className="text-base font-semibold text-slate-900">{created.name}</p>
+                <p className="mt-1 font-mono text-xs text-slate-500">{created.email}</p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                <div className="flex items-center justify-between gap-4 py-1.5">
+                  <span className="text-slate-500">Verification email</span>
+                  <span className={cn('font-semibold', created.verification?.emailSent ? 'text-emerald-700' : 'text-amber-700')}>
+                    {created.verification?.emailSent ? 'Sent' : 'Send required'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-4 py-1.5">
+                  <span className="text-slate-500">Verification status</span>
+                  <span className="font-semibold text-amber-700">Pending</span>
+                </div>
+                <div className="flex items-center justify-between gap-4 py-1.5">
+                  <span className="text-slate-500">2FA</span>
+                  <span className="font-semibold text-blue-700">Required</span>
+                </div>
+                <div className="flex items-center justify-between gap-4 py-1.5">
+                  <span className="text-slate-500">Account status</span>
+                  <span className="font-semibold text-amber-700">Pending</span>
+                </div>
+              </div>
+
+              <p className="text-center text-xs leading-5 text-slate-500">
+                The user must open their registered email and click <strong>Verify Account</strong>. After activation, sign-in still requires their password and a separate fresh 6-digit login code. The administrator does not enter a code.
+              </p>
+            </div>
+
+            <footer className="flex shrink-0 flex-wrap items-center justify-end gap-3 bg-slate-50/80 px-6 py-4 shadow-[0_-6px_24px_-8px_rgba(15,23,42,0.06)]">
+              <button
+                type="button"
+                className="ah-btn-secondary rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+                onClick={handleResendVerification}
+                disabled={resending || resendWait > 0 || !created.id}
+              >
+                <RotateCcw size={14} className={cn(resending && 'animate-spin')} />
+                {resending ? 'Sending…' : resendWait > 0 ? `Resend in ${resendWait}s` : 'Resend Verification Email'}
+              </button>
+              <button type="button" className="ah-btn-primary rounded-lg px-5 py-2.5 text-sm font-semibold" onClick={onClose}>
+                Done
+              </button>
+            </footer>
+          </div>
+        ) : (
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
           <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 py-6 scroll-pb-6">
             <div className="space-y-1.5">
@@ -817,6 +1005,7 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
             </button>
           </footer>
         </form>
+        )}
       </div>
     </div>
   );
@@ -835,7 +1024,7 @@ function EditUserModalInline({
   onClose: () => void;
   onUpdated: () => void;
 }) {
-  const [form, setForm] = useState({ name: user.name || '', email: user.email || '', role: user.role || '', status: normalizeUserStatus(user.status) });
+  const [form, setForm] = useState({ name: user.name || '', email: user.email || '', role: user.role || '', status: getEffectiveUserStatus(user) });
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -894,7 +1083,16 @@ function EditUserModalInline({
                 )}
               </div>
               <div><label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Status</label>
-                <select className="ah-input" value={form.status} onChange={event => setForm(current => ({ ...current, status: event.target.value }))}>{STATUS_FILTER_OPTIONS.map(status => <option key={status.value} value={status.value}>{status.label}</option>)}</select>
+                <select className="ah-input" value={form.status} onChange={event => setForm(current => ({ ...current, status: event.target.value }))}>
+                  {STATUS_FILTER_OPTIONS
+                    .filter((status) => !(isPendingStaffVerification(user) && status.value === 'active'))
+                    .map(status => <option key={status.value} value={status.value}>{status.label}</option>)}
+                </select>
+                {isPendingStaffVerification(user) ? (
+                  <p style={{ margin: '6px 0 0', fontSize: 11, lineHeight: 1.45, color: '#b45309' }}>
+                    Active becomes available only after the user opens the verification link.
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>
@@ -909,7 +1107,7 @@ function EditUserModalInline({
 }
 
 function ViewUserPanel({ user, canEdit, onClose, onEdit }: { user: any; canEdit: boolean; onClose: () => void; onEdit: () => void }) {
-  const normalizedStatus = normalizeUserStatus(user.status);
+  const normalizedStatus = getEffectiveUserStatus(user);
   const statusMap: Record<string, string> = {
     active: 'ah-badge-active',
     pending: 'ah-badge-pending',

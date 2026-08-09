@@ -96,7 +96,6 @@ export const PERMISSIONS: Record<RoleSlug, PermissionMap> = {
 
 /** Deprecated API / JWT role strings → current permission bucket */
 const ROLE_ALIASES: Record<string, RoleSlug> = {
-  admin: 'administrator',
   qc: 'staff_quality_checker',
   quality_checker: 'staff_quality_checker',
   hr: 'office_admin',

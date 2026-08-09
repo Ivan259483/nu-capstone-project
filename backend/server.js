@@ -71,22 +71,52 @@ const allowNgrokHostname = (hostname) =>
   || /\.ngrok\.app$/i.test(hostname)
   || /\.ngrok\.io$/i.test(hostname);
 
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (config.corsOrigin === true) return callback(null, true);
+const LOCAL_DEVELOPMENT_ORIGINS = new Set([
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:3100',
+  'https://localhost:3100',
+  'http://127.0.0.1:3100',
+  'https://127.0.0.1:3100',
+]);
+
+const isLoopbackApiRequest = (req) => {
+  const localAddress = String(req.socket?.localAddress || '').toLowerCase();
+  const loopbackSocket = localAddress === '::1'
+    || localAddress === '127.0.0.1'
+    || localAddress.startsWith('::ffff:127.');
+  const hostHeader = String(req.headers.host || '').toLowerCase();
+  const loopbackHost = hostHeader === 'localhost'
+    || hostHeader.startsWith('localhost:')
+    || hostHeader === '127.0.0.1'
+    || hostHeader.startsWith('127.0.0.1:')
+    || hostHeader.startsWith('[::1]');
+  return loopbackSocket && loopbackHost;
+};
+
+const corsOptionsDelegate = (req, callback) => callback(null, {
+  origin(origin, originCallback) {
+    if (!origin) return originCallback(null, true);
+    if (config.corsOrigin === true) return originCallback(null, true);
     const list = Array.isArray(config.corsOrigin) ? config.corsOrigin : [config.corsOrigin];
-    if (list.includes(origin)) return callback(null, true);
+    if (list.includes(origin)) return originCallback(null, true);
+    if (LOCAL_DEVELOPMENT_ORIGINS.has(origin) && isLoopbackApiRequest(req)) {
+      return originCallback(null, true);
+    }
     try {
       const host = new URL(origin).hostname;
-      if (allowNgrokHostname(host)) return callback(null, true);
+      if (config.nodeEnv !== 'production' && allowNgrokHostname(host)) return originCallback(null, true);
     } catch (_) { /* ignore */ }
-    return callback(null, false);
+    return originCallback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
-}));
+});
+
+app.use(cors(corsOptionsDelegate));
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
@@ -108,7 +138,6 @@ app.use(helmet({
         "https://api.brevo.com",
         "https://api.stripe.com",
         "wss:",
-        "ws:",
       ],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       frameSrc: ["'self'", "https://js.stripe.com"],
@@ -273,18 +302,6 @@ const startServer = async () => {
     await connectDB();
     console.log('✅ MongoDB connected successfully');
     await migrateLegacyUserRoles();
-
-    // ── Canonical test admin — always administrator on boot (idempotent) ──
-    try {
-      const User = (await import('./models/user.model.js')).default;
-      const canon = await User.updateOne(
-        { email: 'admin@test.com' },
-        { $set: { role: 'administrator', status: 'active', loginAttempts: 0, lockUntil: null } }
-      );
-      if (canon.modifiedCount > 0) {
-        console.log('[ROLE_FIX] ✅ admin@test.com → administrator + lock cleared');
-      }
-    } catch (e) { /* non-fatal */ }
 
     // Initialize Resend mailer
     console.log('\n📧 Initializing Resend mailer...');

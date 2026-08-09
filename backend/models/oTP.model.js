@@ -33,11 +33,12 @@ const otpSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    // 'signup'  — email verification on registration (existing behaviour)
-    // 'login'   — 2FA challenge after successful password login
+    // 'signup'         — account email verification
+    // 'password_reset' — password-reset challenge (never authenticates a session)
+    // 'login'          — staff 2FA challenge after successful password login
     purpose: {
       type: String,
-      enum: ['signup', 'login'],
+      enum: ['signup', 'password_reset', 'login'],
       default: 'signup',
     },
     // Only set for purpose='login' OTPs — links to the User document
@@ -51,6 +52,13 @@ const otpSchema = new mongoose.Schema(
     lastSentAt: {
       type: Date,
       default: null,
+    },
+    // SHA-256 hash of the opaque login challenge returned only after password validation.
+    // Prevents /resend-login-otp or /verify-login-otp from becoming password bypasses.
+    loginChallengeHash: {
+      type: String,
+      default: null,
+      select: false,
     },
   },
   { timestamps: true }

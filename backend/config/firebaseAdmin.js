@@ -31,14 +31,16 @@ function looksLikeCompleteServiceAccountKey(k) {
     return hasBegin && hasEnd && !k.includes('...');
 }
 
-let firebaseAdmin;
+let firebaseAdmin = null;
+let firebaseTokenVerifier = null;
 
-if (!admin.apps.length) {
+const isPlaceholder = (v) => !v || v.startsWith('<') || v === 'null' || v === 'undefined';
+const getDefaultApp = () => admin.apps.find((app) => app.name === '[DEFAULT]') || null;
+
+if (!getDefaultApp()) {
     const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = process.env;
 
     // Detect missing OR placeholder values (e.g. <your-firebase-project-id>)
-    const isPlaceholder = (v) => !v || v.startsWith('<') || v === 'null' || v === 'undefined';
-
     if (isPlaceholder(FIREBASE_PROJECT_ID) || isPlaceholder(FIREBASE_CLIENT_EMAIL) || isPlaceholder(FIREBASE_PRIVATE_KEY)) {
         console.warn(
             '[FirebaseAdmin] ⚠️  Firebase credentials are not configured.\n' +
@@ -73,8 +75,24 @@ if (!admin.apps.length) {
         }
     }
 } else {
-    firebaseAdmin = admin.apps[0];
+    firebaseAdmin = getDefaultApp();
 }
 
-export { admin };
+// ID-token verification only needs a project ID and Google's public signing
+// keys, so it remains available without privileged service-account credentials.
+try {
+    if (firebaseAdmin) {
+        firebaseTokenVerifier = firebaseAdmin.auth();
+    } else if (!isPlaceholder(process.env.FIREBASE_PROJECT_ID)) {
+        const verifierAppName = 'autospf-token-verifier';
+        const verifierApp = admin.apps.find((app) => app.name === verifierAppName)
+            || admin.initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID }, verifierAppName);
+        firebaseTokenVerifier = verifierApp.auth();
+    }
+} catch (err) {
+    console.warn('[FirebaseAdmin] Firebase ID-token verifier is unavailable:', err.message);
+    firebaseTokenVerifier = null;
+}
+
+export { admin, firebaseTokenVerifier };
 export default firebaseAdmin;

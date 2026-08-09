@@ -29,6 +29,10 @@ const STORAGE_KEYS = {
     OTP_DATA: 'autospf_otp_data',
 };
 
+const STORAGE_MIGRATION_KEYS = {
+    LEGACY_PLAINTEXT_USERS_REMOVED: 'autospf_migration_legacy_plaintext_users_removed_v1',
+};
+
 // Generic storage functions
 function getItem<T>(key: string, defaultValue: T): T {
     try {
@@ -45,52 +49,17 @@ function setItem<T>(key: string, value: T): void {
 
 // Initialize with seed data
 export function initializeStorage(): void {
+    if (!localStorage.getItem(STORAGE_MIGRATION_KEYS.LEGACY_PLAINTEXT_USERS_REMOVED)) {
+        // Older builds cached demo accounts, including plaintext passwords, in this
+        // non-session key. Clear it once without touching current-user or token data.
+        localStorage.removeItem(STORAGE_KEYS.USERS);
+        localStorage.setItem(STORAGE_MIGRATION_KEYS.LEGACY_PLAINTEXT_USERS_REMOVED, '1');
+    }
+
     if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
-        const seedUsers: User[] = [
-            {
-                id: 'admin-1',
-                email: 'admin@autospf.com',
-                password: 'Admin123!',
-                name: 'John Admin',
-                role: 'administrator',
-                isActive: true,
-                lastActive: new Date().toISOString(),
-                createdAt: '2024-01-01T00:00:00Z',
-            },
-            {
-                id: 'detailer-1',
-                email: 'mike@detailshop.com',
-                password: 'Detailer123!',
-                name: 'Mike Johnson',
-                role: 'service_staff',
-                isActive: true,
-                lastActive: '2026-01-30T14:32:00Z',
-                jobsCompleted: 147,
-                createdAt: '2024-01-15T00:00:00Z',
-            },
-            {
-                id: 'detailer-2',
-                email: 'james@detailshop.com',
-                password: 'Detailer123!',
-                name: 'James Wilson',
-                role: 'service_staff',
-                isActive: true,
-                lastActive: '2026-01-30T13:15:00Z',
-                jobsCompleted: 132,
-                createdAt: '2024-02-01T00:00:00Z',
-            },
-            {
-                id: 'customer-1',
-                email: 'customer@test.com',
-                password: 'Customer123!',
-                name: 'Sarah Johnson',
-                role: 'customer',
-                isActive: true,
-                lastActive: new Date().toISOString(),
-                createdAt: '2024-03-01T00:00:00Z',
-            },
-        ];
-        setItem(STORAGE_KEYS.USERS, seedUsers);
+        // Authentication and roles are authoritative on the backend. Never seed
+        // browser-readable demo passwords or privileged identities.
+        setItem<User[]>(STORAGE_KEYS.USERS, []);
     }
 
     if (!localStorage.getItem(STORAGE_KEYS.INVENTORY)) {

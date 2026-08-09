@@ -2,10 +2,18 @@ import { Server as SocketIOServer } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/environment.js';
 import { handleSocketMessage, handleSocketStreamingMessage } from '../controllers/chatbot.controller.js';
-import { isAdminDashboardRole, isBookingManagerRole, isPosManagerRole } from '../constants/roles.js';
+import {
+  isAdminDashboardRole,
+  isBookingManagerRole,
+  isPosManagerRole,
+  migrateLegacyUserRole,
+  requiresStaffTwoFactor,
+  STAFF_2FA_AUTH_LEVEL,
+} from '../constants/roles.js';
 import User from '../models/user.model.js';
 import { sendExpoPushNotification } from './push.utils.js';
 import { decrypt } from './encryption.utils.js';
+import { authVersionMatches } from './authVersion.utils.js';
 
 /**
  * Change streams return raw BSON — Mongoose decrypt middleware does not run.
@@ -98,8 +106,29 @@ const WATCHED_COLLECTIONS = new Set([
 
 // ── Debounce/batch rapid successive changes (200 ms window) ─────────
 const BATCH_INTERVAL_MS = 200;
+const REALTIME_STAFF_ROOM = 'realtime:staff';
+const REALTIME_LIMITED_ROOM = 'realtime:limited';
 let batchBuffer = [];
 let batchTimer = null;
+
+export const getLimitedDbChangePayload = (payload = {}) => ({
+  collection: payload.collection,
+  operationType: payload.operationType,
+});
+
+export const isSocketRoomAuthorized = (socketUser, room) => {
+  if (typeof room !== 'string' || room.length > 200) return false;
+  if (/^chat:[A-Za-z0-9_-]{8,180}$/.test(room)) return true;
+  if (!socketUser?.id) return false;
+
+  if (room === `user:${socketUser.id}`) return true;
+  if (room === 'admin:chat') return isAdminDashboardRole(socketUser.role);
+  if (room === 'booking:approvals') {
+    return isBookingManagerRole(socketUser.role) || isPosManagerRole(socketUser.role);
+  }
+  if (room === `staff:${socketUser.id}`) return requiresStaffTwoFactor(socketUser.role);
+  return false;
+};
 
 const flushBatch = () => {
   if (!io || batchBuffer.length === 0) return;
@@ -110,7 +139,12 @@ const flushBatch = () => {
     deduped.set(key, item);
   }
   for (const payload of deduped.values()) {
-    io.emit('db_change', payload);
+    // Full change-stream documents can contain customer, payment, vehicle, and
+    // internal workflow data. Only fully authenticated staff sessions receive
+    // them. Customers and anonymous chat clients receive a content-free cache
+    // invalidation signal and must refetch through the authorized HTTP API.
+    io.to(REALTIME_STAFF_ROOM).emit('db_change', payload);
+    io.to(REALTIME_LIMITED_ROOM).emit('db_change', getLimitedDbChangePayload(payload));
   }
   batchBuffer = [];
   batchTimer = null;
@@ -132,26 +166,68 @@ export const initSocket = (httpServer) => {
     },
   });
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const authHeader = socket.handshake.headers?.authorization;
     const tokenFromHeader = authHeader?.startsWith('Bearer ')
       ? authHeader.split(' ')[1]
       : null;
-    const token = socket.handshake.auth?.token || socket.handshake.query?.token || tokenFromHeader;
+    // Bearer tokens are accepted only through the Socket.IO auth payload or
+    // Authorization header. Query-string tokens leak into proxy/access logs.
+    const token = socket.handshake.auth?.token || tokenFromHeader;
 
-    if (token) {
-      try {
-        const decoded = jwt.verify(token, config.jwtSecret);
-        socket.user = decoded;
-      } catch (error) {
-        console.warn('[SOCKET_AUTH] Invalid token:', error.message);
-      }
+    if (!token) {
+      // Anonymous chat connections remain supported, but receive no user/staff rooms.
+      return next();
     }
 
-    next();
+    try {
+      const decoded = jwt.verify(token, config.jwtSecret);
+      if (!decoded?.id) return next(new Error('Unauthorized socket'));
+
+      const user = await User.findById(decoded.id)
+        .select('email name role isActive isDeleted isVerified lockUntil authVersion')
+        .lean();
+      if (
+        !user
+        || user.isDeleted
+        || !user.isActive
+        || (user.lockUntil && user.lockUntil > new Date())
+      ) {
+        return next(new Error('Unauthorized socket'));
+      }
+
+      const liveRole = migrateLegacyUserRole(user.role);
+      if (
+        requiresStaffTwoFactor(liveRole)
+        && (
+          !user.isVerified
+          || decoded.authLevel !== STAFF_2FA_AUTH_LEVEL
+          || !authVersionMatches(decoded.authVersion, user.authVersion)
+        )
+      ) {
+        return next(new Error('Staff two-factor authentication required'));
+      }
+
+      socket.user = {
+        ...decoded,
+        email: user.email,
+        name: user.name,
+        role: liveRole,
+      };
+      return next();
+    } catch (error) {
+      console.warn('[SOCKET_AUTH] Invalid token:', error.message);
+      return next(new Error('Unauthorized socket'));
+    }
   });
 
   io.on('connection', (socket) => {
+    if (requiresStaffTwoFactor(socket.user?.role)) {
+      socket.join(REALTIME_STAFF_ROOM);
+    } else {
+      socket.join(REALTIME_LIMITED_ROOM);
+    }
+
     const sessionId = socket.handshake.auth?.sessionId || socket.handshake.query?.sessionId;
     if (sessionId) {
       socket.join(`chat:${sessionId}`);
@@ -166,9 +242,10 @@ export const initSocket = (httpServer) => {
       socket.join('booking:approvals');
     }
 
-    // Allow clients to join rooms dynamically
+    // Room names are client-controlled. Authorize each supported room so an
+    // anonymous or pre-2FA socket cannot subscribe to staff/customer events.
     socket.on('join_room', (room) => {
-      socket.join(room);
+      if (isSocketRoomAuthorized(socket.user, room)) socket.join(room);
     });
 
     socket.on('chat:message', async (payload) => {

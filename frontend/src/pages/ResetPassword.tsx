@@ -157,7 +157,7 @@ export default function ResetPassword() {
         setIsLoading(true);
         setOtpError("");
         try {
-            const resp = await fetch(`${getBaseApiUrl()}/auth/verify-otp`, {
+            const resp = await fetch(`${getBaseApiUrl()}/auth/verify-reset-otp`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email, otp: code }),

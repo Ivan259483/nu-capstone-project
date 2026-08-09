@@ -1,15 +1,22 @@
 import User from '../models/user.model.js';
 import OTP from '../models/oTP.model.js';
 import AccountSetupToken from '../models/accountSetupToken.model.js';
+import StaffVerificationToken from '../models/staffVerificationToken.model.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { config } from '../config/environment.js';
 import { sendOtpEmail, sendWelcomeEmail, sendPasswordResetEmail, sendPasswordSetupEmail } from '../utils/mail.utils.js'; // Resend mailer
-import mockOtpStore from '../utils/mockOtpStore.utils.js';
-import { getInvalidUserRoleMessage, isValidUserRole, STAFF_ASSIGNABLE_ROLES } from '../constants/roles.js';
+import {
+  getInvalidUserRoleMessage,
+  isValidUserRole,
+  STAFF_ASSIGNABLE_ROLES,
+  STAFF_2FA_AUTH_LEVEL,
+  STAFF_2FA_ROLES,
+  requiresStaffTwoFactor,
+} from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
-import { admin } from '../config/firebaseAdmin.js';
+import firebaseAdmin, { firebaseTokenVerifier } from '../config/firebaseAdmin.js';
 import { parseRegisterPhone, parseOptionalProfilePhone } from '../utils/phone.utils.js';
 import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
 import { attachPhoneForClient } from '../utils/phone-client.utils.js';
@@ -17,21 +24,28 @@ import { attachProfileImageForClient } from '../utils/profile-image.utils.js';
 import { startChatRegistrationForCustomer } from '../services/chatRegistration.service.js';
 import {
   EMAIL_OTP_PURPOSE,
+  PASSWORD_RESET_OTP_PURPOSE,
   LOGIN_OTP_PURPOSE,
   formatOtpForLog,
+  generateLoginChallengeToken,
+  hashLoginChallengeToken,
+  loginChallengeMatches,
   maskEmail,
   normalizeEmailForOtp,
   normalizeOtpInput,
   otpRecordLogMeta,
   timingSafeOtpEqual,
 } from '../utils/otp.utils.js';
+import {
+  consumeStaffVerificationToken,
+  issueStaffVerificationLink,
+} from '../services/staffVerification.service.js';
+import { normalizeAuthVersion } from '../utils/authVersion.utils.js';
 
 // Roles that require Email OTP 2FA after password verification.
 // 'customer' is intentionally excluded — direct JWT login.
 // ⚠️  Must mirror every non-customer value from constants/roles.js → USER_ROLES.
-const NON_CUSTOMER_ROLES = [
-  // Bypass all OTP 2FA for demo purposes
-];
+const NON_CUSTOMER_ROLES = STAFF_2FA_ROLES;
 
 const PASSWORD_SETUP_PURPOSE = 'password_setup';
 const PASSWORD_SETUP_RESEND_COOLDOWN_MS = 60 * 1000;
@@ -49,12 +63,18 @@ const generateOTP = (length = 6) => {
 
 const buildOtpHash = (otp) => bcrypt.hash(normalizeOtpInput(otp), 10);
 
-const findLatestEmailOtp = (email, extraQuery = {}) =>
+const findLatestOtp = (email, purpose, extraQuery = {}) =>
   OTP.findOne({
     email: normalizeEmailForOtp(email),
-    purpose: EMAIL_OTP_PURPOSE,
+    purpose,
     ...extraQuery,
   }).sort({ createdAt: -1, _id: -1 });
+
+const findLatestEmailOtp = (email, extraQuery = {}) =>
+  findLatestOtp(email, EMAIL_OTP_PURPOSE, extraQuery);
+
+const findLatestPasswordResetOtp = (email, extraQuery = {}) =>
+  findLatestOtp(email, PASSWORD_RESET_OTP_PURPOSE, extraQuery);
 
 const logOtpDebug = (event, meta = {}) => {
   console.log(`[OTP:${event}]`, meta);
@@ -98,9 +118,19 @@ function serializeUserForAuthResponse(user) {
   return userObject;
 }
 
+const buildAuthTokenClaims = (user, additionalClaims = {}) => ({
+  id: user._id,
+  email: user.email,
+  role: user.role,
+  ...(requiresStaffTwoFactor(user.role)
+    ? { authVersion: normalizeAuthVersion(user.authVersion) }
+    : {}),
+  ...additionalClaims,
+});
+
 async function issueAuthTokenResponse(user) {
   const token = jwt.sign(
-    { id: user._id, email: user.email, role: user.role },
+    buildAuthTokenClaims(user),
     config.jwtSecret,
     { expiresIn: '7d' }
   );
@@ -274,6 +304,21 @@ export const sendOtp = async (req, res, next) => {
       });
     }
 
+    if (existingUser && requiresStaffTwoFactor(existingUser.role)) {
+      return res.status(400).json({
+        success: false,
+        code: 'STAFF_VERIFICATION_LINK_REQUIRED',
+        message: 'Staff accounts are verified through the secure link sent by an administrator.',
+      });
+    }
+
+    if (existingUser?.isVerified) {
+      return res.status(409).json({
+        success: false,
+        message: 'This account is already verified. Please sign in.',
+      });
+    }
+
     logOtpDebug('send.request', { email: maskEmail(email), bodyFields: Object.keys(req.body || {}) });
 
     // ── Idempotency: Reuse an unexpired OTP if one already exists ──────────────
@@ -283,6 +328,18 @@ export const sendOtp = async (req, res, next) => {
       verified: false,
       expiresAt: { $gt: new Date() },
     });
+
+    if (existingOtp?.lastSentAt) {
+      const elapsed = Date.now() - existingOtp.lastSentAt.getTime();
+      if (elapsed < OTP_RESEND_COOLDOWN_MS) {
+        const retryAfterSeconds = Math.ceil((OTP_RESEND_COOLDOWN_MS - elapsed) / 1000);
+        return res.status(429).json({
+          success: false,
+          message: `Please wait ${retryAfterSeconds} second(s) before requesting another code.`,
+          data: { retryAfterSeconds },
+        });
+      }
+    }
 
     let otp;
     let createdOtpRecord = null;
@@ -314,6 +371,9 @@ export const sendOtp = async (req, res, next) => {
         maxAttempts: 5,
         verified: false,
         purpose: EMAIL_OTP_PURPOSE,
+        ...(existingUser && requiresStaffTwoFactor(existingUser.role)
+          ? { userId: existingUser._id }
+          : {}),
         lastSentAt: new Date(),
       });
       await otpRecord.save();
@@ -402,6 +462,22 @@ export const forgotPassword = async (req, res, next) => {
       });
     }
 
+    const existingResetOtp = await findLatestPasswordResetOtp(email, {
+      verified: false,
+      expiresAt: { $gt: new Date() },
+    });
+    if (existingResetOtp?.lastSentAt) {
+      const elapsed = Date.now() - existingResetOtp.lastSentAt.getTime();
+      if (elapsed < OTP_RESEND_COOLDOWN_MS) {
+        const retryAfterSeconds = Math.ceil((OTP_RESEND_COOLDOWN_MS - elapsed) / 1000);
+        return res.status(429).json({
+          success: false,
+          message: `Please wait ${retryAfterSeconds} second(s) before requesting another reset code.`,
+          data: { retryAfterSeconds },
+        });
+      }
+    }
+
     // reuse sendOtp logic or call it directly? 
     // For now, let's implement the core logic to generate and send OTP here 
     // to be specific for password reset if needed, or we can just reuse the generic OTP flow.
@@ -412,7 +488,7 @@ export const forgotPassword = async (req, res, next) => {
     const otp = generateOTP(config.otpLength);
 
     // Delete previous OTP
-    await OTP.deleteMany({ email, purpose: EMAIL_OTP_PURPOSE });
+    await OTP.deleteMany({ email, purpose: PASSWORD_RESET_OTP_PURPOSE });
 
     // Create OTP record
     const otpRecord = new OTP({
@@ -423,7 +499,7 @@ export const forgotPassword = async (req, res, next) => {
       attempts: 0,
       maxAttempts: 5,
       verified: false,
-      purpose: EMAIL_OTP_PURPOSE,
+      purpose: PASSWORD_RESET_OTP_PURPOSE,
       lastSentAt: new Date(),
     });
 
@@ -482,7 +558,7 @@ export const resetPassword = async (req, res, next) => {
     // ⚠️ Bug #2 fix: Strictly require a VERIFIED OTP record.
     // The client MUST call POST /verify-otp first, which marks verified=true.
     // Removed the insecure pendingOtp fallback that allowed bypassing verification.
-    const otpRecord = await findLatestEmailOtp(email, { verified: true });
+    const otpRecord = await findLatestPasswordResetOtp(email, { verified: true });
 
     if (!otpRecord) {
       return res.status(400).json({
@@ -519,12 +595,25 @@ export const resetPassword = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Update password
+    const consumedOtp = await OTP.findOneAndDelete({
+      _id: otpRecord._id,
+      purpose: PASSWORD_RESET_OTP_PURPOSE,
+      verified: true,
+      expiresAt: { $gt: new Date() },
+    });
+    if (!consumedOtp) {
+      return res.status(409).json({
+        success: false,
+        message: 'This reset code has already been used. Please request a new code.',
+      });
+    }
+
+    // Update password only after atomically consuming the purpose-bound reset OTP.
     user.password = newPassword;
     await user.save();
 
     // Clean up OTP
-    await OTP.deleteMany({ email, purpose: EMAIL_OTP_PURPOSE });
+    await OTP.deleteMany({ email, purpose: PASSWORD_RESET_OTP_PURPOSE });
 
     logActivity({
       userId: user._id, userName: user.name || email, userRole: user.role,
@@ -560,6 +649,15 @@ export const verifyOtp = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: 'Email and OTP are required',
+      });
+    }
+
+    const account = await User.findOne({ email });
+    if (account && requiresStaffTwoFactor(account.role)) {
+      return res.status(400).json({
+        success: false,
+        code: 'STAFF_VERIFICATION_LINK_REQUIRED',
+        message: 'Staff accounts must use the secure verification link sent to their registered email.',
       });
     }
 
@@ -615,31 +713,20 @@ export const verifyOtp = async (req, res, next) => {
     });
 
     if (!otpMatches) {
-      otpRecord.attempts += 1;
-      await otpRecord.save();
+      const updatedOtp = await OTP.findOneAndUpdate(
+        { _id: otpRecord._id, attempts: { $lt: otpRecord.maxAttempts } },
+        { $inc: { attempts: 1 } },
+        { new: true },
+      );
+      const currentAttempts = Number(updatedOtp?.attempts ?? otpRecord.maxAttempts);
 
       return res.status(400).json({
         success: false,
-        message: `Invalid OTP. Attempts remaining: ${otpRecord.maxAttempts - otpRecord.attempts}`,
+        message: `Invalid OTP. Attempts remaining: ${Math.max(0, otpRecord.maxAttempts - currentAttempts)}`,
       });
     }
 
-    // Mark as verified
-    otpRecord.verified = true;
-    await otpRecord.save();
-
-    // Activate the user account if this was a registration OTP
-    const user = await User.findOne({ email });
-    let activated = false;
-    if (user && !user.isVerified) {
-      user.isVerified = true;
-      user.status = 'active';
-      await user.save();
-      activated = true;
-      console.log(`✅ [verifyOtp] Activated account for ${maskEmail(email)}`);
-      sendWelcomeEmail(email, user.name).catch(err => console.warn('⚠️ Welcome email failed:', err.message));
-    }
-
+    const user = account;
     if (user?.isDeleted) {
       return res.status(403).json({
         success: false,
@@ -655,48 +742,112 @@ export const verifyOtp = async (req, res, next) => {
       });
     }
 
-    console.log(`✅ OTP verified successfully for ${maskEmail(email)}`);
+    if (user?.isVerified) {
+      await OTP.deleteOne({ _id: otpRecord._id });
+      return res.status(409).json({
+        success: false,
+        message: 'This account is already verified. Please sign in.',
+      });
+    }
 
-    // Registration / email verification: return JWT so the client can sign in without a second step.
-    if (user) {
-      await OTP.deleteMany({ email, purpose: EMAIL_OTP_PURPOSE });
-      const { user: userObject, token } = await issueAuthTokenResponse(user);
+    if (user && otpRecord.userId && String(otpRecord.userId) !== String(user._id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'This verification code is not valid for the requested account.',
+      });
+    }
 
-      if (activated) {
-        logActivity({
-          userId: user._id,
-          userName: user.name || email,
-          userRole: user.role,
-          type: 'customer_registered',
-          module: 'Auth',
-          action: 'Registration Verified',
-          description: `${user.name || email} verified email and signed in.`,
-          status: 'success',
+    if (!user) {
+      // Mobile registration verifies ownership before the customer document exists.
+      // Keep this purpose-bound record briefly so /register can consume it.
+      const marked = await OTP.findOneAndUpdate(
+        {
+          _id: otpRecord._id,
+          purpose: EMAIL_OTP_PURPOSE,
+          verified: false,
+          expiresAt: { $gt: new Date() },
+        },
+        { $set: { verified: true } },
+        { new: true },
+      );
+      if (!marked) {
+        return res.status(409).json({
+          success: false,
+          message: 'This verification code has already been used.',
         });
       }
 
       return res.json({
         success: true,
-        message: 'Email verified. You are now signed in.',
+        message: 'OTP verified successfully',
+        data: { email, verified: true, role: 'customer', isFirstLogin: false },
+      });
+    }
+
+    // Existing accounts consume their activation code atomically. Only one
+    // concurrent request can activate the account or continue to session issuance.
+    const consumedOtp = await OTP.findOneAndDelete({
+      _id: otpRecord._id,
+      purpose: EMAIL_OTP_PURPOSE,
+      verified: false,
+      expiresAt: { $gt: new Date() },
+    });
+    if (!consumedOtp) {
+      return res.status(409).json({
+        success: false,
+        message: 'This verification code has already been used.',
+      });
+    }
+
+    user.isVerified = true;
+    user.isActive = true;
+    user.status = 'active';
+    await user.save();
+    console.log(`✅ [verifyOtp] Activated account for ${maskEmail(email)}`);
+    sendWelcomeEmail(email, user.name).catch(err => console.warn('⚠️ Welcome email failed:', err.message));
+
+    logActivity({
+      userId: user._id,
+      userName: user.name || email,
+      userRole: user.role,
+      type: 'email_verified',
+      module: 'Auth',
+      action: 'Email Verified',
+      description: `${user.name || email} verified their account email.`,
+      status: 'success',
+    });
+
+    console.log(`✅ OTP verified successfully for ${maskEmail(email)}`);
+
+    // Staff activation is not authentication. Password + a separate login OTP
+    // are still required, so this response intentionally contains no JWT/user.
+    if (requiresStaffTwoFactor(user.role)) {
+      return res.json({
+        success: true,
+        message: 'Email verified. Sign in with your password to receive a login code.',
         data: {
           email,
           verified: true,
-          role: user.role || 'customer',
-          isFirstLogin: user.isFirstLogin || false,
-          user: userObject,
-          token,
+          role: user.role,
+          requiresLogin: true,
+          requires2FA: true,
         },
       });
     }
 
-    res.json({
+    // Preserve the existing customer activation experience: verified customers
+    // receive their normal session immediately after registration verification.
+    const { user: userObject, token } = await issueAuthTokenResponse(user);
+    return res.json({
       success: true,
-      message: 'OTP verified successfully',
+      message: 'Email verified. You are now signed in.',
       data: {
         email,
         verified: true,
-        role: 'customer',
-        isFirstLogin: false,
+        role: user.role || 'customer',
+        isFirstLogin: user.isFirstLogin || false,
+        user: userObject,
+        token,
       },
     });
   } catch (error) {
@@ -706,6 +857,113 @@ export const verifyOtp = async (req, res, next) => {
       message: 'Failed to verify OTP',
       error: error.message,
     });
+  }
+};
+
+/**
+ * Verify a staff account through an opaque, account-bound email link.
+ * This activates the account but never authenticates a session or returns a JWT.
+ * POST /api/auth/verify-staff-email
+ */
+export const verifyStaffEmail = async (req, res) => {
+  try {
+    const user = await consumeStaffVerificationToken(req.body?.token);
+
+    sendWelcomeEmail(user.email, user.name)
+      .catch((error) => console.warn('[verifyStaffEmail] Welcome email failed:', error?.message || error));
+
+    logActivity({
+      userId: user._id,
+      userName: user.name || user.email,
+      userRole: user.role,
+      type: 'email_verified',
+      module: 'Auth',
+      action: 'Staff Email Verified',
+      description: `${user.name || user.email} verified their staff account email.`,
+      status: 'success',
+    });
+
+    return res.json({
+      success: true,
+      message: 'Account verified. Sign in with your password to receive your 6-digit sign-in code.',
+      data: {
+        verified: true,
+        role: user.role,
+        requiresLogin: true,
+        requires2FA: true,
+      },
+    });
+  } catch (error) {
+    const status = Number(error?.statusCode) || 500;
+    if (status >= 500) {
+      console.error('[verifyStaffEmail] Error:', error);
+    }
+    return res.status(status).json({
+      success: false,
+      code: error?.code || 'STAFF_VERIFICATION_FAILED',
+      message: status >= 500 ? 'Account verification failed. Please try again.' : error.message,
+    });
+  }
+};
+
+/**
+ * Verify a password-reset OTP without activating an account or issuing a JWT.
+ * POST /api/auth/verify-reset-otp
+ */
+export const verifyPasswordResetOtp = async (req, res) => {
+  try {
+    const email = normalizeEmailForOtp(req.body.email);
+    const otp = normalizeOtpInput(req.body.otp);
+    const otpRecord = await findLatestPasswordResetOtp(email, { verified: false });
+
+    if (!otpRecord) {
+      return res.status(400).json({ success: false, message: 'Reset code not found. Request a new code.' });
+    }
+    if (otpRecord.expiresAt < new Date()) {
+      await OTP.deleteOne({ _id: otpRecord._id });
+      return res.status(400).json({ success: false, message: 'Reset code has expired. Request a new code.' });
+    }
+    if (otpRecord.attempts >= otpRecord.maxAttempts) {
+      await OTP.deleteOne({ _id: otpRecord._id });
+      return res.status(429).json({ success: false, message: 'Maximum reset-code attempts exceeded.' });
+    }
+
+    const matches = await compareOtpRecord(otpRecord, otp);
+    if (!matches) {
+      const updated = await OTP.findOneAndUpdate(
+        { _id: otpRecord._id, verified: false, attempts: { $lt: otpRecord.maxAttempts } },
+        { $inc: { attempts: 1 } },
+        { new: true },
+      );
+      const remaining = Math.max(0, otpRecord.maxAttempts - Number(updated?.attempts || otpRecord.attempts + 1));
+      return res.status(400).json({
+        success: false,
+        message: `Invalid reset code. Attempts remaining: ${remaining}`,
+      });
+    }
+
+    const verifiedRecord = await OTP.findOneAndUpdate(
+      {
+        _id: otpRecord._id,
+        purpose: PASSWORD_RESET_OTP_PURPOSE,
+        verified: false,
+        expiresAt: { $gt: new Date() },
+      },
+      { $set: { verified: true } },
+      { new: true },
+    );
+    if (!verifiedRecord) {
+      return res.status(409).json({ success: false, message: 'This reset code has already been used.' });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Reset code verified.',
+      data: { email, verified: true },
+    });
+  } catch (error) {
+    console.error('❌ Verify Password Reset OTP Error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to verify reset code.' });
   }
 };
 
@@ -895,7 +1153,7 @@ export const completePasswordSetup = async (req, res) => {
     );
 
     const authToken = jwt.sign(
-      { id: user._id, email: user.email, role: user.role },
+      buildAuthTokenClaims(user),
       config.jwtSecret,
       { expiresIn: '7d' }
     );
@@ -1000,6 +1258,13 @@ export const register = async (req, res, next) => {
         });
       }
       if (!existingUser.isVerified) {
+        if (requiresStaffTwoFactor(existingUser.role)) {
+          return res.status(409).json({
+            success: false,
+            code: 'ACCOUNT_PENDING_VERIFICATION',
+            message: 'This staff account is pending verification. Use the secure link sent to its registered email.',
+          });
+        }
         // Account exists but unverified — reuse an unexpired code so repeated
         // submit/login attempts do not silently invalidate the email in hand.
         let otpRecord = await findLatestEmailOtp(email, {
@@ -1056,36 +1321,8 @@ export const register = async (req, res, next) => {
       });
     }
 
-    // ── Firebase stale-account cleanup ────────────────────────────────────
-    // The email is not in MongoDB, but it may still exist in Firebase Auth
-    // (e.g., account was deleted from MongoDB but Firebase was never cleaned up).
-    // IMPORTANT: The web client calls createUserWithEmailAndPassword BEFORE calling
-    // this endpoint, so a Firebase account for this email is legitimately fresh.
-    // We only purge if the existing Firebase UID does NOT match the one the client
-    // just created (i.e., it's a genuinely orphaned/stale record from a past failure).
-    const { firebaseUid: clientFirebaseUid } = req.body;
-    let linkedFirebaseUid = clientFirebaseUid || null;
-    if (admin.apps.length > 0) {
-      try {
-        const fbUser = await admin.auth().getUserByEmail(email);
-        if (clientFirebaseUid && fbUser.uid === clientFirebaseUid) {
-          // This is the legitimately fresh Firebase account just created by the client.
-          // Do NOT delete it — simply link its UID to the new MongoDB user.
-          console.log(`✅ [Register] Fresh Firebase account confirmed for ${email} (uid: ${fbUser.uid})`);
-          linkedFirebaseUid = fbUser.uid;
-        } else {
-          // Found a stale Firebase record (UID mismatch or no UID from client) — purge it.
-          await admin.auth().deleteUser(fbUser.uid);
-          console.log(`🧹 [Register] Purged stale Firebase account for ${email} (uid: ${fbUser.uid})`);
-        }
-      } catch (fbErr) {
-        // getUserByEmail throws 'auth/user-not-found' when there's no record — that's fine.
-        if (fbErr.code !== 'auth/user-not-found') {
-          // Log unexpected Firebase errors but don't block registration.
-          console.warn(`⚠️ [Register] Firebase stale-account check failed for ${email}:`, fbErr.message);
-        }
-      }
-    }
+    // Never trust or act on a client-supplied Firebase UID here. The account is
+    // linked later by /social-login only after its Firebase ID token is verified.
 
     // Check if the email's OTP was already verified by the client BEFORE calling /register
     // (mobile flow: send-otp → verify-otp → register → login, all in sequence).
@@ -1109,7 +1346,6 @@ export const register = async (req, res, next) => {
       isActive: true,
       status: isPreVerified ? 'active' : 'pending',
       ...(phoneParsed.phone ? { phone: phoneParsed.phone } : {}),
-      ...(linkedFirebaseUid ? { firebaseUid: linkedFirebaseUid } : {}),
     });
 
     // Handle Referral Logic
@@ -1235,8 +1471,20 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Check if user is verified
-    if (!user.isVerified) {
+    // Legacy or malformed role strings are never treated as customer accounts.
+    // In particular, raw `admin` records require an explicit audited migration;
+    // they are not silently promoted and cannot bypass Administrator 2FA.
+    if (!isValidUserRole(user.role)) {
+      return res.status(403).json({
+        success: false,
+        code: 'INVALID_ACCOUNT_ROLE',
+        message: 'This account role requires administrator review.',
+      });
+    }
+
+    // Preserve the existing customer registration flow. Staff verification is
+    // handled only after their administrator-provisioned password is validated.
+    if (!user.isVerified && !requiresStaffTwoFactor(user.role)) {
       // Unverified — resend without invalidating an unexpired code already sent.
       let otpRecord = await findLatestEmailOtp(emailNormalized, {
         verified: false,
@@ -1288,7 +1536,7 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Check if account is locked (specific demo/admin emails are never locked — see loginLockout.exempt.js)
+    // Check account lockout before password verification.
     if (user.lockUntil && user.lockUntil > new Date() && !isLoginLockoutExemptEmail(emailNormalized)) {
       const remainingMs = user.lockUntil.getTime() - Date.now();
       const remainingMinutes = Math.ceil(remainingMs / (60 * 1000));
@@ -1318,11 +1566,19 @@ export const login = async (req, res, next) => {
 
     if (!isPasswordValid) {
       if (!lockoutExempt) {
-        user.loginAttempts = (user.loginAttempts || 0) + 1;
+        const updatedUser = await User.findOneAndUpdate(
+          { _id: user._id, loginAttempts: { $lt: MAX_LOGIN_ATTEMPTS } },
+          { $inc: { loginAttempts: 1 } },
+          { new: true },
+        );
+        const currentAttempts = Number(updatedUser?.loginAttempts ?? MAX_LOGIN_ATTEMPTS);
 
-        if (user.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
-          user.lockUntil = new Date(Date.now() + LOCK_TIME_MS);
-          await user.save();
+        if (currentAttempts >= MAX_LOGIN_ATTEMPTS) {
+          const lockUntil = new Date(Date.now() + LOCK_TIME_MS);
+          await User.updateOne(
+            { _id: user._id },
+            { $set: { loginAttempts: MAX_LOGIN_ATTEMPTS, lockUntil } },
+          );
 
           logActivity({
             userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
@@ -1336,27 +1592,26 @@ export const login = async (req, res, next) => {
             message: 'Account locked for 15 minutes due to too many failed attempts.',
             data: {
               locked: true,
-              lockUntilMs: user.lockUntil.getTime(),
+              lockUntilMs: lockUntil.getTime(),
               remainingMinutes: 15,
             },
           });
         }
 
-        const remainingAttempts = MAX_LOGIN_ATTEMPTS - user.loginAttempts;
+        const remainingAttempts = MAX_LOGIN_ATTEMPTS - currentAttempts;
 
         logActivity({
           userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
           type: 'failed_login', module: 'Auth', action: 'Failed Login',
-          description: `Failed login attempt for ${emailNormalized}. Attempts: ${user.loginAttempts}/${MAX_LOGIN_ATTEMPTS}. Remaining: ${remainingAttempts}.`,
+          description: `Failed login attempt for ${emailNormalized}. Attempts: ${currentAttempts}/${MAX_LOGIN_ATTEMPTS}. Remaining: ${remainingAttempts}.`,
           status: 'error',
         });
 
-        await user.save();
         return res.status(401).json({
           success: false,
           message: `Invalid credentials. ${remainingAttempts} attempt(s) remaining before your account is locked.`,
           data: {
-            loginAttempts: user.loginAttempts,
+            loginAttempts: currentAttempts,
             remainingAttempts,
             maxAttempts: MAX_LOGIN_ATTEMPTS,
           },
@@ -1373,6 +1628,18 @@ export const login = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials',
+      });
+    }
+
+    if (!user.isVerified && requiresStaffTwoFactor(user.role)) {
+      return res.status(403).json({
+        success: false,
+        code: 'ACCOUNT_PENDING_VERIFICATION',
+        message: 'Verify your staff account email before signing in.',
+        data: {
+          requiresEmailVerification: true,
+          email: emailNormalized,
+        },
       });
     }
 
@@ -1398,42 +1665,45 @@ export const login = async (req, res, next) => {
     console.log('🔐 [Login 2FA] ROLE CHECK:', {
       userRole: user.role,
       typeofRole: typeof user.role,
-      otpRequired: NON_CUSTOMER_ROLES.includes(user.role),
+      otpRequired: requiresStaffTwoFactor(user.role),
       allOtpRoles: NON_CUSTOMER_ROLES,
     });
-    if (NON_CUSTOMER_ROLES.includes(user.role)) {
-      // ── DEV MODE: skip OTP email and issue JWT directly ─────────────────
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`🔑 [Login DEV] Skipping 2FA for ${emailNormalized} (role: ${user.role})`);
-        const token = jwt.sign(
-          { id: user._id, email: user.email, role: user.role },
-          config.jwtSecret,
-          { expiresIn: '7d' }
-        );
-        await saveLastSeen(user);
-        const userObject = user.toObject({ virtuals: true });
-        delete userObject.password;
-        delete userObject._id;
-        delete userObject.__v;
-        attachPhoneForClient(user, userObject);
-        attachProfileImageForClient(user, userObject);
+    if (requiresStaffTwoFactor(user.role)) {
+      // Staff 2FA is mandatory in every environment. The opaque challenge is
+      // returned only after the password succeeds and is required for verify/resend.
+      const existingLoginOtp = await OTP.findOne({
+        userId: user._id,
+        purpose: LOGIN_OTP_PURPOSE,
+      }).sort({ createdAt: -1, _id: -1 });
+      let carriedAttempts = 0;
+      if (existingLoginOtp && existingLoginOtp.expiresAt > new Date()) {
+        if (existingLoginOtp.attempts >= existingLoginOtp.maxAttempts) {
+          const lockUntil = new Date(Date.now() + LOCK_TIME_MS);
+          await User.updateOne({ _id: user._id }, { $set: { lockUntil } });
+          return res.status(423).json({
+            success: false,
+            message: 'Account locked for 15 minutes due to too many failed verification attempts.',
+            data: { locked: true, lockUntilMs: lockUntil.getTime(), remainingMinutes: 15 },
+          });
+        }
 
-        logActivity({
-          userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
-          type: 'login', module: 'Auth', action: 'User Login (DEV)',
-          description: `${user.name || emailNormalized} logged in (dev mode, 2FA skipped).`, status: 'success',
-        });
-
-        return res.json({
-          success: true,
-          message: 'Login successful',
-          data: { user: userObject, token },
-        });
+        if (existingLoginOtp.lastSentAt) {
+          const elapsed = Date.now() - existingLoginOtp.lastSentAt.getTime();
+          if (elapsed < OTP_RESEND_COOLDOWN_MS) {
+            const waitSeconds = Math.ceil((OTP_RESEND_COOLDOWN_MS - elapsed) / 1000);
+            return res.status(429).json({
+              success: false,
+              message: `Please wait ${waitSeconds} second(s) before requesting another login code.`,
+              data: { waitSeconds },
+            });
+          }
+        }
+        carriedAttempts = existingLoginOtp.attempts;
       }
 
-      // ── PRODUCTION: full OTP flow ───────────────────────────────────────
       const otp = generateOTP(6);
       const otpHash = await bcrypt.hash(otp, 10);
+      const challengeToken = generateLoginChallengeToken();
 
       // Remove any previous login OTP for this user, then save fresh one
       await OTP.deleteMany({ userId: user._id, purpose: LOGIN_OTP_PURPOSE });
@@ -1447,12 +1717,13 @@ export const login = async (req, res, next) => {
         otp,              // plain — kept for legacy find queries, never sent to client
         otpHash,          // bcrypt hash — used for verification
         expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
-        attempts: 0,
+        attempts: carriedAttempts,
         maxAttempts: 3,
         verified: false,
         purpose: LOGIN_OTP_PURPOSE,
         userId: user._id,
         lastSentAt: new Date(),
+        loginChallengeHash: hashLoginChallengeToken(challengeToken),
       });
       await otpRecord.save();
 
@@ -1489,13 +1760,14 @@ export const login = async (req, res, next) => {
           requiresOTP: true,
           userId: user._id.toString(),
           maskedEmail,
+          challengeToken,
         },
       });
     }
 
     // ── Customer (or any unlisted role): direct JWT ─────────────────────────
     const token = jwt.sign(
-      { id: user._id, email: user.email, role: user.role },
+      buildAuthTokenClaims(user),
       config.jwtSecret,
       { expiresIn: '7d' }
     );
@@ -1628,28 +1900,58 @@ export const logout = async (req, res, next) => {
  */
 export const socialLogin = async (req, res, next) => {
   try {
-    const { email, name, provider, providerId } = req.body;
+    const { idToken, name } = req.body;
 
-    if (!email) {
-      return res.status(400).json({
+    if (!firebaseTokenVerifier) {
+      return res.status(503).json({
         success: false,
-        message: 'Email is required',
+        message: 'Social authentication is temporarily unavailable.',
       });
     }
 
-    // ── Upsert logic: find by email or Firebase UID ──
-    let user = await User.findOne({
-      $or: [{ email }, ...(providerId ? [{ firebaseUid: providerId }] : [])],
-    });
+    let verifiedIdentity;
+    try {
+      verifiedIdentity = await firebaseTokenVerifier.verifyIdToken(idToken, true);
+    } catch {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired identity token.',
+      });
+    }
+
+    const email = normalizeEmailForOtp(verifiedIdentity.email);
+    const providerId = verifiedIdentity.uid;
+    const provider = verifiedIdentity.firebase?.sign_in_provider || 'firebase';
+    if (!email || !providerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'The verified identity has no email address.',
+      });
+    }
+    if (req.body.email && normalizeEmailForOtp(req.body.email) !== email) {
+      return res.status(401).json({
+        success: false,
+        message: 'Identity token does not match the requested account.',
+      });
+    }
+
+    // Resolve the UID first and require its stored email to match. This prevents
+    // poisoned or stale UID links from crossing account boundaries.
+    let user = await User.findOne({ firebaseUid: providerId });
+    if (user && normalizeEmailForOtp(user.email) !== email) {
+      return res.status(409).json({
+        success: false,
+        message: 'This identity is linked to a different account.',
+      });
+    }
+    if (!user) user = await User.findOne({ email });
 
     if (user && user.isDeleted) {
-      // Soft-deleted account — restore it on social re-login instead of blocking.
-      // The user authenticated successfully via Firebase; rejecting them here would
-      // cause an infinite logout loop. Restore and continue.
-      console.log(`[socialLogin] Restoring soft-deleted account for ${email}`);
-      user.isDeleted = false;
-      user.isActive = true;
-      user.deletedAt = undefined;
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been deleted. Please contact an administrator.',
+        code: 'USER_DELETED',
+      });
     }
 
     // Block archived/deactivated accounts — even for Firebase/social logins
@@ -1661,34 +1963,68 @@ export const socialLogin = async (req, res, next) => {
       });
     }
 
+    if (user?.lockUntil && user.lockUntil > new Date()) {
+      return res.status(423).json({
+        success: false,
+        message: 'This account is temporarily locked. Please try again later.',
+        code: 'ACCOUNT_LOCKED',
+      });
+    }
+
+    if (user?.firebaseUid && user.firebaseUid !== providerId) {
+      return res.status(409).json({
+        success: false,
+        message: 'This identity is not linked to the requested account.',
+      });
+    }
+
+    // Firebase proves identity but does not satisfy the mandated staff flow of
+    // administrator-issued password plus a fresh login OTP. Never mint a staff
+    // session (or activate a pending staff account) through social login.
+    if (user && requiresStaffTwoFactor(user.role)) {
+      return res.status(403).json({
+        success: false,
+        code: user.isVerified ? 'STAFF_PASSWORD_LOGIN_REQUIRED' : 'ACCOUNT_PENDING_VERIFICATION',
+        message: user.isVerified
+          ? 'Staff accounts must sign in with email, password, and a login code.'
+          : 'Verify your staff account email before signing in.',
+      });
+    }
+
     if (!user) {
-      if (provider === 'password') {
-        return res.status(404).json({
+      if (!verifiedIdentity.email_verified) {
+        return res.status(403).json({
           success: false,
-          message: 'Account not found. Please create an account.',
+          message: 'Verify your email before creating an account.',
+          code: 'EMAIL_NOT_VERIFIED',
         });
       }
 
-      // Auto-create user for social logins — Firebase authenticated them, trust it.
+      // A verified Firebase identity can only auto-create the least-privileged role.
       const randomPassword = crypto.randomBytes(16).toString('hex');
-      const validProviderId = providerId && providerId !== 'undefined' ? providerId : undefined;
       user = await User.create({
-        name: name || email.split('@')[0],
+        name: verifiedIdentity.name || name || email.split('@')[0],
         email,
         password: randomPassword,
         role: 'customer',
         isVerified: true,
         isActive: true,
-        ...(validProviderId ? { firebaseUid: validProviderId } : {}),
-        avatar: req.body.photoURL || undefined,
+        firebaseUid: providerId,
+        avatar: verifiedIdentity.picture || undefined,
       });
       console.log(`[socialLogin] Auto-created new user for ${email}`);
 
     } else {
-      // Existing user — sync fields from Firebase
-      if (!user.isVerified) user.isVerified = true;
-      if (providerId && !user.firebaseUid) user.firebaseUid = providerId;
-      if (req.body.photoURL) user.avatar = req.body.photoURL;
+      if (!user.isVerified && !verifiedIdentity.email_verified) {
+        return res.status(403).json({
+          success: false,
+          message: 'Verify your email before signing in.',
+          code: 'EMAIL_NOT_VERIFIED',
+        });
+      }
+      if (verifiedIdentity.email_verified) user.isVerified = true;
+      if (!user.firebaseUid) user.firebaseUid = providerId;
+      if (verifiedIdentity.picture) user.avatar = verifiedIdentity.picture;
       await user.save();
     }
 
@@ -1696,7 +2032,7 @@ export const socialLogin = async (req, res, next) => {
 
     // Generate token
     const token = jwt.sign(
-      { id: user._id, email: user.email, role: user.role },
+      buildAuthTokenClaims(user),
       config.jwtSecret,
       { expiresIn: '7d' }
     );
@@ -1729,7 +2065,6 @@ export const socialLogin = async (req, res, next) => {
     res.status(500).json({
       success: false,
       message: 'Social login failed',
-      error: error.message,
     });
   }
 };
@@ -1786,7 +2121,7 @@ export const deleteAccount = async (req, res) => {
     // ── 3. Delete Firebase Auth user (Admin SDK) ─────────────────────────
     //    Do this FIRST — if Firebase deletion fails we have not yet touched MongoDB.
     if (firebaseUid) {
-      if (admin.apps.length === 0) {
+      if (!firebaseAdmin) {
         console.error('[DELETE_ACCOUNT] Firebase Admin SDK is not initialized. Set FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in .env');
         return res.status(503).json({
           success: false,
@@ -1794,7 +2129,7 @@ export const deleteAccount = async (req, res) => {
         });
       }
       try {
-        await admin.auth().deleteUser(firebaseUid);
+        await firebaseAdmin.auth().deleteUser(firebaseUid);
         console.log(`[DELETE_ACCOUNT] ✅ Firebase user deleted: ${firebaseUid}`);
       } catch (firebaseError) {
         // If the Firebase user was already deleted, that's fine — proceed with MongoDB cleanup.
@@ -1842,11 +2177,12 @@ export const deleteAccount = async (req, res) => {
         ChatMessage.deleteMany({ userId: mongoId }),
         Notification.deleteMany({ userId: mongoId }),
         OTP.deleteMany({ email: user.email }),
+        StaffVerificationToken.deleteMany({ userId: mongoId }),
       ]);
 
       // Log any partial failures (non-fatal for the user experience)
       deletionResults.forEach((result, i) => {
-        const labels = ['Order', 'Customer', 'Vehicle', 'AIServiceRequest', 'ActivityLog', 'ChatSession', 'ChatMessage', 'Notification', 'OTP'];
+        const labels = ['Order', 'Customer', 'Vehicle', 'AIServiceRequest', 'ActivityLog', 'ChatSession', 'ChatMessage', 'Notification', 'OTP', 'StaffVerificationToken'];
         if (result.status === 'rejected') {
           console.error(`[DELETE_ACCOUNT] ⚠️  Failed to delete ${labels[i]} records:`, result.reason?.message);
         } else {
@@ -1900,7 +2236,7 @@ export const deleteAccount = async (req, res) => {
  * Verify Login OTP (2FA)
  * POST /api/auth/verify-login-otp
  *
- * Body: { userId: string, otp: string }
+ * Body: { userId: string, challengeToken: string, otp: string }
  * - Validates bcrypt hash, checks expiry, enforces 3-attempt limit.
  * - On success: clears OTP record, returns JWT + user object.
  * - After 3 failures: sets lockUntil = +15 min on the OTP record (429).
@@ -1908,16 +2244,24 @@ export const deleteAccount = async (req, res) => {
 export const verifyLoginOtp = async (req, res) => {
   const OTP_LOCK_MS = 15 * 60 * 1000;
   try {
-    const { userId } = req.body;
+    const { userId, challengeToken } = req.body;
     const otp = normalizeOtpInput(req.body.otp);
 
-    if (!userId || !otp) {
-      return res.status(400).json({ success: false, message: 'userId and otp are required.' });
+    if (!userId || !challengeToken || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId, challengeToken, and otp are required.',
+      });
     }
 
-    const otpRecord = await OTP.findOne({ userId, purpose: LOGIN_OTP_PURPOSE }).sort({ createdAt: -1, _id: -1 });
+    const otpRecord = await OTP.findOne({ userId, purpose: LOGIN_OTP_PURPOSE })
+      .select('+loginChallengeHash')
+      .sort({ createdAt: -1, _id: -1 });
     if (!otpRecord) {
-      return res.status(400).json({ success: false, message: 'OTP not found. Please request a new code.' });
+      return res.status(400).json({ success: false, message: 'Login challenge not found. Sign in again.' });
+    }
+    if (!loginChallengeMatches(otpRecord, challengeToken)) {
+      return res.status(401).json({ success: false, message: 'Invalid login challenge. Sign in again.' });
     }
     logOtpDebug('login_verify.loaded', {
       userId,
@@ -1925,15 +2269,32 @@ export const verifyLoginOtp = async (req, res) => {
       record: otpRecordLogMeta(otpRecord),
     });
 
-    // Check lockout (stored on OTP record via expiresAt override)
+    const user = await User.findById(userId);
+    if (
+      !user
+      || user.isDeleted
+      || !user.isActive
+      || !user.isVerified
+      || !requiresStaffTwoFactor(user.role)
+      || normalizeEmailForOtp(user.email) !== normalizeEmailForOtp(otpRecord.email)
+    ) {
+      await OTP.deleteOne({ _id: otpRecord._id });
+      return res.status(403).json({ success: false, message: 'Account not accessible.' });
+    }
+    if (user.lockUntil && user.lockUntil > new Date()) {
+      return res.status(423).json({ success: false, message: 'Your account is temporarily locked.' });
+    }
+
+    // Check the OTP attempt lock. Exhaustion also locks the live account so a
+    // new password login cannot immediately reset the second-factor limit.
     if (otpRecord.attempts >= otpRecord.maxAttempts) {
-      const lockExpiry = new Date(otpRecord.updatedAt.getTime() + OTP_LOCK_MS);
+      const lockExpiry = user.lockUntil || new Date(otpRecord.updatedAt.getTime() + OTP_LOCK_MS);
       if (lockExpiry > new Date()) {
         const remainingMs = lockExpiry.getTime() - Date.now();
         const remainingMinutes = Math.ceil(remainingMs / 60000);
         return res.status(429).json({
           success: false,
-          message: `Too many failed attempts. Please wait ${remainingMinutes} minute(s) or request a new code.`,
+          message: `Too many failed attempts. Please wait ${remainingMinutes} minute(s).`,
           data: { locked: true, remainingMinutes },
         });
       }
@@ -1960,17 +2321,43 @@ export const verifyLoginOtp = async (req, res) => {
       now: new Date().toISOString(),
     });
     if (!isValid) {
-      otpRecord.attempts += 1;
-      await otpRecord.save();
-
-      const remaining = otpRecord.maxAttempts - otpRecord.attempts;
+      const updatedRecord = await OTP.findOneAndUpdate(
+        { _id: otpRecord._id, attempts: { $lt: otpRecord.maxAttempts } },
+        { $inc: { attempts: 1 } },
+        { new: true },
+      );
+      const currentAttempts = Number(updatedRecord?.attempts ?? otpRecord.attempts + 1);
+      const remaining = Math.max(0, otpRecord.maxAttempts - currentAttempts);
       if (remaining <= 0) {
+        user.lockUntil = new Date(Date.now() + OTP_LOCK_MS);
+        await user.save({ validateBeforeSave: false });
+        logActivity({
+          userId: user._id,
+          userName: user.name || user.email,
+          userRole: user.role,
+          type: 'failed_login_otp',
+          module: 'Auth',
+          action: 'Login OTP Locked',
+          description: `${user.name || user.email} exhausted login OTP attempts.`,
+          status: 'warning',
+        });
         return res.status(429).json({
           success: false,
-          message: 'Too many failed attempts. Please wait 15 minutes or request a new code.',
+          message: 'Too many failed attempts. Please wait 15 minutes.',
           data: { locked: true, remainingMinutes: 15 },
         });
       }
+      logActivity({
+        userId: user._id,
+        userName: user.name || user.email,
+        userRole: user.role,
+        type: 'failed_login_otp',
+        module: 'Auth',
+        action: 'Invalid Login OTP',
+        description: `Invalid login OTP submitted for ${user.name || user.email}.`,
+        status: 'warning',
+        metadata: { remainingAttempts: remaining },
+      });
       return res.status(401).json({
         success: false,
         message: `Invalid code. ${remaining} attempt(s) remaining.`,
@@ -1978,16 +2365,21 @@ export const verifyLoginOtp = async (req, res) => {
       });
     }
 
-    // OTP valid — clear record and issue JWT
-    await OTP.deleteOne({ _id: otpRecord._id });
-
-    const user = await User.findById(userId);
-    if (!user || user.isDeleted || !user.isActive) {
-      return res.status(403).json({ success: false, message: 'Account not accessible.' });
+    // Atomically consume the OTP. A concurrent replay cannot also receive a JWT.
+    const consumed = await OTP.findOneAndDelete({
+      _id: otpRecord._id,
+      purpose: LOGIN_OTP_PURPOSE,
+      expiresAt: { $gt: new Date() },
+      attempts: { $lt: otpRecord.maxAttempts },
+    });
+    if (!consumed) {
+      return res.status(409).json({ success: false, message: 'This login code has already been used.' });
     }
 
     const token = jwt.sign(
-      { id: user._id, email: user.email, role: user.role },
+      buildAuthTokenClaims(user, {
+        authLevel: STAFF_2FA_AUTH_LEVEL,
+      }),
       config.jwtSecret,
       { expiresIn: '7d' }
     );
@@ -2022,26 +2414,53 @@ export const verifyLoginOtp = async (req, res) => {
  * Resend Login OTP (2FA)
  * POST /api/auth/resend-login-otp
  *
- * Body: { userId: string }
+ * Body: { userId: string, challengeToken: string }
  * - Enforces a 60-second resend cooldown.
  * - Regenerates OTP, re-hashes, resends email.
  */
 export const resendLoginOtp = async (req, res) => {
   const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
   try {
-    const { userId } = req.body;
+    const { userId, challengeToken } = req.body;
 
-    if (!userId) {
-      return res.status(400).json({ success: false, message: 'userId is required.' });
+    if (!userId || !challengeToken) {
+      return res.status(400).json({ success: false, message: 'userId and challengeToken are required.' });
+    }
+
+    const existing = await OTP.findOne({ userId, purpose: LOGIN_OTP_PURPOSE })
+      .select('+loginChallengeHash')
+      .sort({ createdAt: -1, _id: -1 });
+    if (!existing || !loginChallengeMatches(existing, challengeToken)) {
+      return res.status(401).json({ success: false, message: 'Invalid login challenge. Sign in again.' });
+    }
+    if (existing.expiresAt < new Date()) {
+      await OTP.deleteOne({ _id: existing._id });
+      return res.status(400).json({ success: false, message: 'Login challenge expired. Sign in again.' });
     }
 
     const user = await User.findById(userId);
-    if (!user || user.isDeleted || !user.isActive) {
+    if (
+      !user
+      || user.isDeleted
+      || !user.isActive
+      || !user.isVerified
+      || !requiresStaffTwoFactor(user.role)
+      || normalizeEmailForOtp(user.email) !== normalizeEmailForOtp(existing.email)
+    ) {
+      await OTP.deleteOne({ _id: existing._id });
       return res.status(403).json({ success: false, message: 'Account not accessible.' });
     }
+    if (user.lockUntil && user.lockUntil > new Date()) {
+      return res.status(423).json({ success: false, message: 'Your account is temporarily locked.' });
+    }
+    if (existing.attempts >= existing.maxAttempts) {
+      return res.status(429).json({
+        success: false,
+        message: 'Too many failed attempts. Sign in again after the account lock expires.',
+      });
+    }
 
-    const existing = await OTP.findOne({ userId, purpose: LOGIN_OTP_PURPOSE }).sort({ createdAt: -1, _id: -1 });
-    if (existing && existing.lastSentAt) {
+    if (existing.lastSentAt) {
       const elapsed = Date.now() - existing.lastSentAt.getTime();
       if (elapsed < RESEND_COOLDOWN_MS) {
         const waitSeconds = Math.ceil((RESEND_COOLDOWN_MS - elapsed) / 1000);
@@ -2057,19 +2476,20 @@ export const resendLoginOtp = async (req, res) => {
     const otp = generateOTP(6);
     const otpHash = await bcrypt.hash(otp, 10);
 
-    // Upsert — replace the old record to reset expiry and attempts
-    await OTP.deleteMany({ userId, purpose: LOGIN_OTP_PURPOSE });
+    // Replace only the authenticated challenge with a fresh single-use code.
+    await OTP.deleteOne({ _id: existing._id });
     const otpRecord = new OTP({
       email: user.email,
       otp,
       otpHash,
       expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-      attempts: 0,
+      attempts: existing.attempts,
       maxAttempts: 3,
       verified: false,
       purpose: LOGIN_OTP_PURPOSE,
       userId: user._id,
       lastSentAt: new Date(),
+      loginChallengeHash: existing.loginChallengeHash,
     });
     await otpRecord.save();
 
@@ -2106,9 +2526,18 @@ export const resendLoginOtp = async (req, res) => {
 export const createStaff = async (req, res) => {
   try {
     const { name, email, phone, role, password } = req.body;
+    const normalizedName = String(name || '').trim().replace(/\s+/g, ' ');
+    const normalizedEmail = normalizeEmailForOtp(email);
 
-    if (!name || !email || !role || !password) {
+    if (!normalizedName || !normalizedEmail || !role || !password) {
       return res.status(400).json({ success: false, message: 'Name, email, role, and password are required.' });
+    }
+
+    if (normalizedName.length < 2 || normalizedName.length > 80) {
+      return res.status(400).json({ success: false, message: 'Name must be between 2 and 80 characters.' });
+    }
+    if (typeof req.body.confirmPassword !== 'undefined' && req.body.confirmPassword !== password) {
+      return res.status(400).json({ success: false, message: 'Passwords do not match.' });
     }
 
     if (!STAFF_ASSIGNABLE_ROLES.includes(role)) {
@@ -2116,7 +2545,7 @@ export const createStaff = async (req, res) => {
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(normalizedEmail)) {
       return res.status(400).json({ success: false, message: 'Invalid email address.' });
     }
 
@@ -2133,7 +2562,7 @@ export const createStaff = async (req, res) => {
       });
     }
 
-    const existing = await User.findOne({ email });
+    const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
       return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
     }
@@ -2147,8 +2576,8 @@ export const createStaff = async (req, res) => {
     }
 
     const user = new User({
-      name,
-      email,
+      name: normalizedName,
+      email: normalizedEmail,
       password, // hashed by pre-save hook
       role,
       phone: phoneParsed.phone || undefined,
@@ -2159,10 +2588,20 @@ export const createStaff = async (req, res) => {
     });
     await user.save();
 
+    let verification;
+    try {
+      const delivery = await issueStaffVerificationLink(user);
+      verification = { required: true, emailSent: true, ...delivery };
+    } catch (emailError) {
+      verification = { required: true, emailSent: false };
+      console.error('[createStaff] Staff verification email failed:', emailError?.message || emailError);
+    }
+
     logActivity({
       userId: req.user?.id, userName: req.user?.name || req.user?.email, userRole: req.user?.role,
-      type: 'staff_created', module: 'Auth', action: 'Create Staff Account',
-      description: `Staff account created for ${name} (${role}) by ${req.user?.email}.`, status: 'success',
+      type: 'user_created', module: 'Auth', action: 'Create Staff Account',
+      description: `Staff account created for ${normalizedName} (${role}) by ${req.user?.email}.`, status: 'success',
+      metadata: { targetUserId: user._id, verificationEmailSent: verification.emailSent },
     });
 
     const userObject = user.toObject({ virtuals: true });
@@ -2173,8 +2612,10 @@ export const createStaff = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: `Staff account created for ${name}. Share credentials personally.`,
-      data: { user: userObject },
+      message: verification.emailSent
+        ? 'User created. A verification email was sent to the user.'
+        : 'User created, but the verification email could not be sent. Please resend it.',
+      data: { user: userObject, verification, twoFactorRequired: true },
     });
   } catch (error) {
     console.error('❌ [createStaff] Error:', error);
@@ -2191,6 +2632,13 @@ export const setPassword = async (req, res) => {
   try {
     const { newPassword, confirmPassword } = req.body;
     const userId = req.user?.id;
+
+    if (req.user?.requiresPasswordChange !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'This password-setup session is not valid. Use Change Password instead.',
+      });
+    }
 
     if (!newPassword || !confirmPassword) {
       return res.status(400).json({ success: false, message: 'New password and confirmation are required.' });
@@ -2213,6 +2661,9 @@ export const setPassword = async (req, res) => {
     if (!user || user.isDeleted || !user.isActive) {
       return res.status(403).json({ success: false, message: 'Account not accessible.' });
     }
+    if (!user.isFirstLogin) {
+      return res.status(403).json({ success: false, message: 'Password setup has already been completed.' });
+    }
 
     user.password = newPassword; // hashed by pre-save hook
     user.isFirstLogin = false;
@@ -2222,7 +2673,7 @@ export const setPassword = async (req, res) => {
 
     // Issue a fresh full-access JWT
     const token = jwt.sign(
-      { id: user._id, email: user.email, role: user.role },
+      buildAuthTokenClaims(user),
       config.jwtSecret,
       { expiresIn: '7d' }
     );
@@ -2318,7 +2769,23 @@ export const resendOtp = async (req, res) => {
 
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ success: false, message: 'No account found with this email.' });
+    if (user.isDeleted) return res.status(404).json({ success: false, message: 'No account found with this email.' });
+    if (!user.isActive || user.status === 'suspended') {
+      return res.status(403).json({
+        success: false,
+        message: 'This account is disabled. Please contact an administrator.',
+        code: 'ACCOUNT_INACTIVE',
+      });
+    }
     if (user.isVerified) return res.status(400).json({ success: false, message: 'Account is already verified.' });
+
+    if (requiresStaffTwoFactor(user.role)) {
+      return res.status(400).json({
+        success: false,
+        code: 'STAFF_VERIFICATION_LINK_REQUIRED',
+        message: 'Staff verification links can only be resent by an authorized administrator.',
+      });
+    }
 
     const existingOtp = await findLatestEmailOtp(email, {
       verified: false,
@@ -2347,6 +2814,7 @@ export const resendOtp = async (req, res) => {
       maxAttempts: 5,
       verified: false,
       purpose: EMAIL_OTP_PURPOSE,
+      ...(requiresStaffTwoFactor(user.role) ? { userId: user._id } : {}),
       lastSentAt: new Date(),
     });
 
@@ -2439,6 +2907,14 @@ export const recoverFirebase = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Account not found.' });
     }
 
+    if (requiresStaffTwoFactor(user.role)) {
+      return res.status(403).json({
+        success: false,
+        code: 'STAFF_PASSWORD_LOGIN_REQUIRED',
+        message: 'Firebase recovery is only available to customer accounts. Staff must use password and login OTP.',
+      });
+    }
+
     if (!user.isActive) {
       return res.status(403).json({
         success: false,
@@ -2465,7 +2941,7 @@ export const recoverFirebase = async (req, res) => {
         ),
       ]);
 
-    if (admin.apps.length === 0) {
+    if (!firebaseAdmin) {
       // ── Fallback: Firebase Admin SDK not configured ─────────────────────
       // Password is valid in MongoDB. Tell the mobile client to create the
       // Firebase account itself using createUserWithEmailAndPassword().
@@ -2480,7 +2956,7 @@ export const recoverFirebase = async (req, res) => {
 
       // Issue a JWT so after Firebase create the client can call social-login
       const token = jwt.sign(
-        { id: user._id, email: user.email, role: user.role },
+        buildAuthTokenClaims(user),
         config.jwtSecret,
         { expiresIn: '7d' }
       );
@@ -2496,14 +2972,14 @@ export const recoverFirebase = async (req, res) => {
     // Check if a Firebase account already exists
     let firebaseUid = user.firebaseUid;
     try {
-      const existingFbUser = await withAdminTimeout(admin.auth().getUserByEmail(email));
+      const existingFbUser = await withAdminTimeout(firebaseAdmin.auth().getUserByEmail(email));
       firebaseUid = existingFbUser.uid;
       console.log(`[recoverFirebase] Firebase account already exists for ${email} (uid: ${firebaseUid})`);
     } catch (fbErr) {
       if (fbErr.code === 'auth/user-not-found') {
         // Create a new Firebase Auth account with the same password
         try {
-          const newFbUser = await withAdminTimeout(admin.auth().createUser({
+          const newFbUser = await withAdminTimeout(firebaseAdmin.auth().createUser({
             email,
             password,
             displayName: user.name,
@@ -2516,7 +2992,7 @@ export const recoverFirebase = async (req, res) => {
             // Admin SDK hung on createUser — fall back to client-side creation
             console.warn(`[recoverFirebase] Admin SDK createUser timed out for ${email} — instructing client-side create`);
             if (!user.isVerified) { user.isVerified = true; await user.save(); }
-            const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, config.jwtSecret, { expiresIn: '7d' });
+            const token = jwt.sign(buildAuthTokenClaims(user), config.jwtSecret, { expiresIn: '7d' });
             return res.json({ success: true, needsClientCreate: true, message: 'MongoDB credentials valid. Please create Firebase account on device.', data: { token, needsClientCreate: true, userName: user.name } });
           }
           throw createErr;
@@ -2525,7 +3001,7 @@ export const recoverFirebase = async (req, res) => {
         // Admin SDK hung on getUserByEmail — fall back to client-side creation
         console.warn(`[recoverFirebase] Admin SDK getUserByEmail timed out for ${email} — instructing client-side create`);
         if (!user.isVerified) { user.isVerified = true; await user.save(); }
-        const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, config.jwtSecret, { expiresIn: '7d' });
+        const token = jwt.sign(buildAuthTokenClaims(user), config.jwtSecret, { expiresIn: '7d' });
         return res.json({ success: true, needsClientCreate: true, message: 'MongoDB credentials valid. Please create Firebase account on device.', data: { token, needsClientCreate: true, userName: user.name } });
       } else {
         throw fbErr;
@@ -2542,7 +3018,7 @@ export const recoverFirebase = async (req, res) => {
 
     // Issue a JWT so the client can complete the social-login flow
     const token = jwt.sign(
-      { id: user._id, email: user.email, role: user.role },
+      buildAuthTokenClaims(user),
       config.jwtSecret,
       { expiresIn: '7d' }
     );

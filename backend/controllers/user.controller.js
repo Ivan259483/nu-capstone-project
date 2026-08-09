@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import bcryptjs from 'bcryptjs';
 import sharp from 'sharp';
 import User from '../models/user.model.js';
@@ -14,6 +13,7 @@ import Payment from '../models/payment.model.js';
 import mongoose from 'mongoose';
 import Store from '../models/store.model.js';
 import OTP from '../models/oTP.model.js';
+import StaffVerificationToken from '../models/staffVerificationToken.model.js';
 import firebaseAdmin from '../config/firebaseAdmin.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import {
@@ -22,10 +22,13 @@ import {
   getInvalidUserRoleMessage,
   isValidUserRole,
   normalizeToCanonical,
+  requiresStaffTwoFactor,
 } from '../constants/roles.js';
 import { parseOptionalProfilePhone } from '../utils/phone.utils.js';
 import { serializeUserForClient, resolvePhoneForClient, USER_PHONE_FIELDS } from '../utils/phone-client.utils.js';
 import { uploadBufferToCloudinary } from '../utils/cloudinaryStorage.utils.js';
+import { normalizeEmailForOtp } from '../utils/otp.utils.js';
+import { issueStaffVerificationLink } from '../services/staffVerification.service.js';
 
 const getQueryByIdOrFirebaseUid = (id) => {
   // If it's a 24-character hex string, assume it's a valid ObjectId
@@ -68,7 +71,11 @@ export const getAllUsers = async (req, res, next) => {
   try {
     const filter = { isDeleted: false };
     if (req.query.email) {
-      filter.email = { $regex: new RegExp(`^${req.query.email.trim()}$`, 'i') };
+      const normalizedEmail = String(req.query.email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return res.status(400).json({ success: false, message: 'Invalid email filter.' });
+      }
+      filter.email = normalizedEmail;
     }
 
     if (req.user?.role && !['administrator', 'office_admin'].includes(normalizeToCanonical(req.user.role))) {
@@ -193,7 +200,6 @@ export const updateUser = async (req, res, next) => {
 
     const updatePayload = {};
     if (typeof name !== 'undefined') updatePayload.name = name;
-    if (typeof email !== 'undefined') updatePayload.email = email;
     if (typeof role !== 'undefined') updatePayload.role = role;
     if (typeof avatar !== 'undefined') updatePayload.avatar = avatar;
     if (incomingPhone.provided) {
@@ -228,67 +234,23 @@ export const updateUser = async (req, res, next) => {
 
     const requestedRole = typeof role !== 'undefined' ? role : undefined;
 
-    // 3. Fallback to Email if not found
-    if (!user && email) {
-      if (process.env.NODE_ENV === 'development') console.log(`2c. User not found by ID. Attempting fallback find by email: ${email}`);
-      user = await User.findOne({ email });
-      if (process.env.NODE_ENV === 'development') console.log(`    -> Result of find by email:`, user ? 'FOUND' : 'NOT FOUND');
-
-      if (user && isFirebaseUid) {
-        if (process.env.NODE_ENV === 'development') console.log(`3. User found by email! Linking Firebase UID.`);
-        updatePayload.firebaseUid = requestedId;
-      }
-    }
-
-    // 5. If no user is completely found, create one
+    // Authentication middleware guarantees a live MongoDB user. User updates
+    // must never auto-provision or link identities from client-controlled IDs.
     if (!user) {
-      if (process.env.NODE_ENV === 'development') console.log(`5. User entirely missing from DB! Creating new user automatically.`);
-
-      const selfProvisioning = String(requestedId) === String(req.user?.id);
-      if (!selfProvisioning) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found',
-        });
-      }
-
-      const createRole = requestedRole || req.user?.role || 'customer';
-      if (createRole !== req.user?.role) {
-        return res.status(403).json({
-          success: false,
-          message: 'You cannot change your own role.',
-        });
-      }
-
-      // Use cryptographically secure random bytes for the auto-provisioned fallback password
-      const newUserData = {
-         email: email || `unknown-${Date.now()}@example.com`,
-         name: name || (email ? email.split('@')[0] : 'Unknown User'),
-         password: crypto.randomBytes(16).toString('hex') + 'A1!',
-         role: createRole,
-         avatar: avatar,
-         isVerified: true
-      };
-
-      if (updatePayload.phone) {
-         newUserData.phone = updatePayload.phone;
-      }
-
-      if (isFirebaseUid) {
-         newUserData.firebaseUid = requestedId;
-      }
-
-      user = await User.create(newUserData);
-
-      // 6. Ensure API returns success
-      return res.json({
-        success: true,
-        message: 'User created and updated successfully',
-        data: serializeUserForClient(user),
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
       });
     }
 
     const targetUserCanonical = normalizeToCanonical(user.role);
+    const actorCanonical = normalizeToCanonical(actorRole);
+    if (targetUserCanonical === 'administrator' && actorCanonical !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the bootstrap Administrator can modify the Administrator account.',
+      });
+    }
     if (
       typeof role !== 'undefined'
       && targetUserCanonical === 'administrator'
@@ -301,6 +263,13 @@ export const updateUser = async (req, res, next) => {
     }
 
     const selfRequest = isSelfUser(req, user);
+    if (selfRequest && ['role', 'status', 'isActive', 'isDeleted', 'permissions', 'firebaseUid']
+      .some((field) => hasOwn(req.body, field))) {
+      return res.status(403).json({
+        success: false,
+        message: 'Protected account fields cannot be changed through profile updates.',
+      });
+    }
     if (!selfRequest && !canManageUserRole(actorRole, user.role)) {
       return res.status(403).json({
         success: false,
@@ -322,6 +291,62 @@ export const updateUser = async (req, res, next) => {
       });
     }
 
+    const resultingRole = requestedRole || user.role;
+    if (
+      requiresStaffTwoFactor(resultingRole)
+      && !user.isVerified
+      && typeof status !== 'undefined'
+      && status === 'active'
+    ) {
+      return res.status(409).json({
+        success: false,
+        code: 'ACCOUNT_PENDING_VERIFICATION',
+        message: 'A pending staff account becomes active only after the user opens its verification link.',
+      });
+    }
+
+    let staffEmailChangeRequired = false;
+    if (typeof email !== 'undefined') {
+      const normalizedEmail = normalizeEmailForOtp(email);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return res.status(400).json({ success: false, message: 'Invalid email address.' });
+      }
+
+      const emailChanged = normalizedEmail !== normalizeEmailForOtp(user.email);
+      if (emailChanged && requiresStaffTwoFactor(resultingRole) && selfRequest) {
+        return res.status(403).json({
+          success: false,
+          message: 'Staff email changes require another authorized administrator and email re-verification.',
+        });
+      }
+
+      if (emailChanged) {
+        const duplicate = await User.exists({ email: normalizedEmail, _id: { $ne: user._id } });
+        if (duplicate) {
+          return res.status(409).json({ success: false, message: 'Email address is already in use.' });
+        }
+        updatePayload.email = normalizedEmail;
+        if (requiresStaffTwoFactor(resultingRole)) {
+          staffEmailChangeRequired = true;
+          updatePayload.isVerified = false;
+          updatePayload.status = 'pending';
+        }
+      }
+    }
+
+    const affectsStaffAccount = requiresStaffTwoFactor(user.role)
+      || requiresStaffTwoFactor(resultingRole);
+    const transitionsStaffToInactive = affectsStaffAccount
+      && isActive === false
+      && user.isActive !== false;
+    const transitionsStaffToRestrictedStatus = affectsStaffAccount
+      && typeof status !== 'undefined'
+      && status !== user.status
+      && ['pending', 'suspended'].includes(status);
+    const revokeExistingStaffSessions = staffEmailChangeRequired
+      || transitionsStaffToInactive
+      || transitionsStaffToRestrictedStatus;
+
     const canonicalPhone = resolvePhoneForClient({ phone: user.phone });
     const resolvedExistingPhone = resolvePhoneForClient(user);
     if (!updatePayload.phone && !canonicalPhone && resolvedExistingPhone) {
@@ -340,7 +365,9 @@ export const updateUser = async (req, res, next) => {
     if (process.env.NODE_ENV === 'development') console.log(`   -> Executing findByIdAndUpdate for _id:`, user._id);
     const updatedUser = await User.findByIdAndUpdate(
       user._id,
-      updatePayload,
+      revokeExistingStaffSessions
+        ? { $set: updatePayload, $inc: { authVersion: 1 } }
+        : updatePayload,
       { new: true }
     ).select('-password');
 
@@ -348,6 +375,24 @@ export const updateUser = async (req, res, next) => {
     if (updatedUser) {
       if (updatedUser.phone) updatedUser.phone = decrypt(updatedUser.phone);
       if (updatedUser.address) updatedUser.address = decrypt(updatedUser.address);
+    }
+
+    let verification = null;
+    if (updatedUser && staffEmailChangeRequired) {
+      await OTP.deleteMany({
+        $or: [
+          { userId: user._id },
+          { email: normalizeEmailForOtp(user.email) },
+          { email: normalizeEmailForOtp(updatedUser.email) },
+        ],
+      });
+      try {
+        const delivery = await issueStaffVerificationLink(updatedUser);
+        verification = { required: true, emailSent: true, ...delivery };
+      } catch (emailError) {
+        verification = { required: true, emailSent: false };
+        console.error('[updateUser] Staff email re-verification failed:', emailError?.message || emailError);
+      }
     }
 
     // Detect role change
@@ -390,8 +435,15 @@ export const updateUser = async (req, res, next) => {
     // 6. Ensure API returns success (decrypted phone for profile forms)
     res.json({
       success: true,
-      message: 'User updated successfully',
-      data: serializeUserForClient(updatedUser),
+      message: staffEmailChangeRequired
+        ? verification?.emailSent
+          ? 'User updated. A verification email was sent to the new address.'
+          : 'User updated, but the verification email could not be sent. Please resend it.'
+        : 'User updated successfully',
+      data: {
+        ...serializeUserForClient(updatedUser),
+        ...(verification ? { verification, twoFactorRequired: true } : {}),
+      },
     });
   } catch (error) {
     console.error("❌ Update User Error:", error);
@@ -518,7 +570,7 @@ export const deleteUser = async (req, res, next) => {
     const cleanupLabels = [
       'Orders (customer)', 'Orders (assignedDetailer)', 'Customers',
       'Vehicles', 'ChatConversations', 'ChatSessions', 'ChatMessages',
-      'ActivityLogs', 'Payments', 'Stores (unset manager)', 'OTPs',
+      'ActivityLogs', 'Payments', 'Stores (unset manager)', 'OTPs', 'Staff verification tokens',
     ];
 
     const cleanup = await Promise.allSettled([
@@ -533,6 +585,7 @@ export const deleteUser = async (req, res, next) => {
       Payment.deleteMany({ customer: userId }),
       Store.updateMany({ manager: userId }, { $unset: { manager: '' } }),
       OTP.deleteMany({ email: userEmail }),
+      StaffVerificationToken.deleteMany({ userId }),
     ]);
 
     const cleanupSummary = cleanup.map((result, i) => ({
@@ -606,11 +659,19 @@ export const archiveUser = async (req, res, next) => {
       });
     }
 
-    user.isActive = false;
-    user.status = 'suspended';
-    user.archivedAt = new Date();
-    user.expoPushTokens = [];
-    await user.save();
+    await User.findOneAndUpdate(
+      { _id: user._id },
+      {
+        $set: {
+          isActive: false,
+          status: 'suspended',
+          archivedAt: new Date(),
+          expoPushTokens: [],
+        },
+        ...(requiresStaffTwoFactor(user.role) ? { $inc: { authVersion: 1 } } : {}),
+      },
+      { new: true, runValidators: true },
+    );
 
     logActivity({
       req, type: 'user_archived', module: 'User', action: 'User Archived',
@@ -672,10 +733,55 @@ export const activateUser = async (req, res, next) => {
       });
     }
 
-    user.isActive = true;
-    user.status = 'active';
-    user.archivedAt = undefined;
-    await user.save();
+    if (requiresStaffTwoFactor(user.role) && !user.isVerified) {
+      const restoredUser = await User.findOneAndUpdate(
+        { _id: user._id },
+        {
+          $set: { isActive: true, status: 'pending' },
+          $unset: { archivedAt: 1 },
+          $inc: { authVersion: 1 },
+        },
+        { new: true, runValidators: true },
+      );
+
+      let verification;
+      try {
+        const delivery = await issueStaffVerificationLink(restoredUser);
+        verification = { required: true, emailSent: true, ...delivery };
+      } catch (emailError) {
+        verification = { required: true, emailSent: false };
+        console.error('[activateUser] Staff verification email failed:', emailError?.message || emailError);
+      }
+
+      logActivity({
+        req,
+        type: 'user_activated',
+        module: 'User',
+        action: 'Staff Restored Pending Verification',
+        description: `${req.user?.name || 'Admin'} restored ${user.name || user.email} pending email verification.`,
+        status: 'info',
+        referenceId: user._id.toString(),
+        metadata: { activatedUserId: user._id, activatedEmail: user.email, activatedRole: user.role },
+      });
+
+      return res.json({
+        success: true,
+        message: verification.emailSent
+          ? 'User restored pending verification. A verification link was sent.'
+          : 'User restored pending verification, but the email could not be sent. Please resend it.',
+        data: { status: 'pending', isVerified: false, verification },
+      });
+    }
+
+    await User.findOneAndUpdate(
+      { _id: user._id },
+      {
+        $set: { isActive: true, status: 'active' },
+        $unset: { archivedAt: 1 },
+        ...(requiresStaffTwoFactor(user.role) ? { $inc: { authVersion: 1 } } : {}),
+      },
+      { new: true, runValidators: true },
+    );
 
     logActivity({
       req, type: 'user_activated', module: 'User', action: 'User Activated',
@@ -714,8 +820,27 @@ function getAdminCreatePasswordErrors(password) {
 export const createUser = async (req, res, next) => {
   try {
     const { name, email, password, role, avatar, firebaseUid } = req.body;
+    const normalizedName = String(name || '').trim().replace(/\s+/g, ' ');
+    const normalizedEmail = normalizeEmailForOtp(email);
     const incomingPhone = getIncomingPhoneValue(req.body);
     const requestedRole = role || 'customer';
+    const staffAccount = requiresStaffTwoFactor(requestedRole);
+
+    if (normalizedName.length < 2 || normalizedName.length > 80) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name must be between 2 and 80 characters.',
+      });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ success: false, message: 'Invalid email address.' });
+    }
+    if (
+      typeof req.body.confirmPassword !== 'undefined'
+      && password !== req.body.confirmPassword
+    ) {
+      return res.status(400).json({ success: false, message: 'Passwords do not match.' });
+    }
 
     if (typeof role !== 'undefined' && !isValidUserRole(role)) {
       return res.status(400).json({
@@ -758,7 +883,7 @@ export const createUser = async (req, res, next) => {
     }
 
     // Check if user already exists
-    const userExists = await User.findOne({ email });
+    const userExists = await User.findOne({ email: normalizedEmail });
     if (userExists) {
       // If previously soft-deleted, restore instead of rejecting
       if (userExists.isDeleted) {
@@ -769,19 +894,20 @@ export const createUser = async (req, res, next) => {
           userExists._id,
           {
             $set: {
-              name,
+              name: normalizedName,
               role: requestedRole,
               avatar: avatar || userExists.avatar,
               isDeleted: false,
               isActive: true,
-              isVerified: true,
+              isVerified: !staffAccount,
+              status: staffAccount ? 'pending' : 'active',
               loginAttempts: 0,
               lockUntil: null,
               deletedAt: null,
               password: hashedPassword,
               isFirstLogin: false,
               ...(parsedPhone?.phone ? { phone: encrypt(parsedPhone.phone) } : {}),
-              ...(firebaseUid ? { firebaseUid } : {}),
+              ...(!staffAccount && firebaseUid ? { firebaseUid } : {}),
             }
           },
           { new: true }
@@ -789,14 +915,29 @@ export const createUser = async (req, res, next) => {
 
         logActivity({
           req, type: 'user_restored', module: 'User', action: 'User Restored',
-          description: `${req.user?.name || 'Admin'} restored deleted ${requestedRole} account: ${name} (${email}).`,
+          description: `${req.user?.name || 'Admin'} restored deleted ${requestedRole} account: ${normalizedName} (${normalizedEmail}).`,
           status: 'success', referenceId: restored._id.toString(),
-          metadata: { restoredUserId: restored._id, restoredEmail: email, newRole: requestedRole },
+          metadata: { restoredUserId: restored._id, restoredEmail: normalizedEmail, newRole: requestedRole },
         });
+
+        let verification = null;
+        if (staffAccount) {
+          try {
+            const delivery = await issueStaffVerificationLink(restored);
+            verification = { required: true, emailSent: true, ...delivery };
+          } catch (emailError) {
+            verification = { required: true, emailSent: false };
+            console.error('[createUser] Staff verification email failed:', emailError?.message || emailError);
+          }
+        }
 
         return res.status(201).json({
           success: true,
-          message: 'User account restored successfully',
+          message: staffAccount
+            ? verification?.emailSent
+              ? 'User restored. A verification email was sent to the user.'
+              : 'User restored, but the verification email could not be sent. Please resend it.'
+            : 'User account restored successfully',
           data: {
             id: restored._id,
             name: restored.name,
@@ -804,6 +945,10 @@ export const createUser = async (req, res, next) => {
             role: restored.role,
             avatar: restored.avatar,
             phone: resolvePhoneForClient(restored),
+            status: restored.status,
+            isVerified: restored.isVerified,
+            twoFactorRequired: staffAccount,
+            verification,
           },
         });
       }
@@ -815,18 +960,18 @@ export const createUser = async (req, res, next) => {
     }
 
     const payload = {
-      name,
-      email,
+      name: normalizedName,
+      email: normalizedEmail,
       password,
       role: requestedRole,
       avatar,
-      isVerified: true, // Admin created users are verified by default
+      isVerified: !staffAccount,
       isActive: true,
-      status: 'active',
+      status: staffAccount ? 'pending' : 'active',
       isFirstLogin: false, // Admin-created users already receive validated strong passwords.
     };
 
-    if (firebaseUid) {
+    if (!staffAccount && firebaseUid) {
       payload.firebaseUid = firebaseUid;
     }
 
@@ -836,16 +981,36 @@ export const createUser = async (req, res, next) => {
 
     const user = await User.create(payload);
 
+    let verification = null;
+    if (staffAccount) {
+      try {
+        const delivery = await issueStaffVerificationLink(user);
+        verification = { required: true, emailSent: true, ...delivery };
+      } catch (emailError) {
+        verification = { required: true, emailSent: false };
+        console.error('[createUser] Staff verification email failed:', emailError?.message || emailError);
+      }
+    }
+
     logActivity({
       req, type: 'user_created', module: 'User', action: 'User Created',
-      description: `${req.user?.name || 'Admin'} created new ${requestedRole} account: ${name} (${email}).`,
+      description: `${req.user?.name || 'Admin'} created new ${requestedRole} account: ${normalizedName} (${normalizedEmail}).`,
       status: 'success', referenceId: user._id.toString(),
-      metadata: { newUserId: user._id, newUserEmail: email, newUserRole: requestedRole },
+      metadata: {
+        newUserId: user._id,
+        newUserEmail: normalizedEmail,
+        newUserRole: requestedRole,
+        verificationEmailSent: verification?.emailSent ?? null,
+      },
     });
 
     res.status(201).json({
       success: true,
-      message: 'User created successfully',
+      message: staffAccount
+        ? verification?.emailSent
+          ? 'User created. A verification email was sent to the user.'
+          : 'User created, but the verification email could not be sent. Please resend it.'
+        : 'User created successfully',
       data: {
         id: user._id,
         name: user.name,
@@ -853,9 +1018,75 @@ export const createUser = async (req, res, next) => {
         role: user.role,
         avatar: user.avatar,
         phone: resolvePhoneForClient(user),
+        status: user.status,
+        isVerified: user.isVerified,
+        twoFactorRequired: staffAccount,
+        verification,
       },
     });
   } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Resend a pending staff account's verification email (staff managers only).
+ */
+export const resendStaffVerification = async (req, res, next) => {
+  try {
+    const query = getQueryByIdOrFirebaseUid(req.params.id);
+    const user = await User.findOne(query);
+    if (!user || user.isDeleted) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    if (!canManageUserRole(req.user?.role, user.role)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+    if (!requiresStaffTwoFactor(user.role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Verification resend is only available for staff accounts.',
+      });
+    }
+    if (user.isVerified) {
+      return res.status(409).json({ success: false, message: 'Account is already verified.' });
+    }
+    if (!user.isActive || user.status === 'suspended') {
+      return res.status(403).json({
+        success: false,
+        message: 'This account is disabled and cannot receive verification email.',
+        code: 'ACCOUNT_INACTIVE',
+      });
+    }
+
+    const delivery = await issueStaffVerificationLink(user, { enforceCooldown: true });
+    logActivity({
+      req,
+      type: 'user_edited',
+      module: 'User',
+      action: 'Staff Verification Resent',
+      description: `${req.user?.name || 'Admin'} resent account verification to ${user.email}.`,
+      status: 'info',
+      referenceId: user._id.toString(),
+      metadata: { targetUserId: user._id, targetRole: user.role },
+    });
+
+    return res.json({
+      success: true,
+      message: 'Verification email sent.',
+      data: delivery,
+    });
+  } catch (error) {
+    if (error?.code === 'VERIFICATION_RESEND_COOLDOWN') {
+      return res.status(429).json({
+        success: false,
+        message: error.message,
+        data: { retryAfterSeconds: error.retryAfterSeconds },
+      });
+    }
+    if (error?.code === 'VERIFICATION_EMAIL_FAILED') {
+      return res.status(502).json({ success: false, message: error.message });
+    }
     next(error);
   }
 };

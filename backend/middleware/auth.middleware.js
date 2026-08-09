@@ -1,8 +1,14 @@
 import jwt from 'jsonwebtoken';
 import { config } from '../config/environment.js';
-import { migrateLegacyUserRole } from '../constants/roles.js';
+import {
+  isValidUserRole,
+  migrateLegacyUserRole,
+  requiresStaffTwoFactor,
+  STAFF_2FA_AUTH_LEVEL,
+} from '../constants/roles.js';
 import User from '../models/user.model.js';
 import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
+import { authVersionMatches } from '../utils/authVersion.utils.js';
 
 /**
  * Authentication middleware
@@ -18,7 +24,7 @@ export const authenticate = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.warn(`[AUTH_FAILURE] Missing or malformed Auth Header: ${authHeader}`);
+      console.warn('[AUTH_FAILURE] Missing or malformed Authorization header');
       return res.status(401).json({
         success: false,
         message: 'No valid token provided. Authorization format: Bearer <token>',
@@ -41,7 +47,7 @@ export const authenticate = async (req, res, next) => {
       // STRICT VERIFICATION: Ensure user actually still exists and has not been deleted/deactivated.
       // Always use live MongoDB role/name/email — JWT embeds role from login time and goes stale after admin edits.
       const userDoc = await User.findById(decoded.id).select(
-        'isActive isDeleted lockUntil email role name'
+        'isActive isDeleted isVerified status lockUntil email role name authVersion'
       );
       if (!userDoc) {
         return res.status(401).json({ success: false, message: 'User account no longer exists.' });
@@ -61,8 +67,35 @@ export const authenticate = async (req, res, next) => {
       }
 
       const liveRole = migrateLegacyUserRole(userDoc.role);
-      if (!liveRole) {
+      if (!liveRole || !isValidUserRole(liveRole)) {
         return res.status(401).json({ success: false, message: 'Invalid account role.' });
+      }
+      if (requiresStaffTwoFactor(liveRole) && !userDoc.isVerified) {
+        return res.status(403).json({
+          success: false,
+          message: 'Verify your staff account email before continuing.',
+          code: 'ACCOUNT_PENDING_VERIFICATION',
+        });
+      }
+      if (
+        requiresStaffTwoFactor(liveRole)
+        && decoded.authLevel !== STAFF_2FA_AUTH_LEVEL
+      ) {
+        return res.status(401).json({
+          success: false,
+          message: 'Staff two-factor authentication is required.',
+          code: 'STAFF_2FA_REQUIRED',
+        });
+      }
+      if (
+        requiresStaffTwoFactor(liveRole)
+        && !authVersionMatches(decoded.authVersion, userDoc.authVersion)
+      ) {
+        return res.status(401).json({
+          success: false,
+          message: 'This staff session is no longer valid. Sign in again.',
+          code: 'STAFF_SESSION_REVOKED',
+        });
       }
 
       req.user = {
@@ -86,7 +119,6 @@ export const authenticate = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: 'Invalid token',
-        error: verifyError.message,
       });
     }
   } catch (error) {
@@ -125,7 +157,7 @@ export const authorize = (...roles) => {
  * Optional authentication middleware
  * If a valid JWT is present, attaches req.user. Otherwise continues.
  */
-export const optionalAuthenticate = (req, res, next) => {
+export const optionalAuthenticate = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return next();
@@ -134,9 +166,38 @@ export const optionalAuthenticate = (req, res, next) => {
   const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, config.jwtSecret);
-    const normalizedRole = migrateLegacyUserRole(decoded?.role);
-    if (decoded?.id && normalizedRole) {
-      req.user = { ...decoded, role: normalizedRole };
+    if (decoded?.id) {
+      const userDoc = await User.findById(decoded.id)
+        .select('isActive isDeleted isVerified lockUntil email role name authVersion')
+        .lean();
+      const liveRole = migrateLegacyUserRole(userDoc?.role);
+      const liveAccountUsable = Boolean(
+        userDoc
+        && !userDoc.isDeleted
+        && userDoc.isActive
+        && (
+          !userDoc.lockUntil
+          || userDoc.lockUntil <= new Date()
+          || isLoginLockoutExemptEmail(userDoc.email)
+        )
+        && liveRole
+        && isValidUserRole(liveRole)
+      );
+      const liveStaffSessionValid = !requiresStaffTwoFactor(liveRole)
+        || (
+          userDoc.isVerified
+          && decoded.authLevel === STAFF_2FA_AUTH_LEVEL
+          && authVersionMatches(decoded.authVersion, userDoc.authVersion)
+        );
+
+      if (liveAccountUsable && liveStaffSessionValid) {
+        req.user = {
+          ...decoded,
+          role: liveRole,
+          email: userDoc.email || decoded.email,
+          name: userDoc.name || decoded.name,
+        };
+      }
     }
   } catch (error) {
     console.warn('[AUTH_WARNING] Optional auth failed:', error.message);

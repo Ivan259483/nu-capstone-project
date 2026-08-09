@@ -1,33 +1,19 @@
-# 🔓 Unlock Admin Account
+# Administrator account recovery
 
-## Instant Fix (Copy-paste sa Browser Console)
+The former browser-console unlock examples and fixed demo Administrator email
+have been removed. Administrator identity and credentials are server-managed
+configuration and must not be published in client-facing documentation.
 
-1. Pumunta sa `http://localhost:5173/login`
-2. Pindutin ang **F12** (o Cmd+Option+I) para buksan ang DevTools
-3. I-click ang **Console** tab
-4. I-paste ang code na ito at pindutin ang Enter:
+## Current setup
 
-```javascript
-fetch('http://localhost:3000/api/auth/unlock', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({email: 'admin@test.com'})
-}).then(r => r.json()).then(d => console.log('✅ RESULT:', JSON.stringify(d, null, 2))).catch(e => console.error('❌ ERROR:', e));
-```
+Use the registered email configured as `BOOTSTRAP_ADMIN_EMAIL` and follow the
+[one-time Administrator bootstrap guide](backend/BOOTSTRAP_ADMINISTRATOR.md).
+That workflow provisions or migrates the account as pending, sends a secure
+verification link to the registered inbox, and retains login OTP enforcement.
 
-5. Dapat makita mo: `✅ RESULT: { "success": true, "message": "Account unlocked successfully for admin@test.com." }`
-6. I-refresh ang login page at subukan ulit mag-login!
+## Locked account
 
----
-
-## Kung Ayaw Gumana (Alternative)
-
-Subukan mula sa login page mismo (same origin):
-
-```javascript
-fetch('/api/auth/unlock', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({email: 'admin@test.com'})
-}).then(r => r.json()).then(console.log)
-```
+Do not paste an Administrator identifier into a browser-console unlock request.
+Use an authenticated, audited recovery path or a reviewed server-side
+maintenance operation for the configured account. Initial passwords and other
+credentials belong only in the backend secret store, never in this file.

@@ -190,6 +190,7 @@ function baseWrapper(
 function otpTemplate(otp, { purpose = 'verification' } = {}) {
   const digits = String(otp).split('');
   const isLogin = purpose === 'login';
+  const validityMinutes = isLogin ? 5 : 10;
   const heading = isLogin ? 'Your sign-in code' : 'Your verification code';
   const intro = isLogin
     ? 'Enter this single-use code to finish signing in. It was issued only for your account.'
@@ -231,7 +232,7 @@ function otpTemplate(otp, { purpose = 'verification' } = {}) {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             <tr>
               <td style="background:#fafaf9;border-radius:14px;border:1px solid #e7e5e4;border-left:4px solid #d97706;padding:22px 26px">
-                <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#1c1917;letter-spacing:0.01em">Valid for 10 minutes</p>
+                <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#1c1917;letter-spacing:0.01em">Valid for ${validityMinutes} minutes</p>
                 <p style="margin:0;font-size:13px;line-height:1.65;color:#78716c">For your security, never share this code. If you did not request verification, you may disregard this message—your account will remain unchanged.</p>
               </td>
             </tr>
@@ -242,7 +243,7 @@ function otpTemplate(otp, { purpose = 'verification' } = {}) {
   `;
 
   return baseWrapper(content, {
-    preheader: `Your AutoSPF+ code: ${otp}. Valid 10 minutes.`,
+    preheader: `Your AutoSPF+ code: ${otp}. Valid ${validityMinutes} minutes.`,
     accent: 'brand',
     confidentialityRibbon: true,
   });
@@ -250,7 +251,66 @@ function otpTemplate(otp, { purpose = 'verification' } = {}) {
 
 function otpPlainText(otp, { purpose = 'verification' } = {}) {
   const label = purpose === 'login' ? 'sign-in code' : 'verification code';
-  return `AutoSPF+ ${label}\n\n${otp}\n\nThis code is valid for 10 minutes. If you did not request it, ignore this email.\n\n${getAppPublicUrl()}`;
+  const validityMinutes = purpose === 'login' ? 5 : 10;
+  return `AutoSPF+ ${label}\n\n${otp}\n\nThis code is valid for ${validityMinutes} minutes. If you did not request it, ignore this email.\n\n${getAppPublicUrl()}`;
+}
+
+// ─── Staff Account Verification Link Template ───────────────────────────────
+
+function staffVerificationTemplate(name, verificationUrl, expiresHours = 24) {
+  const safeName = escapeHtml(name || 'there');
+  const safeVerificationUrl = escapeHtml(verificationUrl);
+  const supportAddr = escapeHtml(getSupportEmail());
+  const supportMailto = escapeHtml(`mailto:${getSupportEmail()}`);
+
+  const content = `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td style="padding:46px 38px 28px;text-align:center;border-bottom:1px solid #f1f5f9">
+          <p style="margin:0 0 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.22em;color:#c2410c">Staff account verification</p>
+          <h1 style="margin:0;font-size:28px;font-weight:700;letter-spacing:-0.035em;color:#0a0f1a;line-height:1.2">Verify your AutoSPF+ account</h1>
+          <p style="margin:18px auto 0;font-size:15px;line-height:1.65;color:#64748b;max-width:410px">Hi ${safeName}, an AutoSPF+ staff account was created for this email address. Verify the account before signing in.</p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:32px 32px 36px">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 26px">
+            <tr>
+              <td style="border-radius:14px;background:#0f172a">
+                <a href="${safeVerificationUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:15px 32px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:14px">Verify Account</a>
+              </td>
+            </tr>
+          </table>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="background:#fff7ed;border-radius:14px;border:1px solid #fed7aa;border-left:4px solid #f97316;padding:20px 22px">
+                <p style="margin:0 0 7px;font-size:13px;font-weight:700;color:#9a3412">Valid for ${expiresHours} hour${expiresHours === 1 ? '' : 's'}</p>
+                <p style="margin:0;font-size:13px;line-height:1.6;color:#78716c">This secure link is bound to your account and can be used only once. After verification, sign in with your password and the separate 6-digit sign-in code sent to your email.</p>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:22px 0 0;font-size:12px;line-height:1.65;color:#94a3b8;text-align:center">If the button does not work, copy this link into your browser:<br><a href="${safeVerificationUrl}" style="color:#d97706;text-decoration:none;word-break:break-all">${safeVerificationUrl}</a></p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:24px">
+            <tr>
+              <td style="border-top:1px solid #f1f5f9;padding-top:18px;text-align:center">
+                <p style="margin:0;font-size:12px;line-height:1.55;color:#64748b">Did not expect this account? Contact <a href="${supportMailto}" style="color:#d97706;text-decoration:none;font-weight:600">${supportAddr}</a>.</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  return baseWrapper(content, {
+    preheader: 'Verify your AutoSPF+ staff account with this secure one-time link.',
+    accent: 'brand',
+    confidentialityRibbon: true,
+  });
+}
+
+function staffVerificationPlainText(name, verificationUrl, expiresHours = 24) {
+  return `AutoSPF+ staff account verification\n\nHi ${name || 'there'},\n\nVerify your account using this secure one-time link:\n${verificationUrl}\n\nThis link is valid for ${expiresHours} hour${expiresHours === 1 ? '' : 's'}. After verification, sign in with your password and the separate 6-digit sign-in code sent to your registered email.\n\n${getAppPublicUrl()}`;
 }
 
 // ─── Welcome Template ─────────────────────────────────────────────────────────
@@ -557,9 +617,6 @@ export async function sendCustomerNotificationEmail({ to, spec, idempotencyKey }
 
 export const sendOtpEmail = async (email, otp, { purpose = 'verification', otpRecordId } = {}) => {
   console.log(`📨 [Resend] Sending OTP to ${email}...`);
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`   🔑 OTP Code: ${otp}`);
-  }
   const safePurpose = purpose === 'login' ? 'login' : 'verification';
   return sendEmail({
     to: email,
@@ -571,6 +628,27 @@ export const sendOtpEmail = async (email, otp, { purpose = 'verification', otpRe
       { name: 'purpose', value: safePurpose },
     ],
     idempotencyKey: buildIdempotencyKey(`otp_${safePurpose}`, otpRecordId),
+  });
+};
+
+export const sendStaffVerificationEmail = async (
+  email,
+  name,
+  verificationUrl,
+  { tokenRecordId, expiresInSeconds = 86400 } = {},
+) => {
+  console.log(`📨 [Resend] Sending staff verification link to ${email}...`);
+  const expiresHours = Math.max(1, Math.ceil(Number(expiresInSeconds || 86400) / 3600));
+  return sendEmail({
+    to: email,
+    subject: 'Verify your AutoSPF+ staff account',
+    html: staffVerificationTemplate(name, verificationUrl, expiresHours),
+    text: staffVerificationPlainText(name, verificationUrl, expiresHours),
+    tags: [
+      { name: 'type', value: 'account_verification' },
+      { name: 'purpose', value: 'staff_email_verification' },
+    ],
+    idempotencyKey: buildIdempotencyKey('staff_email_verification', tokenRecordId),
   });
 };
 
@@ -586,9 +664,6 @@ export const sendWelcomeEmail = async (email, name) => {
 
 export const sendPasswordResetEmail = async (email, otp, { otpRecordId } = {}) => {
   console.log(`📨 [Resend] Sending password reset OTP to ${email}...`);
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`   🔑 OTP Code: ${otp}`);
-  }
   return sendEmail({
     to: email,
     subject: 'Your AutoSPF+ password reset code',
@@ -633,6 +708,7 @@ export const initializeMailer = async () => {
 export default {
   initializeMailer,
   sendOtpEmail,
+  sendStaffVerificationEmail,
   sendWelcomeEmail,
   sendPasswordResetEmail,
   sendPasswordSetupEmail,

@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { getBaseApiUrl } from "@/lib/api";
+import { refreshSocketAuth } from "@/hooks/useRealtimeSync";
 import { getDashboardPathForRole, getSafeUserRole } from "@/lib/roles";
 import { signOut } from "firebase/auth";
 import { auth } from "@/config/firebase";
@@ -179,6 +180,7 @@ export default function Login() {
     const [loginOtpResending, setLoginOtpResending] = useState(false);
     const [loginOtpShake, setLoginOtpShake] = useState(false);
     const [pendingUserId, setPendingUserId] = useState("");
+    const [pendingLoginChallenge, setPendingLoginChallenge] = useState("");
     const [loginMaskedEmail, setLoginMaskedEmail] = useState("");
     const [loginOtpError, setLoginOtpError] = useState("");
     const loginOtpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -423,6 +425,7 @@ export default function Login() {
             if (result.requiresOTP) {
                 dismissLoginAuthToasts();
                 setPendingUserId(result.userId ?? "");
+                setPendingLoginChallenge(result.challengeToken ?? "");
                 setLoginMaskedEmail(result.maskedEmail ?? emailNorm);
                 setLoginOtpDigits(["", "", "", "", "", ""]);
                 setLoginOtpExpiry(300); // 5 min
@@ -581,7 +584,11 @@ export default function Login() {
             const resp = await fetch(`${backendUrl}/auth/verify-login-otp`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ userId: pendingUserId, otp: code }),
+                body: JSON.stringify({
+                    userId: pendingUserId,
+                    challengeToken: pendingLoginChallenge,
+                    otp: code,
+                }),
                 signal: AbortSignal.timeout(12000),
             });
             const json = await resp.json();
@@ -635,12 +642,18 @@ export default function Login() {
                 });
             }
 
+            // The shared socket may have been opened anonymously while the OTP
+            // screen was active. Reconnect it with the final post-2FA JWT before
+            // any dashboard subscribes to privileged rooms.
+            refreshSocketAuth();
+
             const role = getSafeUserRole(backendUser?.role);
             if (rememberMe) localStorage.setItem("remembered_email", loginForm.email);
             dismissLoginAuthToasts();
             toast.success(t("auth.verifySuccess"));
             setLoginOtpStep("form");
             setPendingUserId("");
+            setPendingLoginChallenge("");
             setLoginMaskedEmail("");
             performRedirect(role);
         } catch {
@@ -652,14 +665,17 @@ export default function Login() {
 
     /* ── Login OTP: resend ── */
     const handleResendLoginOtp = async () => {
-        if (loginOtpResend > 0 || !pendingUserId) return;
+        if (loginOtpResend > 0 || !pendingUserId || !pendingLoginChallenge) return;
         setLoginOtpResending(true);
         try {
             const backendUrl = getBaseApiUrl();
             const resp = await fetch(`${backendUrl}/auth/resend-login-otp`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ userId: pendingUserId }),
+                body: JSON.stringify({
+                    userId: pendingUserId,
+                    challengeToken: pendingLoginChallenge,
+                }),
                 signal: AbortSignal.timeout(12000),
             });
             const json = await resp.json();
@@ -1015,6 +1031,7 @@ export default function Login() {
                                             onClick={() => {
                                                 setLoginOtpStep("form");
                                                 setPendingUserId("");
+                                                setPendingLoginChallenge("");
                                                 setLoginMaskedEmail("");
                                                 setLoginOtpDigits(["", "", "", "", "", ""]);
                                                 setLoginOtpError("");

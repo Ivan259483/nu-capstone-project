@@ -120,6 +120,9 @@ function clearAuthStorage(): void {
     clearSessionCache();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(BACKEND_USER_KEY);
+    // Orders can contain customer PII. Never carry the admin's offline backup
+    // across logout or an account switch on a shared browser.
+    localStorage.removeItem('archived_sales_backup');
     purgeAvatarLocalStorage();
 }
 
@@ -214,7 +217,7 @@ interface AuthContextType {
     isLoading: boolean;
     /** True once Firebase's onAuthStateChanged has fired at least once and resolved. */
     isFirebaseAuthReady: boolean;
-    login: (email: string, password: string) => Promise<{ success: boolean; role?: string; message?: string; requiresOTP?: boolean; userId?: string; maskedEmail?: string; requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; data?: { requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; email?: string; remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }>;
+    login: (email: string, password: string) => Promise<{ success: boolean; role?: string; message?: string; requiresOTP?: boolean; userId?: string; maskedEmail?: string; challengeToken?: string; requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; data?: { requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; email?: string; remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }>;
     signup: (email: string, password: string, name: string) => Promise<{ success: boolean; message?: string }>;
     resetPassword: (email: string) => Promise<{ success: boolean; message?: string }>;
     logout: () => Promise<void>;
@@ -456,12 +459,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                     try {
                         // Force-refresh Firebase ID token to ensure it is not stale
-                        await firebaseUser.getIdToken(true);
+                        const idToken = await firebaseUser.getIdToken(true);
 
                         const syncResp = await fetch(`${apiUrl()}/auth/social-login`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
+                                idToken,
                                 email: firebaseUser.email,
                                 name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
                                 provider: 'google',
@@ -755,19 +759,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 }
             }
 
-            // Fallback: unauthenticated directory lookup (may omit fields or fail cross-origin on some setups).
-            if (!found) {
-                const resp = await fetch(
-                    `${apiUrl()}/users?email=${encodeURIComponent(email)}`,
-                    { signal: AbortSignal.timeout(5000) }
-                );
-                if (!resp.ok) return;
-                const json = await resp.json();
-                found = Array.isArray(json.data)
-                    ? json.data.find((u: any) => u.email?.toLowerCase() === email.toLowerCase())
-                    : json.data;
-            }
-
             if (!found) return;
 
             // If the account was deactivated while the user is active, force logout immediately
@@ -874,7 +865,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, [user?.id, user?.phone, sanitizeUser]);
 
 
-    const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; role?: string; message?: string; requiresOTP?: boolean; userId?: string; maskedEmail?: string; requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; data?: { requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; email?: string; remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }> => {
+    const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; role?: string; message?: string; requiresOTP?: boolean; userId?: string; maskedEmail?: string; challengeToken?: string; requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; data?: { requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; email?: string; remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }> => {
         try {
             // ── CRITICAL: Signal that login() owns the auth flow ──
             // onAuthStateChanged MUST NOT resolve or redirect during this window.
@@ -886,9 +877,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             userStorage.setCurrentUser(null);
             setUser(null);
             await signOut(auth).catch(() => {});
-
-            console.log('🚀 [DEBUG-login] Starting login for:', email);
-            console.log('🚀 [DEBUG-login] apiUrl() is:', apiUrl());
 
             void isBackendReachable().then((backendReachable) => {
                 if (!backendReachable) {
@@ -907,9 +895,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     body: JSON.stringify({ email, password }),
                     signal: AbortSignal.timeout(BACKEND_LOGIN_TIMEOUT_MS),
                 });
-                console.log('📡 [DEBUG-login] Raw backend response status:', resp.status, resp.statusText);
                 const text = await resp.text();
-                console.log('📡 [DEBUG-login] Raw backend response body:', text);
                 let body: any = {};
                 try {
                     body = JSON.parse(text);
@@ -1008,6 +994,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 };
             }
 
+            if (
+                backendStatus === 403
+                && backendBody?.code === 'ACCOUNT_PENDING_VERIFICATION'
+            ) {
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                await signOut(auth).catch(() => {});
+                clearSessionCache();
+                localStorage.removeItem('autospf_token');
+                localStorage.removeItem('autospf_backend_user');
+                userStorage.setCurrentUser(null);
+                setUser(null);
+                return {
+                    success: false,
+                    message: backendBody.message || 'Verify your staff account using the secure link sent to your registered email.',
+                };
+            }
+
             // ── Other 403 (e.g. soft-deleted user) ──
             if (backendStatus === 403) {
                 loginInProgressRef.current = false;
@@ -1039,6 +1043,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     requiresOTP: true,
                     userId: backendBody.data.userId,
                     maskedEmail: backendBody.data.maskedEmail,
+                    challengeToken: backendBody.data.challengeToken,
                 };
             }
 
@@ -1162,10 +1167,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                 // Firebase auth succeeded → user is real. Try social-login to auto-create MongoDB user.
                 try {
+                    const idToken = await firebaseUser.getIdToken(true);
                     const syncResp = await fetch(`${apiUrl()}/auth/social-login`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
+                            idToken,
                             email: firebaseUser.email,
                             name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
                             provider: 'firebase',
@@ -1208,7 +1215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 requiresOTP: backendBody?.data?.requiresOTP,
                 userId: backendBody?.data?.userId,
                 maskedEmail: backendBody?.data?.maskedEmail,
-                fullData: backendBody?.data,
+                hasChallenge: Boolean(backendBody?.data?.challengeToken),
             });
             if (backendBody?.data?.requiresOTP) {
                 loginInProgressRef.current = false;
@@ -1228,6 +1235,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     requiresOTP: true,
                     userId: backendBody.data.userId,
                     maskedEmail: backendBody.data.maskedEmail,
+                    challengeToken: backendBody.data.challengeToken,
                 };
             }
 
@@ -1269,19 +1277,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             let backendToken = '';
             let backendUser: any = null;
 
-            console.log('📥 [DEBUG-login] Full backend JSON:', JSON.stringify(backendBody, null, 2));
-
             if (backendBody.data?.token) {
                 backendToken = backendBody.data.token;
                 safeLocalStorageSet(TOKEN_KEY, backendToken);
-                const verify = localStorage.getItem('autospf_token');
-                console.log('✅ [DEBUG-login] Token saved to localStorage:', !!verify, 'length:', verify?.length);
             } else {
                 console.error('❌ [DEBUG-login] NO TOKEN in response!');
             }
             if (backendBody.data?.user) {
                 backendUser = backendBody.data.user;
-                console.log('🏷️ [DEBUG-login] Backend user object:', JSON.stringify(backendUser, null, 2));
             } else {
                 console.error('❌ [DEBUG-login] NO USER in response!');
             }
@@ -1431,10 +1434,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Fallback: use social-login to ensure the backend user record exists
             if (!backendSynced) {
                 try {
+                    const idToken = await firebaseUser.getIdToken(true);
                     const resp = await fetch(`${apiUrl()}/auth/social-login`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
+                            idToken,
                             email,
                             name,
                             provider: 'email',

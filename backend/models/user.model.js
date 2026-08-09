@@ -86,6 +86,13 @@ const userSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
+    /** Increment to revoke every previously issued staff JWT for this account. */
+    authVersion: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+    },
     loginAttempts: {
       type: Number,
       required: true,

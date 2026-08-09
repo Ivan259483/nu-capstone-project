@@ -63,10 +63,11 @@ export async function ensureBackendAuthToken(): Promise<string | null> {
     const firebaseUser = auth.currentUser;
     if (!firebaseUser?.email) return null;
 
+    let idToken: string;
     try {
-        await firebaseUser.getIdToken(true);
+        idToken = await firebaseUser.getIdToken(true);
     } catch {
-        /* non-fatal */
+        return null;
     }
 
     try {
@@ -74,6 +75,7 @@ export async function ensureBackendAuthToken(): Promise<string | null> {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                idToken,
                 email: firebaseUser.email,
                 name: firebaseUser.displayName || firebaseUser.email.split('@')[0] || 'User',
                 provider: 'google',
@@ -194,9 +196,11 @@ api.interceptors.response.use(
             if (firebaseUser && !(config as any)?._retry) {
                 (config as any)._retry = true;
                 try {
+                    const idToken = await firebaseUser.getIdToken(true);
                     const refreshRes = await axios.post(
                         `${BACKEND_API_URL}/auth/social-login`,
                         {
+                            idToken,
                             email: firebaseUser.email,
                             name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
                             provider: 'google',

@@ -7,6 +7,7 @@ const OTP_LOG_SECRET =
   'autospf-otp-log-fallback';
 
 export const EMAIL_OTP_PURPOSE = 'signup';
+export const PASSWORD_RESET_OTP_PURPOSE = 'password_reset';
 export const LOGIN_OTP_PURPOSE = 'login';
 
 export const normalizeEmailForOtp = (email) =>
@@ -36,10 +37,20 @@ export const otpFingerprint = (otp) => {
 
 export const formatOtpForLog = (otp) => {
   const normalized = normalizeOtpInput(otp);
-  if (process.env.NODE_ENV === 'development' || process.env.LOG_OTP_CODES === 'true') {
-    return normalized || '[empty]';
-  }
-  return `len=${normalized.length}, fp=${otpFingerprint(normalized)}`;
+  return normalized ? `[redacted:${normalized.length} digits]` : '[empty]';
+};
+
+export const generateLoginChallengeToken = () =>
+  crypto.randomBytes(32).toString('base64url');
+
+export const hashLoginChallengeToken = (token) =>
+  crypto.createHash('sha256').update(String(token || ''), 'utf8').digest('hex');
+
+export const loginChallengeMatches = (record, token) => {
+  const expected = String(record?.loginChallengeHash || '');
+  const actual = hashLoginChallengeToken(token);
+  if (!expected || expected.length !== actual.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(actual));
 };
 
 export const timingSafeOtpEqual = (a, b) => {

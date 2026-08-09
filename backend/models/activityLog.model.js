@@ -11,6 +11,10 @@ const activityLogSchema = new mongoose.Schema({
       'password_reset',
       'account_lock',
       'session_restore',
+      'email_verified',
+      'login_otp_sent',
+      'failed_login_otp',
+      'password_set',
 
       // ── User Management ──
       'user_created',
@@ -18,6 +22,9 @@ const activityLogSchema = new mongoose.Schema({
       'role_changed',
       'user_deactivated',
       'user_deleted',
+      'user_restored',
+      'user_archived',
+      'user_activated',
 
       // ── Bookings ──
       'booking_created',

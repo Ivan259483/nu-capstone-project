@@ -6,6 +6,7 @@ import {
   validateLogin,
   validateSendOtp,
   validateVerifyOtp,
+  validateVerifyResetOtp,
   validateForgotPassword,
   validateResetPassword,
   validateSocialLogin,
@@ -21,10 +22,12 @@ router.post('/send-otp', validateSendOtp, authController.sendOtp);
 router.post('/forgot-password', validateForgotPassword, authController.forgotPassword);
 router.post('/reset-password', validateResetPassword, authController.resetPassword);
 router.post('/verify-otp', validateVerifyOtp, authController.verifyOtp);
+router.post('/verify-staff-email', authController.verifyStaffEmail);
+router.post('/verify-reset-otp', validateVerifyResetOtp, authController.verifyPasswordResetOtp);
 router.post('/register', validateRegistration, authController.register);
 router.post('/login', validateLogin, authController.login);
 router.post('/social-login', validateSocialLogin, authController.socialLogin);
-router.post('/resend-otp', authController.resendOtp);
+router.post('/resend-otp', validateSendOtp, authController.resendOtp);
 router.post('/chat-registration/start', authController.startChatRegistration);
 router.post('/chat-registration/resend', authController.resendChatRegistrationEmail);
 router.post('/password-setup/validate', authController.validatePasswordSetupToken);
@@ -79,20 +82,14 @@ router.post(
 /**
  * @route POST /api/auth/unlock
  * @desc  Unlock a locked-out account by resetting loginAttempts + lockUntil
- * @access Dev: public | Prod: administrator / office_admin only
+ * @access Private — administrator / office_admin in every environment
  */
-if (process.env.NODE_ENV === 'development') {
-  // ⚡ Dev shortcut — no auth required
-  router.post('/unlock', authController.unlockAccount);
-} else {
-  // 🔒 Production — admin roles only
-  router.post(
-    '/unlock',
-    authenticate,
-    authorize('administrator', 'office_admin'),
-    authController.unlockAccount
-  );
-}
+router.post(
+  '/unlock',
+  authenticate,
+  authorize('administrator', 'office_admin'),
+  authController.unlockAccount
+);
 
 /**
  * @route POST /api/auth/recover-firebase

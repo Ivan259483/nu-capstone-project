@@ -52,10 +52,11 @@ export const config = {
   corsOrigin: (() => {
     const raw = process.env.CORS_ORIGIN;
 
-    // Always-allowed origins (production domains + local dev)
-    const ALWAYS_ALLOWED = [
+    const productionOrigins = [
       'https://autospf.shop',
       'https://www.autospf.shop',
+    ];
+    const developmentOrigins = [
       'http://localhost:5173',
       'http://localhost:3000',
       'http://127.0.0.1:5173',
@@ -65,15 +66,19 @@ export const config = {
       'http://127.0.0.1:3100',
       'https://127.0.0.1:3100',
     ];
+    const isProduction = process.env.NODE_ENV === 'production';
+    const defaults = isProduction
+      ? productionOrigins
+      : [...productionOrigins, ...developmentOrigins];
 
     if (!raw || raw.trim() === '*') {
-      // No restriction set — allow all (return true = any origin)
-      return true;
+      // Keep local development convenient, but never fail open in production.
+      return isProduction ? defaults : true;
     }
 
-    // Merge env var origins with always-allowed list (deduplicated)
+    // Merge explicitly configured origins with safe environment defaults.
     const fromEnv = raw.split(',').map(s => s.trim()).filter(Boolean);
-    const merged = Array.from(new Set([...ALWAYS_ALLOWED, ...fromEnv]));
+    const merged = Array.from(new Set([...defaults, ...fromEnv]));
     return merged;
   })(),
 
@@ -93,6 +98,7 @@ export const config = {
   // OTP Configuration
   otpExpiry: parseInt(process.env.OTP_EXPIRY || '600', 10), // 10 minutes in seconds
   otpLength: parseInt(process.env.OTP_LENGTH || '6', 10), // 6 digit OTP
+  staffVerificationTokenExpiry: parseInt(process.env.STAFF_VERIFICATION_TOKEN_EXPIRY || '86400', 10), // 24 hours in seconds
   passwordSetupTokenExpiry: parseInt(process.env.PASSWORD_SETUP_TOKEN_EXPIRY || '3600', 10), // 1 hour in seconds
 };
 

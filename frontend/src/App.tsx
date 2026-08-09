@@ -15,6 +15,7 @@ import ChatWidget from "./components/ChatWidget";
 import Navbar from "./components/Navbar";
 import VerifyOtpPage from "./pages/VerifyOtpPage";
 import SetPasswordPage from "./pages/SetPasswordPage";
+import VerifyStaffAccountPage from "./pages/VerifyStaffAccountPage";
 import {
     ADMIN_DASHBOARD_ROLES,
     CUSTOMER_ROLE,
@@ -35,7 +36,6 @@ const DetailerDashboard = lazy(() => import("./pages/DetailerDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const SalesDashboard = lazy(() => import("./pages/SalesDashboard"));
 const InventoryPanel = lazy(() => import("./components/inventory/InventoryPanel"));
-const CreateStaffAccountPage = lazy(() => import("./pages/admin/CreateStaffAccountPage"));
 const AccountRequestsPage = lazy(() => import("./pages/admin/AccountRequestsPage"));
 const AIEstimatorPage = lazy(() => import("./pages/AIEstimatorPage"));
 
@@ -180,7 +180,7 @@ function AppRoutes() {
 
     // Hide the public Navbar on dashboard routes — they have their own navigation
     const isDashboardRoute = /^\/(customer|detailer|admin|sales|inventory|ops)/.test(location.pathname);
-    const isAuthRoute = /^\/(login|reset-password|verify-otp|set-password)/.test(location.pathname);
+    const isAuthRoute = /^\/(login|reset-password|verify-otp|verify-account|set-password)/.test(location.pathname);
     const isStandaloneRoute = /^\/track/.test(location.pathname);
 
     return (
@@ -200,6 +200,7 @@ function AppRoutes() {
                     <Route path="/login" element={<Login />} />
                     <Route path="/reset-password" element={<ResetPassword />} />
                     <Route path="/verify-otp" element={<VerifyOtpPage />} />
+                    <Route path="/verify-account" element={<VerifyStaffAccountPage />} />
                     <Route path="/set-password" element={<SetPasswordPage />} />
                     <Route path="/track/:token" element={<PublicTrackerPage />} />
                     <Route
@@ -281,10 +282,7 @@ function AppRoutes() {
                     <Route path="/customer" element={<Navigate to="/customer/dashboard" replace />} />
                     <Route path="/detailer" element={<Navigate to="/detailer/dashboard" replace />} />
                     <Route path="/sales" element={<Navigate to="/sales/dashboard" replace />} />
-                    <Route
-                        path="/admin/create-staff"
-                        element={<CreateStaffAccountPage />}
-                    />
+                    <Route path="/admin/create-staff" element={<Navigate to="/admin/dashboard?tab=users" replace />} />
                     <Route
                         path="/admin/account-requests"
                         element={<AccountRequestsPage />}
@@ -303,7 +301,7 @@ function _ConditionalChatWidget() {
     const { pathname } = useLocation();
     const { user } = useAuth();
     const isDashboardRoute = /^\/(customer|detailer|admin|sales|inventory|ops)/.test(pathname);
-    const isAuthRoute = /^\/(login|register|verify-otp|set-password|forgot-password|reset-password)(\/|$)/.test(pathname);
+    const isAuthRoute = /^\/(login|register|verify-otp|verify-account|set-password|forgot-password|reset-password)(\/|$)/.test(pathname);
     const isPublicTrackerRoute = /^\/track\//.test(pathname);
     if (isDashboardRoute) return null;
     if (isAuthRoute) return null;

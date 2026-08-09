@@ -11,8 +11,8 @@ import Order from './models/order.model.js';
  * Fix Data Script - Auto-populate Local Database
  * 
  * Creates:
- * - Admin account (admin@autospf.com)
  * - Sample services
+ * - Sample customer accounts
  * - 3 dummy bookings
  * 
  * Usage: node fix-data.js
@@ -20,7 +20,18 @@ import Order from './models/order.model.js';
 
 const fixData = async () => {
   try {
+    if (config.nodeEnv !== 'development' || process.env.ALLOW_DESTRUCTIVE_SEED !== 'true') {
+      console.error(
+        'Refusing to modify seed data. This script requires NODE_ENV=development and ALLOW_DESTRUCTIVE_SEED=true.',
+      );
+      process.exitCode = 1;
+      return;
+    }
+
     console.log('🔧 Starting data fix...\n');
+    console.log(
+      'Administrator provisioning is excluded. Run `npm run bootstrap:administrator -- inspect` for the one-time workflow.\n',
+    );
 
     // Connect to MongoDB
     console.log(`📡 Connecting to: ${config.mongodbUri}`);
@@ -28,33 +39,7 @@ const fixData = async () => {
     console.log('✅ Connected\n');
 
     // ============================================
-    // 1. CREATE ADMIN ACCOUNT
-    // ============================================
-    console.log('👤 Creating admin account...');
-    
-    // Check if admin exists
-    let admin = await User.findOne({ email: 'admin@autospf.com' });
-    
-    if (!admin) {
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash('Admin123', salt);
-      
-      admin = await User.create({
-        name: 'Admin User',
-        email: 'admin@autospf.com',
-        password: hashedPassword,
-        role: 'administrator',
-        isVerified: true,
-        isActive: true,
-        loginAttempts: 0,
-      });
-      console.log('✅ Admin created: admin@autospf.com / Admin123');
-    } else {
-      console.log('ℹ️  Admin already exists');
-    }
-
-    // ============================================
-    // 2. CREATE SERVICES
+    // 1. CREATE SERVICES
     // ============================================
     console.log('\n🚗 Creating services...');
     
@@ -102,7 +87,7 @@ const fixData = async () => {
     console.log(`✅ Created ${services.length} services`);
 
     // ============================================
-    // 3. CREATE CUSTOMER ACCOUNTS
+    // 2. CREATE CUSTOMER ACCOUNTS
     // ============================================
     console.log('\n👥 Creating customer accounts...');
     
@@ -145,13 +130,13 @@ const fixData = async () => {
       },
     ];
 
-    // Clear existing customers (keep admin)
+    // Clear only customer accounts. Staff and Administrator accounts are never touched.
     await User.deleteMany({ role: 'customer' });
     const customers = await User.insertMany(customerData);
     console.log(`✅ Created ${customers.length} customers`);
 
     // ============================================
-    // 4. CREATE DUMMY BOOKINGS
+    // 3. CREATE DUMMY BOOKINGS
     // ============================================
     console.log('\n📅 Creating dummy bookings...');
     
@@ -216,9 +201,6 @@ const fixData = async () => {
     console.log('🎉 DATA FIX COMPLETED!');
     console.log('═'.repeat(60));
     console.log('\n📋 ACCOUNTS CREATED:\n');
-    console.log('   Admin:');
-    console.log('   Email: admin@autospf.com');
-    console.log('   Password: Admin123\n');
     console.log('   Customers (all use password: Customer123):');
     customers.forEach(c => {
       console.log(`   - ${c.email} (${c.name})`);

@@ -8,6 +8,7 @@
         "start": "node server.js",
         "dev": "nodemon --legacy-watch server.js",
         "check:email-dns": "node scripts/check-email-dns.js",
+        "bootstrap:administrator": "node scripts/bootstrap-administrator.js",
         "test": "node --test tests/*.test.js"
     },
     "keywords": [
