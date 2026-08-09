@@ -500,6 +500,91 @@ test('three wrong login codes lock the live account and public unlock is unavail
   assert.equal(publicUnlock.response.status, 401);
 });
 
+test('an expired password lock starts a fresh failure window without weakening staff 2FA', async () => {
+  const administrator = await seedUser({
+    role: 'administrator',
+    email: 'expired-password-lock-admin@example.test',
+  });
+  await User.updateOne(
+    { _id: administrator._id },
+    {
+      $set: {
+        loginAttempts: 5,
+        lockUntil: new Date(Date.now() - 60_000),
+      },
+    },
+  );
+
+  const firstWrongAttempt = await postJson('/api/auth/login', {
+    email: administrator.email,
+    password: 'WrongPassword1!',
+  });
+  assert.equal(firstWrongAttempt.response.status, 401);
+  assert.equal(firstWrongAttempt.body.data.loginAttempts, 1);
+  assert.equal(firstWrongAttempt.body.data.remainingAttempts, 4);
+  assert.equal(firstWrongAttempt.body.data.token, undefined);
+  assert.equal(await OTP.countDocuments({ userId: administrator._id, purpose: 'login' }), 0);
+
+  let currentAdministrator = await User.findById(administrator._id);
+  assert.equal(currentAdministrator.loginAttempts, 1);
+  assert.equal(currentAdministrator.lockUntil, undefined);
+
+  for (let attempt = 2; attempt <= 5; attempt += 1) {
+    const result = await postJson('/api/auth/login', {
+      email: administrator.email,
+      password: 'WrongPassword1!',
+    });
+    assert.equal(result.response.status, attempt === 5 ? 423 : 401);
+    if (attempt < 5) {
+      assert.equal(result.body.data.loginAttempts, attempt);
+      assert.equal(result.body.data.remainingAttempts, 5 - attempt);
+    }
+  }
+
+  currentAdministrator = await User.findById(administrator._id);
+  assert.equal(currentAdministrator.loginAttempts, 5);
+  assert.ok(currentAdministrator.lockUntil > new Date());
+
+  const correctPasswordWhileLocked = await postJson('/api/auth/login', {
+    email: administrator.email,
+    password: 'SecurePass1!',
+  });
+  assert.equal(correctPasswordWhileLocked.response.status, 423);
+  assert.equal(await OTP.countDocuments({ userId: administrator._id, purpose: 'login' }), 0);
+
+  await User.updateOne(
+    { _id: administrator._id },
+    { $set: { lockUntil: new Date(Date.now() - 1_000) } },
+  );
+
+  const passwordAccepted = await postJson('/api/auth/login', {
+    email: administrator.email,
+    password: 'SecurePass1!',
+  });
+  assert.equal(passwordAccepted.response.status, 200);
+  assert.equal(passwordAccepted.body.data.requiresOTP, true);
+  assert.equal(passwordAccepted.body.data.token, undefined);
+  assert.ok(passwordAccepted.body.data.challengeToken);
+
+  currentAdministrator = await User.findById(administrator._id);
+  assert.equal(currentAdministrator.loginAttempts, 0);
+  assert.equal(currentAdministrator.lockUntil, undefined);
+
+  const loginOtp = await OTP.findOne({ userId: administrator._id, purpose: 'login' });
+  assert.ok(loginOtp);
+  const verified = await postJson('/api/auth/verify-login-otp', {
+    userId: administrator._id.toString(),
+    challengeToken: passwordAccepted.body.data.challengeToken,
+    otp: loginOtp.otp,
+  });
+  assert.equal(verified.response.status, 200);
+  assert.ok(verified.body.data.token);
+  assert.equal(
+    jwt.verify(verified.body.data.token, config.jwtSecret).authLevel,
+    STAFF_2FA_AUTH_LEVEL,
+  );
+});
+
 test('expired, account-mismatched, and legacy code activation are rejected for pending staff', async () => {
   const admin = await seedUser({ role: 'administrator', email: 'activation-limits-admin@example.test' });
 

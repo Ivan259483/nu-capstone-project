@@ -1456,7 +1456,7 @@ export const login = async (req, res, next) => {
     }
 
     // Find user
-    const user = await User.findOne({ email: emailNormalized });
+    let user = await User.findOne({ email: emailNormalized });
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -1536,8 +1536,12 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Check account lockout before password verification.
-    if (user.lockUntil && user.lockUntil > new Date() && !isLoginLockoutExemptEmail(emailNormalized)) {
+    // Check account lockout before password verification. Once a lock expires,
+    // atomically open a fresh failure window so the preserved threshold counter
+    // cannot immediately re-lock the account on its next password attempt.
+    const lockoutExempt = isLoginLockoutExemptEmail(emailNormalized);
+    const lockCheckTime = new Date();
+    if (user.lockUntil && user.lockUntil > lockCheckTime && !lockoutExempt) {
       const remainingMs = user.lockUntil.getTime() - Date.now();
       const remainingMinutes = Math.ceil(remainingMs / (60 * 1000));
       return res.status(423).json({
@@ -1551,6 +1555,40 @@ export const login = async (req, res, next) => {
       });
     }
 
+    if (!lockoutExempt && user.lockUntil && user.lockUntil <= lockCheckTime) {
+      const expiredLockUntil = user.lockUntil;
+      const resetUser = await User.findOneAndUpdate(
+        { _id: user._id, lockUntil: expiredLockUntil },
+        { $set: { loginAttempts: 0 }, $unset: { lockUntil: 1 } },
+        { new: true },
+      );
+
+      if (resetUser) {
+        user = resetUser;
+      } else {
+        // Another request changed the lock concurrently. Reload and fail closed
+        // if it installed a new active lock; never clear that newer lock here.
+        const currentUser = await User.findById(user._id);
+        if (!currentUser) {
+          return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
+        if (currentUser.lockUntil && currentUser.lockUntil > new Date()) {
+          const remainingMs = currentUser.lockUntil.getTime() - Date.now();
+          const remainingMinutes = Math.max(1, Math.ceil(remainingMs / (60 * 1000)));
+          return res.status(423).json({
+            success: false,
+            message: `Account locked. Please try again in ${remainingMinutes} minute(s).`,
+            data: {
+              locked: true,
+              lockUntilMs: currentUser.lockUntil.getTime(),
+              remainingMinutes,
+            },
+          });
+        }
+        user = currentUser;
+      }
+    }
+
     // Check if user is active
     if (!user.isActive) {
       return res.status(403).json({
@@ -1562,7 +1600,6 @@ export const login = async (req, res, next) => {
 
     // Verify password using bcrypt
     const isPasswordValid = await user.comparePassword(password);
-    const lockoutExempt = isLoginLockoutExemptEmail(emailNormalized);
 
     if (!isPasswordValid) {
       if (!lockoutExempt) {
