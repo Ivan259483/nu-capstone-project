@@ -89,7 +89,7 @@
 ### ✅ Data Population
 
 **Current Database (from `fix-data.js`):**
-- ✅ 1 Admin: `admin@autospf.com`
+- ✅ Historical local seed included 1 Administrator (identifier intentionally omitted)
 - ✅ 3 Customers: `juan@test.com`, `maria@test.com`, `pedro@test.com`
 - ✅ 5 Services: ₱200-₱800
 - ✅ 3 Bookings: 1 completed, 1 processing, 1 pending
@@ -230,11 +230,11 @@ if (order.customer.toString() !== req.user.id && req.user.role !== 'admin')
    - But `User.js` model doesn't define this field
    - **Recommendation:** Add to User schema or remove from controller
 
-4. **Validate Demo Account Credentials**
-   - `Login.tsx` Line 629-631 shows demo accounts
-   - Verify passwords match actual database:
-     - Admin: `Admin123` (not `Admin123!`)
-     - Customer: `Customer123` (not `Customer123!`)
+4. **Remove Published Administrator Demo Credentials**
+   - Administrator credentials must not be embedded in `Login.tsx` or documentation.
+   - Use `BOOTSTRAP_ADMIN_EMAIL` and server-managed credentials as described in
+     the [one-time Administrator bootstrap guide](../../backend/BOOTSTRAP_ADMINISTRATOR.md).
+   - Customer-only demo credentials may remain isolated to local demo data.
 
 ### 🟢 LOW PRIORITY
 
@@ -284,7 +284,7 @@ if (order.customer.toString() !== req.user.id && req.user.role !== 'admin')
    - View bookings (3 visible)
    - Update profile
 
-2. **Logout and Login as Admin** (`admin@autospf.com` / `Admin123`)
+2. **Logout and Login as Administrator** (use the verified account configured by `BOOTSTRAP_ADMIN_EMAIL`)
    - Show admin dashboard
    - View all users
    - Manage services

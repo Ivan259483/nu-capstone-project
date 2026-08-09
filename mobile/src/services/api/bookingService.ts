@@ -112,6 +112,7 @@ export const bookingService = {
     vehicleMake?: string;
     vehicleModel?: string;
     vehicleColor?: string;
+    vehicleId?: string;
     downpaymentProof?: string;
   }): Promise<BookingRecord> {
     const bookingDate = params.date.includes(',')
@@ -133,6 +134,8 @@ export const bookingService = {
       vehicleMake: params.vehicleMake,
       vehicleModel: params.vehicleModel,
       vehicleColor: params.vehicleColor,
+      vehicle: params.vehicleId,
+      service: params.service.id,
       downpaymentProof: params.downpaymentProof,
       items: [],
     };

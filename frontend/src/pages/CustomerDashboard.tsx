@@ -1768,6 +1768,7 @@ export default function CustomerDashboard() {
         vehicleYear: bookingForm.vehicleYear, vehicleMake: bookingForm.vehicleMake,
         vehicleModel: bookingForm.vehicleModel, vehicleColor: bookingForm.vehicleColor,
         vehiclePlate: plateForSubmit,
+        vehicle: garageForSubmit?._id || garageForSubmit?.id,
         price: bookingForm.servicePrice, bookingDate: bookingForm.date,
         bookingTime: bookingForm.time, notes: bookingForm.notes,
         // Catalog package IDs (spf80, …) are NOT Mongo product IDs — backend needs serviceType

@@ -170,7 +170,7 @@ export async function computeOrderBalanceDue(orderOrId) {
 export function emitPosQueueUpdated(order, result = {}) {
   try {
     const io = getIO();
-    io.emit('pos:queue_updated', {
+    io.to('booking:approvals').emit('pos:queue_updated', {
       orderId: idOf(order?._id || order),
       posQueueStatus: order?.posQueueStatus || null,
       status: order?.status || null,

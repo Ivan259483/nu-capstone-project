@@ -47,7 +47,6 @@ export default function SalesConciergeInbox({ onBack }: SalesConciergeInboxProps
   );
   const [bookingConversationId, setBookingConversationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [mutationBusy, setMutationBusy] = useState(false);
   const [apiError, setApiError] = useState('');
   const listRequestActive = useRef(false);
@@ -90,7 +89,6 @@ export default function SalesConciergeInbox({ onBack }: SalesConciergeInboxProps
   const loadConversationDetail = useCallback(async (conversationId: string) => {
     if (detailRequestActive.current) return;
     detailRequestActive.current = true;
-    setDetailLoading(true);
     try {
       const detail = await conciergeApi.detail(conversationId);
       setConversations((current) =>
@@ -107,7 +105,6 @@ export default function SalesConciergeInbox({ onBack }: SalesConciergeInboxProps
       setApiError('Unable to refresh the selected conversation.');
     } finally {
       detailRequestActive.current = false;
-      setDetailLoading(false);
     }
   }, []);
 
@@ -307,10 +304,6 @@ export default function SalesConciergeInbox({ onBack }: SalesConciergeInboxProps
       ) : loading ? (
         <div className="border-b border-blue-100 bg-blue-50 px-5 py-2 text-center text-xs font-semibold text-blue-700">
           Loading Concierge conversations...
-        </div>
-      ) : detailLoading ? (
-        <div className="border-b border-slate-200 bg-white px-5 py-2 text-center text-xs font-medium text-slate-500">
-          Refreshing conversation...
         </div>
       ) : null}
 

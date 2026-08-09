@@ -712,7 +712,15 @@ function OrderSidebarCard({
   );
 }
 
-function MilestoneStepper({ job }: { job: QCJob }) {
+function MilestoneStepper({
+  job,
+  selectedGateId,
+  onSelectGate,
+}: {
+  job: QCJob;
+  selectedGateId: ServiceStage;
+  onSelectGate: (gate: ServiceStage) => void;
+}) {
   const tracker = getTrackerState(job);
 
   return (
@@ -723,9 +731,23 @@ function MilestoneStepper({ job }: { job: QCJob }) {
           const state = getGateState(job, index);
           const done = state === 'done';
           const active = state === 'active';
+          const reviewable = done || active;
+          const selected = selectedGateId === gate.id;
           const lineDone = index <= tracker.completedIndex;
           return (
-            <div key={gate.id} className="relative flex min-w-0 flex-col items-center text-center">
+            <button
+              key={gate.id}
+              type="button"
+              onClick={() => onSelectGate(gate.id)}
+              disabled={!reviewable}
+              aria-pressed={selected}
+              title={reviewable ? `Review ${gate.label} evidence` : `${gate.label} is not complete yet`}
+              className={`group relative flex min-w-0 flex-col items-center text-center focus:outline-none ${
+                reviewable
+                  ? 'cursor-pointer'
+                  : 'cursor-default'
+              }`}
+            >
               {index < TRACKER_GATES.length - 1 ? (
                 <div
                   className={`absolute left-1/2 top-3.5 h-1 w-full rounded-full transition-colors ${
@@ -740,27 +762,132 @@ function MilestoneStepper({ job }: { job: QCJob }) {
                     : active
                       ? 'bg-slate-950 text-white shadow-[0_4px_14px_-2px_rgba(15,23,42,0.45)]'
                       : 'bg-white text-slate-400 shadow-[inset_0_1px_3px_rgba(15,23,42,0.08),0_2px_8px_-2px_rgba(15,23,42,0.06)]'
-                }`}
+                } ${selected ? 'ring-4 ring-blue-100 ring-offset-2' : reviewable ? 'group-hover:scale-110' : ''}`}
               >
                 {done ? <CheckCircle2 className="h-4 w-4" strokeWidth={2.8} /> : active ? index + 1 : null}
               </div>
-              <p className={`mt-2 w-full truncate px-1 text-[11px] font-black ${done ? 'text-emerald-700' : active ? 'text-slate-950' : 'text-slate-400'}`}>
+              <p className={`mt-2 w-full truncate px-1 text-[11px] font-black ${selected ? 'text-blue-700' : done ? 'text-emerald-700' : active ? 'text-slate-950' : 'text-slate-400'}`}>
                 {gate.label}
               </p>
-            </div>
+            </button>
           );
         })}
         </div>
+        <p className="mt-3 text-center text-[10px] font-bold text-slate-400">
+          Select a completed step to review its uploaded evidence.
+        </p>
       </div>
     </div>
   );
 }
 
-function PhotoComplianceCard({ job, viewerIsQualityChecker }: { job: QCJob; viewerIsQualityChecker: boolean }) {
+function CompletedGateEvidenceCard({
+  job,
+  gate,
+  viewerIsQualityChecker,
+  detailsLoading,
+}: {
+  job: QCJob;
+  gate: TrackerGate;
+  viewerIsQualityChecker: boolean;
+  detailsLoading?: boolean;
+}) {
+  const mediaList = getMediaList(job);
+  const slotRows = orderedStaffGateSlots(gate.id, viewerIsQualityChecker);
+  const uploadedCount = countFilledGateSlots(mediaList, gate.id);
+  const requiredCount = requiredSlotsCountForGate(gate.id, viewerIsQualityChecker);
+  const GateIcon = gate.Icon;
+
+  return (
+    <section className="qc-live-panel rounded-[32px] bg-white/95 p-5 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-blue-600">
+            <ImageIcon className="h-3.5 w-3.5" />
+            Saved gate evidence
+          </div>
+          <h3 className="mt-1 flex items-center gap-2 text-lg font-black tracking-tight text-slate-950">
+            <GateIcon className="h-5 w-5 text-slate-500" />
+            {gate.label}
+          </h3>
+          <p className="mt-1 text-sm font-semibold text-slate-500">
+            Uploaded photos for this completed step. Review only — the originals remain unchanged.
+          </p>
+        </div>
+        <span className="inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-blue-700 tabular-nums">
+          <ImageIcon className="h-3.5 w-3.5" />
+          {uploadedCount}/{requiredCount} saved
+        </span>
+      </div>
+
+      <div className={gate.id === 'quality_check' ? 'mt-5 flex justify-center gap-3' : 'mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3'}>
+        {slotRows.map((slot) => {
+          const isChecklist = slot === TRACKER_PREASSESSMENT_SLOT_KEY;
+          const isQcForm = slot === TRACKER_QC_FORM_SLOT_KEY;
+          const entry = getMediaForSlot(mediaList, gate.id, slot);
+          const photoUrl = String(entry?.photoUrl || '').trim();
+          const saved = mediaRepresentsSavedPhoto(entry);
+          const label = isChecklist
+            ? PREASSESSMENT_SLOT_SHORT
+            : isQcForm
+              ? QC_FORM_SLOT_SHORT
+              : TRACKER_PHOTO_SLOT_SHORT[slot as TrackerPhotoSlotKey];
+          const prompt = slotPromptForStaffGateSlot(gate.id, slot);
+          const tileWidth = gate.id === 'quality_check' ? 'w-full max-w-md' : '';
+
+          return (
+            <figure
+              key={slot}
+              className={`overflow-hidden rounded-[24px] bg-slate-50/85 shadow-[0_10px_32px_-14px_rgba(15,23,42,0.1),inset_0_1px_0_rgba(255,255,255,0.95)] ${tileWidth}`}
+            >
+              <figcaption className="flex items-center justify-between gap-2 bg-white/90 px-2.5 py-1.5">
+                <span className="truncate text-[9px] font-black uppercase tracking-[0.1em] text-slate-600">{label}</span>
+                {saved ? (
+                  <span className="inline-flex shrink-0 items-center gap-1 text-[9px] font-black uppercase tracking-[0.08em] text-emerald-600">
+                    <CheckCircle2 className="h-3 w-3" strokeWidth={2.8} />
+                    Saved
+                  </span>
+                ) : null}
+              </figcaption>
+              <div className="aspect-[4/3] w-full bg-slate-100">
+                {photoUrl ? (
+                  <img
+                    src={photoUrl}
+                    alt={`${gate.label}: ${prompt}`}
+                    className="h-full w-full object-contain bg-slate-950"
+                  />
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-slate-500">
+                    {detailsLoading ? <Loader2 className="h-7 w-7 animate-spin" /> : <ImageIcon className="h-7 w-7" strokeWidth={1.75} />}
+                    <span className="text-[10px] font-bold leading-snug">
+                      {detailsLoading ? 'Loading saved photo...' : saved ? 'Saved photo unavailable' : 'No photo was saved'}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <p className="min-h-10 px-2.5 py-2 text-[10px] font-semibold leading-snug text-slate-500">{prompt}</p>
+            </figure>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function PhotoComplianceCard({
+  job,
+  viewerIsQualityChecker,
+  focusedStage,
+}: {
+  job: QCJob;
+  viewerIsQualityChecker: boolean;
+  focusedStage?: ServiceStage;
+}) {
   const mediaList = getMediaList(job);
   const tracker = getTrackerState(job);
-  const currentNeed = requiredSlotsCountForGate(tracker.currentGate.id, viewerIsQualityChecker);
-  const currentCount = countFilledGateSlots(mediaList, tracker.currentGate.id);
+  const selectedStage = focusedStage || tracker.currentGate.id;
+  const currentNeed = requiredSlotsCountForGate(selectedStage, viewerIsQualityChecker);
+  const currentCount = countFilledGateSlots(mediaList, selectedStage);
 
   return (
     <section className="qc-live-panel rounded-[30px] bg-white/95 p-4 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
@@ -1212,6 +1339,7 @@ function CurrentGateCard({
   onDeleteTrackerStagePhoto,
   onLocalStageMedia,
   onUploadInteractionChange,
+  readOnly = false,
 }: {
   job: QCJob;
   detailsLoading?: boolean;
@@ -1231,6 +1359,7 @@ function CurrentGateCard({
   ) => Promise<boolean>;
   onLocalStageMedia: (id: string, media: TrackerMedia) => void;
   onUploadInteractionChange?: (active: boolean) => void;
+  readOnly?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const successTimersRef = useRef<Partial<Record<string, ReturnType<typeof setTimeout>>>>({});
@@ -1439,19 +1568,21 @@ function CurrentGateCard({
 
   return (
     <section className="qc-live-panel rounded-[32px] bg-white/95 p-5 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handlePhotoSelected}
-      />
+      {!readOnly ? (
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handlePhotoSelected}
+        />
+      ) : null}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
             <GateIcon className="h-3.5 w-3.5" />
-            Current gate
+            {readOnly ? 'Released evidence' : 'Current gate'}
           </div>
           <h3 className="mt-1 text-lg font-black tracking-tight text-slate-950">{gateTitle}</h3>
           <p className="mt-1 text-sm font-semibold text-slate-500">{tracker.currentGate.sub}</p>
@@ -1558,7 +1689,7 @@ function CurrentGateCard({
                     {shortLabel}
                   </span>
                 </div>
-                {filled ? (
+                {filled && !readOnly ? (
                   <button
                     type="button"
                     onClick={() => removeSlot(slot)}
@@ -1600,6 +1731,11 @@ function CurrentGateCard({
                       Saved
                     </div>
                   ) : null}
+                </div>
+              ) : readOnly ? (
+                <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 bg-slate-50/80 px-2 text-center text-slate-500 shadow-[inset_0_2px_12px_rgba(15,23,42,0.05)]">
+                  <ImageIcon className="h-7 w-7" strokeWidth={1.5} />
+                  <span className="px-1 text-center text-[10px] font-bold leading-snug">No photo was saved</span>
                 </div>
               ) : (
                 <button
@@ -1648,7 +1784,9 @@ function CurrentGateCard({
 
       <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
         <p className="text-center text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
-          All {requiredForGate} photo{requiredForGate === 1 ? '' : 's'} required before advancing this gate
+          {readOnly
+            ? 'Released evidence is read-only'
+            : `All ${requiredForGate} photo${requiredForGate === 1 ? '' : 's'} required before advancing this gate`}
         </p>
       </div>
     </section>
@@ -1928,6 +2066,9 @@ function SelectedOrderPanel({
   const vehicleDisplay = formatVehicle(job);
   const serviceDisplay = formatService(job);
   const mediaList = getMediaList(job);
+  const [reviewedGateId, setReviewedGateId] = useState<ServiceStage>(() => tracker.currentGate.id);
+  const reviewedGate = TRACKER_GATES.find((gate) => gate.id === reviewedGateId) || tracker.currentGate;
+  const reviewingHistoricalGate = reviewedGate.id !== tracker.currentGate.id;
   const plateAutoSeed = useMemo(
     () => deriveQcFourDigitPlate(job),
     [job.id, job.plate, String((job as any).qcHandoffSheet?.plateNo ?? '').trim()]
@@ -1943,6 +2084,21 @@ function SelectedOrderPanel({
     if (qcPlateManualRef.current) return;
     setQcPlateValue(plateAutoSeed);
   }, [job.id, plateAutoSeed]);
+
+  useEffect(() => {
+    setReviewedGateId(tracker.currentGate.id);
+  }, [job.id, tracker.currentGate.id]);
+
+  const handleSelectGate = useCallback(
+    (gateId: ServiceStage) => {
+      const targetIndex = TRACKER_GATES.findIndex((gate) => gate.id === gateId);
+      const isReviewable =
+        targetIndex >= 0 &&
+        (targetIndex <= tracker.completedIndex || targetIndex === tracker.activeIndex);
+      if (isReviewable) setReviewedGateId(gateId);
+    },
+    [tracker.activeIndex, tracker.completedIndex]
+  );
 
   const [qcCheckedIds, setQcCheckedIds] = useState<Set<string>>(() => new Set());
   const qcCheckedIdsRef = useRef<Set<string>>(qcCheckedIds);
@@ -2070,30 +2226,40 @@ function SelectedOrderPanel({
         </div>
       </div>
 
-      <MilestoneStepper job={job} />
+      <MilestoneStepper job={job} selectedGateId={reviewedGate.id} onSelectGate={handleSelectGate} />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,7fr)_minmax(280px,3fr)]">
           <div className="min-w-0 space-y-5">
-            <CurrentGateCard
-              job={job}
-              detailsLoading={detailsLoading}
-              viewerIsQualityChecker={viewerIsQualityChecker}
-              qcCheckedIds={qcCheckedIds}
-              onToggleQcItem={handleToggleQcItem}
-              qcValidation={qcValidation}
-              onUploadStagePhoto={onUploadStagePhoto}
-              onDeleteTrackerStagePhoto={onDeleteTrackerStagePhoto}
-              onLocalStageMedia={onLocalStageMedia}
-              onUploadInteractionChange={onUploadInteractionChange}
-            />
+            {reviewingHistoricalGate ? (
+              <CompletedGateEvidenceCard
+                job={job}
+                gate={reviewedGate}
+                viewerIsQualityChecker={viewerIsQualityChecker}
+                detailsLoading={detailsLoading}
+              />
+            ) : (
+              <CurrentGateCard
+                job={job}
+                detailsLoading={detailsLoading}
+                viewerIsQualityChecker={viewerIsQualityChecker}
+                qcCheckedIds={qcCheckedIds}
+                onToggleQcItem={handleToggleQcItem}
+                qcValidation={qcValidation}
+                onUploadStagePhoto={onUploadStagePhoto}
+                onDeleteTrackerStagePhoto={onDeleteTrackerStagePhoto}
+                onLocalStageMedia={onLocalStageMedia}
+                onUploadInteractionChange={onUploadInteractionChange}
+                readOnly={tracker.isReleased}
+              />
+            )}
             <ShopFloorLogCard job={job} onAddStaffNote={onAddStaffNote} onLocalStaffNote={onLocalStaffNote} />
           </div>
 
           <aside className="h-fit space-y-5 self-start lg:sticky lg:top-0">
             {viewerIsQualityChecker && tracker.currentGate.id === 'quality_check' ? (
               <>
-                <PhotoComplianceCard job={job} viewerIsQualityChecker={viewerIsQualityChecker} />
+                <PhotoComplianceCard job={job} viewerIsQualityChecker={viewerIsQualityChecker} focusedStage={reviewedGate.id} />
                 <QCPlateValidationCard
                   plateValue={qcPlateValue}
                   onPlateChange={handleQcPlateChange}
@@ -2105,7 +2271,7 @@ function SelectedOrderPanel({
             ) : (
               <>
                 <QCHandoffOrderCard job={job} onSave={onSaveQCHandoffSheet} onLocalPatch={onLocalHandoffPatch} />
-                <PhotoComplianceCard job={job} viewerIsQualityChecker={viewerIsQualityChecker} />
+                <PhotoComplianceCard job={job} viewerIsQualityChecker={viewerIsQualityChecker} focusedStage={reviewedGate.id} />
               </>
             )}
           </aside>

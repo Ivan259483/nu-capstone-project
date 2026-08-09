@@ -1277,12 +1277,12 @@ export const runPosCheckoutCore = async ({
       });
     }
 
-    io.emit('pos:transaction_completed', {
+    io.to('booking:approvals').emit('pos:transaction_completed', {
       paymentId: payment._id,
       amount: amountCollected,
       method: paymentMethod,
     });
-    io.emit('pos:queue_updated', {
+    io.to('booking:approvals').emit('pos:queue_updated', {
       orderId: order._id.toString(),
       posQueueStatus: null,
       status: order.status,

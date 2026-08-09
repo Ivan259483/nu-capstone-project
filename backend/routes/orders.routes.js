@@ -275,7 +275,7 @@ router.patch('/:id', orderController.updateOrder);
  * @desc Delete order
  * @access Private - Admin or order owner
  */
-router.delete('/:id', orderController.deleteOrder);
+router.delete('/:id', authorize(...FULL_ADMIN_ROLES), orderController.deleteOrder);
 
 /**
  * @route PUT /api/orders/:id/assign

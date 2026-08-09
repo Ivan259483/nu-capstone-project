@@ -158,9 +158,12 @@ When OTP is sent, you'll see:
 6. Enter OTP and verify
 
 ### 4. **Test All Three Dashboards**
-- **Admin:** admin@autospf.com / Admin123!
+- **Administrator:** use the verified account configured by `BOOTSTRAP_ADMIN_EMAIL`; credentials are not published
 - **Detailer:** mike@detailshop.com / Detailer123!
 - **Customer:** customer@test.com / Customer123!
+
+For Administrator setup, follow the
+[one-time Administrator bootstrap guide](../../backend/BOOTSTRAP_ADMINISTRATOR.md).
 
 Each should load with:
 - ✅ Premium Dark theme (no flickering)

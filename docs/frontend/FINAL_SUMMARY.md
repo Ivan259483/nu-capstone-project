@@ -210,10 +210,13 @@ bash setup.sh
    Email: mike@detailshop.com
    Password: Detailer123!
    
-🔓 Admin Account
-   Email: admin@autospf.com
-   Password: Admin123!
+🔓 Administrator Account
+   Email: configured as BOOTSTRAP_ADMIN_EMAIL
+   Password: configured server-side; not published
 ```
+
+Provision or migrate the Administrator account with the
+[one-time Administrator bootstrap guide](../../backend/BOOTSTRAP_ADMINISTRATOR.md).
 
 ---
 
@@ -380,4 +383,3 @@ npm run dev
 Questions? Check the documentation files or follow the troubleshooting guides provided.
 
 Happy coding! 🚀
-

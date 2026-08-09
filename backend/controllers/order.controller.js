@@ -49,6 +49,7 @@ import {
   syncBookingSlotCounter,
   validateSlotAvailability,
 } from '../services/slot.service.js';
+import { SPF_PACKAGE_PRICING, getPackageKeyFromName } from '../constants/spfPricing.js';
 
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
@@ -60,12 +61,58 @@ const DEFAULT_SERVICE_STEPS = [
 
 const LOW_STOCK_THRESHOLD = 10;
 
-const SIGNED_URL_QUERY_REGEX = /(X-Amz-Signature|Signature|sig|signed)=/i;
-const isDataUrl = (value = '') => typeof value === 'string' && value.startsWith('data:');
-const isSignedUrl = (value = '') =>
-  typeof value === 'string' &&
-  (value.startsWith('https://') || value.startsWith('s3://')) &&
-  SIGNED_URL_QUERY_REGEX.test(value);
+const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
+const SAFE_IMAGE_DATA_URL = /^data:image\/(jpeg|jpg|png|webp);base64,([a-z0-9+/=\s]+)$/i;
+const validateImageReference = (value) => {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  const trimmed = value.trim();
+  const dataMatch = trimmed.match(SAFE_IMAGE_DATA_URL);
+  if (dataMatch) {
+    const estimatedBytes = Math.floor((dataMatch[2].replace(/\s/g, '').length * 3) / 4);
+    return estimatedBytes > 0 && estimatedBytes <= MAX_INLINE_IMAGE_BYTES;
+  }
+  if (trimmed.length > 2048) return false;
+  try {
+    return new URL(trimmed).protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+const validatePdfReference = (value) => {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  const trimmed = value.trim();
+  const match = trimmed.match(/^data:application\/pdf;base64,([a-z0-9+/=\s]+)$/i);
+  if (match) {
+    const estimatedBytes = Math.floor((match[1].replace(/\s/g, '').length * 3) / 4);
+    return estimatedBytes > 0 && estimatedBytes <= MAX_INLINE_IMAGE_BYTES;
+  }
+  if (trimmed.length > 2048) return false;
+  try {
+    return new URL(trimmed).protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+const normalizeVehiclePriceKey = (value = '') => {
+  const normalized = String(value).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const map = {
+    hatchback: 'hatchback', sedan: 'sedan', midsized: 'midsized', midsize: 'midsized',
+    suv: 'suv', pickup: 'pickup', largesuv: 'largeSuv', largesuvvan: 'largeSuv',
+    van: 'largeSuv', highend: 'highend', highendsedan: 'highend',
+  };
+  return map[normalized] || null;
+};
+
+const getServicePriceForVehicle = (service, vehiclePriceKey) => {
+  if (!service || !vehiclePriceKey) return null;
+  const legacyKey = vehiclePriceKey === 'largeSuv' ? 'largesuv' : vehiclePriceKey;
+  const rich = service.pricing?.[vehiclePriceKey]?.base;
+  const legacy = service.prices?.[legacyKey];
+  const price = Number.isFinite(rich) ? rich : legacy;
+  return Number.isFinite(price) && price > 0 ? price : null;
+};
 
 const SERVICE_INVENTORY_MAP = [
   {
@@ -1246,8 +1293,6 @@ export const createOrder = async (req, res, next) => {
         });
     }
 
-    console.log('📝 [CREATE_ORDER] Request Body:', req.body);
-
     const { 
       customer: customerInput, 
       items, 
@@ -1277,14 +1322,24 @@ export const createOrder = async (req, res, next) => {
     // Always trust the authenticated user for customer bookings.
     // Only admins can create bookings on behalf of another customer.
     const requestedCustomerId = customerInput || customerIdInput;
-    const resolvedCustomerId =
-      isBookingManagerRole(req.user.role) && requestedCustomerId && mongoose.Types.ObjectId.isValid(requestedCustomerId)
-        ? requestedCustomerId
-        : req.user.id;
+    let resolvedCustomerId = req.user.id;
+    if (isBookingManagerRole(req.user.role)) {
+      if (!requestedCustomerId || !mongoose.Types.ObjectId.isValid(requestedCustomerId)) {
+        return res.status(400).json({ success: false, message: 'A valid customer ID is required.' });
+      }
+      const targetCustomer = await User.findById(requestedCustomerId).select('role isActive isDeleted name').lean();
+      if (!targetCustomer || targetCustomer.isDeleted || !targetCustomer.isActive) {
+        return res.status(404).json({ success: false, message: 'Active customer account not found.' });
+      }
+      if (!isCustomerRole(targetCustomer.role)) {
+        return res.status(400).json({ success: false, message: 'Order owner must be a customer account.' });
+      }
+      resolvedCustomerId = String(targetCustomer._id);
+    }
 
-    let fallbackCustomerName = (typeof customerNameInput === 'string' && customerNameInput.trim())
-      || req.user?.name
-      || '';
+    let fallbackCustomerName = isCustomerRole(req.user.role)
+      ? (req.user?.name || '')
+      : ((typeof customerNameInput === 'string' && customerNameInput.trim()) || '');
     const fallbackServiceType = (typeof serviceTypeInput === 'string' && serviceTypeInput.trim())
       || (typeof serviceNameInput === 'string' && serviceNameInput.trim())
       || '';
@@ -1322,6 +1377,27 @@ export const createOrder = async (req, res, next) => {
         vehiclePlate
     };
 
+    let resolvedVehicle = null;
+    if (vehicleId) {
+      if (!mongoose.Types.ObjectId.isValid(vehicleId)) {
+        return res.status(400).json({ success: false, message: 'Invalid vehicle ID.' });
+      }
+      resolvedVehicle = await Vehicle.findById(vehicleId).lean();
+      if (!resolvedVehicle) {
+        return res.status(404).json({ success: false, message: 'Vehicle not found.' });
+      }
+      if (String(resolvedVehicle.customer) !== String(resolvedCustomerId)) {
+        return res.status(403).json({ success: false, message: 'Vehicle does not belong to the order customer.' });
+      }
+      finalVehicleData = {
+        vehicleYear: resolvedVehicle.year,
+        vehicleMake: resolvedVehicle.make,
+        vehicleModel: resolvedVehicle.model,
+        vehicleColor: resolvedVehicle.color,
+        vehiclePlate: resolvedVehicle.plateNumber,
+      };
+    }
+
     // Handle Service Booking Mode (if service & vehicle IDs are provided)
     if (serviceId && vehicleId) {
         // 1. Fetch Service details (strict)
@@ -1335,13 +1411,9 @@ export const createOrder = async (req, res, next) => {
         }
         resolvedServiceId = service._id;
 
-        // 2. Fetch Vehicle details (best-effort)
-        let vehicle = null;
-        if (mongoose.Types.ObjectId.isValid(vehicleId)) {
-            vehicle = await Vehicle.findById(vehicleId);
-        }
-
-        const servicePrice = normalizeCurrency(service.basePrice);
+        const vehiclePriceKey = normalizeVehiclePriceKey(resolvedVehicle?.vehicleType);
+        const servicePrice = getServicePriceForVehicle(service, vehiclePriceKey)
+          || normalizeCurrency(service.basePrice);
 
         // 3. Construct Order Items (Treat service as a product item)
         // Note: 'product' field in Order Schema refs Product, but we can store the ID or create a dummy item structure.
@@ -1357,13 +1429,13 @@ export const createOrder = async (req, res, next) => {
         finalTotalPrice = servicePrice;
 
         // 4. Populate Vehicle Data (fallback to provided fields if lookup fails)
-        if (vehicle) {
+        if (resolvedVehicle) {
             finalVehicleData = {
-                vehicleYear: vehicle.year,
-                vehicleMake: vehicle.make,
-                vehicleModel: vehicle.model,
-                vehicleColor: vehicle.color,
-                vehiclePlate: vehicle.plateNumber
+                vehicleYear: resolvedVehicle.year,
+                vehicleMake: resolvedVehicle.make,
+                vehicleModel: resolvedVehicle.model,
+                vehicleColor: resolvedVehicle.color,
+                vehiclePlate: resolvedVehicle.plateNumber
             };
         } else {
             finalVehicleData = {
@@ -1390,12 +1462,41 @@ export const createOrder = async (req, res, next) => {
           });
 
         if ((finalItems.length === 0 || hasNonObjectIdItem) && hasCustomServiceType && hasValidTotal) {
+          if (isCustomerRole(req.user.role)) {
+            if (!resolvedVehicle) {
+              return res.status(400).json({ success: false, message: 'Select a vehicle from your garage.' });
+            }
+            const packageKey = getPackageKeyFromName(finalServiceType)
+              || getPackageKeyFromName(finalItems[0]?.product || '');
+            const vehiclePriceKey = normalizeVehiclePriceKey(resolvedVehicle.vehicleType);
+            const packageConfig = packageKey ? SPF_PACKAGE_PRICING[packageKey] : null;
+            if (!packageConfig || !vehiclePriceKey) {
+              return res.status(400).json({ success: false, message: 'Unable to verify package pricing for this vehicle.' });
+            }
+
+            const packageDigits = packageKey.replace('spf', '');
+            const publishedService = await Service.findOne({
+              name: new RegExp(`SPF\\s*${packageDigits}`, 'i'),
+              status: 'Active',
+              isPublished: true,
+            });
+            const serverPrice = getServicePriceForVehicle(publishedService, vehiclePriceKey)
+              || packageConfig.base[vehiclePriceKey];
+            if (!Number.isFinite(serverPrice) || serverPrice <= 0) {
+              return res.status(400).json({ success: false, message: 'This package is unavailable for the selected vehicle.' });
+            }
+            finalServiceType = publishedService?.name || packageConfig.name;
+            resolvedServiceId = publishedService?._id;
+            finalTotalPrice = serverPrice;
+            finalTotalAmount = serverPrice;
+          } else {
+            finalTotalAmount = normalizedTotalPriceInput;
+            finalTotalPrice = normalizedTotalPriceInput;
+          }
           finalItems = [{
             quantity: 1,
-            price: normalizedTotalPriceInput,
+            price: finalTotalPrice,
           }];
-          finalTotalAmount = normalizedTotalPriceInput;
-          finalTotalPrice = normalizedTotalPriceInput;
         } else {
           if (finalItems.length === 0) {
             return res.status(400).json({ success: false, message: 'Order must contain at least one item' });
@@ -1436,8 +1537,12 @@ export const createOrder = async (req, res, next) => {
       const a = typeof downpaymentProofInput === 'string' ? downpaymentProofInput.trim() : '';
       const b = typeof paymentProofUrlInput === 'string' ? paymentProofUrlInput.trim() : '';
       const proof = a || b;
-      return proof || undefined;
+      return proof && validateImageReference(proof) ? proof : undefined;
     })();
+
+    if ((downpaymentProofInput || paymentProofUrlInput) && !resolvedPaymentProof) {
+      return res.status(400).json({ success: false, message: 'Payment proof must be a valid JPG, PNG, or WebP image under 8 MB.' });
+    }
 
     if (isCustomerRole(req.user.role) && !resolvedPaymentProof) {
       return res.status(400).json({
@@ -1629,7 +1734,7 @@ export const signWaiver = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Waiver signature is required' });
     }
 
-    const isValidSignature = isDataUrl(waiverSignature) || isSignedUrl(waiverSignature);
+    const isValidSignature = validateImageReference(waiverSignature);
     if (!isValidSignature) {
       return res.status(400).json({
         success: false,
@@ -1637,7 +1742,7 @@ export const signWaiver = async (req, res, next) => {
       });
     }
     if (waiverPdf) {
-      const isValidPdf = isDataUrl(waiverPdf) || isSignedUrl(waiverPdf);
+      const isValidPdf = validatePdfReference(waiverPdf);
       if (!isValidPdf) {
         return res.status(400).json({
           success: false,
@@ -1698,7 +1803,7 @@ export const signWaiver = async (req, res, next) => {
 
       const io = getIO();
       if (io) {
-        io.emit('waiver:signed', {
+        io.to('admin:chat').emit('waiver:signed', {
           orderId: order._id,
           customerName,
           signedAt: order.legalCompliance.waiverSignedAt,
@@ -1725,7 +1830,7 @@ export const updateInspection = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'preServicePhotos must be an array' });
     }
 
-    const invalidPhoto = preServicePhotos.find((url) => !isSignedUrl(url) && !isDataUrl(url));
+    const invalidPhoto = preServicePhotos.find((url) => !validateImageReference(url));
     if (invalidPhoto) {
       return res.status(400).json({
         success: false,
@@ -1798,15 +1903,141 @@ export const updateOrder = async (req, res, next) => {
       });
     }
 
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ success: false, message: 'Request body must be an object.' });
+    }
+
+    const allowedFields = new Set();
+    if (isOwner && isCustomerRole(req.user.role)) {
+      ['status', 'cancellationReason', 'archived', 'archivedAt', 'archivedReason']
+        .forEach((field) => allowedFields.add(field));
+    }
+    if (isBookingManagerRole(req.user.role)) {
+      ['status', 'customerStatus', 'bookingDate', 'bookingTime', 'assignedDetailer', 'archived', 'archivedAt', 'archivedReason']
+        .forEach((field) => allowedFields.add(field));
+    }
+    if (isPosManagerRole(req.user.role)) {
+      ['paymentStatus', 'paymentMethod'].forEach((field) => allowedFields.add(field));
+    }
+    if (isAssignedDetailer || isClaimingUnassigned) {
+      ['status', 'customerStatus', 'assignedDetailer'].forEach((field) => allowedFields.add(field));
+    }
+
+    const unexpectedFields = Object.keys(req.body).filter((field) => !allowedFields.has(field));
+    if (unexpectedFields.length > 0) {
+      return res.status(403).json({
+        success: false,
+        message: `Protected or unsupported order fields: ${unexpectedFields.join(', ')}`,
+      });
+    }
+
+    const update = {};
+    const validOrderStatuses = new Set(Order.schema.path('status').enumValues);
+    if (Object.prototype.hasOwnProperty.call(req.body, 'status')) {
+      if (typeof req.body.status !== 'string' || !validOrderStatuses.has(req.body.status)) {
+        return res.status(400).json({ success: false, message: 'Invalid order status.' });
+      }
+      if (isOwner && isCustomerRole(req.user.role)) {
+        const customerCancellableStatuses = new Set(['pending_confirmation', 'rejected', 'pending', 'confirmed', 'approved']);
+        if (req.body.status !== 'cancelled' || !customerCancellableStatuses.has(order.status)) {
+          return res.status(403).json({ success: false, message: 'This booking can no longer be cancelled by the customer.' });
+        }
+      }
+      if ((isAssignedDetailer || isClaimingUnassigned) && !isAdmin) {
+        const staffStatuses = new Set(['assigned', 'queued', 'received', 'in_progress', 'ready_for_payment', 'completed']);
+        if (!staffStatuses.has(req.body.status)) {
+          return res.status(403).json({ success: false, message: 'Quality staff cannot set this order status.' });
+        }
+      }
+      if (normalizeToCanonical(req.user.role) === 'sales') {
+        const salesStatuses = new Set(['pending_confirmation', 'approved', 'rejected', 'pending', 'confirmed', 'assigned', 'cancelled']);
+        if (!salesStatuses.has(req.body.status)) {
+          return res.status(403).json({ success: false, message: 'Sales cannot set service-operation status.' });
+        }
+      }
+      update.status = req.body.status;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'customerStatus')) {
+      const customerStatus = normalizeCustomerStatus(req.body.customerStatus);
+      if (!customerStatus) {
+        return res.status(400).json({ success: false, message: 'Invalid customer tracking status.' });
+      }
+      update.customerStatus = customerStatus;
+      update.customerStatusUpdatedAt = new Date();
+    }
+
+    for (const field of ['bookingDate', 'bookingTime']) {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        if (typeof req.body[field] !== 'string' || req.body[field].trim().length === 0 || req.body[field].length > 80) {
+          return res.status(400).json({ success: false, message: `Invalid ${field}.` });
+        }
+        update[field] = req.body[field].trim();
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'assignedDetailer')) {
+      const detailerId = String(req.body.assignedDetailer || '');
+      if (!mongoose.isValidObjectId(detailerId)) {
+        return res.status(400).json({ success: false, message: 'Invalid assignedDetailer ID.' });
+      }
+      if ((isAssignedDetailer || isClaimingUnassigned) && !isAdmin && detailerId !== String(req.user.id)) {
+        return res.status(403).json({ success: false, message: 'Quality staff may only claim a job for themselves.' });
+      }
+      const detailer = await User.findById(detailerId).select('role isActive isDeleted').lean();
+      if (!detailer || detailer.isDeleted || !detailer.isActive || !isServiceStaffRole(detailer.role)) {
+        return res.status(400).json({ success: false, message: 'Assigned user must be an active Quality Checker.' });
+      }
+      update.assignedDetailer = detailerId;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'paymentStatus')) {
+      if (!isPosManagerRole(req.user.role) || !['paid', 'unpaid', 'failed', 'refunded'].includes(req.body.paymentStatus)) {
+        return res.status(403).json({ success: false, message: 'Only authorized POS users may change payment status.' });
+      }
+      update.paymentStatus = req.body.paymentStatus;
+      update.paidAt = req.body.paymentStatus === 'paid' ? new Date() : null;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'paymentMethod')) {
+      if (!isPosManagerRole(req.user.role) || typeof req.body.paymentMethod !== 'string' || req.body.paymentMethod.length > 40) {
+        return res.status(400).json({ success: false, message: 'Invalid payment method.' });
+      }
+      update.paymentMethod = req.body.paymentMethod.trim();
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'archived')) {
+      if (typeof req.body.archived !== 'boolean') {
+        return res.status(400).json({ success: false, message: 'archived must be a boolean.' });
+      }
+      if (isOwner && isCustomerRole(req.user.role) &&
+        (!req.body.archived || !['completed', 'paid', 'released', 'cancelled'].includes(order.status))) {
+        return res.status(403).json({ success: false, message: 'Only finished or cancelled bookings may be archived.' });
+      }
+      update.archived = req.body.archived;
+      update.archivedAt = req.body.archived ? new Date() : null;
+      if (req.body.archivedReason != null) {
+        if (typeof req.body.archivedReason !== 'string' || req.body.archivedReason.length > 120) {
+          return res.status(400).json({ success: false, message: 'Invalid archive reason.' });
+        }
+        update.archivedReason = req.body.archivedReason.trim();
+      }
+    }
+
+    // Accepted for mobile compatibility, but never mass-assigned to the schema.
+    if (Object.prototype.hasOwnProperty.call(req.body, 'cancellationReason') &&
+      (typeof req.body.cancellationReason !== 'string' || req.body.cancellationReason.length > 500)) {
+      return res.status(400).json({ success: false, message: 'Invalid cancellation reason.' });
+    }
+
     const previousStatus = order.status;
     const previousPaymentStatus = order.paymentStatus;
     const previousSlot = getOrderSlotPair(order);
     const previousConsumedSlot = isSlotConsumingStatus(previousStatus);
 
     // ── Anti-Double Booking Validation (Update) ─────────────────────
-    const newDate = req.body.bookingDate || order.bookingDate;
-    const newTime = req.body.bookingTime || order.bookingTime;
-    const nextStatus = req.body.status || order.status;
+    const newDate = update.bookingDate || order.bookingDate;
+    const newTime = update.bookingTime || order.bookingTime;
+    const nextStatus = update.status || order.status;
     const nextSlot = getNormalizedSlotPair(newDate, newTime);
     const nextConsumesSlot = isSlotConsumingStatus(nextStatus);
 
@@ -1827,7 +2058,7 @@ export const updateOrder = async (req, res, next) => {
     // ────────────────────────────────────────────────────────────────
 
     // Update fields
-    Object.assign(order, req.body);
+    Object.assign(order, update);
     await order.save();
     if (previousStatus !== order.status || previousPaymentStatus !== order.paymentStatus) {
       await evaluateReadyForPickupQueueEligibility(order, {
@@ -1905,6 +2136,15 @@ export const updateOrder = async (req, res, next) => {
       });
     }
 
+    if (previousPaymentStatus !== order.paymentStatus) {
+      logActivity({
+        req, type: 'payment_status_changed', module: 'Payment', action: 'Payment Status Updated',
+        description: `${req.user?.name || 'POS user'} changed booking ${order.orderNumber || order._id} payment status from ${previousPaymentStatus} to ${order.paymentStatus}.`,
+        status: 'warning', referenceId: order.orderNumber,
+        metadata: { orderId: order._id, previousPaymentStatus, newPaymentStatus: order.paymentStatus },
+      });
+    }
+
     if (previousStatus !== order.status && order.status === 'confirmed') {
       try {
         const customerId = typeof order.customer === 'object' ? order.customer?._id : order.customer;
@@ -1967,11 +2207,17 @@ export const deleteOrder = async (req, res, next) => {
       });
     }
 
-    // Check ownership or admin status
-    if (!order.customer || (order.customer.toString() !== req.user.id && !isBookingManagerRole(req.user.role))) {
+    if (!isFullAdminRole(req.user.role)) {
       return res.status(403).json({
         success: false,
-        message: 'Access denied: You can only delete your own bookings',
+        message: 'Only the Administrator may hard-delete a booking.',
+      });
+    }
+
+    if (['paid', 'refunded'].includes(order.paymentStatus) || ['completed', 'paid', 'released'].includes(order.status)) {
+      return res.status(409).json({
+        success: false,
+        message: 'Financial and completed bookings must be retained. Archive the booking instead.',
       });
     }
 
@@ -2652,6 +2898,10 @@ export const getWaiverPdf = async (req, res, next) => {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
+
+    if (!canViewOrderWithRoleConstraints(req.user, order)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
     
     if (!order.legalCompliance?.waiverSignature) {
       return res.status(400).json({ success: false, message: 'Waiver has not been signed yet' });
@@ -2856,6 +3106,13 @@ export const addOrderPhoto = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Photo URL/Data is required' });
     }
 
+    if (!validateImageReference(photoUrl)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Photo must be a valid JPG, PNG, or WebP image reference under 8 MB.',
+      });
+    }
+
     if (phase !== 'before' && phase !== 'after') {
       return res.status(400).json({ success: false, message: 'Phase must be "before" or "after"' });
     }
@@ -3008,7 +3265,7 @@ export const updateWorkflowStep = async (req, res, next) => {
     // Fire exact real-time payload socket for customers and admins immediately to reduce syncing delay
     import('../socket.js').then((socketModule) => {
       const io = socketModule.getIO();
-      if (io) io.emit('orderUpdated', { orderId: order._id, status: order.status, workflowStep: order.workflow?.currentStep });
+      if (io) io.to('realtime:staff').emit('orderUpdated', { orderId: order._id, status: order.status, workflowStep: order.workflow?.currentStep });
     }).catch(err => console.error("Error retrieving socket io module inside updateWorkflowStep", err));
 
     // Log activity
@@ -3174,7 +3431,7 @@ export const operateCheckIn = async (req, res, next) => {
     emitBookingApprovalQueueUpdate(order);
 
     const io = getIO();
-    io.emit('orderUpdated', { orderId: order._id, status: order.status });
+    io.to('realtime:staff').emit('orderUpdated', { orderId: order._id, status: order.status });
 
     // Trigger workflow orchestrator
     onOrderStatusChange(order, previousStatusForWorkflow, req.user).catch(err =>
@@ -3221,7 +3478,7 @@ export const operateStartService = async (req, res, next) => {
     order.status = 'in_progress';
     await order.save();
 
-    getIO().emit('orderUpdated', { orderId: order._id, status: order.status });
+    getIO().to('realtime:staff').emit('orderUpdated', { orderId: order._id, status: order.status });
 
     // Trigger workflow orchestrator
     onOrderStatusChange(order, prevStatus, req.user).catch(err =>
@@ -3275,7 +3532,7 @@ export const operateQCComplete = async (req, res, next) => {
       await releaseBookingSlot(order.bookingDate, order.bookingTime);
     }
 
-    getIO().emit('orderUpdated', { orderId: order._id, status: order.status });
+    getIO().to('realtime:staff').emit('orderUpdated', { orderId: order._id, status: order.status });
 
     // Trigger workflow orchestrator
     onOrderStatusChange(order, prevQCStatus, req.user).catch(err =>
@@ -3336,7 +3593,7 @@ export const operateFinalPayment = async (req, res, next) => {
       await releaseBookingSlot(order.bookingDate, order.bookingTime);
     }
 
-    getIO().emit('orderUpdated', { orderId: order._id, status: order.status, paymentStatus: 'paid' });
+    getIO().to('realtime:staff').emit('orderUpdated', { orderId: order._id, status: order.status, paymentStatus: 'paid' });
 
     // Trigger workflow orchestrator
     onOrderStatusChange(order, prevPayStatus, req.user).catch(err =>
@@ -3393,7 +3650,7 @@ export const operateRelease = async (req, res, next) => {
     order.status = 'released';
     await order.save();
 
-    getIO().emit('orderUpdated', { orderId: order._id, status: order.status });
+    getIO().to('realtime:staff').emit('orderUpdated', { orderId: order._id, status: order.status });
 
     // Trigger workflow orchestrator
     onOrderStatusChange(order, 'paid', req.user).catch(err =>
@@ -3527,6 +3784,13 @@ export const uploadPaymentProof = async (req, res, next) => {
 
     if (!paymentProofUrl) {
       return res.status(400).json({ success: false, message: 'Payment proof image is required' });
+    }
+
+    if (!validateImageReference(paymentProofUrl)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment proof must be a valid JPG, PNG, or WebP image under 8 MB.',
+      });
     }
 
     const order = await Order.findById(id);
@@ -3700,7 +3964,7 @@ export const approveBooking = async (req, res, next) => {
     try {
       const io = getIO();
       if (io && order.bookingDate) {
-        io.emit('booking_updated', { date: order.bookingDate, orderId: order._id.toString(), status: order.status });
+        io.to('realtime:staff').emit('booking_updated', { date: order.bookingDate, orderId: order._id.toString(), status: order.status });
       }
     } catch (_) {}
 
@@ -3754,7 +4018,7 @@ export const rejectBooking = async (req, res, next) => {
     try {
       const io = getIO();
       if (io && order.bookingDate) {
-        io.emit('booking_updated', { date: order.bookingDate, orderId: order._id.toString(), status: 'rejected' });
+        io.to('realtime:staff').emit('booking_updated', { date: order.bookingDate, orderId: order._id.toString(), status: 'rejected' });
       }
     } catch (_) {}
 
@@ -3833,7 +4097,7 @@ export const rescheduleBooking = async (req, res, next) => {
     try {
       const io = getIO();
       if (io) {
-        io.emit('booking_updated', {
+        io.to('realtime:staff').emit('booking_updated', {
           date: newDate,
           previousDate: oldDate,
           orderId: order._id.toString(),

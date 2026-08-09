@@ -20,7 +20,7 @@ MONGODB_URI=mongodb://127.0.0.1:27017/autospf
 **File:** `fix-data.js` (created)
 
 **Data Created:**
-- ✅ 1 Admin: `admin@autospf.com` / `Admin123`
+- ✅ Historical local seed included 1 Administrator (identifier and credential intentionally omitted)
 - ✅ 3 Customers: `juan@test.com`, `maria@test.com`, `pedro@test.com` / `Customer123`
 - ✅ 5 Services: Basic Wash (₱200), Premium Wash (₱350), Interior Detailing (₱500), Full Service (₱800), Engine Bay Cleaning (₱400)
 - ✅ 3 Bookings: 1 completed, 1 processing, 1 pending
@@ -41,10 +41,10 @@ node fix-data.js
 ## 📋 Login Credentials
 
 ### Admin Account
-```
-Email: admin@autospf.com
-Password: Admin123
-```
+
+Administrator credentials are not published. Use the registered address
+configured as `BOOTSTRAP_ADMIN_EMAIL` and follow the
+[one-time Administrator bootstrap guide](../../backend/BOOTSTRAP_ADMINISTRATOR.md).
 
 ### Customer Accounts (all use same password)
 ```

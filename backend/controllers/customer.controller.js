@@ -1,6 +1,7 @@
 import Customer from '../models/customer.model.js';
 import Vehicle from '../models/vehicle.model.js';
 import User from '../models/user.model.js';
+import mongoose from 'mongoose';
 import { normalizePlateNumber, findVehicleByNormalizedPlate } from '../utils/plate.utils.js';
 
 import {
@@ -9,6 +10,51 @@ import {
   canManageCustomerGarage,
   isCustomerRole,
 } from '../constants/roles.js';
+
+const SAFE_USER_FIELDS = 'name email role avatar isActive status';
+const NOTIFICATION_PREFERENCE_FIELDS = new Set([
+  'pushEnabled', 'emailEnabled', 'smsEnabled', 'bookingConfirmation',
+  'jobStatusUpdates', 'paymentReminders', 'promotionalOffers', 'chatMessages',
+  'vehicleReminders', 'loyaltyRewards', 'newsletter',
+]);
+
+function applyCustomerPreferenceUpdates(customer, body = {}, { allowLoyalty = false } = {}) {
+  const suppliedFields = Object.keys(body);
+  const allowedFields = new Set(['preferredStore', 'notificationPreferences', ...(allowLoyalty ? ['loyaltyPoints'] : [])]);
+  const unexpected = suppliedFields.filter((field) => !allowedFields.has(field));
+  if (unexpected.length > 0) {
+    return { ok: false, message: `Protected or unsupported fields: ${unexpected.join(', ')}` };
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'preferredStore')) {
+    if (body.preferredStore !== null && !mongoose.isValidObjectId(body.preferredStore)) {
+      return { ok: false, message: 'Invalid preferredStore ID.' };
+    }
+    customer.preferredStore = body.preferredStore || undefined;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'notificationPreferences')) {
+    const prefs = body.notificationPreferences;
+    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) {
+      return { ok: false, message: 'notificationPreferences must be an object.' };
+    }
+    for (const [key, value] of Object.entries(prefs)) {
+      if (!NOTIFICATION_PREFERENCE_FIELDS.has(key) || typeof value !== 'boolean') {
+        return { ok: false, message: `Invalid notification preference: ${key}` };
+      }
+      customer.notificationPreferences[key] = value;
+    }
+  }
+
+  if (allowLoyalty && Object.prototype.hasOwnProperty.call(body, 'loyaltyPoints')) {
+    if (!Number.isFinite(body.loyaltyPoints) || body.loyaltyPoints < 0 || body.loyaltyPoints > 10_000_000) {
+      return { ok: false, message: 'loyaltyPoints must be a valid non-negative number.' };
+    }
+    customer.loyaltyPoints = body.loyaltyPoints;
+  }
+
+  return { ok: true };
+}
 
 /** Resolve which User id owns the vehicle operation (self or staff-assist target). */
 async function resolveVehicleOwnerUserId(req, bodyCustomerUserId, queryForUserId) {
@@ -50,7 +96,7 @@ async function resolveVehicleOwnerUserId(req, bodyCustomerUserId, queryForUserId
 export const getAllCustomers = async (req, res, next) => {
   try {
     const customers = await Customer.find()
-      .populate('user')
+      .populate('user', SAFE_USER_FIELDS)
       .populate('vehicles')
       .populate('bookings')
       .populate('preferredStore');
@@ -74,7 +120,7 @@ export const getMe = async (req, res, next) => {
     }
 
     let customer = await Customer.findOne({ user: req.user.id })
-      .populate('user')
+      .populate('user', SAFE_USER_FIELDS)
       .populate('vehicles')
       .populate('bookings')
       .populate('preferredStore');
@@ -99,8 +145,11 @@ export const getMe = async (req, res, next) => {
  */
 export const getCustomerById = async (req, res, next) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid customer ID.' });
+    }
     const customer = await Customer.findById(req.params.id)
-      .populate('user')
+      .populate('user', SAFE_USER_FIELDS)
       .populate('vehicles')
       .populate('bookings')
       .populate('preferredStore');
@@ -110,6 +159,11 @@ export const getCustomerById = async (req, res, next) => {
         success: false,
         message: 'Customer not found',
       });
+    }
+
+    const isOwner = String(customer.user?._id || customer.user) === String(req.user.id);
+    if (!isOwner && !canManageCustomerGarage(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
     res.json({
@@ -127,6 +181,23 @@ export const getCustomerById = async (req, res, next) => {
 export const createCustomer = async (req, res, next) => {
   try {
     const { user, preferredStore } = req.body;
+
+    if (!mongoose.isValidObjectId(user)) {
+      return res.status(400).json({ success: false, message: 'Invalid customer user ID.' });
+    }
+    if (preferredStore != null && !mongoose.isValidObjectId(preferredStore)) {
+      return res.status(400).json({ success: false, message: 'Invalid preferred store ID.' });
+    }
+    const targetUser = await User.findById(user).select('role isActive isDeleted').lean();
+    if (!targetUser || targetUser.isDeleted) {
+      return res.status(404).json({ success: false, message: 'Customer user not found.' });
+    }
+    if (!isCustomerRole(targetUser.role)) {
+      return res.status(400).json({ success: false, message: 'Target user must have customer role.' });
+    }
+    if (await Customer.exists({ user })) {
+      return res.status(409).json({ success: false, message: 'Customer profile already exists.' });
+    }
 
     const customer = new Customer({
       user,
@@ -159,7 +230,10 @@ export const updateMe = async (req, res, next) => {
       customer = new Customer({ user: req.user.id });
     }
 
-    Object.assign(customer, req.body);
+    const applied = applyCustomerPreferenceUpdates(customer, req.body);
+    if (!applied.ok) {
+      return res.status(400).json({ success: false, message: applied.message });
+    }
     await customer.save();
 
     res.json({
@@ -203,7 +277,10 @@ export const updateCustomer = async (req, res, next) => {
       });
     }
 
-    Object.assign(customer, req.body);
+    const applied = applyCustomerPreferenceUpdates(customer, req.body, { allowLoyalty: isAdmin });
+    if (!applied.ok) {
+      return res.status(400).json({ success: false, message: applied.message });
+    }
     await customer.save();
 
     res.json({

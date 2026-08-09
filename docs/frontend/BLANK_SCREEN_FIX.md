@@ -279,7 +279,10 @@ Password: Customer123!
 |------|-------|----------|--------|
 | **Customer** | customer@test.com | Customer123! | Book services, manage vehicles |
 | **Detailer** | mike@detailshop.com | Detailer123! | Manage jobs, track inventory |
-| **Admin** | admin@autospf.com | Admin123! | Full system administration |
+| **Administrator** | `BOOTSTRAP_ADMIN_EMAIL` | Configured server-side; not published | Full administration after verification and login 2FA |
+
+For Administrator setup and verification, follow the
+[one-time Administrator bootstrap guide](../../backend/BOOTSTRAP_ADMINISTRATOR.md).
 
 ---
 
@@ -289,7 +292,7 @@ After running `npm run dev`:
 
 - [ ] App loads without errors
 - [ ] Login page displays properly
-- [ ] Can login with any demo account
+- [ ] Can log in with an intended test account (Administrator only after configured setup and email verification)
 - [ ] Appropriate dashboard loads
 - [ ] Navigation between pages works
 - [ ] No console errors (F12 → Console)
@@ -373,4 +376,3 @@ See `DEBUG_GUIDE.md` for detailed troubleshooting:
 Run: `npm run dev`
 
 See: `http://localhost:5173/`
-

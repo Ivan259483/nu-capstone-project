@@ -190,7 +190,7 @@ function emitTrackerStageMediaUpdate(order) {
       trackerStageMedia: media,
       updatedAt: new Date().toISOString(),
     };
-    io.emit('orderUpdated', payload);
+    io.to('realtime:staff').emit('orderUpdated', payload);
 
     const customerId =
       typeof order.customer === 'object'

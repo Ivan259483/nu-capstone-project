@@ -47,8 +47,15 @@ export function CustomerDashboardServicesShowcase({
         setPriceTier(defaultTier);
     }, [defaultTier]);
 
+    // SPF 80 is intentionally not offered for Highend Sedan, so omit that card
+    // from this catalog instead of showing its unavailable state.
+    const availablePackages = useMemo(
+        () => packages.filter((pkg) => !(priceTier === "highend" && pkg.id === "spf80")),
+        [packages, priceTier]
+    );
+
     const highlightedPackageId = useMemo(() => {
-        return packages.reduce<{ id: string | null; price: number }>(
+        return availablePackages.reduce<{ id: string | null; price: number }>(
             (winner, pkg) => {
                 const price = pkg.prices[priceTier] ?? null;
                 if (typeof price !== "number") return winner;
@@ -56,7 +63,7 @@ export function CustomerDashboardServicesShowcase({
             },
             { id: null, price: -1 }
         ).id;
-    }, [packages, priceTier]);
+    }, [availablePackages, priceTier]);
 
     const getPackageDisplay = (name: string) => {
         const [codeRaw, labelRaw] = name.split("—").map((part) => part.trim());
@@ -111,7 +118,7 @@ export function CustomerDashboardServicesShowcase({
                 </header>
 
 	                <div className="grid w-full grid-cols-1 gap-5 pt-6 lg:grid-cols-3">
-	                    {packages.map((pkg) => {
+	                    {availablePackages.map((pkg) => {
 	                        const price = pkg.prices[priceTier] ?? null;
 	                        const isUnavailable = price === null;
 	                        const isPopular = pkg.id === "spf89";

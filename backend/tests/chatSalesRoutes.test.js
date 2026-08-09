@@ -6,6 +6,7 @@ import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
 import { config } from '../config/environment.js';
+import { STAFF_2FA_AUTH_LEVEL, requiresStaffTwoFactor } from '../constants/roles.js';
 import {
   handleSocketMessage,
   handleSocketStreamingMessage,
@@ -41,6 +42,7 @@ const tokenFor = (user) =>
       role: user.role,
       email: user.email,
       name: user.name,
+      ...(requiresStaffTwoFactor(user.role) ? { authLevel: STAFF_2FA_AUTH_LEVEL } : {}),
     },
     config.jwtSecret,
     { expiresIn: '1h' }
@@ -335,6 +337,7 @@ test('customer conversation list returns a safe default Sales agent without exis
     name: 'Default Sales',
     email: 'default-sales@example.com',
     role: 'sales',
+    isVerified: true,
     avatarUrl: 'https://res.cloudinary.com/demo/image/upload/default-sales.jpg',
     status: 'active',
     isActive: true,
@@ -369,6 +372,7 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
     name: 'Sales One',
     email: 'sales-one@example.com',
     role: 'sales',
+    isVerified: true,
     avatar: 'https://cdn.example.com/sales-one-avatar.jpg',
     status: 'active',
     isActive: true,
@@ -569,6 +573,7 @@ test('simultaneous first Sales replies join and assign the conversation exactly 
     name: 'Concurrent Sales',
     email: 'concurrent-sales@example.com',
     role: 'sales',
+    isVerified: true,
     status: 'active',
     isActive: true,
   });
@@ -659,6 +664,7 @@ test('unauthenticated guest can hydrate a conversation later linked to a custome
     name: 'Assigned Sales',
     email: 'assigned-sales@example.com',
     role: 'sales',
+    isVerified: true,
     avatar: 'https://res.cloudinary.com/demo/image/upload/profile.jpg',
     status: 'active',
     isActive: true,

@@ -135,6 +135,17 @@ export const getSharedSocket = async (): Promise<Socket> => {
   return sharedSocket;
 };
 
+/** Re-handshake an existing anonymous/stale socket with the newly issued JWT. */
+export const refreshRealtimeSocketAuth = async (): Promise<void> => {
+  if (!sharedSocket) return;
+  const token = await authStorage.getToken();
+  (sharedSocket as any).auth = { token };
+  if (sharedSocket.connected) {
+    sharedSocket.disconnect();
+    sharedSocket.connect();
+  }
+};
+
 function invalidateCollectionQueries(collection: string, source: string): void {
   const queryKeysToInvalidate = COLLECTION_QUERY_MAP[collection];
   if (!queryKeysToInvalidate?.length || !globalQueryClient) return;

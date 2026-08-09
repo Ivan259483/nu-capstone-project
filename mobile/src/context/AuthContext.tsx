@@ -200,6 +200,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Google/Apple sign-in goes through signInWithGoogle instead.
       const { token, backendUser } = await authService.loginWithEmailPassword(email.trim(), password);
       applyState(null, token, backendUser);
+      void import('@/hooks/useRealtimeSync')
+        .then(({ refreshRealtimeSocketAuth }) => refreshRealtimeSocketAuth())
+        .catch(() => {});
       return { success: true };
     } catch (error: any) {
       if (error?.code === 'REQUIRES_EMAIL_OTP') {

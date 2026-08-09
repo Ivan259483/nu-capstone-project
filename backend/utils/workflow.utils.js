@@ -30,8 +30,10 @@ const safeEmit = (event, payload, rooms = []) => {
     for (const room of rooms) {
       io.to(room).emit(event, payload);
     }
-    // Also emit globally for dashboard listeners
-    io.emit(event, payload);
+    // Staff dashboards receive the broad workflow event only after an
+    // authenticated staff + 2FA socket handshake. Customer rooms above remain
+    // targeted to the owning customer.
+    io.to('realtime:staff').emit(event, payload);
   } catch (err) {
     console.warn(`[WORKFLOW] Socket emit failed for ${event}:`, err.message);
   }

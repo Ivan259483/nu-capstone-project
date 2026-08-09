@@ -98,7 +98,7 @@ export default function ForgotPasswordScreen() {
     setLoading(true);
     haptic();
     try {
-      const res = await apiClient.post('/auth/verify-otp', { email: normalizeEmail(email), otp: code });
+      const res = await apiClient.post('/auth/verify-reset-otp', { email: normalizeEmail(email), otp: code });
       if (res.data?.success) {
         haptic('success');
         setStep('newPassword');

@@ -9,10 +9,10 @@ Password: Password123
 ```
 
 ### Admin Account
-```
-Email: admin@test.com
-Password: Password123
-```
+
+Administrator credentials are not published. Use the verified account whose
+registered address is configured as `BOOTSTRAP_ADMIN_EMAIL`. See the
+[one-time Administrator bootstrap guide](../../backend/BOOTSTRAP_ADMINISTRATOR.md).
 
 ---
 
@@ -69,7 +69,7 @@ Password: Password123
 - Update profile settings
 
 ### Scenario 2: Admin Login ✅
-- Login with `admin@test.com`
+- Login with the verified account configured by `BOOTSTRAP_ADMIN_EMAIL`
 - Show admin dashboard
 - Manage services
 - View users

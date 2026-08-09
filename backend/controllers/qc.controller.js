@@ -569,7 +569,7 @@ export const approveJob = async (req, res, next) => {
     try {
       const io = getIO();
       // Broad event for staff dashboards
-      io.emit('orderUpdated', {
+      io.to('realtime:staff').emit('orderUpdated', {
         orderId: order._id,
         status: order.status,
         serviceTrackingStage: 'ready_pickup',
@@ -674,7 +674,7 @@ export const returnJob = async (req, res, next) => {
 
     // Emit socket update
     try {
-      getIO().emit('orderUpdated', { orderId: order._id, status: order.status, qcReturned: true });
+      getIO().to('realtime:staff').emit('orderUpdated', { orderId: order._id, status: order.status, qcReturned: true });
     } catch (e) {
       console.warn('[QC] Socket emit failed:', e.message);
     }
@@ -837,7 +837,7 @@ export const updateServiceStatus = async (req, res, next) => {
     try {
       const io = getIO();
       // Broad event for staff dashboards
-      io.emit('orderUpdated', {
+      io.to('realtime:staff').emit('orderUpdated', {
         orderId: order._id,
         status: order.status,
         serviceTrackingStage: stage,
@@ -918,7 +918,7 @@ export const assignServiceStaff = async (req, res, next) => {
     try {
       const io = getIO();
       // Broad event for staff dashboards
-      io.emit('orderUpdated', {
+      io.to('realtime:staff').emit('orderUpdated', {
         orderId: order._id,
         serviceStaffAssignments: order.serviceStaffAssignments,
       });
@@ -976,7 +976,7 @@ export const updateQCHandoffSheet = async (req, res, next) => {
 
     try {
       const io = getIO();
-      io.emit('orderUpdated', {
+      io.to('realtime:staff').emit('orderUpdated', {
         orderId: order._id,
         qcHandoffSheet: order.qcHandoffSheet,
       });

@@ -85,7 +85,10 @@ Then open: http://localhost:5173/
 |------|-------|----------|
 | 👤 Customer | customer@test.com | Customer123! |
 | 🔧 Detailer | mike@detailshop.com | Detailer123! |
-| 👨‍💼 Admin | admin@autospf.com | Admin123! |
+| 👨‍💼 Administrator | `BOOTSTRAP_ADMIN_EMAIL` | Configured server-side; not published |
+
+For Administrator setup and verification, follow the
+[one-time Administrator bootstrap guide](../../backend/BOOTSTRAP_ADMINISTRATOR.md).
 
 ---
 
@@ -345,4 +348,3 @@ npm run dev
 ---
 
 **🎉 Congratulations! Your app is fixed and ready to use!**
-

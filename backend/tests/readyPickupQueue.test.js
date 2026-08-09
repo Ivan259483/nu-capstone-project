@@ -9,6 +9,7 @@ process.env.JWT_SECRET ||= 'test_jwt_secret';
 process.env.ENCRYPTION_KEY ||= '12345678901234567890123456789012';
 
 const { config } = await import('../config/environment.js');
+const { STAFF_2FA_AUTH_LEVEL, requiresStaffTwoFactor } = await import('../constants/roles.js');
 const { default: Billing } = await import('../models/billing.model.js');
 const { default: Order } = await import('../models/order.model.js');
 const { default: Payment } = await import('../models/payment.model.js');
@@ -40,7 +41,13 @@ const requestJson = async (path, options = {}) => {
 
 const tokenFor = (user) =>
   jwt.sign(
-    { id: user._id.toString(), role: user.role, email: user.email, name: user.name },
+    {
+      id: user._id.toString(),
+      role: user.role,
+      email: user.email,
+      name: user.name,
+      ...(requiresStaffTwoFactor(user.role) ? { authLevel: STAFF_2FA_AUTH_LEVEL } : {}),
+    },
     config.jwtSecret,
     { expiresIn: '1h' }
   );
@@ -58,6 +65,8 @@ const seedUser = (role = 'customer') =>
     email: `${role}-${Math.random().toString(16).slice(2)}@example.test`,
     role,
     isActive: true,
+    isVerified: requiresStaffTwoFactor(role),
+    status: 'active',
   });
 
 async function seedEligibleOrder(overrides = {}) {

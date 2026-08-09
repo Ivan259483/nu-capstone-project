@@ -277,9 +277,11 @@ VITE_EMAILJS_PRIVATE_KEY=your_key
 |---------|-------|----------|--------|
 | Customer | customer@test.com | Customer123! | Bookings, Vehicles |
 | Detailer | mike@detailshop.com | Detailer123! | Jobs, Inventory |
-| Admin | admin@autospf.com | Admin123! | Full Control |
+| Administrator | `BOOTSTRAP_ADMIN_EMAIL` | Configured server-side; not published | Full Control after verification and login 2FA |
 
-All accounts pre-configured and ready to test! ✅
+The Administrator account is not a published demo credential. Configure and
+verify it using the
+[one-time Administrator bootstrap guide](../../backend/BOOTSTRAP_ADMINISTRATOR.md).
 
 ---
 
@@ -444,4 +446,3 @@ Your AutoSPF+ application is now:
 - **✅ Ready for deployment**
 
 ### 🚀 Ready to start building!
-

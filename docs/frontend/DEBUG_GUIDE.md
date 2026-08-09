@@ -108,10 +108,14 @@ You should see the **AutoSPF+ Login Page** ✅
 
 ### Demo Accounts (Login Test):
 
-1. **Admin Account**
-   - Email: `admin@autospf.com`
-   - Password: `Admin123!`
-   - Expected: Admin Dashboard
+1. **Administrator Account**
+   - Email: configured as `BOOTSTRAP_ADMIN_EMAIL`
+   - Password: configured server-side; not published
+   - Expected: Administrator Dashboard after account verification and login 2FA
+
+   Follow the
+   [one-time Administrator bootstrap guide](../../backend/BOOTSTRAP_ADMINISTRATOR.md)
+   before testing this account.
 
 2. **Detailer Account**
    - Email: `mike@detailshop.com`

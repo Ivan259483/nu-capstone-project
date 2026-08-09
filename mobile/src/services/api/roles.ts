@@ -12,7 +12,6 @@ export const USER_ROLES = [
 export type UserRole = (typeof USER_ROLES)[number];
 
 export const LEGACY_ROLE_MAP = {
-  admin: 'administrator',
   detailer: 'staff_quality_checker',
   operation_manager: 'office_admin',
   hr: 'office_admin',

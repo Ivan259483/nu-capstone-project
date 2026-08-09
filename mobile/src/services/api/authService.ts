@@ -115,7 +115,9 @@ const socialLogin = async (firebaseUser: FirebaseUser): Promise<{ token: string;
   }
 
   const isEmailPassword = firebaseUser.providerData?.some(p => p.providerId === 'password');
+  const idToken = await firebaseUser.getIdToken(true);
   const payload = {
+    idToken,
     email,
     name: firebaseUser.displayName || safeNameFromEmail(email),
     provider: isEmailPassword ? 'password' : 'firebase',
@@ -165,7 +167,9 @@ const exchangeTokenForLogin = async (
   password: string
 ): Promise<{ token: string; user: BackendUser }> => {
   const isEmailPassword = firebaseUser.providerData?.some(p => p.providerId === 'password');
+  const idToken = await firebaseUser.getIdToken(true);
   const response = await apiClient.post('/auth/social-login', {
+    idToken,
     email,
     name: firebaseUser.displayName || safeNameFromEmail(email),
     provider: isEmailPassword ? 'password' : 'firebase',

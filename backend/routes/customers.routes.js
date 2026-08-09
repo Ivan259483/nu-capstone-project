@@ -1,7 +1,7 @@
 import express from 'express';
 import * as customerController from '../controllers/customer.controller.js';
 import { authenticate, authorize } from '../middleware/auth.middleware.js';
-import { CUSTOMER_ROLES, USER_MANAGEMENT_ROLES } from '../constants/roles.js';
+import { BOOKING_MANAGER_ROLES, CUSTOMER_ROLES, USER_MANAGEMENT_ROLES } from '../constants/roles.js';
 
 const router = express.Router();
 
@@ -12,42 +12,42 @@ router.use(authenticate);
  * @desc Get current customer's profile
  * @access Private
  */
-router.get('/me', customerController.getMe);
+router.get('/me', authorize(...CUSTOMER_ROLES), customerController.getMe);
 
 /**
  * @route PUT /api/customers/me
  * @desc Update current customer's profile
  * @access Private
  */
-router.put('/me', customerController.updateMe);
+router.put('/me', authorize(...CUSTOMER_ROLES), customerController.updateMe);
 
 /**
  * @route GET /api/customers/vehicles
  * @desc Get customer vehicles
  * @access Private
  */
-router.get('/vehicles', customerController.getVehicles);
+router.get('/vehicles', authorize(...CUSTOMER_ROLES, ...BOOKING_MANAGER_ROLES), customerController.getVehicles);
 
 /**
  * @route POST /api/customers/vehicles
  * @desc Add vehicle to customer
  * @access Private
  */
-router.post('/vehicles', customerController.addVehicle);
+router.post('/vehicles', authorize(...CUSTOMER_ROLES, ...BOOKING_MANAGER_ROLES), customerController.addVehicle);
 
 /**
  * @route PUT /api/customers/vehicles/:id
  * @desc Update vehicle
  * @access Private
  */
-router.put('/vehicles/:id', customerController.updateVehicle);
+router.put('/vehicles/:id', authorize(...CUSTOMER_ROLES, ...BOOKING_MANAGER_ROLES), customerController.updateVehicle);
 
 /**
  * @route DELETE /api/customers/vehicles/:id
  * @desc Delete a vehicle
  * @access Private
  */
-router.delete('/vehicles/:id', customerController.deleteVehicle);
+router.delete('/vehicles/:id', authorize(...CUSTOMER_ROLES, ...BOOKING_MANAGER_ROLES), customerController.deleteVehicle);
 
 /**
  * @route GET /api/customers
@@ -61,14 +61,14 @@ router.get('/', authorize(...USER_MANAGEMENT_ROLES), customerController.getAllCu
  * @desc Get customer by ID
  * @access Private
  */
-router.get('/:id', customerController.getCustomerById);
+router.get('/:id', authorize(...CUSTOMER_ROLES, ...BOOKING_MANAGER_ROLES), customerController.getCustomerById);
 
 /**
  * @route POST /api/customers
  * @desc Create new customer
  * @access Private
  */
-router.post('/', customerController.createCustomer);
+router.post('/', authorize(...BOOKING_MANAGER_ROLES), customerController.createCustomer);
 
 /**
  * @route PUT /api/customers/:id

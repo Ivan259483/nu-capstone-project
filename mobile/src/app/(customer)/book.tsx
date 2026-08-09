@@ -1053,6 +1053,7 @@ export default function BookScreen() {
         vehicleMake: selectedVehicle?.make,
         vehicleModel: selectedVehicle?.model,
         vehicleColor: selectedVehicle?.color,
+        vehicleId: selectedVehicle?._id || selectedVehicle?.id,
         downpaymentProof: downpaymentProof || undefined,
       });
 
