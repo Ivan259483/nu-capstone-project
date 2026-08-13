@@ -50,8 +50,9 @@ export default defineConfig(({ mode }) => {
             dedupe: ['react', 'react-dom', 'three'],
         },
         build: {
-            // Target modern browsers — avoids unnecessary legacy syntax transforms (smaller output)
-            target: ['es2020', 'chrome80', 'firefox78', 'safari14'],
+            // Use Vite's safe default target (esnext) — avoids esbuild destructuring
+            // transpilation failures that occur with explicit legacy browser target lists.
+            // Modern evergreen browsers support all ES2020+ features natively; no polyfills needed.
             // Generate deploy-safe maps for private error-reporting uploads without
             // embedding source content or advertising their URL in production JS.
             sourcemap: 'hidden',
