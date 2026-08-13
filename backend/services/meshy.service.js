@@ -28,8 +28,8 @@ const MESHY_API_BASE = (process.env.MESHY_API_BASE_URL || OFFICIAL_MESHY_API_BAS
 // Polling uses the same API base that accepted task creation.
 const MESHY_FOLDER = (process.env.CLOUDINARY_UPLOAD_FOLDER || 'vehicle-scans').trim();
 
-// Startup diagnostic so we can confirm key + URL on server boot
-console.log(`[Meshy] Config — base: ${MESHY_API_BASE} | key set: ${Boolean(MESHY_API_KEY)} | key prefix: ${MESHY_API_KEY.slice(0, 8)}***`);
+// Confirm configuration without logging any API-key material.
+console.log(`[Meshy] Config — base: ${MESHY_API_BASE} | key set: ${Boolean(MESHY_API_KEY)}`);
 const MESHY_ALLOWED_FORMATS = new Set(['jpg', 'jpeg', 'png']);
 const MESHY_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const MESHY_DEFAULT_POLL_ATTEMPTS = 30;

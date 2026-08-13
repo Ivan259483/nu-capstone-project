@@ -12,8 +12,9 @@ import {
 } from '../constants/roles.js';
 import User from '../models/user.model.js';
 import { sendExpoPushNotification } from './push.utils.js';
-import { decrypt } from './encryption.utils.js';
+import { decrypt, looksLikeEncryptedValue } from './encryption.utils.js';
 import { authVersionMatches } from './authVersion.utils.js';
+import { isConfiguredCorsOriginAllowed } from './origin.utils.js';
 
 /**
  * Change streams return raw BSON — Mongoose decrypt middleware does not run.
@@ -21,11 +22,11 @@ import { authVersionMatches } from './authVersion.utils.js';
  */
 function safeDecryptOrderField(val) {
   if (!val || typeof val !== 'string') return val;
-  if (/^[0-9a-f]{32}:[0-9a-f]+$/i.test(val)) {
+  if (looksLikeEncryptedValue(val)) {
     try {
       return decrypt(val);
     } catch {
-      return val;
+      return null;
     }
   }
   return val;
@@ -111,6 +112,8 @@ const REALTIME_LIMITED_ROOM = 'realtime:limited';
 let batchBuffer = [];
 let batchTimer = null;
 
+export const isSocketOriginAllowed = isConfiguredCorsOriginAllowed;
+
 export const getLimitedDbChangePayload = (payload = {}) => ({
   collection: payload.collection,
   operationType: payload.operationType,
@@ -163,6 +166,11 @@ export const initSocket = (httpServer) => {
       origin: config.corsOrigin,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    },
+    // WebSocket upgrades are not protected by browser CORS enforcement. Reject
+    // unauthorized browser origins at the Engine.IO handshake itself.
+    allowRequest: (req, callback) => {
+      callback(null, isSocketOriginAllowed(req.headers.origin));
     },
   });
 
@@ -229,7 +237,7 @@ export const initSocket = (httpServer) => {
     }
 
     const sessionId = socket.handshake.auth?.sessionId || socket.handshake.query?.sessionId;
-    if (sessionId) {
+    if (typeof sessionId === 'string' && /^[A-Za-z0-9_-]{8,180}$/.test(sessionId)) {
       socket.join(`chat:${sessionId}`);
     }
     if (socket.user?.id) {

@@ -57,6 +57,17 @@ interface POSReceiptProps {
 
 const formatCurrency = (val: number) => `₱${val.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const escapeHtml = (value: unknown) => String(value ?? '').replace(
+    /[&<>"']/g,
+    (character) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    })[character] || character
+);
+
 const firstDisplayValue = (...values: unknown[]) => {
     for (const value of values) {
         if (typeof value !== 'string') continue;
@@ -98,7 +109,7 @@ export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress
         if (!win) return;
         win.document.write(`
             <!DOCTYPE html>
-            <html><head><title>Receipt - ${receipt.transactionId}</title>
+            <html><head><title>Receipt - ${escapeHtml(receipt.transactionId)}</title>
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body { font-family: 'Courier New', monospace; width: 300px; margin: 0 auto; padding: 16px 8px; font-size: 12px; color: #111; }
@@ -115,35 +126,35 @@ export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress
                 @media print { body { width: 72mm; } }
             </style></head><body>
             <div class="header">
-                <h1>${businessName}</h1>
-                ${businessAddress ? `<p>${businessAddress}</p>` : ''}
-                ${businessPhone ? `<p>Tel: ${businessPhone}</p>` : ''}
-                <p style="margin-top:6px;font-size:9px;color:#aaa;">${receipt.transactionId}</p>
+                <h1>${escapeHtml(businessName)}</h1>
+                ${businessAddress ? `<p>${escapeHtml(businessAddress)}</p>` : ''}
+                ${businessPhone ? `<p>Tel: ${escapeHtml(businessPhone)}</p>` : ''}
+                <p style="margin-top:6px;font-size:9px;color:#aaa;">${escapeHtml(receipt.transactionId)}</p>
             </div>
             <div class="section">
-                <div class="row"><span>Date:</span><span>${new Date(receipt.date).toLocaleString()}</span></div>
-                <div class="row"><span>Customer:</span><span>${receipt.customerName}</span></div>
-                ${customerPhone ? `<div class="row"><span>Phone:</span><span>${customerPhone}</span></div>` : ''}
-                ${receipt.vehicle?.make ? `<div class="row"><span>Vehicle:</span><span>${[receipt.vehicle.year, receipt.vehicle.make, receipt.vehicle.model].filter(Boolean).join(' ')}</span></div>` : ''}
-                ${receipt.vehicle?.plate ? `<div class="row"><span>Plate:</span><span>${receipt.vehicle.plate}</span></div>` : ''}
-                ${vehicleColor ? `<div class="row"><span>Color:</span><span>${vehicleColor}</span></div>` : ''}
-                ${vehicleClass ? `<div class="row"><span>Class:</span><span>${vehicleClass}</span></div>` : ''}
-                ${receipt.bookingRef ? `<div class="row"><span>Booking:</span><span>#${receipt.bookingRef}</span></div>` : ''}
-                ${receipt.staff?.name ? `<div class="row"><span>Staff:</span><span>${receipt.staff.name}</span></div>` : ''}
+                <div class="row"><span>Date:</span><span>${escapeHtml(new Date(receipt.date).toLocaleString())}</span></div>
+                <div class="row"><span>Customer:</span><span>${escapeHtml(receipt.customerName)}</span></div>
+                ${customerPhone ? `<div class="row"><span>Phone:</span><span>${escapeHtml(customerPhone)}</span></div>` : ''}
+                ${receipt.vehicle?.make ? `<div class="row"><span>Vehicle:</span><span>${escapeHtml([receipt.vehicle.year, receipt.vehicle.make, receipt.vehicle.model].filter(Boolean).join(' '))}</span></div>` : ''}
+                ${receipt.vehicle?.plate ? `<div class="row"><span>Plate:</span><span>${escapeHtml(receipt.vehicle.plate)}</span></div>` : ''}
+                ${vehicleColor ? `<div class="row"><span>Color:</span><span>${escapeHtml(vehicleColor)}</span></div>` : ''}
+                ${vehicleClass ? `<div class="row"><span>Class:</span><span>${escapeHtml(vehicleClass)}</span></div>` : ''}
+                ${receipt.bookingRef ? `<div class="row"><span>Booking:</span><span>#${escapeHtml(receipt.bookingRef)}</span></div>` : ''}
+                ${receipt.staff?.name ? `<div class="row"><span>Staff:</span><span>${escapeHtml(receipt.staff.name)}</span></div>` : ''}
             </div>
             <div class="divider"></div>
             <div class="section">
                 <div class="section-title">Items</div>
-                ${receipt.items.filter(i => !i.isAddon).map(i => `<div class="row item"><span>${i.quantity > 1 ? i.quantity + 'x ' : ''}${i.name}</span><span>${formatCurrency(i.price * i.quantity)}</span></div>`).join('')}
+                ${receipt.items.filter(i => !i.isAddon).map(i => `<div class="row item"><span>${i.quantity > 1 ? `${i.quantity}x ` : ''}${escapeHtml(i.name)}</span><span>${formatCurrency(i.price * i.quantity)}</span></div>`).join('')}
                 ${receipt.items.some(i => i.isAddon) ? `
                     <div class="section-title" style="margin-top:6px;">Add-ons</div>
-                    ${receipt.items.filter(i => i.isAddon).map(i => `<div class="row item"><span>${i.quantity > 1 ? i.quantity + 'x ' : ''}${i.name}</span><span>${formatCurrency(i.price * i.quantity)}</span></div>`).join('')}
+                    ${receipt.items.filter(i => i.isAddon).map(i => `<div class="row item"><span>${i.quantity > 1 ? `${i.quantity}x ` : ''}${escapeHtml(i.name)}</span><span>${formatCurrency(i.price * i.quantity)}</span></div>`).join('')}
                 ` : ''}
             </div>
             <div class="divider"></div>
             <div class="section">
                 <div class="row"><span>Subtotal</span><span>${formatCurrency(receipt.subtotal)}</span></div>
-                ${discountAmount > 0 ? `<div class="row" style="color:#e44;"><span>Discount${receipt.discount?.reason ? ' (' + receipt.discount.reason + ')' : ''}</span><span>-${formatCurrency(discountAmount)}</span></div>` : ''}
+                ${discountAmount > 0 ? `<div class="row" style="color:#e44;"><span>Discount${receipt.discount?.reason ? ` (${escapeHtml(receipt.discount.reason)})` : ''}</span><span>-${formatCurrency(discountAmount)}</span></div>` : ''}
                 <div class="row"><span>VAT / Tax</span><span>${formatCurrency(taxAmount)}</span></div>
                 ${additionalFees > 0 ? `<div class="row"><span>Additional Fees</span><span>${formatCurrency(additionalFees)}</span></div>` : ''}
                 <div class="divider"></div>
@@ -154,13 +165,13 @@ export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress
             <div class="section">
                 ${receipt.paymentMethod === 'split' && receipt.splitPayments ? `
                     <div class="section-title">Split Payment</div>
-                    ${receipt.splitPayments.map(sp => `<div class="row"><span>${sp.method.toUpperCase()}</span><span>${formatCurrency(sp.amount)}</span></div>`).join('')}
-                ` : `<div class="row"><span>Payment:</span><span>${receipt.paymentMethod.toUpperCase()}</span></div>`}
+                    ${receipt.splitPayments.map(sp => `<div class="row"><span>${escapeHtml(sp.method.toUpperCase())}</span><span>${formatCurrency(sp.amount)}</span></div>`).join('')}
+                ` : `<div class="row"><span>Payment:</span><span>${escapeHtml(receipt.paymentMethod.toUpperCase())}</span></div>`}
                 ${receipt.cashReceived ? `<div class="row"><span>Received:</span><span>${formatCurrency(receipt.cashReceived)}</span></div>` : ''}
                 ${receipt.changeGiven != null && receipt.changeGiven > 0 ? `<div class="row"><span>Change:</span><span>${formatCurrency(receipt.changeGiven)}</span></div>` : ''}
             </div>
             <div class="footer">
-                <p>Thank you for choosing ${businessName}!</p>
+                <p>Thank you for choosing ${escapeHtml(businessName)}!</p>
                 <p style="margin-top:4px;">Drive clean, drive proud.</p>
             </div>
             </body></html>

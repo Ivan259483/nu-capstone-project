@@ -54,9 +54,9 @@ export default function AddEditItemModal({ open, item, onClose, onSave }: AddEdi
   const errorClass = 'text-xs text-red-500 font-medium mt-1';
 
   return (
-    <Modal open={open} onClose={onClose} title={item ? 'Edit Inventory Item' : 'Add New Item'} subtitle={item ? `Editing ${item.name}` : 'Add a new product to your inventory'} size="xl">
-      <form onSubmit={handleSubmit(onSubmit)} noValidate>
-        <div className="px-6 py-5 space-y-6">
+    <Modal open={open} onClose={onClose} title={item ? 'Edit Inventory Item' : 'Add New Item'} subtitle={item ? `Editing ${item.name}` : 'Add a new product to your inventory'} size="xl" contentClassName="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <form className="flex min-h-0 flex-1 flex-col overflow-hidden" onSubmit={handleSubmit(onSubmit)} noValidate>
+        <div className="inv-modal-scroll-region min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-6 py-5">
           {item && (
             <div className="p-4 rounded-xl bg-gradient-to-r from-blue-50 to-slate-50 border border-blue-100/80">
               <div className="flex items-center justify-between mb-2"><span className="text-xs font-semibold text-gray-600">Current Stock Level</span><span className="text-xs font-bold text-gray-800 font-tabular">{currentPct}% capacity</span></div>
@@ -92,7 +92,7 @@ export default function AddEditItemModal({ open, item, onClose, onSave }: AddEdi
           <div className="border-t border-gray-100" />
           <div><label className={labelClass} htmlFor="item-notes">Notes</label><textarea id="item-notes" rows={3} placeholder="Usage notes, storage requirements..." className={`${inputClass(false)} resize-none`} {...register('notes')} /><p className={helperClass}>Optional — visible to staff during stock operations</p></div>
         </div>
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/40">
+        <div className="inv-modal-footer flex shrink-0 items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/40">
           <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 transition-all duration-150 active:scale-95">Cancel</button>
           <button type="submit" disabled={isSubmitting} className="px-6 py-2.5 rounded-lg text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md flex items-center gap-2 min-w-[120px] justify-center disabled:opacity-70">{isSubmitting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : item ? 'Save Changes' : 'Add to Inventory'}</button>
         </div>

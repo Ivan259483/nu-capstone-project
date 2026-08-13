@@ -5,7 +5,7 @@ import ChatMessage from '../models/chatMessage.model.js';
 import ChatSession from '../models/chatSession.model.js';
 import User from '../models/user.model.js';
 import Vehicle from '../models/vehicle.model.js';
-import { decrypt, encrypt } from '../utils/encryption.utils.js';
+import { decrypt, encrypt, looksLikeEncryptedValue } from '../utils/encryption.utils.js';
 import {
   validateChatRegistrationPhone,
   validateNamePart,
@@ -31,7 +31,6 @@ export const SALES_HANDOFF_ACTIVE_STATUSES = Object.freeze([
 
 export const HANDOFF_SYSTEM_MESSAGE = 'Chat was escalated from AutoSPF+ AI to Sales.';
 const SALES_JOINED_SYSTEM_MESSAGE = 'Sales joined the conversation.';
-const ENCRYPTED_VALUE_PATTERN = /^[0-9a-f]{32}:[0-9a-f]+$/i;
 const CHAT_AGENT_USER_FIELDS =
   '_id name role email avatar avatarUrl photoURL profileImage profilePhoto image photo';
 const CHAT_AGENT_IMAGE_FIELDS = Object.freeze([
@@ -64,7 +63,7 @@ const resolveChatAgentImage = (user = {}) => {
 
 const encryptPhone = (value = '') => {
   const phone = clean(value);
-  if (!phone || ENCRYPTED_VALUE_PATTERN.test(phone)) return phone;
+  if (!phone || looksLikeEncryptedValue(phone)) return phone;
   return encrypt(phone);
 };
 
@@ -72,7 +71,7 @@ const decryptPhone = (value = '') => {
   const phone = clean(value);
   if (!phone) return '';
   const decrypted = clean(decrypt(phone));
-  return ENCRYPTED_VALUE_PATTERN.test(decrypted) ? '' : decrypted;
+  return decrypted;
 };
 
 const escapeRegex = (value = '') =>

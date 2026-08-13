@@ -134,16 +134,15 @@ export function BillingPanel({ payments, onRefresh }: BillingPanelProps) {
                 </head>
                 <body>
                     ${content.outerHTML}
-                    <script>
-                        setTimeout(() => {
-                            window.print();
-                            window.close();
-                        }, 600);
-                    </script>
                 </body>
             </html>
         `);
         printWindow.document.close();
+        setTimeout(() => {
+            printWindow.focus();
+            printWindow.print();
+            printWindow.close();
+        }, 600);
     };
 
     // ─── Revenue calculations ───────────────────────────────────────────

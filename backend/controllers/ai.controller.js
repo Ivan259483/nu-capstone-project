@@ -42,6 +42,7 @@ import {
   meshyDependencyStatus,
 } from '../services/meshy.service.js';
 import { buildEstimateFromDamages } from '../services/estimator.service.js';
+import { isServiceOperationRole } from '../constants/roles.js';
 
 // ── Module-level Replicate session state ──────────────────────────────────────
 // Set to true once a 402 is received so we skip all subsequent calls this
@@ -83,6 +84,15 @@ const WEBAR_TARGET_IMAGE_PATH = '/webar/targets/autospf-vehicle.png';
 const WEBAR_FALLBACK_MODEL_PATH = '/webar/models/fallback-car.glb';
 const inFlightAnalyzeLocks = new Map();
 const recentAnalyzeResults = new Map();
+
+const describeExternalUrl = (value) => {
+  try {
+    const parsed = new URL(String(value || ''));
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return '[invalid-url]';
+  }
+};
 
 const SERVICE_LIBRARY = {
   bumper: {
@@ -529,17 +539,20 @@ const collectUrlStrings = (value, label, acc = []) => {
 };
 
 const logMeshyUrlDiagnostics = (payload = {}) => {
-  console.log('[Meshy] Available model_urls:', JSON.stringify({
-    model_urls: payload?.model_urls || null,
-    result_model_urls: payload?.result?.model_urls || null,
-    output_model_urls: payload?.output?.model_urls || null,
-    data_model_urls: payload?.data?.model_urls || null,
-  }));
-  console.log('[Meshy] Available texture_urls:', JSON.stringify({
-    texture_urls: payload?.texture_urls || null,
-    result_texture_urls: payload?.result?.texture_urls || null,
-    output_texture_urls: payload?.output?.texture_urls || null,
-    data_texture_urls: payload?.data?.texture_urls || null,
+  const availableKeys = (value) => {
+    if (!value) return [];
+    if (typeof value === 'string') return ['direct'];
+    return typeof value === 'object' ? Object.keys(value) : [];
+  };
+  console.log('[Meshy] Available URL fields:', JSON.stringify({
+    model_urls: availableKeys(payload?.model_urls),
+    result_model_urls: availableKeys(payload?.result?.model_urls),
+    output_model_urls: availableKeys(payload?.output?.model_urls),
+    data_model_urls: availableKeys(payload?.data?.model_urls),
+    texture_urls: availableKeys(payload?.texture_urls),
+    result_texture_urls: availableKeys(payload?.result?.texture_urls),
+    output_texture_urls: availableKeys(payload?.output?.texture_urls),
+    data_texture_urls: availableKeys(payload?.data?.texture_urls),
   }));
 };
 
@@ -555,10 +568,10 @@ const extractModelUrl = (payload = {}) => {
     if (typeof candidate.url !== 'string' || !candidate.url.trim()) continue;
     if (isGlbUrl(candidate.url)) {
       const selectedUrl = candidate.url.trim();
-      console.log('[Meshy] Selected GLB URL:', selectedUrl);
+      console.log('[Meshy] Selected GLB URL:', describeExternalUrl(selectedUrl));
       return selectedUrl;
     }
-    console.warn(`[Meshy] Rejected non-GLB model URL candidate (${candidate.label}):`, candidate.url);
+    console.warn(`[Meshy] Rejected non-GLB model URL candidate (${candidate.label}):`, describeExternalUrl(candidate.url));
   }
 
   const rejectedCandidates = [
@@ -586,7 +599,7 @@ const extractModelUrl = (payload = {}) => {
 
   rejectedCandidates.forEach(({ label, url }) => {
     if (typeof url === 'string' && url.trim() && !isGlbUrl(url)) {
-      console.warn(`[Meshy] Rejected non-GLB URL (${label}):`, url);
+      console.warn(`[Meshy] Rejected non-GLB URL (${label}):`, describeExternalUrl(url));
     }
   });
 
@@ -609,10 +622,10 @@ const extractUsdzUrl = (payload = {}) => {
     if (typeof candidate.url !== 'string' || !candidate.url.trim()) continue;
     if (isUsdzUrl(candidate.url)) {
       const selectedUrl = candidate.url.trim();
-      console.log('[Meshy] Selected USDZ URL:', selectedUrl);
+      console.log('[Meshy] Selected USDZ URL:', describeExternalUrl(selectedUrl));
       return selectedUrl;
     }
-    console.warn(`[Meshy] Rejected non-USDZ URL candidate (${candidate.label}):`, candidate.url);
+    console.warn(`[Meshy] Rejected non-USDZ URL candidate (${candidate.label}):`, describeExternalUrl(candidate.url));
   }
 
   return null;
@@ -1128,7 +1141,7 @@ export const get3DModelStatus = async (req, res) => {
             folder: `${MESHY_CLOUDINARY_FOLDER}/models`,
             filename: `vehicle_${taskId}.glb`,
           });
-          console.log(`[Meshy Poll] ✅ Permanent GLB URL: ${permanentModelUrl}`);
+          console.log(`[Meshy Poll] ✅ Permanent GLB URL: ${describeExternalUrl(permanentModelUrl)}`);
         } catch (glbErr) {
           // Non-fatal: use the raw Meshy URL so AR still works right now.
           // The URL will expire in ~1 hour so user should reload if they come back later.
@@ -1568,7 +1581,7 @@ export const generateRepairPreview = async (req, res) => {
         contentType: 'image/jpeg',
       });
     }
-    console.log('  ↳ Source image URL:', sourceImageUrl);
+    console.log('  ↳ Source image URL:', describeExternalUrl(sourceImageUrl));
 
     // ── 2. Determine image dimensions ──
     const width = Number(imageWidth) || 1024;
@@ -1586,7 +1599,7 @@ export const generateRepairPreview = async (req, res) => {
       filename: 'damage_mask.png',
       contentType: 'image/png',
     });
-    console.log('  ↳ Mask URL:', maskUrl);
+    console.log('  ↳ Mask URL:', describeExternalUrl(maskUrl));
 
     // ── 5. Call Replicate FLUX Fill Pro (primary) ──
     console.log('  ↳ Calling Replicate FLUX Fill Pro for AI inpainting...');
@@ -1949,8 +1962,16 @@ export const getScanById = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Scan not found.' });
     }
 
-    // If a customer is authenticated, ensure they only see their own scans.
-    if (req.user?.id && scan.customer && String(scan.customer) !== String(req.user.id)) {
+    // Customer-linked scans contain uploaded images and estimate details. They
+    // require either the owning customer or an authorized service-operations role.
+    if (scan.customer && !req.user?.id) {
+      return res.status(401).json({ success: false, message: 'Authentication required.' });
+    }
+    if (
+      scan.customer
+      && String(scan.customer) !== String(req.user?.id)
+      && !isServiceOperationRole(req.user?.role)
+    ) {
       return res.status(403).json({ success: false, message: 'Forbidden.' });
     }
 
@@ -2040,7 +2061,12 @@ export const getWebARSession = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Scan not found.' });
     }
 
-    if (req.user?.id && scan.customer && String(scan.customer) !== String(req.user.id)) {
+    if (
+      req.user?.id
+      && scan.customer
+      && String(scan.customer) !== String(req.user.id)
+      && !isServiceOperationRole(req.user?.role)
+    ) {
       return res.status(403).json({ success: false, message: 'Forbidden.' });
     }
 
@@ -2101,6 +2127,22 @@ export const generate3DFromScan = async (req, res) => {
     // handles raw file uploads via startMeshyImageTo3D.
     const hasDirectFiles = Array.isArray(req.files) && req.files.length > 0;
     if (hasDirectFiles) {
+      if (scanId) {
+        const directScan = await AIScan.findById(scanId).select('customer').lean();
+        if (!directScan) {
+          return res.status(404).json({ success: false, message: 'Scan not found.' });
+        }
+        if (directScan.customer && !req.user?.id) {
+          return res.status(401).json({ success: false, message: 'Authentication required.' });
+        }
+        if (
+          directScan.customer
+          && String(directScan.customer) !== String(req.user?.id)
+          && !isServiceOperationRole(req.user?.role)
+        ) {
+          return res.status(403).json({ success: false, message: 'Forbidden.' });
+        }
+      }
       console.log(`[generate3DFromScan] Direct file upload path — ${req.files.length} file(s), scanId=${scanId || 'none'}`);
       return generate3DModel(req, res);
     }
@@ -2113,6 +2155,17 @@ export const generate3DFromScan = async (req, res) => {
     const scan = await AIScan.findById(scanId);
     if (!scan) {
       return res.status(404).json({ success: false, message: 'Scan not found.' });
+    }
+
+    if (scan.customer && !req.user?.id) {
+      return res.status(401).json({ success: false, message: 'Authentication required.' });
+    }
+    if (
+      scan.customer
+      && String(scan.customer) !== String(req.user?.id)
+      && !isServiceOperationRole(req.user?.role)
+    ) {
+      return res.status(403).json({ success: false, message: 'Forbidden.' });
     }
 
     if (!Array.isArray(scan.imageUrls) || scan.imageUrls.length === 0) {
@@ -2184,8 +2237,8 @@ export const generate3DFromScan = async (req, res) => {
     const probeList = [...new Set(MESHY_ENDPOINT_CANDIDATES)];
 
     console.log('[AI Scan][Meshy] ▶ Starting 3D generation');
-    console.log(`  ↳ Key prefix   : ${MESHY_API_KEY.slice(0, 8)}***  (set: ${Boolean(MESHY_API_KEY)})`);
-    console.log(`  ↳ Image URL    : ${sourceImageUrl}`);
+    console.log(`  ↳ Meshy key set: ${Boolean(MESHY_API_KEY)}`);
+    console.log(`  ↳ Image URL    : ${describeExternalUrl(sourceImageUrl)}`);
     console.log(`  ↳ Probing ${probeList.length} endpoint candidates...`);
 
     let response;
@@ -2299,6 +2352,9 @@ const parseProxyGlbTarget = (req) => {
   } catch {
     return { error: { status: 400, body: { success: false, message: 'Invalid URL.' } } };
   }
+  if (parsedUrl.protocol !== 'https:') {
+    return { error: { status: 400, body: { success: false, message: 'Only HTTPS model URLs are allowed.' } } };
+  }
   if (!proxyGlbHostAllowed(parsedUrl.hostname)) {
     return { error: { status: 403, body: { success: false, message: 'Host not allowed for proxy.' } } };
   }
@@ -2316,6 +2372,7 @@ const upstreamContentTypeLooksLikeHtmlOrJson = (ct) => {
 const setProxyGlbResponseHeaders = (res, contentLength) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Length, Content-Range');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Content-Type', 'model/gltf-binary');
   res.setHeader('Content-Disposition', 'attachment; filename="model.glb"');
@@ -2328,6 +2385,7 @@ const setProxyGlbResponseHeaders = (res, contentLength) => {
 export const proxyGlbOptions = (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Range');
   res.setHeader('Access-Control-Max-Age', '86400');
   res.status(204).end();
 };
@@ -2342,7 +2400,7 @@ export const proxyGlbHead = async (req, res) => {
   if (parsed.error) {
     return res.status(parsed.error.status).json(parsed.error.body);
   }
-  const { rawUrl } = parsed;
+  const { rawUrl, parsedUrl } = parsed;
   try {
     const upstream = await axios.head(rawUrl, {
       timeout: 30_000,
@@ -2355,7 +2413,7 @@ export const proxyGlbHead = async (req, res) => {
     const uct = upstream.headers['content-type'] || '';
     const ucl = upstream.headers['content-length'] || '?';
     console.log(
-      `[proxy-glb] HEAD upstream ${upstream.status} ct=${uct} cl=${ucl} url=${rawUrl.slice(0, 100)}${rawUrl.length > 100 ? '…' : ''}`
+      `[proxy-glb] HEAD upstream ${upstream.status} ct=${uct} cl=${ucl} url=${parsedUrl.origin}${parsedUrl.pathname}`
     );
 
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -2398,7 +2456,7 @@ export const proxyGlb = async (req, res) => {
   if (parsed.error) {
     return res.status(parsed.error.status).json(parsed.error.body);
   }
-  const { rawUrl } = parsed;
+  const { rawUrl, parsedUrl } = parsed;
 
   try {
     const upstream = await axios.get(rawUrl, {
@@ -2415,7 +2473,7 @@ export const proxyGlb = async (req, res) => {
     const uct = upstream.headers['content-type'] || '';
     const ucl = upstream.headers['content-length'] || '?';
     console.log(
-      `[proxy-glb] GET upstream ${status} ct=${uct} cl=${ucl} url=${rawUrl.slice(0, 100)}${rawUrl.length > 100 ? '…' : ''}`
+      `[proxy-glb] GET upstream ${status} ct=${uct} cl=${ucl} url=${parsedUrl.origin}${parsedUrl.pathname}`
     );
 
     if (status >= 400) {

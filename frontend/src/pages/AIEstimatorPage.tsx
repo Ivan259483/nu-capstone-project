@@ -456,7 +456,7 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
                                     Step 3 — AR Visualization
                                 </p>
                                 <ARCarViewer
-                                    modelSrc="https://modelviewer.dev/shared-assets/models/mustang.glb"
+                                    modelSrc="/models/car.glb"
                                     title="Vehicle AR Inspection"
                                     subtitle="Drag to rotate · Pinch to zoom · Tap AR to place in your space"
                                 />

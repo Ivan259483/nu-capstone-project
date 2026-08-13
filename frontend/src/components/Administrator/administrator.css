@@ -7,6 +7,8 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 .adminhub-root {
+  --ah-page-gutter: 16px;
+  --ah-sidebar-current-width: 0px;
   font-family: 'DM Sans', system-ui, sans-serif;
   background: #f8fafc;
   color: #0f172a;
@@ -14,10 +16,10 @@
   min-height: 100dvh;
   height: 100dvh;
   width: 100%;
-  max-width: 100vw;
   display: flex;
   flex-direction: row;
   align-items: stretch;
+  overflow: hidden;
 }
 
 .adminhub-root *,
@@ -66,7 +68,7 @@
   --ah-sidebar-hover: #f8fafc;
   --ah-sidebar-accent: #2563eb;
   --ah-sidebar-accent-dark: #1d4ed8;
-  position: fixed;
+  position: relative;
   left: 0;
   top: 0;
   width: var(--ah-sidebar-w);
@@ -82,6 +84,7 @@
   box-shadow: none;
   transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
+  flex: 0 0 auto;
 }
 
 .adminhub-root .ah-sidebar.is-collapsed {
@@ -1157,6 +1160,10 @@
   min-width: 0;
   min-height: 0;
   width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 16px var(--ah-page-gutter);
+  box-sizing: border-box;
   transition: opacity 120ms ease;
 }
 
@@ -1219,6 +1226,7 @@
   min-height: 0;
   align-self: stretch;
   overflow: hidden;
+  max-width: none;
 }
 
 .adminhub-root .ah-topbar {
@@ -1632,6 +1640,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  width: 100%;
   align-self: stretch;
   overflow: auto;
   background: #f8fafc;
@@ -1696,7 +1705,7 @@
 }
 
 .adminhub-root .ah-tab-shell:has(.ah-tab-panel.is-active .admin-dashboard-page) {
-  padding: 16px clamp(16px, 2.4vw, 28px) 18px !important;
+  padding: 16px var(--ah-page-gutter) 18px !important;
 }
 
 .adminhub-root .admin-dashboard-page {
@@ -2556,46 +2565,6 @@
 }
 
 @media (max-width: 720px) {
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar {
-    width: var(--ah-sidebar-collapsed-w) !important;
-  }
-
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-main-column {
-    margin-left: var(--ah-sidebar-collapsed-w) !important;
-  }
-
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-header,
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-brand,
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-footer {
-    justify-content: center;
-    padding-left: 10px;
-    padding-right: 10px;
-  }
-
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-brand-name,
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-search-action,
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-search-wrap,
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-nav-section-title,
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-nav-label,
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-profile-info,
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-profile-chevron,
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-collapse-btn span {
-    display: none !important;
-  }
-
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-nav-item {
-    justify-content: center;
-    padding-left: 0;
-    padding-right: 0;
-  }
-
-  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-collapse-btn {
-    width: 44px;
-    justify-content: center;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-  }
-
   .adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--hourly,
   .adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--pipeline {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2788,7 +2757,7 @@
 }
 
 .adminhub-root .ah-tab-shell:has(.ah-tab-panel.is-active .ah-user-profile-page) {
-  padding: 20px clamp(16px, 2vw, 28px) 32px !important;
+  padding: 20px var(--ah-page-gutter) 32px !important;
 }
 
 .adminhub-root .ah-user-profile-page {
@@ -3399,6 +3368,11 @@
   justify-content: center;
   padding: 16px;
   animation: ahFadeIn 0.25s ease-out forwards;
+}
+
+.adminhub-root .ah-viewport-modal-layer {
+  padding-right: var(--ah-page-gutter);
+  padding-left: calc(var(--ah-sidebar-current-width) + var(--ah-page-gutter));
 }
 
 .adminhub-root .ah-modal-card {
@@ -4457,7 +4431,7 @@
 }
 
 .adminhub-root .ah-tab-shell:has(.ah-tab-panel.is-active .ah-user-profile-page) {
-  padding: 22px clamp(18px, 2.4vw, 32px) 34px !important;
+  padding: 22px var(--ah-page-gutter) 34px !important;
 }
 
 .adminhub-root .ah-user-profile-page-head {

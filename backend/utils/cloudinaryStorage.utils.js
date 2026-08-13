@@ -209,7 +209,12 @@ export const uploadGlbFromUrl = async (sourceGlbUrl, options = {}) => {
     );
   }
 
-  console.log(`[Cloudinary GLB] ✅ Permanent URL: ${secureUrl}`);
+  let safeLogUrl = '[invalid-url]';
+  try {
+    const parsed = new URL(secureUrl);
+    safeLogUrl = `${parsed.origin}${parsed.pathname}`;
+  } catch { /* keep redacted fallback */ }
+  console.log(`[Cloudinary GLB] ✅ Permanent URL: ${safeLogUrl}`);
   return secureUrl;
 };
 

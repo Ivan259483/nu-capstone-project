@@ -98,8 +98,8 @@ export function ARViewer({
   const postToFrame = useCallback((payload: Record<string, unknown>) => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
-    win.postMessage(payload, '*');
-  }, []);
+    win.postMessage(payload, resolvedOrigin);
+  }, [resolvedOrigin]);
 
   const sendWebArInit = useCallback(() => {
     const payload: Record<string, unknown> = {};
@@ -121,6 +121,7 @@ export function ARViewer({
   useEffect(() => {
     const onMsg = (ev: MessageEvent) => {
       if (ev.source !== iframeRef.current?.contentWindow) return;
+      if (ev.origin !== resolvedOrigin) return;
       const data =
         typeof ev.data === 'string' ? parseWebArPostMessageData(ev.data) : (ev.data as Record<string, unknown> | null);
       if (!data || typeof data !== 'object') return;
@@ -131,7 +132,7 @@ export function ARViewer({
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
-  }, [onBridgeMessage, src]);
+  }, [onBridgeMessage, resolvedOrigin, src]);
 
   useEffect(() => {
     if (!childReady) return;

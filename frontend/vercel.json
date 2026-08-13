@@ -5,13 +5,13 @@
       "destination": "https://nu-capstone-project.onrender.com/api/:path*"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
     {
-      "source": "/(.*)",
+      "source": "/((?!api(?:/|$)).*)",
       "headers": [
         {
           "key": "X-Frame-Options",
@@ -27,12 +27,68 @@
         },
         {
           "key": "Permissions-Policy",
-          "value": "geolocation=(), microphone=(), usb=()"
+          "value": "camera=(self \"https://nu-capstone-project.onrender.com\"), geolocation=(), microphone=(), usb=()"
+        },
+        {
+          "key": "Content-Security-Policy-Report-Only",
+          "value": "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'sha256-vCFa+DunXacu94tJCd9UV/SkW4O+xblgDiKio+fYEWA=' https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js https://www.googletagmanager.com/gtag/js; script-src-attr 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://images.unsplash.com https://placehold.co https://api.qrserver.com https://res.cloudinary.com https://nu-capstone-project.onrender.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://nu-capstone-project.onrender.com wss://nu-capstone-project.onrender.com https://firebase.googleapis.com https://firebaseinstallations.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://www.google-analytics.com https://api.iconify.design https://www.gstatic.com; frame-src 'self' blob: https://www.google.com/maps/embed https://nu-capstone-project.onrender.com; worker-src 'self' blob:; media-src 'self' blob: https://nu-capstone-project.onrender.com https://res.cloudinary.com; model-src 'self' blob: https://nu-capstone-project.onrender.com https://res.cloudinary.com; manifest-src 'self'"
         }
       ]
     },
     {
       "source": "/verify-account",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        }
+      ]
+    },
+    {
+      "source": "/set-password",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        }
+      ]
+    },
+    {
+      "source": "/reset-password",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        }
+      ]
+    },
+    {
+      "source": "/verify-otp",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        }
+      ]
+    },
+    {
+      "source": "/track/:path*",
       "headers": [
         {
           "key": "Cache-Control",

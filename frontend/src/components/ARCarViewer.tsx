@@ -69,13 +69,17 @@ type ProfileKey = keyof typeof MATERIAL_PROFILES;
 // ── Helper: inject the model-viewer script once ────────────────────────────────
 let scriptInjected = false;
 function ensureModelViewerScript() {
-    if (scriptInjected || document.querySelector('[data-model-viewer-script]')) {
+    if (
+        scriptInjected
+        || window.customElements?.get('model-viewer')
+        || document.querySelector('[data-model-viewer-script]')
+    ) {
         scriptInjected = true;
         return;
     }
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = 'https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js';
+    script.src = 'https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js';
     script.setAttribute('data-model-viewer-script', 'true');
     document.head.appendChild(script);
     scriptInjected = true;

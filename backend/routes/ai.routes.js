@@ -1,5 +1,7 @@
 import express from 'express';
 import multer from 'multer';
+import rateLimit from 'express-rate-limit';
+import { createHash, randomBytes } from 'crypto';
 import {
   analyzeDamage,
   generate3DModel,
@@ -19,7 +21,9 @@ import {
   proxyGlbOptions,
   listAiScans,
 } from '../controllers/ai.controller.js';
-import { authenticate, optionalAuthenticate } from '../middleware/auth.middleware.js';
+import { authenticate, authorize, optionalAuthenticate } from '../middleware/auth.middleware.js';
+import { SERVICE_OPERATION_ROLES } from '../constants/roles.js';
+import { config } from '../config/environment.js';
 
 const router = express.Router();
 
@@ -29,6 +33,14 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
+const aiGenerationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many 3D generation requests. Please try again later.' },
+});
+
 router.post('/analyze', upload.array('images', 5), analyzeDamage);
 
 /**
@@ -36,7 +48,7 @@ router.post('/analyze', upload.array('images', 5), analyzeDamage);
  * - JSON `{ "scanId": "..." }` → Meshy from stored scan images (same as /generate-3d-from-scan).
  * - multipart `images[]` → legacy upload flow (generate3DModel).
  */
-router.post('/generate-3d', optionalAuthenticate, (req, res, next) => {
+router.post('/generate-3d', optionalAuthenticate, aiGenerationLimiter, (req, res, next) => {
   const contentType = String(req.headers['content-type'] || '');
   if (contentType.includes('application/json')) {
     const scanId = String(req.body?.scanId || '').trim();
@@ -67,7 +79,7 @@ router.post('/scan', optionalAuthenticate, upload.array('images', 5), scanWithGP
 router.get('/scan/:id', optionalAuthenticate, getScanById);
 router.get('/webar-session/:scanId', optionalAuthenticate, getWebARSession);
 // Accepts both JSON { scanId } (normal path) and multipart images[] (direct fallback when Cloudinary is down).
-router.post('/generate-3d-from-scan', optionalAuthenticate, (req, res, next) => {
+router.post('/generate-3d-from-scan', optionalAuthenticate, aiGenerationLimiter, (req, res, next) => {
   const ct = String(req.headers['content-type'] || '');
   if (ct.includes('multipart/form-data')) {
     return upload.array('images', 5)(req, res, (err) => {
@@ -93,17 +105,19 @@ const arSessions = new Map(); // token → { modelUrl, createdAt }
 const AR_SESSION_TTL_MS = 30 * 60 * 1000; // 30 min
 
 // Cleanup expired tokens every 5 minutes
-setInterval(() => {
+const arSessionCleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [token, data] of arSessions) {
     if (now - data.createdAt > AR_SESSION_TTL_MS) arSessions.delete(token);
   }
 }, 5 * 60 * 1000);
+arSessionCleanupTimer.unref?.();
 
 const buildSceneViewerUrl = (modelUrl) =>
   `https://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(modelUrl)}`;
 
 const getPublicOrigin = (req) => {
+  if (config.publicApiOrigin) return config.publicApiOrigin;
   const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim();
   const proto = forwardedProto || req.protocol || 'http';
   return `${proto}://${req.get('host')}`;
@@ -112,19 +126,74 @@ const getPublicOrigin = (req) => {
 const buildLaunchUrl = (req, token) =>
   `${getPublicOrigin(req)}/api/ai/ar-launch?token=${encodeURIComponent(token)}`;
 
+const AR_ASSET_ALLOWED_HOSTS = new Set([
+  'nu-capstone-project.onrender.com',
+  'assets.meshy.ai',
+  'res.cloudinary.com',
+  'storage.googleapis.com',
+]);
+
+const isLoopbackHostname = (hostname) =>
+  hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+
+const normalizeArAssetUrl = (req, value) => {
+  const candidate = String(value || '').trim();
+  if (!candidate) return '';
+  try {
+    const publicOrigin = new URL(getPublicOrigin(req));
+    const parsed = new URL(candidate, publicOrigin);
+    if (parsed.username || parsed.password) return '';
+    const isAllowedExternalHost = [...AR_ASSET_ALLOWED_HOSTS]
+      .some((host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`));
+    const secureProtocol = parsed.protocol === 'https:';
+    const localDevelopmentUrl = parsed.protocol === 'http:' && isLoopbackHostname(parsed.hostname);
+    if (!(secureProtocol || localDevelopmentUrl)) return '';
+    const isLocalOwnOrigin = parsed.origin === publicOrigin.origin && isLoopbackHostname(parsed.hostname);
+    if (!(isLocalOwnOrigin || isAllowedExternalHost)) return '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
+};
+
+const escapeHtml = (value) => String(value ?? '').replace(
+  /[&<>"']/g,
+  (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]
+);
+
+const normalizeArDamages = (damages) => (Array.isArray(damages) ? damages : [])
+  .slice(0, 50)
+  .map((damage) => ({
+    type: String(damage?.type || 'Damage').slice(0, 100),
+    affectedArea: String(damage?.affectedArea || '').slice(0, 100),
+    severity: ['high', 'medium', 'low'].includes(damage?.severity) ? damage.severity : 'medium',
+    coordinates: {
+      x: Math.max(0, Math.min(1, Number(damage?.coordinates?.x) || 0)),
+      y: Math.max(0, Math.min(1, Number(damage?.coordinates?.y) || 0)),
+      width: Math.max(0, Math.min(1, Number(damage?.coordinates?.width) || 0)),
+      height: Math.max(0, Math.min(1, Number(damage?.coordinates?.height) || 0)),
+    },
+  }));
+
 const buildArLaunchFallbackHtml = ({
   title,
   message,
   usdzUrl,
   sceneViewerUrl,
 }) => {
-  const safeTitle = String(title || 'AR Launch');
-  const safeMessage = String(message || 'AR launch is unavailable.');
+  const safeTitle = escapeHtml(title || 'AR Launch');
+  const safeMessage = escapeHtml(message || 'AR launch is unavailable.');
   const usdzLink = usdzUrl
-    ? `<a class="btn" href="${usdzUrl}">Open USDZ Link</a>`
+    ? `<a class="btn" href="${escapeHtml(usdzUrl)}" rel="noreferrer">Open USDZ Link</a>`
     : '';
   const sceneLink = sceneViewerUrl
-    ? `<a class="btn secondary" href="${sceneViewerUrl}">Open Scene Viewer Link</a>`
+    ? `<a class="btn secondary" href="${escapeHtml(sceneViewerUrl)}" rel="noreferrer">Open Scene Viewer Link</a>`
     : '';
 
   return `<!DOCTYPE html>
@@ -206,25 +275,41 @@ const buildArLaunchFallbackHtml = ({
 </html>`;
 };
 
+const arLaunchStyle = buildArLaunchFallbackHtml({}).match(/<style>([\s\S]*?)<\/style>/)?.[1] || '';
+const arLaunchStyleHash = createHash('sha256').update(arLaunchStyle, 'utf8').digest('base64');
+const AR_LAUNCH_CSP = [
+  "default-src 'none'",
+  `style-src 'sha256-${arLaunchStyleHash}'`,
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+].join('; ');
+
 router.post('/ar-session', (req, res) => {
   const { modelUrl, repairedModelUrl, usdzUrl, damages } = req.body || {};
-  if (!modelUrl) return res.status(400).json({ error: 'modelUrl is required' });
-  const token = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-  const sceneViewerUrl = buildSceneViewerUrl(modelUrl);
+  const safeModelUrl = normalizeArAssetUrl(req, modelUrl);
+  if (!safeModelUrl) {
+    return res.status(400).json({ error: 'A valid HTTPS modelUrl from an approved model host is required.' });
+  }
+  const safeRepairedModelUrl = normalizeArAssetUrl(req, repairedModelUrl) || safeModelUrl;
+  const safeUsdzUrl = normalizeArAssetUrl(req, usdzUrl);
+  const token = randomBytes(24).toString('base64url');
+  const sceneViewerUrl = buildSceneViewerUrl(safeModelUrl);
   const launchUrl = buildLaunchUrl(req, token);
   arSessions.set(token, {
-    modelUrl,
-    repairedModelUrl: repairedModelUrl || modelUrl,
-    usdzUrl: typeof usdzUrl === 'string' ? usdzUrl : '',
+    modelUrl: safeModelUrl,
+    repairedModelUrl: safeRepairedModelUrl,
+    usdzUrl: safeUsdzUrl,
     sceneViewerUrl,
-    damages: damages || [],
+    damages: normalizeArDamages(damages),
     createdAt: Date.now(),
   });
   res.json({
     token,
     launchUrl,
     sceneViewerUrl,
-    ...(typeof usdzUrl === 'string' && usdzUrl.trim() ? { usdzUrl: usdzUrl.trim() } : {}),
+    ...(safeUsdzUrl ? { usdzUrl: safeUsdzUrl } : {}),
   });
 });
 
@@ -241,6 +326,8 @@ router.get('/ar-session/:token', (req, res) => {
 });
 
 router.get('/ar-launch', (req, res) => {
+  res.setHeader('Content-Security-Policy', AR_LAUNCH_CSP);
+  res.setHeader('Referrer-Policy', 'no-referrer');
   const token = String(req.query.token || '').trim();
   if (!token) {
     return res
@@ -321,149 +408,18 @@ router.get('/ar-launch', (req, res) => {
 });
 
 /* ── QC Staff Portal — list all AI scans ── */
-router.get('/scans', listAiScans);
+router.get('/scans', authenticate, authorize(...SERVICE_OPERATION_ROLES), listAiScans);
 
 /* ── AR Viewer Page (for iOS Quick Look support) ── */
 router.get('/ar-viewer', (req, res) => {
-  const modelUrl = decodeURIComponent(req.query.src || '');
+  const modelUrl = normalizeArAssetUrl(req, req.query.src);
   if (!modelUrl) {
-    return res.status(400).send('Missing model URL (?src=)');
+    return res.status(400).send('Missing or disallowed model URL (?src=)');
   }
 
-  const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <title>AutoSPF+ AR Viewer</title>
-  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"><\/script>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    html,body{width:100%;height:100%;background:#050506;overflow:hidden;
-      font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#fff}
-    model-viewer{
-      width:100%;height:100vh;
-      --poster-color:#050506;
-      --progress-bar-color:#f97316;
-      background:radial-gradient(circle at 50% 46%,rgba(255,255,255,.05),transparent 30%),#050506;
-    }
-    .header{
-      position:fixed;top:0;left:0;right:0;
-      padding:max(52px,env(safe-area-inset-top)) 20px 14px;
-      background:linear-gradient(180deg,rgba(5,5,6,.95) 0%,transparent 100%);
-      z-index:100;text-align:center;
-    }
-    .header h1{font-size:17px;font-weight:700;color:#fff}
-    .header p{font-size:12px;color:rgba(255,255,255,.5);margin-top:3px}
-    #arBtn{
-      position:fixed;
-      bottom:max(28px,env(safe-area-inset-bottom,28px));
-      left:50%;transform:translateX(-50%);
-      padding:0 40px;height:54px;min-width:200px;border-radius:27px;
-      background:linear-gradient(135deg,#f97316,#fb923c);
-      color:#fff;font-size:15px;font-weight:800;letter-spacing:.4px;
-      border:none;cursor:pointer;z-index:200;white-space:nowrap;
-      box-shadow:0 8px 32px rgba(249,115,22,.45);
-      transition:opacity .2s,transform .15s;
-    }
-    #arBtn:active{opacity:.85;transform:translateX(-50%) scale(.96)}
-    #arBtn[hidden]{display:none}
-    #noAr{
-      position:fixed;bottom:max(28px,env(safe-area-inset-bottom,28px));
-      left:50%;transform:translateX(-50%);
-      font-size:12px;color:rgba(255,255,255,.4);text-align:center;
-      white-space:nowrap;display:none;
-    }
-    #loading{
-      position:fixed;inset:0;z-index:50;
-      display:flex;flex-direction:column;align-items:center;justify-content:center;
-      background:#050506;gap:16px;
-    }
-    .ring{width:52px;height:52px;border-radius:50%;
-      border:3px solid rgba(249,115,22,.2);border-top-color:#f97316;
-      animation:spin .9s linear infinite;}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    .lt{font-size:13px;font-weight:700;color:rgba(255,255,255,.6)}
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>AutoSPF+ AR Preview</h1>
-    <p>Tap the button below to view in your space</p>
-  </div>
-  <div id="loading"><div class="ring"></div><div class="lt">Loading 3D model…</div></div>
-  <model-viewer
-    id="viewer"
-    src="${modelUrl}"
-    ios-src="${modelUrl}"
-    alt="AutoSPF+ Vehicle 3D Model"
-    ar
-    ar-modes="quick-look scene-viewer webxr"
-    ar-placement="floor"
-    ar-scale="auto"
-    camera-controls
-    auto-rotate
-    shadow-intensity="1.6"
-    environment-image="neutral"
-    exposure="1.1"
-    camera-orbit="30deg 70deg auto"
-    field-of-view="38deg"
-    loading="eager"
-    reveal="auto"
-  >
-    <button slot="ar-button" id="arBtn" type="button">📱 View In Your Space</button>
-  </model-viewer>
-  <div id="noAr">AR not supported on this device</div>
-<script>
-(function(){
-  var mv = document.getElementById('viewer');
-  var loading = document.getElementById('loading');
-  var arBtn = document.getElementById('arBtn');
-  var noAr = document.getElementById('noAr');
-
-  mv.addEventListener('load', function(){
-    loading.style.display = 'none';
-  });
-
-  mv.addEventListener('error', function(){
-    loading.style.display = 'none';
-    arBtn.textContent = '⚠️ Model failed to load';
-    arBtn.disabled = true;
-  });
-
-  mv.addEventListener('ar-status', function(e){
-    var s = (e.detail && e.detail.status) ? e.detail.status : '';
-    if(s === 'failed'){
-      // Quick Look not available — try direct iOS AR link as fallback
-      var glbUrl = ${JSON.stringify(modelUrl)};
-      var a = document.createElement('a');
-      a.rel = 'ar';
-      a.href = glbUrl;
-      a.appendChild(document.createElement('img'));
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-  });
-
-  // Notify parent React Native if embedded in WebView
-  try{
-    if(window.ReactNativeWebView){
-      mv.addEventListener('ar-status', function(e){
-        var s = (e.detail && e.detail.status) ? e.detail.status : '';
-        if(s === 'session-started') window.ReactNativeWebView.postMessage(JSON.stringify({type:'AR_STARTED'}));
-        if(s === 'not-presenting') window.ReactNativeWebView.postMessage(JSON.stringify({type:'AR_ENDED'}));
-      });
-    }
-  }catch(e){}
-})();
-<\/script>
-</body>
-</html>`;
-
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.send(html);
+  // Keep one audited AR document instead of maintaining a second generated
+  // HTML/template CSP surface.
+  return res.redirect(302, `/ar.html?model=${encodeURIComponent(modelUrl)}`);
 });
 
 export default router;

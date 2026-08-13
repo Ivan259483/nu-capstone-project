@@ -47,6 +47,24 @@ if (missingSecrets.length > 0) {
 export const config = {
   port: process.env.PORT || 3000,
   nodeEnv: process.env.NODE_ENV || 'development',
+  publicApiOrigin: (() => {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const fallback = isProduction ? 'https://nu-capstone-project.onrender.com' : '';
+    const raw = String(process.env.PUBLIC_API_ORIGIN || fallback).trim();
+    if (!raw) return '';
+    try {
+      const parsed = new URL(raw);
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('unsupported protocol');
+      if (parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.pathname && parsed.pathname !== '/')) {
+        throw new Error('must be an origin without credentials, path, query, or fragment');
+      }
+      if (isProduction && parsed.protocol !== 'https:') throw new Error('production origin must use HTTPS');
+      return parsed.origin;
+    } catch (error) {
+      console.warn(`[CONFIG] Invalid PUBLIC_API_ORIGIN; using the safe default: ${error.message}`);
+      return fallback;
+    }
+  })(),
   mongodbUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/autospf',
   jwtSecret: process.env.JWT_SECRET, // Required — validated above
   corsOrigin: (() => {
@@ -55,11 +73,14 @@ export const config = {
     const productionOrigins = [
       'https://autospf.shop',
       'https://www.autospf.shop',
+      // Capacitor iOS uses this app-scoped WebView origin; it is not a network
+      // localhost endpoint. Native Expo/server clients continue to omit Origin.
+      'capacitor://localhost',
     ];
     const developmentOrigins = [
       'http://localhost:5173',
-      'http://localhost:3000',
       'http://127.0.0.1:5173',
+      'capacitor://localhost',
       // Next.js / Vite dev (HTTP + HTTPS) for local + mkcert
       'http://localhost:3100',
       'https://localhost:3100',
@@ -69,15 +90,39 @@ export const config = {
     const isProduction = process.env.NODE_ENV === 'production';
     const defaults = isProduction
       ? productionOrigins
-      : [...productionOrigins, ...developmentOrigins];
+      : developmentOrigins;
 
     if (!raw || raw.trim() === '*') {
-      // Keep local development convenient, but never fail open in production.
-      return isProduction ? defaults : true;
+      // A missing or wildcard-like value always resolves to exact, environment-
+      // scoped defaults. Development must not silently become allow-all.
+      return defaults;
     }
 
-    // Merge explicitly configured origins with safe environment defaults.
-    const fromEnv = raw.split(',').map(s => s.trim()).filter(Boolean);
+    // Merge explicitly configured origins only after normalizing exact origins.
+    // Production accepts only the fixed application allowlist. Development may
+    // add an exact tunnel/staging origin without creating a wildcard policy.
+    const fromEnv = raw.split(',').map(s => s.trim()).filter(Boolean).flatMap((candidate) => {
+      try {
+        if (candidate === '*' || candidate.includes('*')) throw new Error('wildcards are not allowed');
+        const parsed = new URL(candidate);
+        if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('unsupported protocol');
+        if (parsed.username || parsed.password) throw new Error('credentials are not allowed');
+        if (parsed.search || parsed.hash || (parsed.pathname && parsed.pathname !== '/')) {
+          throw new Error('paths, queries, and fragments are not allowed');
+        }
+        if (isProduction && parsed.protocol !== 'https:') throw new Error('production origins must use HTTPS');
+        if (isProduction && ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname)) {
+          throw new Error('localhost is development-only');
+        }
+        if (isProduction && !productionOrigins.includes(parsed.origin)) {
+          throw new Error('origin is not in the production application allowlist');
+        }
+        return [parsed.origin];
+      } catch (error) {
+        console.warn(`[CONFIG] Ignoring invalid CORS_ORIGIN entry "${candidate}": ${error.message}`);
+        return [];
+      }
+    });
     const merged = Array.from(new Set([...defaults, ...fromEnv]));
     return merged;
   })(),

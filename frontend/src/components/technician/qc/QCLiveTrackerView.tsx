@@ -70,11 +70,21 @@ function mediaRepresentsSavedPhoto(media?: TrackerMedia | null): boolean {
   return Boolean(media.stage && media.stage !== 'confirmed');
 }
 
-/** Drop inline base64 from server payloads — use blob preview or hasPhoto placeholder instead. */
+/** Accept only local previews, relative paths, and HTTPS server media. */
 function sanitizeInlineTrackerPhotoUrl(url: unknown): string {
   const trimmed = String(url ?? '').trim();
   if (!trimmed || trimmed.startsWith('data:')) return '';
-  return trimmed;
+  if (trimmed.startsWith('blob:') || trimmed.startsWith('/')) return trimmed;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'https:') return parsed.toString();
+    const isLocalDevelopment = import.meta.env.DEV
+      && parsed.protocol === 'http:'
+      && ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
+    return isLocalDevelopment ? parsed.toString() : '';
+  } catch {
+    return '';
+  }
 }
 
 function sanitizeTrackerMediaEntry(entry: TrackerMedia): TrackerMedia {
@@ -424,7 +434,7 @@ function preferTrackerPhotoMerge(existing: TrackerMedia | undefined, incoming: T
   const incomingUrl = String(incoming?.photoUrl || '').trim();
   if (existingUrl.startsWith('blob:')) {
     if (!incomingUrl || incomingUrl.startsWith('data:')) return existing ?? incoming;
-    if (incomingUrl.startsWith('http://') || incomingUrl.startsWith('https://') || incomingUrl.startsWith('/')) {
+    if (incomingUrl.startsWith('https://') || incomingUrl.startsWith('/')) {
       return { ...incoming, photoUrl: incomingUrl };
     }
     return existing ?? incoming;

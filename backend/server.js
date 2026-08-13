@@ -23,6 +23,8 @@ import { initializeMailer } from './utils/mail.utils.js'; // Import mailer
 import { migrateLegacyUserRoles } from './utils/migrateLegacyUserRoles.utils.js';
 import { initSocket, initChangeStreams } from './utils/socket.utils.js';
 import { cleanupExpiredReservations } from './utils/inventory.utils.js';
+import { buildStaticArCsp } from './utils/csp.utils.js';
+import { isConfiguredCorsOriginAllowed } from './utils/origin.utils.js';
 import { authenticate, authorize } from './middleware/auth.middleware.js';
 import { BOOKING_MANAGER_ROLES } from './constants/roles.js';
 
@@ -58,94 +60,65 @@ import slotRoutes from './routes/slot.routes.js';
 import availabilityRouter from './routes/admin/availability.js';
 
 const app = express();
+app.disable('x-powered-by');
 
 // Trust proxy for rate limiting (Vercel, Render, Heroku, etc.)
 app.set('trust proxy', 1);
 
-// Stripe webhook (must be raw body)
+// Helmet runs before every route, including early-returning CORS preflights and
+// Stripe webhook errors. Browser CSP is configured only on routes that serve HTML.
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'same-origin' },
+  strictTransportSecurity: config.nodeEnv === 'production'
+    ? { maxAge: 31536000, includeSubDomains: true, preload: false }
+    : false,
+}));
+
+const isHealthPath = (req) => req.path === '/api/health' || req.path === '/health';
+app.use((req, res, next) => {
+  if (!isHealthPath(req)) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+  }
+  res.setHeader('X-API-Version', '1.0.0');
+  next();
+});
+
+// Stripe signature verification requires the unparsed request bytes. Keep this
+// route before express.json(), but after non-body-consuming security middleware.
 app.post('/api/payments/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 
-// Middleware — CORS (allow ngrok / tunnel frontends when using explicit origin list)
-const allowNgrokHostname = (hostname) =>
-  /\.ngrok-free\.(app|dev)$/i.test(hostname)
-  || /\.ngrok\.app$/i.test(hostname)
-  || /\.ngrok\.io$/i.test(hostname);
+const corsOptionsDelegate = (req, callback) => {
+  // Public GLB delivery is intentionally credential-free and cross-origin so
+  // Model Viewer/native AR clients can range-fetch host-allowlisted binaries.
+  if (req.path === '/api/ai/proxy-glb') {
+    return callback(null, {
+      origin: '*',
+      credentials: false,
+      methods: ['GET', 'HEAD', 'OPTIONS'],
+      allowedHeaders: ['Range'],
+      exposedHeaders: ['Accept-Ranges', 'Content-Length', 'Content-Range'],
+      maxAge: 86400,
+    });
+  }
 
-const LOCAL_DEVELOPMENT_ORIGINS = new Set([
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'http://localhost:3100',
-  'https://localhost:3100',
-  'http://127.0.0.1:3100',
-  'https://127.0.0.1:3100',
-]);
-
-const isLoopbackApiRequest = (req) => {
-  const localAddress = String(req.socket?.localAddress || '').toLowerCase();
-  const loopbackSocket = localAddress === '::1'
-    || localAddress === '127.0.0.1'
-    || localAddress.startsWith('::ffff:127.');
-  const hostHeader = String(req.headers.host || '').toLowerCase();
-  const loopbackHost = hostHeader === 'localhost'
-    || hostHeader.startsWith('localhost:')
-    || hostHeader === '127.0.0.1'
-    || hostHeader.startsWith('127.0.0.1:')
-    || hostHeader.startsWith('[::1]');
-  return loopbackSocket && loopbackHost;
+  return callback(null, {
+    origin(origin, originCallback) {
+      return originCallback(null, isConfiguredCorsOriginAllowed(origin));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
+  });
 };
-
-const corsOptionsDelegate = (req, callback) => callback(null, {
-  origin(origin, originCallback) {
-    if (!origin) return originCallback(null, true);
-    if (config.corsOrigin === true) return originCallback(null, true);
-    const list = Array.isArray(config.corsOrigin) ? config.corsOrigin : [config.corsOrigin];
-    if (list.includes(origin)) return originCallback(null, true);
-    if (LOCAL_DEVELOPMENT_ORIGINS.has(origin) && isLoopbackApiRequest(req)) {
-      return originCallback(null, true);
-    }
-    try {
-      const host = new URL(origin).hostname;
-      if (config.nodeEnv !== 'production' && allowNgrokHostname(host)) return originCallback(null, true);
-    } catch (_) { /* ignore */ }
-    return originCallback(null, false);
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
-});
 
 app.use(cors(corsOptionsDelegate));
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
-
-// ── Security Headers (Helmet) ─────────────────────────────────────────
-// Sets 15+ HTTP headers: X-XSS-Protection, Strict-Transport-Security,
-// X-Content-Type-Options, X-Frame-Options, Content-Security-Policy, etc.
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-  // CSP disabled in dev for Vite proxy; enabled in production to block XSS
-  contentSecurityPolicy: config.nodeEnv === 'production' ? {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "blob:", "https:"],
-      connectSrc: [
-        "'self'",
-        ...(config.corsOrigin ? (Array.isArray(config.corsOrigin) ? config.corsOrigin : [config.corsOrigin]) : []),
-        "https://api.brevo.com",
-        "https://api.stripe.com",
-        "wss:",
-      ],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      frameSrc: ["'self'", "https://js.stripe.com"],
-      objectSrc: ["'none'"],
-      upgradeInsecureRequests: [],
-    },
-  } : false,
-}));
 
 // ── NoSQL Injection Prevention ────────────────────────────────────────
 // Strips $ and . from req.body, req.query, req.params to block injection
@@ -184,26 +157,26 @@ app.use(compression());
 // ── Request logger with response time tracking ──────────────────────
 // Use originalUrl: Express mutates req.url to "/" as it enters mounted routers
 // (e.g. /api/activity?limit=200), so res.on("finish") would log misleading "GET /".
+const redactLogUrl = (rawUrl) => {
+  try {
+    const parsed = new URL(String(rawUrl || '/'), 'http://log.invalid');
+    const redactedPath = parsed.pathname.replace(
+      /\/(tracker|ar-session|webar-session|scan)\/[^/]+/gi,
+      '/$1/[redacted]'
+    );
+    return parsed.search ? `${redactedPath}?[redacted]` : redactedPath;
+  } catch {
+    return '/[unparseable-url]';
+  }
+};
+
 app.use((req, res, next) => {
   const start = process.hrtime.bigint();
-  const logPath = req.originalUrl || req.url;
+  const logPath = redactLogUrl(req.originalUrl || req.url);
   console.log(`[${new Date().toISOString()}] ${req.method} ${logPath}`);
   if (req.method === 'OPTIONS') {
     console.log('  -> Preflight request');
   }
-  
-  // Prevent aggressive browser caching of API responses (e.g., Safari GET caching).
-  // Skip for /api/health so probes and optional edge caching can use short TTL.
-  if (req.path !== '/api/health' && req.path !== '/health') {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.setHeader('Surrogate-Control', 'no-store');
-  }
-
-  // API versioning header — enterprise standard
-  res.setHeader('X-API-Version', '1.0.0');
-  res.setHeader('X-Powered-By', 'AutoSPF+');
   
   // Track response time for performance monitoring
   res.on('finish', () => {
@@ -258,28 +231,21 @@ app.use('/api/admin/availability', authenticate, authorize(...BOOKING_MANAGER_RO
 // Must be before the 404 handler so the file is matched first.
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
-    // Allow the AR viewer to load resources cross-origin (required for model-viewer CDN script)
-    res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+    // Public model/target assets are intentionally consumable by the isolated
+    // AR documents. The JSON API retains Helmet's same-origin CORP policy.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+    if (path.extname(filePath).toLowerCase() !== '.html') return;
+
+    res.removeHeader('Cross-Origin-Embedder-Policy');
     res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
-    res.setHeader('Permissions-Policy', 'camera=(self), microphone=()');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), usb=()');
+    res.setHeader('Content-Security-Policy', buildStaticArCsp(filePath, config.nodeEnv));
 
     if (filePath.includes(`${path.sep}public${path.sep}webar${path.sep}`)) {
-      res.setHeader(
-        'Content-Security-Policy',
-        [
-          "default-src 'self'",
-          "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://ajax.googleapis.com https://unpkg.com https://cdn.jsdelivr.net https://www.gstatic.com",
-          "style-src 'self' 'unsafe-inline'",
-          "img-src 'self' data: blob: https:",
-          "connect-src 'self' https: blob:",
-          "worker-src 'self' blob:",
-          "media-src 'self' blob:",
-          "model-src 'self' blob: https:",
-          "frame-src 'self' blob: https:",
-          "frame-ancestors 'self'",
-          "object-src 'none'",
-        ].join('; ')
-      );
+      // CSP frame-ancestors is the authoritative control for this intentional
+      // cross-origin embed. X-Frame-Options cannot express an origin allowlist.
+      res.removeHeader('X-Frame-Options');
     }
   },
 }));
@@ -381,6 +347,8 @@ const startServer = async () => {
   }
 };
 
-startServer();
+if (process.env.SKIP_SERVER_START !== 'true') {
+  startServer();
+}
 
 export default app;

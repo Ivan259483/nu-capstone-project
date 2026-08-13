@@ -481,6 +481,23 @@
     let started = false;
     let currentMode = 'before';
 
+    const allowedParentOrigins = new Set([
+      'https://autospf.shop',
+      'https://www.autospf.shop',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'http://localhost:3100',
+      'https://localhost:3100'
+    ]);
+    const parentOrigin = (() => {
+      try {
+        const origin = new URL(document.referrer).origin;
+        return allowedParentOrigins.has(origin) ? origin : '';
+      } catch (_) {
+        return '';
+      }
+    })();
+
     const severityColors = {
       high: 0xef4444,
       medium: 0xf97316,
@@ -495,8 +512,8 @@
         }
       } catch (_) {}
       try {
-        if (window.parent && window.parent !== window) {
-          window.parent.postMessage(payload, '*');
+        if (parentOrigin && window.parent && window.parent !== window) {
+          window.parent.postMessage(payload, parentOrigin);
         }
       } catch (_) {}
     }
@@ -921,7 +938,10 @@
       }
     }
 
-    window.addEventListener('message', (event) => handleExternalMessage(event.data));
+    window.addEventListener('message', (event) => {
+      if (!parentOrigin || event.source !== window.parent || event.origin !== parentOrigin) return;
+      handleExternalMessage(event.data);
+    });
     document.addEventListener('message', (event) => handleExternalMessage(event.data));
 
     updateHttpWarningUi();

@@ -12,13 +12,6 @@ export const getGroqApiKey = () => (process.env.GROQ_API_KEY || '').trim();
 
 export const isGroqConfigured = () => Boolean(getGroqApiKey());
 
-const maskApiKey = (key = '') => {
-  const trimmed = String(key).trim();
-  if (!trimmed) return '(empty)';
-  if (trimmed.length <= 8) return '***';
-  return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
-};
-
 /**
  * @returns {{
  *   status?: number,
@@ -56,7 +49,6 @@ export const formatGroqApiError = (error) => {
     message,
     model: GROQ_CHAT_MODEL,
     endpoint: GROQ_CHAT_ENDPOINT,
-    apiKeyHint: maskApiKey(getGroqApiKey()),
     isTimeout: error?.code === 'ECONNABORTED' || /timeout/i.test(messageLower),
     isNetwork: ['ENOTFOUND', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT'].includes(error?.code),
     isNotConfigured: error?.code === 'GROQ_NOT_CONFIGURED',
@@ -79,7 +71,6 @@ export const logGroqApiError = (context, error) => {
     message: details.message,
     model: details.model,
     endpoint: details.endpoint,
-    apiKey: details.apiKeyHint,
     isTimeout: details.isTimeout,
     isNetwork: details.isNetwork,
     isRateLimited: details.isRateLimited,

@@ -213,7 +213,7 @@
   <div class="ei">⚠️</div>
   <div class="et" id="errTitle">Model could not load</div>
   <div class="em" id="errMsg">The 3D model could not be fetched. Check your connection and try again.</div>
-  <button class="ert" onclick="location.reload()">↻ Retry</button>
+  <button class="ert" id="retryButton" type="button">↻ Retry</button>
 </div>
 
 <!-- No-URL overlay -->
@@ -246,6 +246,9 @@
   var debugLog = document.getElementById('debugLog');
   var debugUrlRow = document.getElementById('debugUrlRow');
   var arModeLabel = document.getElementById('arModeLabel');
+  var retryButton = document.getElementById('retryButton');
+
+  retryButton.addEventListener('click', function () { window.location.reload(); });
 
   var glbUrl  = '';
   var damages = [];
@@ -314,9 +317,15 @@
       var c = mode === 'after' ? '#10b981' : (SEV[d.severity] || SEV.medium);
       var pill = document.createElement('div');
       pill.className = 'pill';
-      pill.innerHTML =
-        '<span class="pdot" style="background:' + c + ';box-shadow:0 0 6px ' + c + '"></span>' +
-        '<span style="color:' + c + '">' + (mode === 'after' ? '✓ ' : '') + (d.affectedArea || d.type || 'Damage') + '</span>';
+      var dot = document.createElement('span');
+      dot.className = 'pdot';
+      dot.style.background = c;
+      dot.style.boxShadow = '0 0 6px ' + c;
+      var label = document.createElement('span');
+      label.style.color = c;
+      label.textContent = (mode === 'after' ? '✓ ' : '') + (d.affectedArea || d.type || 'Damage');
+      pill.appendChild(dot);
+      pill.appendChild(label);
       pills.appendChild(pill);
     });
   }

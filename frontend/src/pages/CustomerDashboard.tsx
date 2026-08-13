@@ -8995,18 +8995,11 @@ export default function CustomerDashboard() {
                     </button>
                   </div>
                 </div>
-                <object
-                  data={orderReceiptPdfUrl}
-                  type="application/pdf"
+                <iframe
                   title="Receipt PDF"
-                  className="min-h-[70vh] w-full flex-1 bg-slate-100"
-                >
-                  <iframe
-                    title="Receipt PDF"
-                    src={orderReceiptPdfUrl}
-                    className="min-h-[70vh] w-full flex-1 border-0 bg-slate-100"
-                  />
-                </object>
+                  src={orderReceiptPdfUrl}
+                  className="min-h-[70vh] w-full flex-1 border-0 bg-slate-100"
+                />
               </div>
             </div>,
             document.body,

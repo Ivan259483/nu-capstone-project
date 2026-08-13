@@ -72,7 +72,6 @@ const ROUTABLE_TAB_IDS = new Set(['live_tracking', 'pricing', 'scheduling', 'inv
 
 const SIDEBAR_WIDTH_EXPANDED = 260;
 const SIDEBAR_WIDTH_COLLAPSED = 64;
-const SIDEBAR_MAIN_OFFSET = 0;
 const ADMINHUB_THEME_STORAGE_KEY = 'adminhub_theme';
 
 type NavChild = { id: string; label: string };
@@ -247,7 +246,9 @@ function AdminHubPanelInner({
     return 'dashboard';
   });
   const [visitedPages, setVisitedPages] = useState<Set<string>>(() => new Set([activePage]));
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches,
+  );
   const [users, setUsers] = useState<any[]>([]);
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [isUsersLoading, setIsUsersLoading] = useState(true);
@@ -261,6 +262,17 @@ function AdminHubPanelInner({
 
   const { logout } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const narrowViewport = window.matchMedia('(max-width: 720px)');
+    const collapseSidebarForNarrowViewport = () => {
+      if (narrowViewport.matches) setCollapsed(true);
+    };
+
+    collapseSidebarForNarrowViewport();
+    narrowViewport.addEventListener('change', collapseSidebarForNarrowViewport);
+    return () => narrowViewport.removeEventListener('change', collapseSidebarForNarrowViewport);
+  }, []);
 
   /** Auth context often replaces `user` with a new object reference; depending on it here caused endless refetch + loading skeletons. */
   const currentUserRef = useRef(currentUser);
@@ -622,7 +634,8 @@ function AdminHubPanelInner({
         zIndex: 100,
         width: '100%',
         minHeight: '100dvh',
-      }}
+        '--ah-sidebar-current-width': `${sidebarWEffective}px`,
+      } as React.CSSProperties}
     >
       {/* ── Sidebar (premium layout) ── */}
       <aside
@@ -737,13 +750,7 @@ function AdminHubPanelInner({
       </aside>
 
       {/* ── Main column: top bar + content ── */}
-      <div
-        className="ah-main-column"
-        style={{
-          transition: 'margin-left 0.22s cubic-bezier(0.16,1,0.3,1)',
-          marginLeft: sidebarWEffective + SIDEBAR_MAIN_OFFSET,
-        }}
-      >
+      <div className="ah-main-column">
         <AdminTopBar
           collapsed={collapsed}
           onToggleSidebar={() => setCollapsed((c) => !c)}
@@ -765,16 +772,7 @@ function AdminHubPanelInner({
         />
 
         <main className="ah-main-surface">
-        <div
-          className="ah-tab-shell"
-          style={{
-            width: '100%',
-            maxWidth: '100%',
-            boxSizing: 'border-box',
-            margin: 0,
-            padding: '28px clamp(16px, 2.5vw, 32px)',
-          }}
-        >
+        <div className="ah-tab-shell">
           <div className="ah-tab-stack">
             {renderTabPanel('dashboard', (
               <AdminDashboardPage

@@ -26,7 +26,23 @@ import {
 
 const LOW_STOCK_THRESHOLD = 10;
 const LOCAL_PAYMENTS_PROVIDER = (process.env.LOCAL_PAYMENTS_PROVIDER || 'paymongo').toLowerCase();
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = (() => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const safeDefault = isProduction ? 'https://www.autospf.shop' : 'http://localhost:5173';
+  const candidate = String(process.env.FRONTEND_URL || safeDefault).trim();
+  try {
+    const parsed = new URL(candidate);
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('unsupported protocol');
+    if (parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.pathname && parsed.pathname !== '/')) {
+      throw new Error('must be an origin without credentials, path, query, or fragment');
+    }
+    if (isProduction && parsed.protocol !== 'https:') throw new Error('production URL must use HTTPS');
+    return parsed.origin;
+  } catch (error) {
+    console.warn(`[Payments] Invalid FRONTEND_URL; using the safe default: ${error.message}`);
+    return safeDefault;
+  }
+})();
 const RECEIPT_CUSTOMER_SELECT = `name email ${USER_PHONE_SELECT_FIELDS}`;
 const RECEIPT_VEHICLE_SELECT = 'year make model color plateNumber vehicleType';
 

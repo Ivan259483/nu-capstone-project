@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, Eye, EyeOff, Edit2, Archive, ChevronLeft, ChevronRight, ShieldCheck, ArrowUpDown, X, Plus, RotateCcw, CheckCircle2, XCircle } from 'lucide-react';
 import { UserService } from '@/lib/user-service';
 import { toast } from 'sonner';
@@ -96,6 +97,11 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [resendingVerificationId, setResendingVerificationId] = useState('');
   const [verificationResendWaits, setVerificationResendWaits] = useState<Record<string, number>>({});
+  const [modalPortalRoot, setModalPortalRoot] = useState<HTMLElement | null>(null);
+
+  const bindPageRoot = useCallback((node: HTMLDivElement | null) => {
+    setModalPortalRoot(node?.closest<HTMLElement>('.adminhub-root') ?? null);
+  }, []);
 
   const assignableRoleOptions = useMemo(() => {
     const roles = getManageableUserRoles(currentUserRole);
@@ -366,7 +372,7 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
   const pageEnd = Math.min(page * ITEMS_PER_PAGE, filtered.length);
 
   return (
-    <div className="ah-page-enter ah-users-page">
+    <div ref={bindPageRoot} className="ah-page-enter ah-users-page">
       <div className="ah-users-page-header">
         <div>
           <h1 className="ah-page-title">User Management</h1>
@@ -548,18 +554,22 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
           </div>
         </div>
       </div>
-
-      {createOpen && <CreateUserModalInline defaultRole={defaultCreateRole} roleOptions={createRoleOptions} onClose={() => setCreateOpen(false)} onCreated={onRefresh} />}
-      {editUser && (
-        <EditUserModalInline
-          user={editUser}
-          roleOptions={editRoleOptions}
-          bootstrapAdmin={getSafeUserRole(editUser.role) === 'administrator'}
-          onClose={() => setEditUser(null)}
-          onUpdated={() => { setEditUser(null); onRefresh(); }}
-        />
-      )}
-      {viewUser && <ViewUserPanel user={viewUser} canEdit={canMutateAccount(viewUser)} onClose={() => setViewUser(null)} onEdit={() => { setEditUser(viewUser); setViewUser(null); }} />}
+      {modalPortalRoot ? createPortal(
+        <>
+          {createOpen && <CreateUserModalInline defaultRole={defaultCreateRole} roleOptions={createRoleOptions} onClose={() => setCreateOpen(false)} onCreated={onRefresh} />}
+          {editUser && (
+            <EditUserModalInline
+              user={editUser}
+              roleOptions={editRoleOptions}
+              bootstrapAdmin={getSafeUserRole(editUser.role) === 'administrator'}
+              onClose={() => setEditUser(null)}
+              onUpdated={() => { setEditUser(null); onRefresh(); }}
+            />
+          )}
+          {viewUser && <ViewUserPanel user={viewUser} canEdit={canMutateAccount(viewUser)} onClose={() => setViewUser(null)} onEdit={() => { setEditUser(viewUser); setViewUser(null); }} />}
+        </>,
+        modalPortalRoot,
+      ) : null}
     </div>
   );
 }
@@ -754,7 +764,7 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
 
   return (
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 bg-slate-950/60 backdrop-blur-[2px]"
+      className="ah-viewport-modal-layer fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 bg-slate-950/60 backdrop-blur-[2px]"
       onClick={onClose}
       role="presentation"
     >
@@ -1048,7 +1058,7 @@ function EditUserModalInline({
   };
 
   return (
-    <div className="ah-modal-overlay" onClick={onClose}>
+    <div className="ah-modal-overlay ah-viewport-modal-layer" onClick={onClose}>
       <div className="ah-modal-card" onClick={event => event.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', boxShadow: '0 4px 18px -10px rgba(15,23,42,0.08)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1116,7 +1126,7 @@ function ViewUserPanel({ user, canEdit, onClose, onEdit }: { user: any; canEdit:
   };
 
   return (
-    <div className="ah-modal-overlay" onClick={onClose}>
+    <div className="ah-modal-overlay ah-viewport-modal-layer" onClick={onClose}>
       <div className="ah-modal-card" style={{ maxWidth: 440 }} onClick={event => event.stopPropagation()}>
         <div style={{ padding: '24px', textAlign: 'center', boxShadow: '0 4px 18px -10px rgba(15,23,42,0.08)' }}>
           <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'linear-gradient(135deg, #60a5fa, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 24, fontWeight: 600, margin: '0 auto 12px' }}>{(user.name || '?')[0]?.toUpperCase()}</div>

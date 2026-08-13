@@ -413,6 +413,23 @@
     let sourceUrls = { before: '', after: '' };
     let lastError = '';
 
+    const allowedParentOrigins = new Set([
+      'https://autospf.shop',
+      'https://www.autospf.shop',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'http://localhost:3100',
+      'https://localhost:3100'
+    ]);
+    const parentOrigin = (() => {
+      try {
+        const origin = new URL(document.referrer).origin;
+        return allowedParentOrigins.has(origin) ? origin : '';
+      } catch (_) {
+        return '';
+      }
+    })();
+
     function post(payload) {
       try {
         if (window.ReactNativeWebView) {
@@ -420,8 +437,8 @@
         }
       } catch (_) {}
       try {
-        if (window.parent && window.parent !== window) {
-          window.parent.postMessage(payload, '*');
+        if (parentOrigin && window.parent && window.parent !== window) {
+          window.parent.postMessage(payload, parentOrigin);
         }
       } catch (_) {}
     }
@@ -939,7 +956,10 @@
       post({ type: 'WEBAR_ERROR', message });
     });
 
-    window.addEventListener('message', (event) => handleExternalMessage(event.data));
+    window.addEventListener('message', (event) => {
+      if (!parentOrigin || event.source !== window.parent || event.origin !== parentOrigin) return;
+      handleExternalMessage(event.data);
+    });
     document.addEventListener('message', (event) => handleExternalMessage(event.data));
 
     session = await loadSession();

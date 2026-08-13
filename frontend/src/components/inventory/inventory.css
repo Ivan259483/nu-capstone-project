@@ -48,6 +48,16 @@
   background: transparent;
 }
 
+/* Modal portal: retain Inventory styling while escaping transformed page panels. */
+.inv-root.inv-modal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  min-height: 0;
+  width: 100%;
+  background: transparent;
+}
+
 .inv-root.inv-root--embedded > main {
   width: 100%;
   min-width: 0;

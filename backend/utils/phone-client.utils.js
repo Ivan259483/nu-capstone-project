@@ -7,8 +7,6 @@ export const USER_PHONE_SELECT_FIELDS = USER_PHONE_FIELDS.join(' ');
 
 const RECEIPT_PHONE_CONTAINERS = ['customer', 'user', 'booking', 'payment', 'receipt'];
 
-const ENCRYPTED_VALUE_PATTERN = /^[0-9a-f]{32}:[0-9a-f]+$/i;
-
 const readField = (source, field) => {
   if (!source) return undefined;
   if (typeof source.get === 'function') return source.get(field);
@@ -22,7 +20,7 @@ const normalizeClientPhoneValue = (raw) => {
 
   const decrypted = decrypt(value);
   const candidate = String(decrypted || '').trim();
-  if (!candidate || ENCRYPTED_VALUE_PATTERN.test(candidate)) return '';
+  if (!candidate) return '';
 
   const parsed = parseOptionalProfilePhone(candidate);
   return parsed.ok && parsed.phone ? parsed.phone : '';

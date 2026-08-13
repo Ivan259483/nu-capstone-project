@@ -28,7 +28,7 @@ import { emitBookingManagerNotification } from '../utils/bookingManagerNotificat
 import { createCustomerStageNotification } from '../utils/customerStageNotifications.utils.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
-import { decrypt } from '../utils/encryption.utils.js';
+import { decrypt, looksLikeEncryptedValue } from '../utils/encryption.utils.js';
 import { countGatePhotos, REQUIRED_GATE_PHOTOS } from '../utils/trackerGatePhotos.utils.js';
 import {
   buildQueueReason,
@@ -232,8 +232,6 @@ const generateBookingReference = () => {
 
 const BOOKING_LIST_DEFAULT_LIMIT = 50;
 const BOOKING_LIST_MAX_LIMIT = 100;
-const ENCRYPTED_FIELD_PATTERN = /^[0-9a-f]{32}:[0-9a-f]+$/i;
-
 /**
  * Positive list projection: keep list payloads tiny and predictable.
  * Heavy fields (payment proof blobs, photos, workflow/checklist docs, waivers,
@@ -362,11 +360,11 @@ const ORDER_APPROVAL_CONTEXT_PROJECTION =
 
 const safeDecryptOrderValue = (val) => {
   if (!val || typeof val !== 'string') return val;
-  if (!ENCRYPTED_FIELD_PATTERN.test(val)) return val;
+  if (!looksLikeEncryptedValue(val)) return val;
   try {
     return decrypt(val);
   } catch {
-    return val;
+    return null;
   }
 };
 
@@ -391,21 +389,14 @@ const formatBookingDto = (orderDoc) => {
   // ── Decrypt fields that may still be encrypted (e.g. from .lean() queries) ──
   // Mongoose post('init') middleware only fires for non-lean queries, so we
   // need to handle decryption manually for lean results.
-  const safeDecrypt = (val) => {
-    if (!val || typeof val !== 'string') return val;
-    // Encrypted format is "hex:hex" — 32+ chars of hex with a colon separator
-    if (ENCRYPTED_FIELD_PATTERN.test(val)) {
-      try { return decrypt(val); } catch { return val; }
-    }
-    return val;
-  };
+  const safeDecrypt = safeDecryptOrderValue;
 
   const decryptedNotes = safeDecrypt(order.notes);
   const decryptedPlate = safeDecrypt(order.vehiclePlate);
 
-  // decrypt() returns ciphertext unchanged when keys cannot decode (legacy DB rows).
-  // Never expose that blob as a human-readable plate in API responses.
-  const couldNotDecryptPlate = ENCRYPTED_FIELD_PATTERN.test(String(decryptedPlate || ''));
+  // Never expose unreadable ciphertext as a human-readable plate.
+  const couldNotDecryptPlate = looksLikeEncryptedValue(order.vehiclePlate)
+    && decryptedPlate === null;
   const vehiclePlateOut = couldNotDecryptPlate
     ? ''
     : (decryptedPlate || '');
@@ -473,7 +464,8 @@ const formatBookingListDto = (orderDoc) => {
   const { id, customerId } = getOrderIdentity(order);
   const decryptedNotes = safeDecryptOrderValue(order.notes);
   const decryptedPlate = safeDecryptOrderValue(order.vehiclePlate);
-  const couldNotDecryptPlate = ENCRYPTED_FIELD_PATTERN.test(String(decryptedPlate || ''));
+  const couldNotDecryptPlate = looksLikeEncryptedValue(order.vehiclePlate)
+    && decryptedPlate === null;
   const vehiclePlate = couldNotDecryptPlate ? '' : (decryptedPlate || '');
   const vehicleInfo =
     order.vehicleInfo
