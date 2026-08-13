@@ -1,6 +1,7 @@
 import { initializeApp, getApp, getApps, FirebaseApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, FacebookAuthProvider, Auth } from "firebase/auth";
-import { getAnalytics, Analytics } from "firebase/analytics";
+import { getAuth, GoogleAuthProvider, FacebookAuthProvider, Auth, createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
+import { getFirestore, Firestore } from "firebase/firestore";
+import type { Analytics } from "firebase/analytics";
 
 export const firebaseConfig = {
     apiKey: 'AIzaSyCO203nx1fifBUyn9-KuAE1AfqflxPaQ5M',
@@ -15,15 +16,20 @@ export const firebaseConfig = {
 // Initialize Firebase with safety check
 let app: FirebaseApp;
 let auth: Auth;
-let analytics: Analytics;
+let db: Firestore;
 let googleProvider: GoogleAuthProvider;
 let facebookProvider: FacebookAuthProvider;
 let isFirebaseInitialized = false;
 
+// Analytics is lazily initialized to avoid blocking the initial page parse.
+// It is only needed after the app mounts and the user interacts.
+let _analytics: Analytics | null = null;
+
 try {
     app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
     auth = getAuth(app);
-    analytics = getAnalytics(app);
+    db = getFirestore(app);
+    // Analytics intentionally NOT initialized here — see getFirebaseAnalytics() below.
     googleProvider = new GoogleAuthProvider();
     facebookProvider = new FacebookAuthProvider();
     facebookProvider.addScope('email');
@@ -48,30 +54,42 @@ try {
         onAuthStateChanged: (cb: any) => () => { },
         signOut: async () => { }
     } as unknown as Auth;
-    analytics = {} as unknown as Analytics;
+    db = {} as Firestore;
     googleProvider = new GoogleAuthProvider();
     facebookProvider = new FacebookAuthProvider();
     isFirebaseInitialized = false;
 }
 
-// Initialize Firestore
-import { getFirestore, Firestore } from "firebase/firestore";
-let db: Firestore;
-try {
-    if (app && isFirebaseInitialized) {
-        db = getFirestore(app);
-    } else {
-        db = {} as Firestore;
+/**
+ * Lazily initialize Firebase Analytics on first call.
+ * This keeps analytics out of the initial parse / module evaluation cost,
+ * which was contributing to main-thread blocking on /login.
+ */
+export function getFirebaseAnalytics(): Analytics | null {
+    if (!isFirebaseInitialized || !app) return null;
+    if (_analytics) return _analytics;
+    try {
+        // Fallback: import asynchronously on first call
+        import('firebase/analytics').then(({ getAnalytics: ga }) => {
+            if (!_analytics) _analytics = ga(app);
+        }).catch(() => { /* analytics unavailable — non-critical */ });
+        return null;
+    } catch {
+        return null;
     }
-} catch (e) {
-    console.warn('Firestore init failed', e);
-    db = {} as Firestore;
 }
 
-export { auth, db, googleProvider, facebookProvider, analytics, isFirebaseInitialized };
-export { getAuth, GoogleAuthProvider, FacebookAuthProvider, getAnalytics };
+/** @deprecated Use getFirebaseAnalytics() instead — analytics is now lazily initialized. */
+export const analytics = new Proxy({} as Analytics, {
+    get(_target, prop) {
+        const a = getFirebaseAnalytics();
+        if (a && prop in a) return (a as any)[prop];
+        return undefined;
+    }
+});
 
-import { createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
+export { auth, db, googleProvider, facebookProvider, isFirebaseInitialized };
+export { getAuth, GoogleAuthProvider, FacebookAuthProvider };
 
 /**
  * Creates a new Firebase Auth user without signing out the current user (e.g., Admin)

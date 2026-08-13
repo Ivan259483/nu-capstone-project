@@ -6,8 +6,11 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { useEffect, lazy, Suspense, type ReactNode } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
-import ChatWidget from "./components/ChatWidget";
-import Navbar from "./components/Navbar";
+
+// Lazy-load ChatWidget and Navbar — they are never shown on /login or dashboard routes,
+// so there's no reason to parse them during the initial page load.
+const ChatWidget = lazy(() => import("./components/ChatWidget"));
+const Navbar = lazy(() => import("./components/Navbar"));
 import {
     ADMIN_DASHBOARD_ROLES,
     CUSTOMER_ROLE,
