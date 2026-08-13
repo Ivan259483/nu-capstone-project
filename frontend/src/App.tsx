@@ -6,16 +6,8 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { useEffect, lazy, Suspense, type ReactNode } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
-import Login from "./pages/Login";
-import ResetPassword from "./pages/ResetPassword";
-import Home from "./pages/Home";
-import About from "./pages/About";
-import Contact from "./pages/Contact";
 import ChatWidget from "./components/ChatWidget";
 import Navbar from "./components/Navbar";
-import VerifyOtpPage from "./pages/VerifyOtpPage";
-import SetPasswordPage from "./pages/SetPasswordPage";
-import VerifyStaffAccountPage from "./pages/VerifyStaffAccountPage";
 import {
     ADMIN_DASHBOARD_ROLES,
     CUSTOMER_ROLE,
@@ -25,7 +17,16 @@ import {
     getSafeUserRole,
 } from "@/lib/roles";
 import { useActivityHeartbeat } from "@/hooks/useActivityHeartbeat";
+import { ensureIconify } from "@/lib/iconify";
 
+const Home = lazy(() => import("./pages/Home"));
+const About = lazy(() => import("./pages/About"));
+const Contact = lazy(() => import("./pages/Contact"));
+const Login = lazy(() => import("./pages/Login"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const VerifyOtpPage = lazy(() => import("./pages/VerifyOtpPage"));
+const SetPasswordPage = lazy(() => import("./pages/SetPasswordPage"));
+const VerifyStaffAccountPage = lazy(() => import("./pages/VerifyStaffAccountPage"));
 const Gallery = lazy(() => import("./pages/Gallery"));
 const Services = lazy(() => import("./pages/Services"));
 const CustomerDashboard = lazy(() => import("./pages/CustomerDashboard"));
@@ -128,6 +129,25 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode; allow
 function ScrollToTop() {
     const { pathname } = useLocation();
     useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }); }, [pathname]);
+    return null;
+}
+
+/**
+ * Iconify is needed only by the customer and sales workspaces. Loading it after
+ * those routes mount keeps it out of the public and authentication critical
+ * paths without changing the icons once the relevant workspace is displayed.
+ */
+function IconifyLoader() {
+    const { pathname } = useLocation();
+
+    useEffect(() => {
+        if (!/^\/(customer|sales)(?:\/|$)/.test(pathname)) return;
+
+        void ensureIconify().catch((error) => {
+            console.error("Unable to load Iconify for this workspace:", error);
+        });
+    }, [pathname]);
+
     return null;
 }
 
@@ -322,6 +342,7 @@ const App = () => (
                 <TooltipProvider>
                     <Toaster position="top-center" />
                     <BrowserRouter>
+                        <IconifyLoader />
                         <AppRoutes />
                         {/* ChatWidget: public site only — dashboards have their own chat */}
                         <_ConditionalChatWidget />

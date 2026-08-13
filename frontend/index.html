@@ -63,15 +63,14 @@
   }
   </script>
 
-  <!-- ── Fonts ── -->
+  <!-- ── Fonts ──
+       The stylesheet already uses font-display=swap. Keep it as a stylesheet
+       rather than using an inline onload handler, which would violate the CSP. -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap"
     rel="stylesheet">
-
-  <!-- model-viewer (3D GLB preview — same CDN as Next `src/app/layout.tsx`) -->
-  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
 
   <style>
     /* Prevent flash of light theme */
@@ -91,4 +90,6 @@
 <body>
   <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
-  <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</body>
+
+</html>

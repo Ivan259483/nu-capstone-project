@@ -7,10 +7,15 @@ import { chromium } from 'playwright-core';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const frontendDir = path.resolve(scriptDir, '..');
 const vercelConfig = JSON.parse(fs.readFileSync(path.join(frontendDir, 'vercel.json'), 'utf8'));
-const reportOnlyPolicy = vercelConfig.headers[0].headers
-  .find((header) => header.key === 'Content-Security-Policy-Report-Only')?.value;
+const cspPolicy = vercelConfig.headers[0].headers
+  .find((header) => header.key === 'Content-Security-Policy')?.value;
 
-if (!reportOnlyPolicy) throw new Error('Content-Security-Policy-Report-Only is missing from vercel.json');
+if (!cspPolicy) throw new Error('Content-Security-Policy is missing from vercel.json');
+
+// Browsers deliberately ignore upgrade-insecure-requests in report-only mode.
+// Exclude only that unsupported directive from the test header; the deployed
+// enforcing CSP retains it.
+const reportOnlyPolicy = cspPolicy.replace(/;\s*upgrade-insecure-requests\b/, '');
 
 const baseUrl = process.env.CSP_TEST_BASE_URL || 'http://127.0.0.1:4173';
 const chromeCandidates = [
@@ -21,7 +26,7 @@ const chromeCandidates = [
 const executablePath = chromeCandidates.find((candidate) => fs.existsSync(candidate));
 if (!executablePath) throw new Error('Set CHROME_PATH to a Chromium-compatible browser executable');
 
-const routes = ['/', '/gallery', '/contact', '/login', '/ar-estimator'];
+const routes = ['/', '/gallery', '/contact', '/login', '/ar-estimator', '/customer/dashboard'];
 const browser = await chromium.launch({ executablePath, headless: true });
 const context = await browser.newContext();
 
@@ -41,6 +46,11 @@ const results = [];
 try {
   for (const routePath of routes) {
     const page = await context.newPage();
+    const runtimeErrors = [];
+    page.on('pageerror', (error) => runtimeErrors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') runtimeErrors.push(message.text());
+    });
     await page.addInitScript(() => {
       window.__cspViolations = [];
       document.addEventListener('securitypolicyviolation', (event) => {
@@ -58,7 +68,11 @@ try {
     });
     await page.waitForTimeout(2500);
     const violations = await page.evaluate(() => window.__cspViolations || []);
-    results.push({ route: routePath, status: response?.status(), violations });
+    const iconifyLoaded = routePath.startsWith('/customer/')
+      ? await page.evaluate(() => Boolean(window.customElements?.get('iconify-icon')))
+      : undefined;
+    if (iconifyLoaded === false) runtimeErrors.push('Iconify did not register its custom element.');
+    results.push({ route: routePath, status: response?.status(), violations, runtimeErrors, iconifyLoaded });
     await page.close();
   }
 } finally {
@@ -67,8 +81,11 @@ try {
 
 for (const result of results) {
   console.log(`${result.route} HTTP ${result.status} — CSP violations: ${result.violations.length}`);
+  if (result.iconifyLoaded !== undefined) console.log(`Iconify custom element loaded: ${result.iconifyLoaded}`);
   for (const violation of result.violations) console.log(JSON.stringify(violation));
+  for (const runtimeError of result.runtimeErrors) console.log(`runtime error: ${runtimeError}`);
 }
 
 const violationCount = results.reduce((total, result) => total + result.violations.length, 0);
-if (violationCount > 0) process.exitCode = 1;
+const runtimeErrorCount = results.reduce((total, result) => total + result.runtimeErrors.length, 0);
+if (violationCount > 0 || runtimeErrorCount > 0) process.exitCode = 1;

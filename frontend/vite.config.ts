@@ -50,8 +50,12 @@ export default defineConfig(({ mode }) => {
             dedupe: ['react', 'react-dom', 'three'],
         },
         build: {
+            // Generate deploy-safe maps for private error-reporting uploads without
+            // embedding source content or advertising their URL in production JS.
+            sourcemap: 'hidden',
             rollupOptions: {
                 output: {
+                    sourcemapExcludeSources: true,
                     manualChunks(id) {
                         if (!id.includes('node_modules')) return;
                         if (id.includes('recharts')) return 'vendor-recharts';

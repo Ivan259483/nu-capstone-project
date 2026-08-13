@@ -700,7 +700,7 @@ export default function Login() {
        RENDER
     ═══════════════════════════════════════════════════════ */
     return (
-        <div className="auth-page auth-page--automotive relative isolate flex min-h-screen flex-col overflow-y-auto bg-[#030303] text-white">
+        <main className="auth-page auth-page--automotive relative isolate flex min-h-screen flex-col overflow-y-auto bg-[#030303] text-white">
             <div className="auth-spotlight-layer">
                 <AuthSpotlight className="auth-spotlight-main" fill="white" />
             </div>
@@ -735,8 +735,15 @@ export default function Login() {
                                 aria-label="AutoSPF+ Home"
                             >
                                 <img
-                                    src="/images/autospf-logo.png"
+                                    src="/images/autospf-logo-66.webp"
+                                    srcSet="/images/autospf-logo-33.webp 33w, /images/autospf-logo-66.webp 66w"
+                                    sizes="33px"
+                                    width={66}
+                                    height={39}
                                     alt="AutoSPF+"
+                                    loading="eager"
+                                    decoding="async"
+                                    fetchPriority="high"
                                     className="h-6 w-auto max-w-[2.05rem] object-contain opacity-100 [filter:none]"
                                 />
                             </Link>
@@ -1078,6 +1085,6 @@ export default function Login() {
                 onScroll={legal.checkPpfModalTermsScrollEnd}
                 onAccept={() => legal.setPpfTermsAgreed(true)}
             />
-        </div>
+        </main>
     );
 }
