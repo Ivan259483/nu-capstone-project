@@ -1,10 +1,12 @@
 import { useRef, useEffect, useState } from "react";
 import { MapPin, Navigation, Clock, Phone, ExternalLink } from "lucide-react";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
+import { usePublicAvailabilitySchedule } from "@/hooks/usePublicAvailabilitySchedule";
 import { cn } from "@/lib/utils";
 
 export default function LocationMapSection() {
     const { ref, isVisible } = useScrollAnimation<HTMLElement>({ threshold: 0.12 });
+    const appointmentHours = usePublicAvailabilitySchedule('en');
     const pinRef = useRef<HTMLDivElement>(null);
     const [pinLanded, setPinLanded] = useState(false);
 
@@ -185,7 +187,7 @@ export default function LocationMapSection() {
                                     <InfoRow
                                         icon={<Clock className="w-4 h-4" />}
                                         label="Hours"
-                                        value="Mon – Sat: 8:00 AM – 6:00 PM"
+                                        value={appointmentHours.summary}
                                         delay={pinLanded}
                                         idx={1}
                                     />

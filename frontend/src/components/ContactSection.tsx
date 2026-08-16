@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import { Mail, Clock, MapPin, ChevronRight, Send } from 'lucide-react';
 import { COMPANY_BRANDING } from '@/lib/company-branding';
+import { usePublicAvailabilitySchedule } from '@/hooks/usePublicAvailabilitySchedule';
 
 /* ── Framer variants ── */
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -33,6 +34,7 @@ const BULLET_POINTS = [
 ];
 
 export default function ContactSection() {
+    const appointmentHours = usePublicAvailabilitySchedule('en');
     const [form, setForm] = useState({
         name: '', email: '', tel: '', enquiry: '', details: '',
     });
@@ -107,8 +109,10 @@ export default function ContactSection() {
                         {
                             icon: Clock,
                             label: 'Support Hours',
-                            value: 'Mon – Sat: 8:00 AM – 6:00 PM',
-                            sub: 'Closed on Sundays & public holidays',
+                            value: appointmentHours.summary,
+                            sub: appointmentHours.isUnavailable
+                                ? 'Please contact us before visiting'
+                                : 'Live appointment hours',
                         },
                         {
                             icon: MapPin,
@@ -175,14 +179,13 @@ export default function ContactSection() {
                                 Support Hours
                             </p>
                             <div className="space-y-2.5">
-                                {[
-                                    { day: 'Monday – Friday', time: '9:00am – 6:00pm' },
-                                    { day: 'Saturday', time: '10:00am – 4:00pm' },
-                                    { day: 'Sunday', time: 'Closed' },
-                                ].map(({ day, time }) => (
+                                {(appointmentHours.rows.length > 0
+                                    ? appointmentHours.rows
+                                    : [{ day: 'Appointment hours', time: appointmentHours.summary, open: false }]
+                                ).map(({ day, time, open }) => (
                                     <div key={day} className="flex items-center justify-between text-xs">
                                         <span className="text-white/40 font-medium">{day}</span>
-                                        <span className={`font-semibold tracking-wide ${time === 'Closed' ? 'text-white/20' : 'text-white/70'}`}>
+                                        <span className={`font-semibold tracking-wide ${open ? 'text-white/70' : 'text-white/20'}`}>
                                             {time}
                                         </span>
                                     </div>

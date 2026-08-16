@@ -9,47 +9,35 @@ import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import {
   X, Clock, Car, CheckCircle, XCircle, Loader2,
-  Calendar, AlertCircle, Package, Banknote, GripVertical,
+  Calendar, AlertCircle, Package, Banknote, GripVertical, Plus,
 } from 'lucide-react';
 import {
   approveBooking,
   createAvailabilityClosure,
   deleteAvailabilityClosure,
   fetchAvailabilityClosures,
+  fetchSlotsByDate,
   rejectBooking,
   type AvailabilityClosure,
+  type SlotDetail,
 } from './calendarService';
 import { invalidateDateCache } from './useBookingsByDate';
 import { syncAvailabilityCaches } from '@/lib/availabilitySync';
 import type { CalendarBooking } from './calendarTypes';
-import { EXCLUDED_STATUSES } from './calendarTypes';
 import type { DayMapEntry } from './useCalendarSlots';
 import DraggableBooking from './DraggableBooking';
 import { formatCalendarCustomerName } from './calendarFormatters';
+import { getAppointmentStatusGroup, getAppointmentStatusMeta } from './calendarStatus';
 
 const CALENDAR_BLOCK_NOTE = 'Blocked from appointments calendar';
 
-// ── Status display map ────────────────────────────────────────────────────────
-const STATUS_META: Record<string, { label: string; dot: string; bg: string; text: string }> = {
-  pending: { label: 'Pending', dot: '#f59e0b', bg: '#fffbeb', text: '#92400e' },
-  pending_confirmation: { label: 'Pending Review', dot: '#f59e0b', bg: '#fffbeb', text: '#92400e' },
-  confirmed:            { label: 'Confirmed',       dot: '#3b82f6', bg: '#eff6ff', text: '#1e40af' },
-  approved:             { label: 'Approved',        dot: '#10b981', bg: '#ecfdf5', text: '#065f46' },
-  assigned:             { label: 'Assigned',        dot: '#8b5cf6', bg: '#f5f3ff', text: '#4c1d95' },
-  received:             { label: 'Received',        dot: '#14b8a6', bg: '#f0fdfa', text: '#134e4a' },
-  in_progress:          { label: 'In Progress',     dot: '#f97316', bg: '#fff7ed', text: '#9a3412' },
-  'in-progress':        { label: 'In Progress',     dot: '#f97316', bg: '#fff7ed', text: '#9a3412' },
-  completed:            { label: 'Completed',       dot: '#22c55e', bg: '#f0fdf4', text: '#14532d' },
-  paid:                 { label: 'Paid',            dot: '#059669', bg: '#ecfdf5', text: '#065f46' },
-  released:             { label: 'Released',        dot: '#0891b2', bg: '#ecfeff', text: '#155e75' },
-  cancelled:            { label: 'Cancelled',       dot: '#9ca3af', bg: '#f9fafb', text: '#6b7280' },
-  rejected:             { label: 'Rejected',        dot: '#ef4444', bg: '#fef2f2', text: '#7f1d1d' },
-  queued:               { label: 'Queued',          dot: '#6366f1', bg: '#eef2ff', text: '#3730a3' },
-  processing:           { label: 'Processing',      dot: '#f97316', bg: '#fff7ed', text: '#9a3412' },
-};
-
 function getMeta(status: string) {
-  return STATUS_META[status] ?? { label: status, dot: '#9ca3af', bg: '#f9fafb', text: '#6b7280' };
+  return getAppointmentStatusMeta(status) ?? {
+    label: status || 'Unknown',
+    dot: '#9ca3af',
+    bg: '#f9fafb',
+    text: '#6b7280',
+  };
 }
 
 // ── Booking Card ──────────────────────────────────────────────────────────────
@@ -307,9 +295,18 @@ interface DayPanelProps {
   dayInfo?: DayMapEntry;
   onClose: () => void;
   onRefresh: () => void;
+  onNewAppointment?: () => void;
 }
 
-export default function DayPanel({ date, bookings, loading, dayInfo, onClose, onRefresh }: DayPanelProps) {
+export default function DayPanel({
+  date,
+  bookings,
+  loading,
+  dayInfo,
+  onClose,
+  onRefresh,
+  onNewAppointment,
+}: DayPanelProps) {
   const dateIso = date.toLocaleDateString('en-CA');
   const label = date.toLocaleDateString('en-PH', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -317,16 +314,23 @@ export default function DayPanel({ date, bookings, loading, dayInfo, onClose, on
   const [closures, setClosures] = useState<AvailabilityClosure[]>([]);
   const [closuresLoading, setClosuresLoading] = useState(false);
   const [closureActioning, setClosureActioning] = useState(false);
+  const [slotDetails, setSlotDetails] = useState<SlotDetail[]>([]);
+  const [slotDetailsLoading, setSlotDetailsLoading] = useState(false);
+  const [slotDateClosed, setSlotDateClosed] = useState(false);
+  const [slotAvailabilityUnavailable, setSlotAvailabilityUnavailable] = useState(false);
 
-  const active = bookings.filter(b => !EXCLUDED_STATUSES.has(b.status));
-  const excluded = bookings.filter(b => EXCLUDED_STATUSES.has(b.status));
+  const active = bookings.filter(b => getAppointmentStatusGroup(b.status) !== 'cancelled');
+  const excluded = bookings.filter(b => getAppointmentStatusGroup(b.status) === 'cancelled');
   const selectedClosures = closures.filter((closure) => {
     const from = new Date(closure.fromDate).toLocaleDateString('en-CA');
     const to = new Date(closure.toDate).toLocaleDateString('en-CA');
     return from <= dateIso && to >= dateIso;
   });
   const isBlocked = selectedClosures.length > 0;
+  // Missing range data is never interpreted as an open day. The exact-slot
+  // request below may still provide the authoritative state once it resolves.
   const isClosedOnCalendar = dayInfo?.isClosed ?? false;
+  const availabilityUnknown = slotDetailsLoading || slotAvailabilityUnavailable;
   const closedReason = dayInfo?.closedReason ?? null;
   const isWeeklyDayOff = closedReason === 'recurring';
   const isEmergencyClosed = closedReason === 'emergency';
@@ -404,6 +408,30 @@ export default function DayPanel({ date, bookings, loading, dayInfo, onClose, on
     loadClosures();
   }, [loadClosures, dateIso]);
 
+  useEffect(() => {
+    let activeRequest = true;
+    setSlotDetailsLoading(true);
+    setSlotAvailabilityUnavailable(false);
+    void fetchSlotsByDate(dateIso)
+      .then((result) => {
+        if (!activeRequest) return;
+        if (!result) {
+          setSlotDetails([]);
+          setSlotDateClosed(true);
+          setSlotAvailabilityUnavailable(true);
+          return;
+        }
+        setSlotDetails(Array.isArray(result?.slots) ? result.slots : []);
+        setSlotDateClosed(Boolean(result?.isClosed));
+      })
+      .finally(() => {
+        if (activeRequest) setSlotDetailsLoading(false);
+      });
+    return () => {
+      activeRequest = false;
+    };
+  }, [dateIso]);
+
   /** Portal → document.body so `position:fixed` is viewport-relative (Admin Hub `.ah-page-enter` uses transform and traps fixed descendants). */
   const drawer = (
     <>
@@ -451,7 +479,7 @@ export default function DayPanel({ date, bookings, loading, dayInfo, onClose, on
 
         <div className="flex-shrink-0 px-4 py-3 shadow-[0_1px_0_0_rgba(226,232,240,0.7)]">
           <div className={`flex flex-col gap-2 rounded-2xl px-3.5 py-3 shadow-sm ${
-            isClosedOnCalendar || isBlocked
+            isClosedOnCalendar || isBlocked || availabilityUnknown
               ? 'bg-orange-50 text-orange-950 ring-1 ring-orange-200/80'
               : 'bg-emerald-50 text-emerald-950 ring-1 ring-emerald-200/80'
           }`}>
@@ -463,6 +491,10 @@ export default function DayPanel({ date, bookings, loading, dayInfo, onClose, on
               <p className="mt-0.5 text-sm font-bold leading-snug">
                 {closuresLoading
                   ? 'Checking status…'
+                  : availabilityUnknown
+                    ? slotDetailsLoading
+                      ? 'Checking live availability…'
+                      : 'Live availability unavailable'
                   : isClosedOnCalendar
                     ? 'Closed on calendar'
                     : 'Open for customer bookings'}
@@ -498,6 +530,61 @@ export default function DayPanel({ date, bookings, loading, dayInfo, onClose, on
           </div>
         </div>
 
+        <div className="flex-shrink-0 px-4 pb-3 shadow-[0_1px_0_0_rgba(226,232,240,0.7)]">
+          <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200/80">
+            <div className="flex items-center justify-between bg-slate-50 px-3.5 py-2.5">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Time-slot capacity</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">Live values from Availability Controls</p>
+              </div>
+              {slotDetailsLoading ? <Loader2 size={14} className="animate-spin text-blue-500" /> : null}
+            </div>
+
+            {!slotDetailsLoading && (isClosedOnCalendar || slotDateClosed) ? (
+              <div className="px-3.5 py-3 text-xs font-semibold text-rose-700">Closed — no bookable slots</div>
+            ) : !slotDetailsLoading && slotDetails.length === 0 ? (
+              <div className="px-3.5 py-3 text-xs text-slate-500">No bookable slots for this date.</div>
+            ) : (
+              <div className="max-h-52 divide-y divide-slate-100 overflow-y-auto">
+                {slotDetails.map((slot) => {
+                  const booked = Math.max(0, Number(slot.booked) || 0);
+                  const capacity = Math.max(0, Number(slot.capacity) || 0);
+                  const available = Math.max(0, Number(slot.available) || 0);
+                  const overCapacity = slot.status === 'OVER_CAPACITY' || booked > capacity;
+                  const elapsed = slot.status === 'ELAPSED' || slot.elapsed === true;
+                  const full = !overCapacity && !elapsed && (slot.status === 'FULL' || capacity <= 0 || available <= 0);
+                  const statusLabel = overCapacity
+                    ? 'Over capacity'
+                    : elapsed
+                      ? 'Passed'
+                      : full
+                        ? 'FULL'
+                      : booked === 0
+                        ? 'Available'
+                        : `${available} available`;
+                  return (
+                    <div key={slot.time} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3.5 py-2.5 text-xs">
+                      <span className="font-semibold text-slate-800">{slot.label || slot.time}</span>
+                      <span className="tabular-nums text-slate-600">{booked} / {capacity}</span>
+                      <span className={`min-w-[86px] text-right font-bold ${
+                        overCapacity
+                          ? 'text-rose-700'
+                          : elapsed
+                            ? 'text-slate-500'
+                            : full
+                              ? 'text-red-600'
+                              : 'text-emerald-700'
+                      }`}>
+                        {statusLabel}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
         {!loading && active.length > 0 && (
           <div className="flex-shrink-0 px-4 pb-3 pt-0 shadow-[0_1px_0_0_rgba(226,232,240,0.7)]">
             <div className="flex items-start gap-2 rounded-xl bg-blue-50/90 px-3 py-2.5 text-[11px] leading-snug text-blue-950 shadow-[0_6px_22px_-12px_rgba(37,99,235,0.22)]">
@@ -529,6 +616,15 @@ export default function DayPanel({ date, bookings, loading, dayInfo, onClose, on
                     : 'Nothing scheduled for this day'}
                 </p>
               </div>
+              {onNewAppointment && !isClosedOnCalendar && !slotDateClosed && !availabilityUnknown ? (
+                <button
+                  type="button"
+                  onClick={onNewAppointment}
+                  className="mt-1 inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2"
+                >
+                  <Plus size={14} /> Add appointment
+                </button>
+              ) : null}
             </div>
           ) : (
             <>

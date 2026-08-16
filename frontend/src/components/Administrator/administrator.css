@@ -2813,7 +2813,36 @@
 .adminhub-root .premium-calendar-toolbar {
   border-bottom: 1px solid #f2f4f7 !important;
   background: #fff;
-  padding: 0 !important;
+  padding: 8px 10px !important;
+}
+
+.adminhub-root .premium-calendar-kpis > div {
+  min-height: 46px;
+}
+
+.adminhub-root .premium-calendar-toolbar-actions {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.adminhub-root .premium-calendar-view-switch > button + button {
+  border-left: 1px solid #e4e7ec;
+}
+
+.adminhub-root .premium-calendar-view-switch > button[aria-pressed='true'] + button {
+  border-left-color: transparent;
+}
+
+.adminhub-root .premium-calendar-new-btn {
+  white-space: nowrap;
+}
+
+.adminhub-root .premium-calendar-filters > select {
+  flex: 0 1 auto;
+}
+
+.adminhub-root .premium-calendar-status-legend {
+  scrollbar-width: thin;
 }
 
 /* Toolbar controls — soft Untitled-style borders */
@@ -2885,7 +2914,8 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .adminhub-root .premium-calendar-weekdays > div {
@@ -2931,8 +2961,8 @@
 
 .adminhub-root .premium-calendar-event {
   flex-shrink: 0;
-  min-height: 20px;
-  height: 20px;
+  min-height: 28px;
+  height: 28px;
 }
 
 .adminhub-root .premium-calendar-events-more {
@@ -2944,13 +2974,72 @@
 .adminhub-root .premium-calendar-grid.is-month {
   flex: 1 1 auto;
   height: 100%;
-  min-height: 0;
+  min-height: 492px;
   grid-template-rows: repeat(var(--premium-month-rows, 6), minmax(0, 1fr));
 }
 
 .adminhub-root .premium-calendar-grid.is-week {
   height: 100%;
   grid-template-rows: minmax(0, 1fr);
+}
+
+@media (max-width: 1100px) {
+  .adminhub-root .premium-calendar-toolbar > div:first-child {
+    flex: 1 0 100%;
+  }
+
+  .adminhub-root .premium-calendar-toolbar-actions {
+    width: 100%;
+    justify-content: flex-start !important;
+  }
+
+  .adminhub-root .premium-calendar-filters > .relative {
+    flex-basis: 100%;
+  }
+
+  .adminhub-root .premium-calendar-filters > select {
+    flex: 1 1 140px;
+    max-width: none !important;
+  }
+
+  .adminhub-root .premium-calendar-status-legend {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+}
+
+@media (max-width: 720px) {
+  .adminhub-root .ah-tab-shell:has(.ah-tab-panel.is-active .admin-appointments-page) {
+    padding: 6px !important;
+  }
+
+  .adminhub-root .premium-calendar-toolbar-actions {
+    gap: 6px;
+  }
+
+  .adminhub-root .premium-calendar-new-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .adminhub-root .premium-calendar-filters {
+    align-items: stretch;
+  }
+
+  .adminhub-root .premium-calendar-filters > select {
+    min-width: min(100%, 140px) !important;
+  }
+
+  .adminhub-root .premium-calendar-weekdays,
+  .adminhub-root .premium-calendar-grid {
+    min-width: 630px;
+  }
+
+  .adminhub-root .premium-calendar-body {
+    overflow-x: auto !important;
+  }
 }
 
 /* ── Buttons ─────────────────────────────────────────── */

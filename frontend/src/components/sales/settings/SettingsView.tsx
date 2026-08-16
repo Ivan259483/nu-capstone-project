@@ -22,8 +22,6 @@ interface StoreSettings {
   timeFormat: string;
   taxRate: number;
   membershipDiscount: number;
-  serviceCapacity: number;
-  operatingHours: Record<string, { open: string; close: string }>;
   notifications: {
     emailNewBookings: boolean;
     lowStockAlerts: boolean;
@@ -44,16 +42,6 @@ const DEFAULT_SETTINGS: StoreSettings = {
   timeFormat: '12h',
   taxRate: 0,
   membershipDiscount: 10,
-  serviceCapacity: 5,
-  operatingHours: {
-    monday: { open: '08:00', close: '18:00' },
-    tuesday: { open: '08:00', close: '18:00' },
-    wednesday: { open: '08:00', close: '18:00' },
-    thursday: { open: '08:00', close: '18:00' },
-    friday: { open: '08:00', close: '18:00' },
-    saturday: { open: '09:00', close: '16:00' },
-    sunday: { open: 'Closed', close: 'Closed' },
-  },
   notifications: {
     emailNewBookings: true,
     lowStockAlerts: true,
@@ -61,8 +49,6 @@ const DEFAULT_SETTINGS: StoreSettings = {
     maintenanceAlerts: true,
   },
 };
-
-const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
 // ── Section Card ──────────────────────────────────────────────────────────────
 function SectionCard({ icon: Icon, title, description, children }: {
@@ -210,7 +196,15 @@ export default function SettingsView() {
     if (!canEdit) return;
     setIsSaving(true);
     try {
-      const response = await api.post('/settings', settings);
+      // Older settings documents may still contain these keys. Never post them
+      // back from this screen: appointment availability belongs exclusively to
+      // Admin > Appointments > Availability Controls.
+      const {
+        operatingHours: _legacyOperatingHours,
+        serviceCapacity: _legacyServiceCapacity,
+        ...nonAvailabilitySettings
+      } = settings as StoreSettings & { operatingHours?: unknown; serviceCapacity?: unknown };
+      const response = await api.post('/settings', nonAvailabilitySettings);
       if (response.data?.success) {
         toast.success('Settings saved successfully');
         setHasChanges(false);
@@ -304,39 +298,28 @@ export default function SettingsView() {
         </div>
       </SectionCard>
 
-      {/* Operating Hours */}
-      <SectionCard icon={Clock} title="Operating Hours" description="Weekly schedule for the store">
-        <div className="space-y-2">
-          {DAYS.map((day) => {
-            const hours = settings.operatingHours?.[day] || { open: 'Closed', close: 'Closed' };
-            const isClosed = hours.open === 'Closed' || hours.close === 'Closed';
-            return (
-              <div key={day} className="flex items-center gap-3 py-2">
-                <span className="text-sm font-medium text-slate-700 capitalize w-24">{day}</span>
-                {isClosed ? (
-                  <span className="text-sm text-red-400 font-medium">Closed</span>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="time"
-                      value={hours.open}
-                      onChange={(e) => updateField(`operatingHours.${day}.open`, e.target.value)}
-                      disabled={!canEdit}
-                      className="px-2 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30 disabled:opacity-60 disabled:cursor-not-allowed"
-                    />
-                    <span className="text-xs text-slate-400">to</span>
-                    <input
-                      type="time"
-                      value={hours.close}
-                      onChange={(e) => updateField(`operatingHours.${day}.close`, e.target.value)}
-                      disabled={!canEdit}
-                      className="px-2 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30 disabled:opacity-60 disabled:cursor-not-allowed"
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      {/* Appointment availability has one authoritative editor. */}
+      <SectionCard icon={Clock} title="Appointment Availability" description="Managed centrally by the Admin scheduling controls">
+        <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3">
+          <p className="text-sm font-semibold text-blue-950">
+            Open days, operating hours, and capacity per time slot are managed in Availability Controls.
+          </p>
+          <p className="mt-1 text-xs leading-5 text-blue-800">
+            This settings page does not keep a second appointment schedule. Customer booking, Admin booking,
+            rescheduling, and the calendar all read the saved Availability Controls configuration.
+          </p>
+          {canEdit ? (
+            <a
+              href="/admin/dashboard?tab=scheduling"
+              className="mt-3 inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700"
+            >
+              Open Admin Appointments
+            </a>
+          ) : (
+            <span className="mt-3 inline-flex rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700 ring-1 ring-blue-200">
+              View only · contact an administrator to make changes
+            </span>
+          )}
         </div>
       </SectionCard>
 
@@ -368,16 +351,9 @@ export default function SettingsView() {
         </div>
       </SectionCard>
 
-      {/* Service Capacity */}
-      <SectionCard icon={Calendar} title="Service Settings" description="Capacity and operational parameters">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <InputField
-            label="Service Capacity (vehicles/day)"
-            value={settings.serviceCapacity}
-            onChange={(v) => updateField('serviceCapacity', parseInt(v) || 0)}
-            type="number"
-            disabled={!canEdit}
-          />
+      {/* Regional display preferences (not appointment availability). */}
+      <SectionCard icon={Calendar} title="Calendar Preferences" description="Formatting only; scheduling rules live in Availability Controls">
+        <div className="grid grid-cols-1 gap-4 md:max-w-sm">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Date Format</label>
             <select

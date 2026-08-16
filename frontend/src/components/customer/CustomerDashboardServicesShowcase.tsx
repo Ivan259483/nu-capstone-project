@@ -10,7 +10,7 @@
  *   16px (text-base) — package titles
  *   20–24px (text-xl / text-2xl) — section headings, price numerals
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Check, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -22,30 +22,15 @@ import {
 } from "@/lib/customer-booking-catalog";
 
 export type CustomerDashboardServicesShowcaseProps = {
-    vehicles: any[];
     packages: BookingPackage[];
-    getVehiclePriceKey: (type: string) => string;
     onOpenBooking: (opts?: { presetPackageId?: string; priceTier?: VehiclePriceKey }) => void;
 };
 
 export function CustomerDashboardServicesShowcase({
-    vehicles,
     packages,
-    getVehiclePriceKey,
     onOpenBooking,
 }: CustomerDashboardServicesShowcaseProps) {
-    const defaultTier = useMemo((): VehiclePriceKey => {
-        const v = vehicles[0];
-        if (!v?.type) return "hatchback";
-        const k = getVehiclePriceKey(String(v.type)) as VehiclePriceKey;
-        return CUSTOMER_BOOKING_PRICE_TIERS.some((t) => t.key === k) ? k : "hatchback";
-    }, [vehicles, getVehiclePriceKey]);
-
-    const [priceTier, setPriceTier] = useState<VehiclePriceKey>(defaultTier);
-
-    useEffect(() => {
-        setPriceTier(defaultTier);
-    }, [defaultTier]);
+    const [priceTier, setPriceTier] = useState<VehiclePriceKey>("hatchback");
 
     // SPF 80 is intentionally not offered for Highend Sedan, so omit that card
     // from this catalog instead of showing its unavailable state.

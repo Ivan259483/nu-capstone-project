@@ -50,7 +50,6 @@ import AnimatedHeader from '@/components/ui/AnimatedHeader';
 import type { BookingRecord } from '@/services/api/types';
 import { useQuery } from '@tanstack/react-query';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
-import { TabBarHeight } from '@/constants/theme';
 import { isDefaultTrackBookingRow } from '@/utils/customerBookingLifecycle';
 import {
   bookingShowsCustomerLiveTracker,
@@ -1338,21 +1337,12 @@ export default function TrackScreen() {
     );
   }, []);
 
-  const stageMotionStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: -premiumPulse.value * 1.5 },
-      { scale: 1 + premiumPulse.value * 0.0025 },
-    ],
-  }));
   const stageSweepStyle = useAnimatedStyle(() => ({
     opacity: 0.09 + premiumPulse.value * 0.06,
     transform: [
       { translateX: -screenWidth * 0.55 + premiumSweep.value * screenWidth * 1.25 },
       { rotate: '-16deg' },
     ],
-  }));
-  const bottomMotionStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: -premiumPulse.value * 0.8 }],
   }));
   const bottomPillSweepStyle = useAnimatedStyle(() => ({
     opacity: 0.16 + premiumPulse.value * 0.08,
@@ -1706,7 +1696,7 @@ export default function TrackScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={[
           s.content,
-          { paddingBottom: TabBarHeight + (showBottomBar ? 72 : 24) + (insets.bottom || 0) },
+          { paddingBottom: 62 + insets.bottom + 24 },
         ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -1876,7 +1866,6 @@ export default function TrackScreen() {
               style={[
                 s.stageCard,
                 (readyForPickupComplete || atSecuredSlotStage) && s.stageCardComplete,
-                stageMotionStyle,
               ]}
             >
               <Animated.View pointerEvents="none" style={[s.stageCardSweep, stageSweepStyle]}>
@@ -1950,6 +1939,29 @@ export default function TrackScreen() {
               )}
             </Animated.View>
 
+            {/* ── Service summary ── */}
+            {showBottomBar && (
+              <Animated.View style={s.bottomBar}>
+                <View>
+                  <Text style={s.bottomTitle}>AutoSPF+</Text>
+                  <Text style={s.bottomSub}>Premium Service</Text>
+                </View>
+                <View style={[s.bottomPill, atSecuredSlotStage && s.bottomPillSecured]}>
+                  <Animated.View pointerEvents="none" style={[s.bottomPillSweep, bottomPillSweepStyle]}>
+                    <LinearGradient
+                      colors={stageSweepColors}
+                      start={{ x: 0, y: 0.5 }}
+                      end={{ x: 1, y: 0.5 }}
+                      style={StyleSheet.absoluteFillObject}
+                    />
+                  </Animated.View>
+                  <Text style={[s.bottomPillText, atSecuredSlotStage && s.bottomPillTextSecured]}>
+                    {pct}% COMPLETE
+                  </Text>
+                </View>
+              </Animated.View>
+            )}
+
             {/* ── Vertical Timeline ── */}
             <Animated.View entering={FadeInDown.delay(180).duration(200)}>
               <Text style={s.sectionLabel}>PROGRESS TIMELINE</Text>
@@ -2000,28 +2012,6 @@ export default function TrackScreen() {
         )}
       </ScrollView>
 
-      {/* ── Fixed Bottom Completion Bar ── */}
-      {showBottomBar && (
-        <Animated.View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, 10) }, bottomMotionStyle]}>
-          <View>
-            <Text style={s.bottomTitle}>AutoSPF+</Text>
-            <Text style={s.bottomSub}>Premium Service</Text>
-          </View>
-          <View style={[s.bottomPill, atSecuredSlotStage && s.bottomPillSecured]}>
-            <Animated.View pointerEvents="none" style={[s.bottomPillSweep, bottomPillSweepStyle]}>
-              <LinearGradient
-                colors={stageSweepColors}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={StyleSheet.absoluteFillObject}
-              />
-            </Animated.View>
-            <Text style={[s.bottomPillText, atSecuredSlotStage && s.bottomPillTextSecured]}>
-              {pct}% COMPLETE
-            </Text>
-          </View>
-        </Animated.View>
-      )}
       {/* closes showComplete false branch */}
       </>
       )}
@@ -2225,15 +2215,12 @@ const s = StyleSheet.create({
   },
   actionText: { fontSize: 12, fontWeight: '600', color: C.textMut },
 
-  // Fixed bottom bar
+  // Service summary
   bottomBar: {
-    position: 'absolute',
-    bottom: TabBarHeight,
-    left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: C.surface,
     borderTopWidth: 1, borderTopColor: C.border,
-    paddingHorizontal: 22, paddingTop: 13,
+    paddingHorizontal: 22, paddingVertical: 13,
     ...Platform.select({
       ios:     { shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.18, shadowRadius: 14 },
       android: { elevation: 8 },

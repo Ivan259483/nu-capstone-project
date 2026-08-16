@@ -149,6 +149,8 @@ const orderSchema = new mongoose.Schema(
     },
     bookingDate: String,
     bookingTime: String,
+    /** Explicit POS-created order that intentionally has no appointment slot. */
+    isWalkIn: { type: Boolean, default: false },
     notes: String,
     staffNotes: [
       {
@@ -384,7 +386,7 @@ const orderSchema = new mongoose.Schema(
       updatedBy: String,
     },
   },
-  { timestamps: true }
+  { timestamps: true, optimisticConcurrency: true }
 );
 
 // Virtual alias: plateNumber ↔ vehiclePlate (read/write convenience accessor)

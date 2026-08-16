@@ -138,7 +138,10 @@ export default function AiScanEntry() {
       <ScrollView
         style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scroll, { paddingBottom: 24 }]}
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingBottom: 62 + insets.bottom + 24 },
+        ]}
       >
         <Animated.View entering={FadeInDown.duration(420)} style={styles.hero}>
           <View style={styles.heroCopy}>
@@ -227,16 +230,17 @@ export default function AiScanEntry() {
             Keep the vehicle centered, avoid harsh reflections, and capture one close-up for each visible damage cluster.
           </Text>
         </GlassPanel>
-      </ScrollView>
 
-      <BottomActionBar
-        primaryLabel="Start AI Inspection"
-        primaryIcon="sparkles"
-        disabled={images.length === 0}
-        onPrimaryPress={startInspection}
-        secondaryLabel={images.length > 0 ? 'Add More Angles' : undefined}
-        onSecondaryPress={images.length > 0 ? captureWithCamera : undefined}
-      />
+        <BottomActionBar
+          inline
+          primaryLabel="Start AI Inspection"
+          primaryIcon="sparkles"
+          disabled={images.length === 0}
+          onPrimaryPress={startInspection}
+          secondaryLabel={images.length > 0 ? 'Add More Angles' : undefined}
+          onSecondaryPress={images.length > 0 ? captureWithCamera : undefined}
+        />
+      </ScrollView>
     </ScannerBackground>
   );
 }

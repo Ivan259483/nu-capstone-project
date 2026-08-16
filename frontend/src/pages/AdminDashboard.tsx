@@ -52,6 +52,7 @@ import { NotificationService, type SystemNotification } from '@/lib/notification
 import { SettingsService } from '@/lib/settings-service';
 import { AdminSettings } from '@/components/admin/AdminSettings';
 import SalesSmartCalendar from '@/components/sales/calendar/SalesSmartCalendar';
+import { fetchSlotsByDate, type SlotDetail } from '@/components/sales/calendar/calendarService';
 import LandingPageEditor from '@/components/admin/LandingPageEditor';
 // POSSystem removed — staff now use the dedicated Sales Dashboard
 import { ActivityLogs } from '@/components/admin/ActivityLogs';
@@ -166,7 +167,22 @@ type TabType =
     | 'profile'
     | 'landing';
 
-import { getBackendSocketUrl } from '@/lib/api';
+import api, { getBackendSocketUrl } from '@/lib/api';
+
+function normalizeAppointmentTimeKey(value: unknown): string {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const twentyFourHour = raw.match(/^(\d{1,2}):(\d{2})$/);
+    if (twentyFourHour) {
+        return `${String(Number(twentyFourHour[1])).padStart(2, '0')}:${twentyFourHour[2]}`;
+    }
+    const twelveHour = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!twelveHour) return raw.toLowerCase();
+    let hour = Number(twelveHour[1]);
+    if (twelveHour[3].toUpperCase() === 'AM' && hour === 12) hour = 0;
+    if (twelveHour[3].toUpperCase() === 'PM' && hour !== 12) hour += 12;
+    return `${String(hour).padStart(2, '0')}:${twelveHour[2]}`;
+}
 
 export default function AdminDashboard() {
     const navigate = useNavigate();
@@ -338,7 +354,7 @@ export default function AdminDashboard() {
     const [isEditScheduleOpen, setIsEditScheduleOpen] = useState(false);
     const [editDate, setEditDate] = useState('');
     const [editTime, setEditTime] = useState('');
-    const [bookedSlots, setBookedSlots] = useState<string[]>([]);
+    const [editSlots, setEditSlots] = useState<SlotDetail[]>([]);
     const [editDateUnavailable, setEditDateUnavailable] = useState(false);
     const [editAvailabilityMessage, setEditAvailabilityMessage] = useState('');
     const [isLoadingSlots, setIsLoadingSlots] = useState(false);
@@ -1845,43 +1861,89 @@ export default function AdminDashboard() {
     // ── Schedule Edit Logic ───────────────────────────────────────────
     useEffect(() => {
         if (!editDate || !isEditScheduleOpen) {
-            setBookedSlots([]);
+            setEditSlots([]);
             setEditDateUnavailable(false);
             setEditAvailabilityMessage('');
             return;
         }
+        let active = true;
         const fetchEditSlots = async () => {
             setIsLoadingSlots(true);
             try {
-                const response = await OrderService.getAvailableSlots(editDate);
-                if (response.success) {
-                    const booked = Array.isArray(response.bookedSlots) ? response.bookedSlots : [];
-                    const unavailable = !!response.unavailable;
-                    const availabilityMsg = response.message || response.error || '';
-
-                    // Filter out the booking's own original time so they can keep their slot
-                    const slots = detailBooking?.bookingDate === editDate
-                        ? booked.filter((t: string) => t !== detailBooking.bookingTime)
-                        : booked;
-
-                    setBookedSlots(slots);
-                    setEditDateUnavailable(unavailable);
-                    setEditAvailabilityMessage(availabilityMsg || (unavailable ? 'This date is unavailable for booking.' : ''));
-
-                    if (editTime && (unavailable || slots.includes(editTime))) {
-                        setEditTime('');
-                        toast.error(availabilityMsg || 'The selected time slot is already booked.');
-                    }
+                const response = await fetchSlotsByDate(editDate);
+                if (!active) return;
+                if (!response) {
+                    setEditSlots([]);
+                    setEditDateUnavailable(true);
+                    setEditAvailabilityMessage('Live availability could not be loaded. Please try again.');
+                    setEditTime('');
+                    return;
                 }
+
+                const slots = (Array.isArray(response.slots) ? response.slots : []).filter((slot) => (
+                    typeof slot?.time === 'string'
+                    && slot.time.length > 0
+                    && ['AVAILABLE', 'ALMOST_FULL', 'FULL', 'OVER_CAPACITY'].includes(String(slot.status))
+                    && Number.isFinite(Number(slot.capacity))
+                    && Number.isFinite(Number(slot.booked))
+                    && Number.isFinite(Number(slot.available))
+                ));
+                const originalDate = String(detailBooking?.bookingDate || '').slice(0, 10);
+                const originalTime = normalizeAppointmentTimeKey(detailBooking?.bookingTime);
+                const isOriginalSlot = (slot: SlotDetail) => (
+                    originalDate === editDate
+                    && normalizeAppointmentTimeKey(slot.time) === originalTime
+                );
+                const hasSelectableSlot = !response.isClosed && slots.some((slot) => (
+                    isOriginalSlot(slot) || (
+                        slot.status !== 'FULL'
+                        && slot.status !== 'OVER_CAPACITY'
+                        && Number(slot.available) > 0
+                    )
+                ));
+
+                setEditSlots(slots);
+                setEditDateUnavailable(!hasSelectableSlot);
+                setEditAvailabilityMessage(
+                    response.isClosed
+                        ? 'This date is closed in Admin Availability Controls.'
+                        : !hasSelectableSlot
+                            ? 'No time slots can accept another appointment on this date.'
+                            : ''
+                );
+
+                setEditTime((currentTime) => {
+                    if (!currentTime) return currentTime;
+                    const selectedSlot = slots.find((slot) => (
+                        normalizeAppointmentTimeKey(slot.time) === normalizeAppointmentTimeKey(currentTime)
+                    ));
+                    if (
+                        selectedSlot
+                        && (isOriginalSlot(selectedSlot)
+                            || (
+                                selectedSlot.status !== 'FULL'
+                                && selectedSlot.status !== 'OVER_CAPACITY'
+                                && Number(selectedSlot.available) > 0
+                            ))
+                    ) {
+                        return selectedSlot.time;
+                    }
+                    return '';
+                });
             } catch (error) {
+                if (!active) return;
                 toast.error('Could not verify time slot availability.');
-                setEditDateUnavailable(false);
-                setEditAvailabilityMessage('');
+                // Fail closed instead of revealing a hardcoded fallback schedule.
+                setEditSlots([]);
+                setEditDateUnavailable(true);
+                setEditAvailabilityMessage('Live availability could not be loaded. Please try again.');
+                setEditTime('');
             } finally {
-                setIsLoadingSlots(false);
+                if (active) setIsLoadingSlots(false);
             }
         };
         fetchEditSlots();
+        return () => { active = false; };
     }, [editDate, isEditScheduleOpen, detailBooking]);
 
     const handleSaveSchedule = async () => {
@@ -1897,30 +1959,38 @@ export default function AdminDashboard() {
 
         const idToast = toast.loading('Updating schedule...');
         try {
+            // Use the dedicated atomic reschedule endpoint; it re-reads the saved Admin
+            // schedule and reserves the exact destination time slot server-side.
+            const { data: response } = await api.patch(`/orders/${detailBooking.id}/reschedule`, {
+                newDate: editDate,
+                newTime: editTime,
+            }, { meta: { suppressErrorToast: true } } as any);
+
+            if (!response.success || !response.data) {
+                throw new Error(response.message || 'Failed to update schedule.');
+            }
+
+            toast.success('Schedule updated successfully', { id: idToast });
+
             const payload = {
                 bookingDate: editDate,
                 bookingTime: editTime
             };
-            const response = await OrderService.updateOrder(detailBooking.id, payload);
 
-            if (response.success && response.data) {
-                toast.success('Schedule updated successfully', { id: idToast });
+            // Update local list
+            setBookings(prev => prev.map(b => b.id === detailBooking.id ? { ...b, ...payload } : b));
+            setDetailBooking(prev => prev ? { ...prev, ...payload } : null);
 
-                // Update local list
-                setBookings(prev => prev.map(b => b.id === detailBooking.id ? { ...b, ...payload } : b));
-                setDetailBooking(prev => prev ? { ...prev, ...payload } : null);
+            // Firestore sync best-effort for live calendar
+            setDoc(doc(db, 'bookings', detailBooking.id), {
+                ...payload,
+                updatedAt: new Date().toISOString()
+            }, { merge: true }).catch(() => { });
 
-                // Firestore sync best-effort for live calendar
-                setDoc(doc(db, 'bookings', detailBooking.id), {
-                    ...payload,
-                    updatedAt: new Date().toISOString()
-                }, { merge: true }).catch(() => { });
-
-                setIsEditScheduleOpen(false);
-            }
+            setIsEditScheduleOpen(false);
         } catch (error: any) {
             console.error('Save schedule error:', error);
-            const msg = error.response?.data?.message || 'Failed to update schedule.';
+            const msg = error.response?.data?.message || error.message || 'Failed to update schedule.';
             toast.error(msg, { id: idToast });
         }
     };
@@ -3817,16 +3887,33 @@ export default function AdminDashboard() {
                                     } />
                                 </SelectTrigger>
                                 <SelectContent className={theme === 'light' ? 'bg-white' : 'bg-[#121214] border-zinc-800'}>
-                                    {['09:00 AM', '10:00 AM', '11:00 AM', '01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM'].map((t) => {
-                                        const isBooked = bookedSlots.includes(t);
+                                    {editSlots.map((slot) => {
+                                        const isCurrentSlot = (
+                                            String(detailBooking?.bookingDate || '').slice(0, 10) === editDate
+                                            && normalizeAppointmentTimeKey(detailBooking?.bookingTime) === normalizeAppointmentTimeKey(slot.time)
+                                        );
+                                        const isFull = !isCurrentSlot && (
+                                            slot.status === 'FULL'
+                                            || slot.status === 'OVER_CAPACITY'
+                                            || !Number.isFinite(Number(slot.available))
+                                            || Number(slot.available) <= 0
+                                        );
+                                        const isOverCapacity = Number(slot.booked) > Number(slot.capacity);
                                         return (
                                             <SelectItem
-                                                key={t}
-                                                value={t}
-                                                disabled={isBooked}
-                                                className={isBooked ? "opacity-50 text-zinc-500" : ""}
+                                                key={slot.time}
+                                                value={slot.time}
+                                                disabled={isFull}
+                                                className={isFull ? "opacity-50 text-zinc-500" : ""}
                                             >
-                                                {t} {isBooked ? '(Booked)' : ''}
+                                                {slot.label || slot.time}{' '}
+                                                {isCurrentSlot
+                                                    ? '(Current)'
+                                                    : isOverCapacity
+                                                        ? `(${slot.booked}/${slot.capacity} — Over capacity)`
+                                                        : isFull
+                                                            ? `(${slot.booked}/${slot.capacity} — Full)`
+                                                            : `(${slot.available} available)`}
                                             </SelectItem>
                                         );
                                     })}

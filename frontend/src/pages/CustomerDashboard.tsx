@@ -1312,13 +1312,9 @@ export default function CustomerDashboard() {
     return () => cancelAnimationFrame(frame);
   }, [bookingDone, bookingOpen, bookingStep]);
 
-  const BOOKING_TIMES = ['8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'];
-
   const [bookingCalMonth, setBookingCalMonth] = useState(() => {
     const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), 1);
   });
-  // Raw booked strings kept for monthAvailability logic
-  const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [step2Errors, setStep2Errors] = useState<Record<string, string>>({});
   // Structured per-slot statuses for the selected date
@@ -1327,7 +1323,6 @@ export default function CustomerDashboard() {
   type DayAvailabilityStatus = 'available' | 'full' | 'closed';
   type AvailableSlotsPayload = {
     success?: boolean;
-    bookedSlots?: string[];
     slots?: {
       time?: string;
       label?: string;
@@ -1340,7 +1335,6 @@ export default function CustomerDashboard() {
     errorCode?: string | null;
     message?: string | null;
     error?: string | null;
-    remaining?: number | null;
   };
   type DayAvailabilityInfo = {
     status: DayAvailabilityStatus;
@@ -1358,17 +1352,13 @@ export default function CustomerDashboard() {
     unavailable: boolean;
     errorCode: string | null;
     message: string;
-    remaining: number | null;
-    bookedSlots: string[];
     slots: NonNullable<AvailableSlotsPayload['slots']>;
   } => {
-    const bookedSlots = Array.isArray(payload?.bookedSlots) ? payload.bookedSlots : [];
     const slots = Array.isArray(payload?.slots) ? payload.slots : [];
     const unavailable = !!payload?.unavailable;
     const errorCode = typeof payload?.errorCode === 'string' ? payload.errorCode : null;
     const message = (payload?.message || payload?.error || '').toString().trim();
-    const remaining = typeof payload?.remaining === 'number' ? payload.remaining : null;
-    return { unavailable, errorCode, message, remaining, bookedSlots, slots };
+    return { unavailable, errorCode, message, slots };
   };
 
   const normalizeBookingTimeKey = (value: string) => {
@@ -1426,7 +1416,7 @@ export default function CustomerDashboard() {
     dismissCustomerOverlaysForBooking();
     setBookingOpen(true); setBookingStep(1); setBookingDone(false);
     setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null);
-    setSlotStatuses([]); setBookedSlots([]); setSlotError(''); setMonthAvailability({});
+    setSlotStatuses([]); setSlotError(''); setMonthAvailability({});
     // Only pre-select when opened from a garage card — never auto-pick the first vehicle
     const targetVehicle = preSelectedVehicle ?? null;
     const detectedKey: VehiclePriceKey = targetVehicle
@@ -1550,77 +1540,71 @@ export default function CustomerDashboard() {
         headers: slotHeaders,
       });
       const data = await res.json();
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.message || data?.error || 'Could not load time-slot availability.');
+      }
       const {
         unavailable,
         errorCode,
         message: availabilityMessage,
-        remaining,
-        bookedSlots: apiBooked,
         slots: apiSlots,
       } = parseAvailableSlotsPayload(data);
-      setBookedSlots(apiBooked);
 
-      if (unavailable && availabilityMessage) {
-        setSlotError(availabilityMessage);
+      if (unavailable) {
+        setSlotError(availabilityMessage || 'This date is unavailable for booking.');
       }
 
       // Derive AVAILABLE / FULL / CLOSED for every slot
       const now = new Date();
-      const isToday = dateIso === now.toISOString().split('T')[0];
-      const currentHour = now.getHours();
-      const currentMin = now.getMinutes();
+      const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const isToday = dateIso === todayIso;
+      const currentMinute = now.getHours() * 60 + now.getMinutes();
 
-      const parseHour = (t: string) => {
-        const [time, period] = t.split(' ');
-        let [h] = time.split(':').map(Number);
-        if (period === 'PM' && h !== 12) h += 12;
-        if (period === 'AM' && h === 12) h = 0;
-        return h;
+      const parseMinute = (time: string) => {
+        const normalized = normalizeBookingTimeKey(time);
+        const match = normalized.match(/^(\d{2}):(\d{2})$/);
+        if (!match) return null;
+        return Number(match[1]) * 60 + Number(match[2]);
       };
 
       const deriveStatusFromApiSlot = (slot: NonNullable<AvailableSlotsPayload['slots']>[number]): SlotStatus => {
         if (unavailable && errorCode !== 'DATE_FULL') return 'CLOSED';
-        if (String(slot.status || '').toUpperCase() === 'FULL' || Number(slot.available ?? 0) <= 0) {
+        const status = String(slot.status || '').toUpperCase();
+        const available = Number(slot.available);
+        if (
+          status === 'FULL'
+          || status === 'OVER_CAPACITY'
+          || !Number.isFinite(available)
+          || available <= 0
+        ) {
           return 'FULL';
         }
         if (isToday) {
-          const slotHour = parseHour(String(slot.label || slot.time || ''));
-          const isPastSlot = slotHour < currentHour || (slotHour === currentHour && currentMin >= 0);
-          if (isPastSlot) return 'CLOSED';
+          const slotMinute = parseMinute(String(slot.time || slot.label || ''));
+          if (slotMinute !== null && slotMinute <= currentMinute) return 'CLOSED';
         }
         return 'AVAILABLE';
       };
 
-      const derived: TimeSlot[] = apiSlots.length > 0
-        ? apiSlots
-          .reduce<TimeSlot[]>((rows, slot) => {
-            const displayTime = String(slot.label || slot.time || '').trim();
-            if (!displayTime) return rows;
-            rows.push({
-              time: displayTime,
-              label: displayTime,
-              status: deriveStatusFromApiSlot(slot),
-            });
-            return rows;
-          }, [])
-        : BOOKING_TIMES.map((t) => {
-          if (unavailable) {
-            const status: SlotStatus = errorCode === 'DATE_FULL' ? 'FULL' : 'CLOSED';
-            return { time: t, status };
-          }
-          if (typeof remaining === 'number' && remaining <= 0) {
-            return { time: t, status: 'FULL' as SlotStatus };
-          }
-          if (apiBooked.some((booked) => normalizeBookingTimeKey(booked) === normalizeBookingTimeKey(t))) {
-            return { time: t, status: 'FULL' as SlotStatus };
-          }
-          if (isToday) {
-            const slotHour = parseHour(t);
-            const isPastSlot = slotHour < currentHour || (slotHour === currentHour && currentMin >= 0);
-            if (isPastSlot) return { time: t, status: 'CLOSED' as SlotStatus };
-          }
-          return { time: t, status: 'AVAILABLE' as SlotStatus };
+      const derived: TimeSlot[] = apiSlots.reduce<TimeSlot[]>((rows, slot) => {
+        const status = String(slot.status || '').toUpperCase();
+        if (
+          typeof slot.time !== 'string'
+          || !slot.time.trim()
+          || !['AVAILABLE', 'ALMOST_FULL', 'FULL', 'OVER_CAPACITY'].includes(status)
+          || !Number.isFinite(Number(slot.capacity))
+          || !Number.isFinite(Number(slot.booked))
+          || !Number.isFinite(Number(slot.available))
+        ) return rows;
+        const displayTime = String(slot.label || slot.time || '').trim();
+        if (!displayTime) return rows;
+        rows.push({
+          time: displayTime,
+          label: displayTime,
+          status: deriveStatusFromApiSlot(slot),
         });
+        return rows;
+      }, []);
       setSlotStatuses(derived);
 
       // Check if the currently selected time became unavailable
@@ -1628,18 +1612,18 @@ export default function CustomerDashboard() {
         const nowStatus = derived.find(
           s => normalizeBookingTimeKey(s.time) === normalizeBookingTimeKey(currentSelectedTime)
         )?.status;
-        if (nowStatus && nowStatus !== 'AVAILABLE') {
+        if (nowStatus !== 'AVAILABLE') {
           const msg = `"${currentSelectedTime}" is no longer available. Please select another time.`;
           setSlotError(msg);
           setBookingForm(f => ({ ...f, time: '' }));
           toast.warning('Time slot unavailable', { description: msg, duration: 4000 });
         }
       }
-    } catch {
-      setBookedSlots([]);
-      setSlotStatuses(BOOKING_TIMES.map(t => ({ time: t, status: 'AVAILABLE' as SlotStatus })));
+    } catch (error) {
+      setSlotStatuses([]);
+      setSlotError(error instanceof Error ? error.message : 'Could not verify time-slot availability.');
       toast.warning('Could not load time slots', {
-        description: 'Slots may not reflect live availability. Please try again.',
+        description: 'Booking is paused until live availability can be verified. Please try again.',
         duration: 4000,
       });
     } finally {
@@ -1681,11 +1665,11 @@ export default function CustomerDashboard() {
         const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         if (date >= today && !result[iso]) {
           result[iso] = {
-            status: 'available',
-            unavailable: false,
-            errorCode: null,
-            reason: '',
-            remaining: null,
+            status: 'closed',
+            unavailable: true,
+            errorCode: 'AVAILABILITY_UNVERIFIED',
+            reason: 'Live availability could not be verified for this date.',
+            remaining: 0,
           };
         }
       }
@@ -4280,9 +4264,7 @@ export default function CustomerDashboard() {
               ) : (
               <div className="customer-content-fade-in pb-10">
                 <CustomerDashboardServicesShowcase
-                  vehicles={vehicles}
                   packages={bookingPackages}
-                  getVehiclePriceKey={getVehiclePriceKey}
                   onOpenBooking={(opts) => {
                     void openBookingModal(undefined, opts ? {
                       ...(opts.presetPackageId ? { presetPackageId: opts.presetPackageId } : {}),
@@ -8196,8 +8178,8 @@ export default function CustomerDashboard() {
                               </div>
                             ) : slotsLoading ? (
                               <div className="booking-step3-time-grid" aria-label="Loading time slots">
-                                {BOOKING_TIMES.map(t => (
-                                  <div key={t} className="booking-step3-time-skeleton" />
+                                {Array.from({ length: 6 }, (_, index) => (
+                                  <div key={index} className="booking-step3-time-skeleton" />
                                 ))}
                               </div>
                             ) : slotStatuses.length === 0 ? (

@@ -411,6 +411,7 @@ export function BottomActionBar({
   disabled = false,
   secondaryLabel,
   onSecondaryPress,
+  inline = false,
 }: {
   primaryLabel: string;
   onPrimaryPress: () => void;
@@ -418,11 +419,16 @@ export function BottomActionBar({
   disabled?: boolean;
   secondaryLabel?: string;
   onSecondaryPress?: () => void;
+  inline?: boolean;
 }) {
   return (
-    <View style={styles.bottomBar}>
-      <BlurView intensity={55} tint="dark" style={StyleSheet.absoluteFill} />
-      <View style={styles.bottomBarVeil} />
+    <View style={[styles.bottomBar, inline && styles.bottomBarInline]}>
+      {!inline ? (
+        <>
+          <BlurView intensity={55} tint="dark" style={StyleSheet.absoluteFill} />
+          <View style={styles.bottomBarVeil} />
+        </>
+      ) : null}
       {secondaryLabel && onSecondaryPress ? (
         <Pressable onPress={onSecondaryPress} style={styles.secondaryAction}>
           <Text style={styles.secondaryActionText}>{secondaryLabel}</Text>
@@ -797,6 +803,13 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,107,53,0.18)',
     gap: 10,
+  },
+  bottomBarInline: {
+    marginTop: 4,
+    paddingTop: 0,
+    paddingHorizontal: 0,
+    paddingBottom: 0,
+    borderTopWidth: 0,
   },
   bottomBarVeil: {
     ...StyleSheet.absoluteFillObject,

@@ -34,27 +34,6 @@ const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 const HOURS_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const CLOSURE_REASONS: ClosureReason[] = ['Holiday', 'Renovation', 'Emergency', 'Staff Leave', 'Custom'];
 
-/** Mon–Fri open, Sat–Sun closed (matches backend defaults). */
-const DEFAULT_SCHEDULE: DaySchedule[] = [
-  { dow: 0, open: false, from: '08:00', to: '17:00', slots: 10 },
-  { dow: 1, open: true, from: '08:00', to: '17:00', slots: 10 },
-  { dow: 2, open: true, from: '08:00', to: '17:00', slots: 10 },
-  { dow: 3, open: true, from: '08:00', to: '17:00', slots: 10 },
-  { dow: 4, open: true, from: '08:00', to: '17:00', slots: 10 },
-  { dow: 5, open: true, from: '08:00', to: '17:00', slots: 10 },
-  { dow: 6, open: false, from: '08:00', to: '17:00', slots: 7 },
-];
-
-const WEEKDAY_PRESET: Pick<DaySchedule, 'open'>[] = [
-  { open: false },
-  { open: true },
-  { open: true },
-  { open: true },
-  { open: true },
-  { open: true },
-  { open: false },
-];
-
 // Official nationwide 2026 holidays from Proclamation No. 1006 (fixed dates only).
 const HOLIDAYS_2026: HolidayRow[] = [
   { id: '2026-01-01', name: "New Year's Day", date: '2026-01-01', classification: 'Regular' },
@@ -111,7 +90,6 @@ function formatDateLabel(input: string) {
 }
 
 function normalizeSchedule(payload: any): DaySchedule[] {
-  const defaultsByDow = new Map(DEFAULT_SCHEDULE.map((row) => [row.dow, row]));
   const source = Array.isArray(payload) ? payload : [];
 
   const byDow = new Map<number, DaySchedule>();
@@ -119,17 +97,28 @@ function normalizeSchedule(payload: any): DaySchedule[] {
     const dow = Number(row?.dow);
     if (!Number.isInteger(dow) || dow < 0 || dow > 6) continue;
 
-    const base = defaultsByDow.get(dow) as DaySchedule;
+    if (
+      typeof row?.open !== 'boolean'
+      || typeof row?.from !== 'string'
+      || typeof row?.to !== 'string'
+      || !Number.isFinite(Number(row?.slots))
+    ) {
+      continue;
+    }
     byDow.set(dow, {
       dow,
-      open: typeof row?.open === 'boolean' ? row.open : base.open,
-      from: typeof row?.from === 'string' ? row.from : base.from,
-      to: typeof row?.to === 'string' ? row.to : base.to,
-      slots: Number.isFinite(Number(row?.slots)) ? Math.max(0, Number(row.slots)) : base.slots,
+      open: row.open,
+      from: row.from,
+      to: row.to,
+      slots: Math.max(0, Number(row.slots)),
     });
   }
 
-  return Array.from({ length: 7 }, (_, dow) => byDow.get(dow) || (defaultsByDow.get(dow) as DaySchedule));
+  if (byDow.size !== 7) {
+    throw new Error('The server returned an incomplete weekly availability schedule.');
+  }
+
+  return Array.from({ length: 7 }, (_, dow) => byDow.get(dow) as DaySchedule);
 }
 
 export default function AvailabilityControls() {
@@ -147,11 +136,8 @@ export default function AvailabilityControls() {
     note: '',
   });
 
-  const [recurringSchedule, setRecurringSchedule] = useState<DaySchedule[]>(DEFAULT_SCHEDULE);
-  const [isSavingRecurring, setIsSavingRecurring] = useState(false);
-
-  const [hoursSchedule, setHoursSchedule] = useState<DaySchedule[]>(DEFAULT_SCHEDULE);
-  const [isSavingHours, setIsSavingHours] = useState(false);
+  const [schedule, setSchedule] = useState<DaySchedule[]>([]);
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
 
   const [selectedHolidayIds, setSelectedHolidayIds] = useState<Record<string, boolean>>({});
   const [isApplyingHolidays, setIsApplyingHolidays] = useState(false);
@@ -167,9 +153,11 @@ export default function AvailabilityControls() {
   );
 
   const hoursRows = useMemo(() => {
-    const byDow = new Map(hoursSchedule.map((row) => [row.dow, row]));
-    return HOURS_DISPLAY_ORDER.map((dow) => byDow.get(dow) || DEFAULT_SCHEDULE[dow]);
-  }, [hoursSchedule]);
+    const byDow = new Map(schedule.map((row) => [row.dow, row]));
+    return HOURS_DISPLAY_ORDER
+      .map((dow) => byDow.get(dow))
+      .filter((row): row is DaySchedule => Boolean(row));
+  }, [schedule]);
 
   const selectedHolidayCount = useMemo(
     () => HOLIDAYS_2026.filter((h) => selectedHolidayIds[h.id]).length,
@@ -192,14 +180,9 @@ export default function AvailabilityControls() {
     }
   };
 
-  const fetchRecurring = async () => {
+  const fetchSchedule = async () => {
     const res = await api.get('/admin/availability/recurring', silentRequestConfig);
-    setRecurringSchedule(normalizeSchedule(res?.data));
-  };
-
-  const fetchHours = async () => {
-    const res = await api.get('/admin/availability/hours', silentRequestConfig);
-    setHoursSchedule(normalizeSchedule(res?.data));
+    setSchedule(normalizeSchedule(res?.data));
   };
 
   useEffect(() => {
@@ -208,7 +191,7 @@ export default function AvailabilityControls() {
     const load = async () => {
       setIsBootstrapping(true);
       try {
-        await Promise.all([fetchEmergencyStatus(), fetchClosures(), fetchRecurring(), fetchHours()]);
+        await Promise.all([fetchEmergencyStatus(), fetchClosures(), fetchSchedule()]);
       } catch (error) {
         const msg = getApiErrorMessage(error, 'Failed to load availability controls.');
         toast.error(msg);
@@ -282,7 +265,7 @@ export default function AvailabilityControls() {
   const clearCalendarBlocks = async () => {
     if (calendarBlocks.length === 0) return;
     const confirmed = window.confirm(
-      `Remove ${calendarBlocks.length} date block(s) created from the appointments calendar?\n\nYour weekly Mon–Fri schedule will stay the same.`,
+      `Remove ${calendarBlocks.length} date block(s) created from the appointments calendar?\n\nYour weekly recurring schedule will stay the same.`,
     );
     if (!confirmed) return;
     try {
@@ -299,76 +282,46 @@ export default function AvailabilityControls() {
     }
   };
 
-  const applyWeekdayPreset = () => {
-    const next = DEFAULT_SCHEDULE.map((base) => ({ ...base, open: WEEKDAY_PRESET[base.dow].open }));
-    setRecurringSchedule(next);
-    setHoursSchedule(next);
-    toast.success('Preset applied: Mon–Fri open, Sat–Sun closed. Click Save to apply to the calendar.');
-  };
-
   const bumpCalendarCache = () => {
     syncAvailabilityCaches();
   };
 
-  const toggleRecurringDay = (dow: number) => {
-    setHoursSchedule((prev) => prev.map((row) => (row.dow === dow ? { ...row, open: !row.open } : row)));
-    setRecurringSchedule((prev) => prev.map((row) => (row.dow === dow ? { ...row, open: !row.open } : row)));
-  };
-
-  const saveRecurring = async () => {
-    setIsSavingRecurring(true);
-    try {
-      // Use hoursSchedule (Operating Hours & Slots table) as source of truth for
-      // from / to / slots / open so "Save recurring" cannot overwrite capacity edits.
-      const payload = [...hoursSchedule].sort((a, b) => a.dow - b.dow);
-      const res = await api.put('/admin/availability/recurring', { schedule: payload }, silentRequestConfig);
-      const normalized = normalizeSchedule(res?.data);
-      setRecurringSchedule(normalized);
-      setHoursSchedule(normalized);
-      bumpCalendarCache();
-      toast.success('Weekly schedule saved (includes hours & capacity from the table).');
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Failed to save recurring schedule.'));
-    } finally {
-      setIsSavingRecurring(false);
-    }
-  };
-
-  const updateHoursRow = (dow: number, patch: Partial<DaySchedule>) => {
-    setHoursSchedule((prev) => prev.map((row) => (row.dow === dow ? { ...row, ...patch } : row)));
+  const updateScheduleRow = (dow: number, patch: Partial<DaySchedule>) => {
+    setSchedule((prev) => prev.map((row) => (row.dow === dow ? { ...row, ...patch } : row)));
   };
 
   const applyMondayToOpenDays = () => {
-    const monday = hoursSchedule.find((row) => row.dow === 1);
+    const monday = schedule.find((row) => row.dow === 1);
     if (!monday) return;
-    setHoursSchedule((prev) => prev.map((row) => (
+    setSchedule((prev) => prev.map((row) => (
       row.open
         ? { ...row, from: monday.from, to: monday.to, slots: monday.slots }
         : row
     )));
-    toast.success('Applied Monday hours to all open days.');
+    toast.success('Applied Monday hours and per-slot capacity to all open days.');
   };
 
-  const saveHours = async () => {
-    setIsSavingHours(true);
+  const saveSchedule = async () => {
+    setIsSavingSchedule(true);
     try {
-      const payload = [...hoursSchedule].sort((a, b) => a.dow - b.dow).map((row) => ({
+      const payload = [...schedule].sort((a, b) => a.dow - b.dow).map((row) => ({
         dow: row.dow,
         open: !!row.open,
         from: row.from,
         to: row.to,
         slots: Number.isFinite(Number(row.slots)) ? Math.max(0, Number(row.slots)) : 0,
       }));
-      const res = await api.put('/admin/availability/hours', { hours: payload }, silentRequestConfig);
+      const res = await api.put('/admin/availability/recurring', { schedule: payload }, silentRequestConfig);
       const normalized = normalizeSchedule(res?.data);
-      setHoursSchedule(normalized);
-      setRecurringSchedule(normalized);
+      setSchedule(normalized);
       bumpCalendarCache();
-      toast.success('Operating hours and per-time slot capacity saved.');
+      toast.success('Weekly availability saved.', {
+        description: 'Open days, operating hours, and per-time-slot capacity are now live everywhere.',
+      });
     } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Failed to save operating hours.'));
+      toast.error(getApiErrorMessage(error, 'Failed to save weekly availability.'));
     } finally {
-      setIsSavingHours(false);
+      setIsSavingSchedule(false);
     }
   };
 
@@ -472,7 +425,7 @@ export default function AvailabilityControls() {
               {calendarBlocks.length} block(s) from the appointments calendar
             </p>
             <p className="mt-1 text-xs text-amber-900/90">
-              These close specific dates even when Mon–Fri is open in the weekly schedule below.
+              These close specific dates even when that weekday is open in the recurring schedule below.
             </p>
             <button
               type="button"
@@ -581,52 +534,10 @@ export default function AvailabilityControls() {
       </section>
 
       <section className="ah-card-section p-5">
-        <h3 className="text-sm font-semibold text-slate-900">Weekly schedule</h3>
+        <h3 className="text-sm font-semibold text-slate-900">Weekly Availability</h3>
         <p className="mt-1 text-xs text-slate-600">
-          Controls which weekdays accept bookings on the calendar. Default: Mon–Fri open, Sat–Sun closed.
-          Toggling a day updates the same schedule as <strong>Operating Hours &amp; Slots</strong> below — save with either button.
-        </p>
-        <div className="mt-3">
-          <button type="button" className="ah-btn-secondary !text-xs" onClick={applyWeekdayPreset}>
-            Use Mon–Fri open preset
-          </button>
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {HOURS_DISPLAY_ORDER.map((dow) => {
-            const row = hoursSchedule.find((entry) => entry.dow === dow) || DEFAULT_SCHEDULE[dow];
-            return (
-              <button
-                key={dow}
-                type="button"
-                onClick={() => toggleRecurringDay(dow)}
-                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                  row.open
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                    : 'border-rose-200 bg-rose-50 text-rose-700'
-                }`}
-              >
-                {DOW_LABELS[dow]} • {row.open ? 'Open' : 'Closed'}
-              </button>
-            );
-          })}
-        </div>
-        <div className="mt-4">
-          <button type="button" className="ah-btn-primary" onClick={saveRecurring} disabled={isSavingRecurring}>
-            {isSavingRecurring ? (
-              <>
-                <Loader2 size={14} className="animate-spin" />
-                Saving...
-              </>
-            ) : 'Save recurring schedule'}
-          </button>
-        </div>
-      </section>
-
-      <section className="ah-card-section p-5">
-        <h3 className="text-sm font-semibold text-slate-900">Operating Hours & Slots</h3>
-        <p className="mt-1 text-xs text-slate-600">
-          Configure day-level hours and capacity for each generated time slot. Click <strong>Save hours</strong> to persist
-          — or <strong>Save recurring schedule</strong> above (it now saves this table too, including capacity).
+          This is the appointment system’s weekly source of truth. Configure open days, operating hours,
+          and the maximum number of appointments allowed in each generated time slot, then save once.
         </p>
         <div className="mt-4 overflow-x-auto rounded-2xl bg-white shadow-[0_2px_12px_-4px_rgba(15,23,42,0.08),0_0_0_1px_rgba(226,232,240,0.55)]">
           <table className="ah-table min-w-[760px]">
@@ -648,7 +559,7 @@ export default function AvailabilityControls() {
                       <input
                         type="checkbox"
                         checked={row.open}
-                        onChange={(event) => updateHoursRow(row.dow, { open: event.target.checked })}
+                        onChange={(event) => updateScheduleRow(row.dow, { open: event.target.checked })}
                       />
                       {row.open ? 'Open' : 'Closed'}
                     </label>
@@ -659,7 +570,7 @@ export default function AvailabilityControls() {
                       className="ah-input !max-w-[140px]"
                       value={row.from}
                       disabled={!row.open}
-                      onChange={(event) => updateHoursRow(row.dow, { from: event.target.value })}
+                      onChange={(event) => updateScheduleRow(row.dow, { from: event.target.value })}
                     />
                   </td>
                   <td>
@@ -668,17 +579,20 @@ export default function AvailabilityControls() {
                       className="ah-input !max-w-[140px]"
                       value={row.to}
                       disabled={!row.open}
-                      onChange={(event) => updateHoursRow(row.dow, { to: event.target.value })}
+                      onChange={(event) => updateScheduleRow(row.dow, { to: event.target.value })}
                     />
                   </td>
                   <td>
                     <input
                       type="number"
                       min={0}
+                      step={1}
                       className="ah-input !max-w-[120px]"
                       value={row.slots}
                       disabled={!row.open}
-                      onChange={(event) => updateHoursRow(row.dow, { slots: Math.max(0, Number(event.target.value) || 0) })}
+                      onChange={(event) => updateScheduleRow(row.dow, {
+                        slots: Math.max(0, Math.floor(Number(event.target.value) || 0)),
+                      })}
                     />
                   </td>
                 </tr>
@@ -690,13 +604,18 @@ export default function AvailabilityControls() {
           <button type="button" className="ah-btn-secondary" onClick={applyMondayToOpenDays}>
             Apply Monday hours to all open days
           </button>
-          <button type="button" className="ah-btn-primary" onClick={saveHours} disabled={isSavingHours}>
-            {isSavingHours ? (
+          <button
+            type="button"
+            className="ah-btn-primary"
+            onClick={saveSchedule}
+            disabled={isSavingSchedule || schedule.length !== 7}
+          >
+            {isSavingSchedule ? (
               <>
                 <Loader2 size={14} className="animate-spin" />
                 Saving...
               </>
-            ) : 'Save hours'}
+            ) : 'Save availability'}
           </button>
         </div>
       </section>

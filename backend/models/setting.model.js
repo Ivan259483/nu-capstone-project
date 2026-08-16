@@ -16,7 +16,6 @@ const settingSchema = new mongoose.Schema({
   timeFormat: { type: String, default: '12h' },
   taxRate: { type: Number, default: 0 },
   membershipDiscount: { type: Number, default: 10 },
-  serviceCapacity: { type: Number, default: 5 },
   inventoryThreshold: { type: Number, default: 5 },
   auditLogRetention: { type: Number, default: 30 },
   systemTheme: { type: String, enum: ['light', 'dark'], default: 'dark' },
@@ -26,15 +25,6 @@ const settingSchema = new mongoose.Schema({
   sessionTimeout: { type: String, default: '120' },
   emailAlerts: { type: Boolean, default: false },
   smsAlerts: { type: Boolean, default: false },
-  operatingHours: {
-    monday: { open: { type: String, default: '08:00' }, close: { type: String, default: '18:00' } },
-    tuesday: { open: { type: String, default: '08:00' }, close: { type: String, default: '18:00' } },
-    wednesday: { open: { type: String, default: '08:00' }, close: { type: String, default: '18:00' } },
-    thursday: { open: { type: String, default: '08:00' }, close: { type: String, default: '18:00' } },
-    friday: { open: { type: String, default: '08:00' }, close: { type: String, default: '18:00' } },
-    saturday: { open: { type: String, default: '09:00' }, close: { type: String, default: '16:00' } },
-    sunday: { open: { type: String, default: 'Closed' }, close: { type: String, default: 'Closed' } }
-  },
   notifications: {
     emailNewBookings: { type: Boolean, default: true },
     lowStockAlerts: { type: Boolean, default: true },

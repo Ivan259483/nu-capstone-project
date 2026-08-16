@@ -5,7 +5,6 @@
  */
 
 import type { CalendarBooking } from './calendarTypes';
-import type { RecurringScheduleRow } from '@/lib/shopSlotBands';
 
 function getToken(): string {
   const token = localStorage.getItem('autospf_token') || '';
@@ -35,12 +34,14 @@ export interface RangeSlotSummary {
   timeBandCount?: number;
   almostFullSlots: number;
   fullSlots: number;
+  overCapacitySlots?: number;
+  overCapacityBy?: number;
   pendingCount: number;
-  status: 'AVAILABLE' | 'ALMOST_FULL' | 'FULL' | 'CLOSED';
+  status: 'AVAILABLE' | 'ALMOST_FULL' | 'FULL' | 'OVER_CAPACITY' | 'CLOSED' | 'PAST';
 }
 
 export async function fetchSlotRange(start: string, end: string): Promise<RangeSlotSummary[]> {
-  const res = await fetch(`/api/slots/range?start=${start}&end=${end}&_cal=2`, {
+  const res = await fetch(`/api/slots/range?start=${start}&end=${end}&_cal=3`, {
     headers: authHeaders(),
   });
   // 401/403 = session expired/invalid — return empty, don't throw
@@ -51,15 +52,6 @@ export async function fetchSlotRange(start: string, end: string): Promise<RangeS
   return json.data as RangeSlotSummary[];
 }
 
-/** Weekly hours + per-slot capacity (same source as Availability Controls). */
-export async function fetchRecurringHoursSchedule(): Promise<RecurringScheduleRow[] | null> {
-  const res = await fetch('/api/admin/availability/hours', { headers: authHeaders() });
-  if (res.status === 401 || res.status === 403) return null;
-  if (!res.ok) return null;
-  const data = await res.json();
-  return Array.isArray(data) ? (data as RecurringScheduleRow[]) : null;
-}
-
 // ── Single-date full slot detail ───────────────────────────────────────────────
 // GET /api/slots?date=YYYY-MM-DD
 export interface SlotDetail {
@@ -68,11 +60,15 @@ export interface SlotDetail {
   capacity: number;
   booked: number;
   available: number;
-  status: 'AVAILABLE' | 'ALMOST_FULL' | 'FULL';
+  status: 'AVAILABLE' | 'ALMOST_FULL' | 'FULL' | 'OVER_CAPACITY' | 'ELAPSED';
+  elapsed?: boolean;
+  outOfSchedule?: boolean;
+  overCapacityBy?: number;
 }
 export interface DateSlotDetail {
   date: string;
   isClosed: boolean;
+  status?: 'AVAILABLE' | 'FULL' | 'OVER_CAPACITY' | 'CLOSED';
   slots: SlotDetail[];
 }
 
@@ -128,13 +124,17 @@ export async function fetchBookingsByRange(start: string, end: string): Promise<
     const json = await res.json();
     if (!json.success || !Array.isArray(json.data)) return bookings;
 
-    const rows = (json.data as CalendarBooking[]).filter((booking) => {
+    const pageRows = json.data as CalendarBooking[];
+    const rows = pageRows.filter((booking) => {
       const bookingDate = String(booking.bookingDate || '').slice(0, 10);
       return bookingDate >= start && bookingDate <= end;
     });
     bookings.push(...rows);
 
-    if (!json.pagination?.hasNextPage || rows.length === 0) return bookings;
+    // Pagination belongs to the raw server page. A page can contain only
+    // legacy/non-canonical dates that this client filters out while later
+    // pages still contain valid rows in the requested range.
+    if (!json.pagination?.hasNextPage || pageRows.length === 0) return bookings;
     skip += limit;
   }
 }

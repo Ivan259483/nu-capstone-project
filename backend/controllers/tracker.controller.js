@@ -22,6 +22,10 @@ import {
   createCustomerStageMediaNotification,
   notifyReadyForPickupIfGateComplete,
 } from '../utils/customerStageNotifications.utils.js';
+import {
+  captureOrderSlotOccupancy,
+  saveOrderWithSlotTransition,
+} from '../services/slot.service.js';
 
 /** Same coarse stages as QC `service-status`; `confirmed` is optional text-only for customers. */
 const TRACKER_MEDIA_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'];
@@ -291,6 +295,7 @@ export const patchTrackerStagePhoto = async (req, res, next) => {
 
     const order = await Order.findById(id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    const occupancyBefore = captureOrderSlotOccupancy(order);
 
     const url = typeof photoUrl === 'string' ? photoUrl.trim() : '';
     if (url && !isHttpsUrl(url)) {
@@ -345,7 +350,7 @@ export const patchTrackerStagePhoto = async (req, res, next) => {
       await applyPickupGateCompleteSideEffects(order);
     }
 
-    await order.save({ validateBeforeSave: false });
+    await saveOrderWithSlotTransition(order, occupancyBefore, { validateBeforeSave: false });
     emitTrackerStageMediaUpdate(order);
 
     if (stage === 'ready_pickup') {
@@ -404,6 +409,7 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
 
     const order = await Order.findById(id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    const occupancyBefore = captureOrderSlotOccupancy(order);
 
     let slot = null;
     if (isGateStage(stage)) {
@@ -473,7 +479,7 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
       await applyPickupGateCompleteSideEffects(order);
     }
 
-    await order.save({ validateBeforeSave: false });
+    await saveOrderWithSlotTransition(order, occupancyBefore, { validateBeforeSave: false });
     emitTrackerStageMediaUpdate(order);
 
     if (stage === 'ready_pickup') {
@@ -566,6 +572,7 @@ export const deleteTrackerStagePhoto = async (req, res, next) => {
 
     const order = await Order.findById(id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    const occupancyBefore = captureOrderSlotOccupancy(order);
 
     const idx = findGateMediaIndex(order, stage, slot);
     if (idx < 0) {
@@ -579,7 +586,7 @@ export const deleteTrackerStagePhoto = async (req, res, next) => {
       await revertReadyForPaymentIfPickupIncomplete(order);
     }
 
-    await order.save({ validateBeforeSave: false });
+    await saveOrderWithSlotTransition(order, occupancyBefore, { validateBeforeSave: false });
     emitTrackerStageMediaUpdate(order);
 
     logActivity({

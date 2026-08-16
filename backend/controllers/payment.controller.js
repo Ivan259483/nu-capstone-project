@@ -18,7 +18,10 @@ import { countGatePhotos, REQUIRED_GATE_PHOTOS } from '../utils/trackerGatePhoto
 import {
   evaluateReadyForPickupQueueEligibility,
 } from '../utils/readyPickupPaymentFlow.utils.js';
-import { isSlotConsumingStatus, releaseBookingSlot } from '../services/slot.service.js';
+import {
+  captureOrderSlotOccupancy,
+  saveOrderWithSlotTransition,
+} from '../services/slot.service.js';
 import {
   resolveReceiptPhoneForClient,
   USER_PHONE_SELECT_FIELDS,
@@ -1149,6 +1152,7 @@ export const runPosCheckoutCore = async ({
   order.finalPaymentAmount = amountCollected;
   order.totalPrice = grandTotal;
   order.totalAmount = grandTotal;
+  const occupancyBefore = captureOrderSlotOccupancy(order);
   const prevPosStatus = order.status;
   const prevTrackingStage = order.serviceTrackingStage;
   const readyPickupPhotosComplete = countGatePhotos(order, 'ready_pickup') >= REQUIRED_GATE_PHOTOS;
@@ -1204,7 +1208,7 @@ export const runPosCheckoutCore = async ({
     order.serviceTrackingUpdatedBy = req.user?.name || req.user?.id || 'POS';
   }
   try {
-    await order.save();
+    await saveOrderWithSlotTransition(order, occupancyBefore);
   } catch (saveError) {
     console.error('[POS] Order finalization failed after payment create. Rolling back payment.', {
       orderId: order._id?.toString?.(),
@@ -1217,10 +1221,6 @@ export const runPosCheckoutCore = async ({
     });
     throw saveError;
   }
-  if (isSlotConsumingStatus(prevPosStatus) && !isSlotConsumingStatus(order.status)) {
-    await releaseBookingSlot(order.bookingDate, order.bookingTime);
-  }
-
   await applyInventoryDeductions(order);
 
   if (prevPosStatus !== order.status || String(prevTrackingStage || '') !== String(order.serviceTrackingStage || '')) {

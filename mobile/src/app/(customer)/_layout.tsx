@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
+  withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useThemeContext';
@@ -63,18 +64,23 @@ function TabBarButton({
     ? iconName
     : (`${iconName}-outline` as keyof typeof Ionicons.glyphMap);
   const label = TAB_LABELS[route] || route;
-  const inactiveColor = 'rgba(255, 255, 255, 0.38)';
+  const inactiveColor = 'rgba(255, 255, 255, 0.56)';
 
   return (
     <TouchableOpacity
       onPress={handlePress}
+      onPressIn={() => { scale.value = withTiming(0.98, { duration:100 }); }}
+      onPressOut={() => { scale.value = withTiming(1, { duration:140 }); }}
       activeOpacity={0.7}
       style={styles.tabButton}
+      accessibilityRole="tab"
+      accessibilityState={{ selected:isFocused }}
+      accessibilityLabel={label}
     >
-      <Animated.View style={[styles.tabButtonInner, animStyle]}>
+      <Animated.View style={[styles.tabButtonInner, isFocused && styles.tabButtonActive, animStyle]}>
         <Ionicons
           name={isFocused ? iconName : inactiveIconName}
-          size={22}
+          size={21}
           color={isFocused ? Palette.accent : inactiveColor}
         />
         <Animated.Text
@@ -89,10 +95,7 @@ function TabBarButton({
           {label}
         </Animated.Text>
 
-        {/* Active Gold Underline Indicator */}
-        {isFocused && (
-          <Animated.View style={styles.activeUnderline} />
-        )}
+        {isFocused && <Animated.View style={styles.activeIndicator} />}
       </Animated.View>
     </TouchableOpacity>
   );
@@ -113,11 +116,7 @@ function CustomTabBar({ state, navigation }: any) {
       style={[
         styles.tabBarContainer,
         {
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: 56 + insets.bottom,
+          height: 62 + insets.bottom,
           paddingBottom: insets.bottom,
         },
       ]}
@@ -130,7 +129,7 @@ function CustomTabBar({ state, navigation }: any) {
       <View
         style={[
           StyleSheet.absoluteFill,
-          { backgroundColor: 'rgba(10, 10, 16, 0.74)' },
+          { backgroundColor: 'rgba(5, 7, 10, 0.90)' },
         ]}
       />
       <View style={styles.tabBarInner}>
@@ -176,8 +175,6 @@ export default function TabLayout() {
         <Tabs.Screen name="scan" options={{ title: 'AI Scan' }} />
         <Tabs.Screen name="settings" options={{ title: 'Profile' }} />
       </Tabs>
-
-      {/* Floating Ask AI button — appears on all customer tabs */}
       <AskAiFab />
     </View>
   );
@@ -185,17 +182,21 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   tabBarContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     overflow: 'hidden',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    borderTopColor: 'rgba(255, 124, 30, 0.14)',
   },
   tabBarInner: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 6,
-    paddingHorizontal: 10,
+    paddingTop: 7,
+    paddingHorizontal: 8,
   },
   tabButton: {
     flex: 1,
@@ -204,22 +205,30 @@ const styles = StyleSheet.create({
   tabButtonInner: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
+    gap: 2,
+    width: 62,
+    height: 46,
+    borderRadius: 16,
+  },
+  tabButtonActive: {
+    backgroundColor: 'rgba(255, 107, 53, 0.065)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 53, 0.12)',
   },
   tabLabel: {
-    fontSize: 9.5,
+    fontSize: 9,
     marginTop: 1,
   },
-  activeUnderline: {
+  activeIndicator: {
     position: 'absolute',
-    bottom: -8,
-    width: 18,
+    top: 0,
+    width: 16,
     height: 2,
     borderRadius: 2,
     backgroundColor: Palette.accent,
     shadowColor: Palette.accent,
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.32,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 1 },
   },
 });

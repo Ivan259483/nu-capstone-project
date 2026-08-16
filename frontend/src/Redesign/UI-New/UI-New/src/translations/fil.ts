@@ -144,7 +144,7 @@ export const fil = {
         email: "Email",
         emailValue: "hello@autoshine.ph",
         hours: "Oras ng Negosyo",
-        hoursValue: "Lun – Sab: 8:00 AM – 6:00 PM",
+        hoursValue: "Makipag-ugnayan para sa kasalukuyang oras",
         sendMessage: "Magpadala ng Mensahe",
         yourName: "Iyong Pangalan",
         yourEmail: "Iyong Email",

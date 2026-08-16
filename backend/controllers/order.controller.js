@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { randomUUID } from 'node:crypto';
 import Order from '../models/order.model.js';
 import Product from '../models/product.model.js';
 import Service from '../models/service.model.js';
@@ -40,14 +41,15 @@ import {
   USER_PHONE_SELECT_FIELDS,
 } from '../utils/phone-client.utils.js';
 import {
+  captureOrderSlotOccupancy,
   getDateAvailabilitySnapshot,
-  isSlotConsumingStatus,
   normalizeBookingDate,
   normalizeBookingTime,
+  orderOccupiesSlot,
   releaseBookingSlot,
+  releaseBookingSlotsForOrders,
   reserveBookingSlot,
-  syncBookingSlotCounter,
-  validateSlotAvailability,
+  saveOrderWithSlotTransition,
 } from '../services/slot.service.js';
 import { SPF_PACKAGE_PRICING, getPackageKeyFromName } from '../constants/spfPricing.js';
 
@@ -226,7 +228,7 @@ const generateBookingReference = () => {
   const yy = String(now.getFullYear()).slice(-2);
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
-  const hex = Math.random().toString(16).substring(2, 6).toUpperCase();
+  const hex = randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase();
   return `ASPF-${yy}${mm}${dd}-${hex}`;
 };
 
@@ -284,6 +286,7 @@ const ORDER_LIST_SELECT_FIELDS = [
   'vehiclePlate',
   'bookingDate',
   'bookingTime',
+  'isWalkIn',
   'notes',
   'assignedDetailer',
   'serviceTrackingStage',
@@ -534,6 +537,7 @@ const formatBookingListDto = (orderDoc) => {
     vehicleInfo: vehicleInfo || '',
     bookingDate: order.bookingDate,
     bookingTime: order.bookingTime,
+    isWalkIn: !!order.isWalkIn,
     date: order.date || order.bookingDate || '',
     time: order.time || order.bookingTime || '',
     notes: decryptedNotes || '',
@@ -686,12 +690,22 @@ function getOrderSlotPair(order) {
   return getNormalizedSlotPair(order?.bookingDate, order?.bookingTime);
 }
 
+function captureOrderOccupancyWithStatus(order, status) {
+  return captureOrderSlotOccupancy({
+    status,
+    archived: order?.archived,
+    isWalkIn: order?.isWalkIn,
+    bookingDate: order?.bookingDate,
+    bookingTime: order?.bookingTime,
+  });
+}
+
 function sameSlotPair(a, b) {
   return Boolean(a && b && a.date === b.date && a.time === b.time);
 }
 
 async function releaseOrderSlotIfConsumed(orderLike) {
-  if (!orderLike || !isSlotConsumingStatus(orderLike.status)) return;
+  if (!orderLike || !orderOccupiesSlot(orderLike.status, orderLike.archived, orderLike.isWalkIn)) return;
   await releaseBookingSlot(orderLike.bookingDate, orderLike.bookingTime);
 }
 
@@ -968,25 +982,18 @@ export const getAvailableSlots = async (req, res, next) => {
       });
     }
 
-    const LEGACY_FULL_DAY_SLOT_LIST = [
-      '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM',
-      '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM',
-      '4:00 PM', '5:00 PM',
-    ];
-
     const structuredSlots = Array.isArray(snapshot.slots) ? snapshot.slots : [];
     const fullSlotLabels = structuredSlots
-      .filter((slot) => slot.status === 'FULL')
+      .filter((slot) => slot.status === 'FULL' || slot.status === 'OVER_CAPACITY')
       .map((slot) => slot.label || slot.time)
       .filter(Boolean);
 
-    const bookedSlots = snapshot.unavailable && structuredSlots.length === 0
-      ? LEGACY_FULL_DAY_SLOT_LIST
-      : fullSlotLabels;
-
     return res.json({
       success: true,
-      bookedSlots, // Legacy clients: now contains only times that are actually full
+      // Legacy clients receive only persisted/generated slots that are actually
+      // unavailable. Closed days are represented by `unavailable`, never by a
+      // hard-coded list of hours.
+      bookedSlots: fullSlotLabels,
       slots: structuredSlots,
       unavailable: !!snapshot.unavailable,
       errorCode: snapshot.errorCode || null,
@@ -996,6 +1003,8 @@ export const getAvailableSlots = async (req, res, next) => {
       slotsLimit: snapshot.slotsLimit ?? null,
       remaining: snapshot.remaining ?? null,
       totalCapacity: snapshot.totalCapacity ?? null,
+      overCapacitySlots: snapshot.overCapacitySlots ?? 0,
+      overCapacityBy: snapshot.overCapacityBy ?? 0,
     });
   } catch (error) {
     next(error);
@@ -1008,24 +1017,39 @@ export const getAvailableSlots = async (req, res, next) => {
 export const cleanupStaleBookings = async (req, res, next) => {
   try {
     const staleQuery = {
+      archived: { $ne: true },
       $or: [
         { customerName: { $in: [null, ''] } },
         { serviceType: { $in: [null, ''] } }
       ]
     };
 
-    const result = await Order.updateMany(staleQuery, {
-      $set: {
-        archived: true,
-        archivedAt: new Date(),
-        archivedReason: 'stale_booking_cleanup',
-        status: 'cancelled'
-      }
-    });
+    const staleCandidates = await Order.find(staleQuery)
+      .select('bookingDate bookingTime status archived isWalkIn __v')
+      .lean();
+    const archivedAt = new Date();
+    const archivedOrders = (await Promise.all(
+      staleCandidates.map((candidate) => Order.findOneAndUpdate(
+        { _id: candidate._id, __v: candidate.__v, ...staleQuery },
+        {
+          $set: {
+            archived: true,
+            archivedAt,
+            archivedReason: 'stale_booking_cleanup',
+            status: 'cancelled',
+          },
+          $inc: { __v: 1 },
+        },
+        { new: false }
+      ).lean())
+    )).filter(Boolean);
+
+    await releaseBookingSlotsForOrders(archivedOrders);
+    const modifiedCount = archivedOrders.length;
 
     res.json({
       success: true,
-      archived: result.modifiedCount || result.nModified || 0
+      archived: modifiedCount
     });
   } catch (error) {
     next(error);
@@ -1297,6 +1321,7 @@ export const createOrder = async (req, res, next) => {
       vehiclePlate,
       bookingDate,
       bookingTime,
+      isWalkIn,
       vehicle: vehicleId,
       service: serviceId,
       customerName: customerNameInput,
@@ -1545,8 +1570,58 @@ export const createOrder = async (req, res, next) => {
       });
     }
 
-    // ── Atomic slot reservation (dynamic — reads current availability rules) ─
-    if (bookingDate && bookingTime) {
+    const bookingDateWasProvided = bookingDate !== undefined && bookingDate !== null && bookingDate !== '';
+    const bookingTimeWasProvided = bookingTime !== undefined && bookingTime !== null && bookingTime !== '';
+    if (
+      (bookingDateWasProvided && typeof bookingDate !== 'string')
+      || (bookingTimeWasProvided && typeof bookingTime !== 'string')
+    ) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'INVALID_SLOT',
+        message: 'bookingDate and bookingTime must be strings.',
+        error: 'bookingDate and bookingTime must be strings.',
+      });
+    }
+    const hasBookingDate = bookingDateWasProvided && bookingDate.trim().length > 0;
+    const hasBookingTime = bookingTimeWasProvided && bookingTime.trim().length > 0;
+    const isAuthorizedWalkIn = isWalkIn === true && isPosManagerRole(req.user.role);
+    if (isWalkIn === true && !isAuthorizedWalkIn) {
+      return res.status(403).json({
+        success: false,
+        errorCode: 'WALK_IN_NOT_AUTHORIZED',
+        message: 'Only authorized POS users may create an unscheduled walk-in order.',
+      });
+    }
+    if (isAuthorizedWalkIn && (hasBookingDate || hasBookingTime)) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'INVALID_SLOT',
+        message: 'Walk-in orders must not include appointment date or time fields.',
+      });
+    }
+    if (hasBookingDate !== hasBookingTime) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'INVALID_SLOT',
+        message: 'Both bookingDate and bookingTime are required for an appointment.',
+        error: 'Both bookingDate and bookingTime are required for an appointment.',
+      });
+    }
+    if (!isAuthorizedWalkIn && !hasBookingDate && !hasBookingTime) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'INVALID_SLOT',
+        message: 'bookingDate and bookingTime are required for an appointment.',
+        error: 'bookingDate and bookingTime are required for an appointment.',
+      });
+    }
+
+    let canonicalBookingDate;
+    let canonicalBookingTime;
+    // Explicit POS walk-ins may have neither field. Every appointment
+    // (customer or admin-created) has both and is reserved atomically here.
+    if (hasBookingDate && hasBookingTime) {
       const slotCheck = await reserveBookingSlot(bookingDate, bookingTime);
       if (!slotCheck.ok) {
         return res.status(409).json({
@@ -1554,11 +1629,13 @@ export const createOrder = async (req, res, next) => {
         });
       }
       reservedSlot = slotCheck;
+      canonicalBookingDate = slotCheck.date;
+      canonicalBookingTime = slotCheck.time;
     }
 
     // ── Create Order ──────────────────────────────────────────────────
     const order = new Order({
-      orderNumber: `ORD-${Date.now()}`,
+      orderNumber: `ORD-${Date.now()}-${randomUUID().slice(0, 8).toUpperCase()}`,
       bookingReference: generateBookingReference(),
       customer: resolvedCustomerId,
       vehicle: mongoose.Types.ObjectId.isValid(vehicleId) ? vehicleId : null,
@@ -1573,8 +1650,9 @@ export const createOrder = async (req, res, next) => {
       shippingAddress,
       notes,
       ...finalVehicleData,
-      bookingDate,
-      bookingTime,
+      bookingDate: canonicalBookingDate,
+      bookingTime: canonicalBookingTime,
+      isWalkIn: isAuthorizedWalkIn,
       downpaymentProof: resolvedPaymentProof,
       paymentProofUrl: resolvedPaymentProof,
     });
@@ -1616,6 +1694,8 @@ export const createOrder = async (req, res, next) => {
 
     // Respond immediately — email + in-app notifications can take seconds on cold DB / SMTP.
     res.status(201).json(responsePayload);
+
+    if (process.env.NODE_ENV === 'test') return;
 
     const orderIdForSideEffects = order._id;
     const orderNumberForSideEffects = order.orderNumber;
@@ -1760,8 +1840,12 @@ export const signWaiver = async (req, res, next) => {
     };
 
     const preServiceCount = order.legalCompliance?.preServicePhotos?.length || 0;
-    if (order.assignedDetailer && preServiceCount >= 2) {
-      order.status = 'in-progress';
+    if (
+      order.assignedDetailer
+      && preServiceCount >= 2
+      && orderOccupiesSlot(order.status, order.archived, order.isWalkIn)
+    ) {
+      order.status = 'in_progress';
       if (!order.serviceSteps || order.serviceSteps.length === 0) {
         order.serviceSteps = DEFAULT_SERVICE_STEPS.map(step => ({ ...step }));
       }
@@ -1849,8 +1933,12 @@ export const updateInspection = async (req, res, next) => {
       damageNotes: damageNotes || order.legalCompliance?.damageNotes,
     };
 
-    if (order.legalCompliance?.waiverSignature && mergedPhotos.length >= 2) {
-      order.status = 'in-progress';
+    if (
+      order.legalCompliance?.waiverSignature
+      && mergedPhotos.length >= 2
+      && orderOccupiesSlot(order.status, order.archived, order.isWalkIn)
+    ) {
+      order.status = 'in_progress';
       if (!order.serviceSteps || order.serviceSteps.length === 0) {
         order.serviceSteps = DEFAULT_SERVICE_STEPS.map(step => ({ ...step }));
       }
@@ -2024,14 +2112,39 @@ export const updateOrder = async (req, res, next) => {
     const previousStatus = order.status;
     const previousPaymentStatus = order.paymentStatus;
     const previousSlot = getOrderSlotPair(order);
-    const previousConsumedSlot = isSlotConsumingStatus(previousStatus);
+    const previousConsumedSlot = orderOccupiesSlot(previousStatus, order.archived, order.isWalkIn);
 
     // ── Anti-Double Booking Validation (Update) ─────────────────────
     const newDate = update.bookingDate || order.bookingDate;
     const newTime = update.bookingTime || order.bookingTime;
     const nextStatus = update.status || order.status;
     const nextSlot = getNormalizedSlotPair(newDate, newTime);
-    const nextConsumesSlot = isSlotConsumingStatus(nextStatus);
+    const changesAppointmentSlot = Object.prototype.hasOwnProperty.call(update, 'bookingDate')
+      || Object.prototype.hasOwnProperty.call(update, 'bookingTime');
+    const nextArchived = Object.prototype.hasOwnProperty.call(update, 'archived')
+      ? update.archived
+      : order.archived;
+    const nextIsWalkIn = changesAppointmentSlot
+      ? false
+      : Object.prototype.hasOwnProperty.call(update, 'isWalkIn')
+        ? update.isWalkIn
+        : order.isWalkIn;
+    const nextConsumesSlot = orderOccupiesSlot(nextStatus, nextArchived, nextIsWalkIn);
+
+    if (nextConsumesSlot && !nextSlot) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'INVALID_SLOT',
+        message: 'A valid bookingDate and bookingTime are required for an appointment that occupies a slot.',
+      });
+    }
+    if (changesAppointmentSlot && nextSlot) {
+      // Canonical persistence keeps indexed counting and atomic counters aligned,
+      // even when a client submits a human-readable date or 12-hour clock.
+      update.bookingDate = nextSlot.date;
+      update.bookingTime = nextSlot.time;
+      update.isWalkIn = false;
+    }
 
     if (
       newDate &&
@@ -2052,21 +2165,23 @@ export const updateOrder = async (req, res, next) => {
     // Update fields
     Object.assign(order, update);
     await order.save();
+    reservedSlot = null;
+
+    if (
+      previousConsumedSlot &&
+      previousSlot &&
+      (!orderOccupiesSlot(order.status, order.archived, order.isWalkIn)
+        || !sameSlotPair(previousSlot, getOrderSlotPair(order)))
+    ) {
+      await releaseBookingSlot(previousSlot.date, previousSlot.time);
+    }
+
     if (previousStatus !== order.status || previousPaymentStatus !== order.paymentStatus) {
       await evaluateReadyForPickupQueueEligibility(order, {
         persist: true,
         emit: true,
         notify: true,
       });
-    }
-    reservedSlot = null;
-
-    if (
-      previousConsumedSlot &&
-      previousSlot &&
-      (!isSlotConsumingStatus(order.status) || !sameSlotPair(previousSlot, getOrderSlotPair(order)))
-    ) {
-      await releaseBookingSlot(previousSlot.date, previousSlot.time);
     }
 
     // ── Fire real-time events when payment is marked paid ─────────────────
@@ -2220,8 +2335,15 @@ export const deleteOrder = async (req, res, next) => {
       metadata: { orderId: order._id },
     });
 
-    await Order.findByIdAndDelete(req.params.id);
-    await releaseOrderSlotIfConsumed(order);
+    const deletedOrder = await Order.findOneAndDelete({ _id: order._id, __v: order.__v });
+    if (!deletedOrder) {
+      return res.status(409).json({
+        success: false,
+        errorCode: 'BOOKING_CHANGED',
+        message: 'The booking changed or was already deleted. Refresh and try again.',
+      });
+    }
+    await releaseOrderSlotIfConsumed(deletedOrder);
 
     res.json({
       success: true,
@@ -2441,6 +2563,7 @@ export const assignDetailer = async (req, res, next) => {
 export const updateOrderProgress = async (req, res, next) => {
   try {
     const { stepIndex, status, completed, orderStatus } = req.body;
+    const normalizedOrderStatus = orderStatus === 'in-progress' ? 'in_progress' : orderStatus;
     const order = await Order.findById(req.params.id);
 
     if (!order) {
@@ -2453,7 +2576,7 @@ export const updateOrderProgress = async (req, res, next) => {
         return res.status(403).json({ success: false, message: 'Access denied: Not assigned to this order' });
     }
 
-    const wantsInProgress = orderStatus === 'in-progress';
+    const wantsInProgress = normalizedOrderStatus === 'in_progress';
     const hasWaiver = !!order.legalCompliance?.waiverSignature;
     const preServiceCount = order.legalCompliance?.preServicePhotos?.length || 0;
     if (wantsInProgress && (!hasWaiver || preServiceCount < 2)) {
@@ -2471,8 +2594,8 @@ export const updateOrderProgress = async (req, res, next) => {
     }
 
     // Update top-level status if provided
-    if (orderStatus) {
-        order.status = orderStatus;
+    if (normalizedOrderStatus) {
+        order.status = normalizedOrderStatus;
     }
 
     // Update specific step if provided
@@ -2492,7 +2615,7 @@ export const updateOrderProgress = async (req, res, next) => {
     const lastStepIndex = order.serviceSteps.length - 1;
     const shouldComplete =
       completed === true ||
-      orderStatus === 'completed' ||
+      normalizedOrderStatus === 'completed' ||
       (normalizedStepIndex !== undefined && normalizedStepIndex === lastStepIndex && status === 'completed');
 
     if (shouldComplete) {
@@ -2687,11 +2810,10 @@ export const updateOrderProgress = async (req, res, next) => {
       }
     }
 
-    await order.save();
-
-    if (isSlotConsumingStatus(previousStatus) && !isSlotConsumingStatus(order.status)) {
-      await releaseBookingSlot(order.bookingDate, order.bookingTime);
-    }
+    await saveOrderWithSlotTransition(
+      order,
+      captureOrderOccupancyWithStatus(order, previousStatus)
+    );
 
     // Activity logs for status changes (fire-and-forget)
     if (previousStatus !== order.status) {
@@ -3249,10 +3371,10 @@ export const updateWorkflowStep = async (req, res, next) => {
        order.status = 'completed'; // Trigger POS System to record it as ready for invoice / release
     }
 
-    await order.save();
-    if (isSlotConsumingStatus(previousStatus) && !isSlotConsumingStatus(order.status)) {
-      await releaseBookingSlot(order.bookingDate, order.bookingTime);
-    }
+    await saveOrderWithSlotTransition(
+      order,
+      captureOrderOccupancyWithStatus(order, previousStatus)
+    );
 
     // Fire exact real-time payload socket for customers and admins immediately to reduce syncing delay
     import('../socket.js').then((socketModule) => {
@@ -3376,7 +3498,12 @@ export const operateCheckIn = async (req, res, next) => {
     }
 
     const previousStatusForWorkflow = order.status;
-    if (!isSlotConsumingStatus(previousStatusForWorkflow) && order.bookingDate && order.bookingTime) {
+    if (
+      !orderOccupiesSlot(previousStatusForWorkflow, order.archived, order.isWalkIn)
+      && orderOccupiesSlot('received', order.archived, order.isWalkIn)
+      && order.bookingDate
+      && order.bookingTime
+    ) {
       const slotCheck = await reserveBookingSlot(order.bookingDate, order.bookingTime);
       if (!slotCheck.ok) {
         return res.status(409).json({
@@ -3459,7 +3586,7 @@ export const operateCheckIn = async (req, res, next) => {
 export const operateStartService = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const order = await Order.findById(id);
+    let order = await Order.findById(id);
 
     if (!order) return res.status(404).json({ message: 'Order not found' });
     if (order.status !== 'received') {
@@ -3519,10 +3646,10 @@ export const operateQCComplete = async (req, res, next) => {
 
     const prevQCStatus = order.status;
     order.status = 'completed';
-    await order.save();
-    if (isSlotConsumingStatus(prevQCStatus) && !isSlotConsumingStatus(order.status)) {
-      await releaseBookingSlot(order.bookingDate, order.bookingTime);
-    }
+    await saveOrderWithSlotTransition(
+      order,
+      captureOrderOccupancyWithStatus(order, prevQCStatus)
+    );
 
     getIO().to('realtime:staff').emit('orderUpdated', { orderId: order._id, status: order.status });
 
@@ -3553,7 +3680,7 @@ export const operateFinalPayment = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { finalPaymentAmount } = req.body;
-    const order = await Order.findById(id);
+    let order = await Order.findById(id);
 
     if (!order) return res.status(404).json({ message: 'Order not found' });
     // Allow 'received', 'in_progress', 'completed' to move to 'paid' early if they want, but typically 'completed'
@@ -3580,10 +3707,10 @@ export const operateFinalPayment = async (req, res, next) => {
       console.error('Quietly continuing despite warranty PDF failure', err);
     }
 
-    await order.save();
-    if (isSlotConsumingStatus(prevPayStatus) && !isSlotConsumingStatus(order.status)) {
-      await releaseBookingSlot(order.bookingDate, order.bookingTime);
-    }
+    await saveOrderWithSlotTransition(
+      order,
+      captureOrderOccupancyWithStatus(order, prevPayStatus)
+    );
 
     getIO().to('realtime:staff').emit('orderUpdated', { orderId: order._id, status: order.status, paymentStatus: 'paid' });
 
@@ -3696,7 +3823,10 @@ export const confirmBooking = async (req, res, next) => {
 
     // If admin assigns a technician during confirmation, go straight to 'assigned'
     const { assignedDetailer } = req.body || {};
-    if (!isSlotConsumingStatus(previousStatus) && order.bookingDate && order.bookingTime) {
+    const confirmedStatus = assignedDetailer ? 'assigned' : 'confirmed';
+    if (!orderOccupiesSlot(previousStatus, order.archived, order.isWalkIn)
+      && orderOccupiesSlot(confirmedStatus, order.archived, order.isWalkIn)
+      && order.bookingDate && order.bookingTime) {
       const slotCheck = await reserveBookingSlot(order.bookingDate, order.bookingTime);
       if (!slotCheck.ok) {
         return res.status(409).json({
@@ -3708,9 +3838,9 @@ export const confirmBooking = async (req, res, next) => {
 
     if (assignedDetailer) {
       order.assignedDetailer = assignedDetailer;
-      order.status = 'assigned';
+      order.status = confirmedStatus;
     } else {
-      order.status = 'confirmed';
+      order.status = confirmedStatus;
     }
 
     // Initialize default service steps if empty
@@ -3785,7 +3915,7 @@ export const uploadPaymentProof = async (req, res, next) => {
       });
     }
 
-    const order = await Order.findById(id);
+    let order = await Order.findById(id);
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
@@ -3797,6 +3927,14 @@ export const uploadPaymentProof = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Not authorized to upload proof for this booking' });
     }
 
+    if (order.archived === true || order.isWalkIn === true) {
+      return res.status(409).json({
+        success: false,
+        errorCode: 'BOOKING_NOT_APPOINTMENT',
+        message: 'Archived and walk-in orders cannot be resubmitted as appointments.',
+      });
+    }
+
     const allowedProofStatuses = ['pending_confirmation', 'rejected'];
     if (!allowedProofStatuses.includes(order.status)) {
       return res.status(400).json({
@@ -3806,8 +3944,17 @@ export const uploadPaymentProof = async (req, res, next) => {
     }
 
     const previousStatus = order.status;
-    if (!isSlotConsumingStatus(previousStatus) && order.bookingDate && order.bookingTime) {
-      const slotCheck = await reserveBookingSlot(order.bookingDate, order.bookingTime);
+    const storedSlot = getOrderSlotPair(order);
+    if (!storedSlot) {
+      return res.status(409).json({
+        success: false,
+        errorCode: 'INVALID_SLOT',
+        message: 'This booking has no valid appointment slot to resubmit.',
+      });
+    }
+    if (!orderOccupiesSlot(previousStatus, order.archived, order.isWalkIn)
+      && order.bookingDate && order.bookingTime) {
+      const slotCheck = await reserveBookingSlot(storedSlot.date, storedSlot.time);
       if (!slotCheck.ok) {
         return res.status(409).json({
           ...slotErrorResponsePayload(slotCheck),
@@ -3816,13 +3963,39 @@ export const uploadPaymentProof = async (req, res, next) => {
       reservedSlot = slotCheck;
     }
 
-    // Save proof and return to sales queue (clear rejection metadata on resubmit)
-    order.paymentProofUrl = paymentProofUrl;
-    order.status = 'pending_confirmation';
-    order.rejectionReason = null;
-    order.rejectedAt = null;
-    order.rejectedBy = null;
-    await order.save();
+    // CAS makes rejected → pending_confirmation idempotent under concurrent
+    // mobile retries. Only the winning request keeps its counter reservation.
+    const savedOrder = await Order.findOneAndUpdate(
+      { _id: order._id, __v: order.__v, status: previousStatus },
+      {
+        $set: {
+          paymentProofUrl,
+          status: 'pending_confirmation',
+          rejectionReason: null,
+          rejectedAt: null,
+          rejectedBy: null,
+        },
+        $inc: { __v: 1 },
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!savedOrder) {
+      if (reservedSlot) {
+        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+        reservedSlot = null;
+      }
+      const current = await Order.findById(order._id);
+      if (current?.status === 'pending_confirmation') {
+        return res.status(200).json({ success: true, data: current, idempotent: true });
+      }
+      return res.status(409).json({
+        success: false,
+        errorCode: 'BOOKING_CHANGED',
+        message: 'The booking changed while payment proof was being submitted. Refresh and try again.',
+      });
+    }
+    order = savedOrder;
     reservedSlot = null;
 
     emitBookingApprovalQueueUpdate(order);
@@ -3889,19 +4062,10 @@ export const approveBooking = async (req, res, next) => {
       });
     }
 
-    // ── Re-validate slot capacity before approving ────────────────────
-    // NOTE: We pass order._id to EXCLUDE this booking from the count —
-    // it is still 'pending_confirmation' so it would falsely appear as
-    // occupying a slot and block its own approval.
-    if (order.bookingDate && order.bookingTime) {
-      await syncBookingSlotCounter(order.bookingDate, order.bookingTime);
-      const slotCheck = await validateSlotAvailability(order.bookingDate, order.bookingTime, order._id);
-      if (!slotCheck.ok) {
-        return res.status(409).json({
-          ...slotErrorResponsePayload(slotCheck),
-        });
-      }
-    }
+    // The appointment's existing reservation remains authoritative here.
+    // pending_confirmation already consumes the slot reserved at creation.
+    // Approval is a lifecycle-only change and remains valid after Admin lowers
+    // capacity below the occupancy of existing appointments.
 
     const previousStatus = order.status;
     const { assignedDetailer: manualDetailerId } = req.body || {};
@@ -3991,12 +4155,12 @@ export const rejectBooking = async (req, res, next) => {
     }
 
     const { reason = 'Payment proof could not be verified.' } = req.body || {};
+    const occupancyBefore = captureOrderSlotOccupancy(order);
     order.status = 'rejected';
     order.rejectedAt = new Date();
     order.rejectedBy = req.user.id;
     order.rejectionReason = reason;
-    await order.save();
-    await releaseBookingSlot(order.bookingDate, order.bookingTime);
+    await saveOrderWithSlotTransition(order, occupancyBefore);
 
     // ── Clean up GCash proof images from DB after rejection ───────────
     // No longer needed once a decision has been made.
@@ -4052,6 +4216,14 @@ export const rescheduleBooking = async (req, res, next) => {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
+    if (order.archived === true) {
+      return res.status(409).json({
+        success: false,
+        errorCode: 'BOOKING_ARCHIVED',
+        message: 'Archived bookings cannot be rescheduled.',
+      });
+    }
+
     // Allow only APPROVED, QUEUED, pending_confirmation, confirmed
     const allowedStatuses = ['approved', 'queued', 'pending_confirmation', 'confirmed', 'assigned'];
     if (!allowedStatuses.includes(order.status)) {
@@ -4065,8 +4237,20 @@ export const rescheduleBooking = async (req, res, next) => {
     const oldTime = order.bookingTime;
     const oldSlot = getOrderSlotPair(order);
     const newSlot = getNormalizedSlotPair(newDate, newTime);
+    if (!newSlot) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'INVALID_SLOT',
+        message: 'A valid newDate and newTime are required.',
+      });
+    }
 
-    if (!sameSlotPair(oldSlot, newSlot)) {
+    const occupiedOldSlot = orderOccupiesSlot(order.status, order.archived, order.isWalkIn);
+    const occupiesNewSlot = orderOccupiesSlot(order.status, false, false);
+    const needsTargetReservation = occupiesNewSlot
+      && (!occupiedOldSlot || !sameSlotPair(oldSlot, newSlot));
+
+    if (needsTargetReservation) {
       const slotCheck = await reserveBookingSlot(newDate, newTime);
       if (!slotCheck.ok) {
         return res.status(409).json({
@@ -4076,12 +4260,46 @@ export const rescheduleBooking = async (req, res, next) => {
       reservedSlot = slotCheck;
     }
 
-    order.bookingDate = newDate;
-    order.bookingTime = newTime;
-    await order.save();
+    const savedOrder = await Order.findOneAndUpdate(
+      { _id: order._id, __v: order.__v },
+      {
+        $set: {
+          bookingDate: newSlot.date,
+          bookingTime: newSlot.time,
+          isWalkIn: false,
+        },
+        $inc: { __v: 1 },
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!savedOrder) {
+      if (reservedSlot) {
+        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+        reservedSlot = null;
+      }
+      const current = await Order.findById(order._id);
+      if (
+        current
+        && current.archived !== true
+        && current.isWalkIn !== true
+        && sameSlotPair(getOrderSlotPair(current), newSlot)
+      ) {
+        return res.json({
+          success: true,
+          message: 'Booking is already scheduled for that time.',
+          data: formatBookingDto(current),
+        });
+      }
+      return res.status(409).json({
+        success: false,
+        errorCode: 'BOOKING_CHANGED',
+        message: 'The booking changed while it was being rescheduled. Refresh and try again.',
+      });
+    }
     reservedSlot = null;
 
-    if (oldSlot && !sameSlotPair(oldSlot, newSlot)) {
+    if (occupiedOldSlot && oldSlot && !sameSlotPair(oldSlot, newSlot)) {
       await releaseBookingSlot(oldSlot.date, oldSlot.time);
     }
 
@@ -4092,7 +4310,7 @@ export const rescheduleBooking = async (req, res, next) => {
         io.to('realtime:staff').emit('booking_updated', {
           date: newDate,
           previousDate: oldDate,
-          orderId: order._id.toString(),
+          orderId: savedOrder._id.toString(),
           type: 'RESCHEDULE'
         });
       }
@@ -4100,13 +4318,13 @@ export const rescheduleBooking = async (req, res, next) => {
 
     logActivity({ 
       req, type: 'status_change', module: 'Booking', action: 'BOOKING_RESCHEDULED',
-      description: `${req.user?.name} rescheduled booking ${order.orderNumber} to ${newDate} ${newTime}.`, 
+      description: `${req.user?.name} rescheduled booking ${savedOrder.orderNumber} to ${newSlot.date} ${newSlot.time}.`,
       status: 'success',
-      referenceId: order.orderNumber, 
-      metadata: { orderId: order._id, oldDate, oldTime, newDate, newTime } 
+      referenceId: savedOrder.orderNumber,
+      metadata: { orderId: savedOrder._id, oldDate, oldTime, newDate: newSlot.date, newTime: newSlot.time }
     });
 
-    return res.json({ success: true, message: 'Booking rescheduled successfully.', data: formatBookingDto(order) });
+    return res.json({ success: true, message: 'Booking rescheduled successfully.', data: formatBookingDto(savedOrder) });
   } catch (error) {
     if (reservedSlot) {
       try {

@@ -2191,9 +2191,8 @@ export const deleteAccount = async (req, res) => {
       const mongoId = new mongoose.Types.ObjectId(userId);
 
       // Load all models that may have user-owned records
-      const [Order, Customer, Vehicle, AIServiceRequest, ActivityLog, ChatSession, ChatMessage, Notification] =
+      const [Customer, Vehicle, AIServiceRequest, ActivityLog, ChatSession, ChatMessage, Notification] =
         await Promise.all([
-          import('../models/order.model.js').then((m) => m.default),
           import('../models/customer.model.js').then((m) => m.default),
           import('../models/vehicle.model.js').then((m) => m.default),
           import('../models/aIServiceRequest.model.js').then((m) => m.default),
@@ -2203,9 +2202,11 @@ export const deleteAccount = async (req, res) => {
           import('../models/notification.model.js').then((m) => m.default),
         ]);
 
+      const { deleteOrdersAndReleaseSlotCounters } = await import('../services/slot.service.js');
+
       // Run all deletions in parallel
       const deletionResults = await Promise.allSettled([
-        Order.deleteMany({ customer: mongoId }),
+        deleteOrdersAndReleaseSlotCounters({ customer: mongoId }),
         Customer.deleteMany({ user: mongoId }),
         Vehicle.deleteMany({ user: mongoId }),
         AIServiceRequest.deleteMany({ customer: mongoId }),

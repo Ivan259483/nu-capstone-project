@@ -9,6 +9,10 @@ import {
 import { computeBillingTotals, normalizeMoney } from './billingTotals.js';
 import { notifySalesBalancePickupQueue } from './bookingManagerNotifications.utils.js';
 import { getIO } from './socket.utils.js';
+import {
+  captureOrderSlotOccupancy,
+  saveOrderWithSlotTransition,
+} from '../services/slot.service.js';
 
 const DEFAULT_RESERVATION_FALLBACK = 500;
 const FINAL_ORDER_STATUSES = new Set(['released', 'completed', 'cancelled', 'rejected']);
@@ -231,6 +235,7 @@ export async function evaluateReadyForPickupQueueEligibility(orderOrId, options 
   } = options;
   const order = await findOrder(orderOrId);
   if (!order?._id) return buildResult({ reason: 'order_not_found' });
+  const occupancyBefore = captureOrderSlotOccupancy(order);
 
   const before = {
     status: order.status || null,
@@ -382,7 +387,7 @@ export async function evaluateReadyForPickupQueueEligibility(orderOrId, options 
     || JSON.stringify(before) !== JSON.stringify(after);
 
   if (persist && result.queueStateChanged) {
-    await order.save({ validateBeforeSave: false });
+    await saveOrderWithSlotTransition(order, occupancyBefore, { validateBeforeSave: false });
   }
   if (emit && result.queueStateChanged) {
     emitPosQueueUpdated(order, result);

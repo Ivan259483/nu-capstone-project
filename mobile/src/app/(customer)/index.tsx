@@ -43,7 +43,7 @@
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  */
 
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet,
   Dimensions, Platform, RefreshControl,
@@ -54,13 +54,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn, FadeInDown, FadeInUp, FadeInRight, SlideInRight,
   useSharedValue, useAnimatedStyle, useAnimatedScrollHandler,
-  useAnimatedProps, withRepeat, withTiming, withSequence,
+  withRepeat, withTiming, withSequence,
 withDelay, Easing, interpolate, Extrapolation,
-  runOnJS,
-  type SharedValue,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
@@ -72,15 +71,13 @@ import {
   pickCustomerLiveTrackerBooking,
 } from '@/utils/customer-live-tracker-pick';
 import {
-  getCustomerHomeHeroPill,
   resolveCustomerHomeRailStep,
 } from '@/utils/customer-home-rail-step';
-import { TabBarHeight } from '@/constants/theme';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // VIEWPORT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const { width: W, height: H } = Dimensions.get('window');
+const { width: W } = Dimensions.get('window');
 const IOS = Platform.OS === 'ios';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -88,11 +85,11 @@ const IOS = Platform.OS === 'ios';
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const D = {
   // Canvas — obsidian with warmth
-  bg:  '#050508',
-  s0:  '#080810',
-  s1:  '#0C0C18',
-  s2:  '#101022',
-  s3:  '#141430',
+  bg:  '#05070A',
+  s0:  '#070A0F',
+  s1:  '#0A0D13',
+  s2:  '#0F131B',
+  s3:  '#151A24',
 
   // PRIMARY BRAND — amber/orange
   A:   '#FF7C1E',
@@ -147,21 +144,20 @@ const GB = {
 // STATIC DATA
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Home 8-step rail labels (must match `CUSTOMER_HOME_RAIL_LABELS` in customer-home-rail-step.ts)
-const STEPS = ['Booked', 'Confirmed', 'Assigned', 'Checked-In', 'In Service', 'QC', 'Payment', 'Released'];
+const STEPS = ['Booked', 'Confirmed', 'Assigned', 'Checked in', 'In Service', 'QC', 'Payment', 'Released'];
 
 const SERVICES = [
-  { icon:'color-filter'     as const, name:'Window\nTinting',   tag:'UV  ·  Heat  ·  Privacy',  price:'₱2,500+', g:['#C44A08','#FF8030'] as const },
-  { icon:'sparkles'         as const, name:'Premium\nDetail',   tag:'Interior  ·  Exterior',     price:'₱3,800+', g:['#1E50CC','#5490FF'] as const },
-  { icon:'shield-checkmark' as const, name:'Paint\nProtection', tag:'PPF  ·  Ceramic Coat',      price:'₱12,000+',g:['#0A8860','#28CCB2'] as const },
-  { icon:'water'            as const, name:'Nano\nCoating',     tag:'Hydrophobic Shield',         price:'₱6,500+', g:['#5A24C0','#9060FF'] as const },
+  { icon:'color-filter'     as const, name:'Window\nTinting',   tag:'UV  ·  Heat  ·  Privacy',  price:'₱2,500+', g:['#A63B0D','#E66B22'] as const },
+  { icon:'sparkles'         as const, name:'Premium\nDetail',   tag:'Interior  ·  Exterior',     price:'₱3,800+', g:['#171B22','#7D3518'] as const },
+  { icon:'shield-checkmark' as const, name:'Paint\nProtection', tag:'PPF  ·  Ceramic Coat',      price:'₱12,000+',g:['#3A2117','#B84B18'] as const },
+  { icon:'water'            as const, name:'Nano\nCoating',     tag:'Hydrophobic Shield',         price:'₱6,500+', g:['#11151C','#79401F'] as const },
 ];
 
 const TRUST = [
   { icon:'shield-checkmark-outline' as const, label:'LTFRB Certified' },
   { icon:'ribbon-outline'           as const, label:'Licensed Shop'   },
   { icon:'checkmark-circle-outline' as const, label:'Insured Work'    },
-  { icon:'star-outline'             as const, label:'4.9 ★ Rated'     },
-  { icon:'people-outline'           as const, label:'200+ Customers'  },
+  { icon:'star-outline'             as const, label:'Rated 4.9'       },
 ];
 
 const PROMOS = [
@@ -175,13 +171,84 @@ const CARE_TIPS = [
   { icon:'sunny-outline'        as const, tag:'Pro Tip',   tip:'Shade parking accelerates film curing significantly.' },
 ];
 
-const greet = () => {
-  const h = new Date().getHours();
-  if (h < 5)  return 'Good night';
+const greet = (date = new Date()) => {
+  let h = date.getHours();
+
+  try {
+    const hourPart = new Intl.DateTimeFormat('en-PH', {
+      timeZone:'Asia/Manila',
+      hour:'numeric',
+      hourCycle:'h23',
+    }).formatToParts(date).find((part) => part.type === 'hour');
+    const philippineHour = Number(hourPart?.value);
+    if (Number.isFinite(philippineHour)) h = philippineHour;
+  } catch {
+    // Fall back to the device-local hour if the runtime lacks time-zone data.
+  }
+
   if (h < 12) return 'Good morning';
-  if (h < 17) return 'Good afternoon';
+  if (h < 18) return 'Good afternoon';
   return 'Good evening';
 };
+
+const getFirstName = (fullName?: string | null) => {
+  const firstName = fullName?.trim().split(/\s+/)[0];
+  if (!firstName) return 'Customer';
+  return firstName.charAt(0).toLocaleUpperCase('en-PH') + firstName.slice(1);
+};
+
+function getTrackingContext(job: BookingRecord, step: number): {
+  icon: keyof typeof Ionicons.glyphMap;
+  text: string;
+} {
+  const assignedName =
+    job.assignedDetailer?.name?.trim() ||
+    job.serviceStaffAssignments?.find((assignment) => assignment.name?.trim())?.name?.trim();
+
+  if (assignedName) {
+    return { icon:'person-outline', text:`Technician · ${assignedName}` };
+  }
+
+  const updatedValue =
+    job.serviceTrackingUpdatedAt ||
+    job.customerStatusUpdatedAt ||
+    job.updatedAt;
+  const updatedAt = updatedValue ? new Date(updatedValue).getTime() : Number.NaN;
+
+  if (Number.isFinite(updatedAt)) {
+    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - updatedAt) / 60_000));
+    if (elapsedMinutes < 1) return { icon:'time-outline', text:'Updated just now' };
+    if (elapsedMinutes < 60) {
+      return {
+        icon:'time-outline',
+        text:`Last updated ${elapsedMinutes} ${elapsedMinutes === 1 ? 'minute' : 'minutes'} ago`,
+      };
+    }
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    if (elapsedHours < 24) {
+      return {
+        icon:'time-outline',
+        text:`Last updated ${elapsedHours} ${elapsedHours === 1 ? 'hour' : 'hours'} ago`,
+      };
+    }
+  }
+
+  const stageContext = [
+    'Booking received',
+    'Service booking confirmed',
+    'Technician assignment pending',
+    'Vehicle arrived at the shop',
+    'Service work is in progress',
+    'Quality inspection underway',
+    'Awaiting payment confirmation',
+    'Vehicle ready for release',
+  ] as const;
+
+  return {
+    icon:step === 3 ? 'location-outline' : 'information-circle-outline',
+    text:stageContext[step] ?? 'Service status updated',
+  };
+}
 
 const sh = (c: string, o = 0.25, r = 14, y = 6) =>
   IOS ? { shadowColor:c, shadowOpacity:o, shadowRadius:r, shadowOffset:{width:0,height:y} }
@@ -228,9 +295,8 @@ function Spec({ op = 0.06 }: { op?: number }) {
 // ATOM: Ambient background orbs (very slow, barely visible)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const OrbConfig = [
-  { w:380, h:380, top:-140, right:-100, color:D.Ag, d:13000 },
-  { w:300, h:300, top:400,  left:-110, color:'rgba(207,168,64,0.13)', d:18000 },
-  { w:260, h:260, top:740,  right:-90, color:'rgba(79,145,255,0.12)', d:22000 },
+  { w:360, h:360, top:-170, right:-150, color:'rgba(255,124,30,0.16)', d:15000 },
+  { w:260, h:260, top:590, left:-145, color:'rgba(255,124,30,0.08)', d:21000 },
 ] as const;
 
 function AmbientOrb({ orb, index }: { orb: typeof OrbConfig[number]; index: number }) {
@@ -245,7 +311,7 @@ function AmbientOrb({ orb, index }: { orb: typeof OrbConfig[number]; index: numb
   }, [orb.d, progress]);
 
   const anim = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0,0.5,1],[0.12,0.28,0.12]),
+    opacity: interpolate(progress.value, [0,0.5,1],[0.06,0.13,0.06]),
     transform:[
       {translateX: interpolate(progress.value,[0,1],[0,index%2===0?42:-36])},
       {translateY: interpolate(progress.value,[0,1],[0,index%2===0?28:32])},
@@ -289,13 +355,13 @@ function Pulse({ color = D.A, size = 7 }: { color?: string; size?: number }) {
   const p = useSharedValue(0);
   useEffect(() => {
     p.value = withRepeat(withSequence(
-      withTiming(1, { duration: 900, easing: Easing.out(Easing.cubic) }),
-      withTiming(0, { duration: 1100, easing: Easing.in(Easing.cubic) }),
+      withTiming(1, { duration: 1100, easing: Easing.out(Easing.cubic) }),
+      withTiming(0, { duration: 1500, easing: Easing.in(Easing.cubic) }),
     ), -1, false);
-  }, []);
+  }, [p]);
   const ring = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(p.value, [0,1], [1,3.5]) }],
-    opacity:   interpolate(p.value, [0,0.25,1], [0.8,0.15,0]),
+    transform: [{ scale: interpolate(p.value, [0,1], [1,2.4]) }],
+    opacity:   interpolate(p.value, [0,0.25,1], [0.5,0.10,0]),
   }));
   return (
     <View style={{ width:size+4, height:size+4, alignItems:'center', justifyContent:'center' }}>
@@ -314,11 +380,11 @@ function FloatBadge({ children, style }: { children: React.ReactNode; style?: an
   useEffect(() => {
     y.value = withRepeat(
       withSequence(
-        withTiming(-6, { duration: 2000, easing: Easing.inOut(Easing.sin) }),
-        withTiming( 0, { duration: 2000, easing: Easing.inOut(Easing.sin) }),
+        withTiming(-2, { duration: 2800, easing: Easing.inOut(Easing.sin) }),
+        withTiming( 0, { duration: 2800, easing: Easing.inOut(Easing.sin) }),
       ), -1, false,
     );
-  }, []);
+  }, [y]);
   const anim = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
   return <Animated.View style={[anim, style]}>{children}</Animated.View>;
 }
@@ -326,24 +392,6 @@ function FloatBadge({ children, style }: { children: React.ReactNode; style?: an
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ATOM: Count-up number — spring entrance with bounce
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function CountBounce({ n, color, delay = 0 }: { n: number; color: string; delay?: number }) {
-  const sc = useSharedValue(0);
-  const op = useSharedValue(0);
-  useEffect(() => {
-    sc.value = withDelay(delay, withTiming(1, { duration: 220 }));
-    op.value = withDelay(delay, withTiming(1, { duration: 300 }));
-  }, [n]);
-  const anim = useAnimatedStyle(() => ({
-    transform: [{ scale: sc.value }],
-    opacity: op.value,
-  }));
-  return (
-    <Animated.Text style={[$.statN, { color }, anim]}>
-      {n}
-    </Animated.Text>
-  );
-}
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ATOM: Shimmer skeleton
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -351,7 +399,7 @@ function Shim({ w, h, r = 14 }: { w: number; h: number; r?: number }) {
   const x = useSharedValue(-1);
   useEffect(() => {
     x.value = withRepeat(withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.ease) }), -1, false);
-  }, []);
+  }, [x]);
   const slide = useAnimatedStyle(() => ({ transform: [{ translateX: interpolate(x.value, [-1,1], [-w, w]) }] }));
   return (
     <View style={{ width:w, height:h, borderRadius:r, backgroundColor:D.w07, overflow:'hidden' }}>
@@ -370,7 +418,7 @@ function Shim({ w, h, r = 14 }: { w: number; h: number; r?: number }) {
 // ATOM: Haptic spring pressable
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Tap({
-  children, onPress, style, h = 'Light', targetScale = 0.955,
+  children, onPress, style, h = 'Light', targetScale = 0.98,
 }: {
   children: React.ReactNode; onPress?: () => void;
   style?: any; h?: 'Light'|'Medium'|'Heavy'; targetScale?: number;
@@ -405,67 +453,62 @@ function Eye({ label, cta, onCta }: { label: string; cta?: string; onCta?: () =>
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// MOLECULE: 8-step progress rail (animated fill width)
+// MOLECULE: premium 8-stage progress rail
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Rail({ step }: { step: number }) {
-  const pct = useSharedValue(0);
-  useEffect(() => {
-    const target = Math.min((step / (STEPS.length - 1)) * 100, 100);
-    pct.value = withTiming(target, { duration: 900, easing: Easing.out(Easing.exp) });
-  }, [step]);
-  const fillAnim = useAnimatedStyle(() => ({ width: `${pct.value}%` as any }));
+  const safeStep = Math.min(Math.max(step, 0), STEPS.length - 1);
+  const nextLabel = safeStep < STEPS.length - 1 ? STEPS[safeStep + 1] : 'Complete';
 
   return (
     <View style={rl.wrap}>
-      <View style={rl.track}>
-        <Animated.View style={[rl.fill, fillAnim]}>
-          <LinearGradient colors={[D.A, D.G]} start={{x:0,y:0}} end={{x:1,y:0}} style={StyleSheet.absoluteFill} />
-        </Animated.View>
+      <View style={rl.head}>
+        <View>
+          <Text style={rl.eyebrow}>CURRENT STAGE</Text>
+          <Text style={rl.current}>{STEPS[safeStep]}</Text>
+        </View>
+        <Text style={rl.count}>STEP {safeStep + 1} OF {STEPS.length}</Text>
       </View>
-      <View style={rl.row}>
+      <View style={rl.segments}>
         {STEPS.map((lbl, i) => {
-          const done = i < step, active = i === step;
+          const done = i < safeStep;
+          const active = i === safeStep;
           return (
-            <Animated.View key={lbl} entering={FadeInDown.delay(500 + i * 50).duration(200)} style={rl.col}>
-              <View style={[rl.node, done && rl.nodeDone, active && rl.nodeActive]}>
-                {done
-                  ? <Ionicons name="checkmark-sharp" size={9} color="#fff" />
-                  : active
-                    ? <View style={rl.aDot} />
-                    : <View style={rl.eDot} />}
-              </View>
-              <Text style={[rl.lbl, done && {color:D.G}, active && {color:D.w92,fontWeight:'700'}]} numberOfLines={1} adjustsFontSizeToFit>
-                {lbl}
-              </Text>
-            </Animated.View>
+            <Animated.View
+              key={lbl}
+              entering={FadeInDown.delay(420 + i * 35).duration(180)}
+              style={[rl.segment, done && rl.segmentDone, active && rl.segmentActive]}
+            />
           );
         })}
+      </View>
+      <View style={rl.foot}>
+        <View style={rl.completeLabel}>
+          <Ionicons
+            name={safeStep > 0 ? 'checkmark-circle' : 'ellipse-outline'}
+            size={12}
+            color={safeStep > 0 ? D.G : D.w24}
+          />
+          <Text style={rl.doneText}>{safeStep} completed</Text>
+        </View>
+        <Text style={rl.nextText}>Next · {nextLabel}</Text>
       </View>
     </View>
   );
 }
 const rl = StyleSheet.create({
-  wrap:      { width:'100%', paddingVertical:18 },
-  track:     { position:'absolute', top:20, left:'6%', right:'6%', height:2, backgroundColor:D.w07, borderRadius:2, overflow:'hidden' },
-  fill:      { height:'100%', borderRadius:2 },
-  row:       { flexDirection:'row', justifyContent:'space-between' },
-  col:       { alignItems:'center', width: `${100/8}%` as any },
-  node:      {
-    width:24, height:24, borderRadius:12,
-    backgroundColor:D.s2, borderWidth:1.5, borderColor:D.w16,
-    alignItems:'center', justifyContent:'center', marginBottom:5,
-  },
-  nodeDone:  {
-    backgroundColor:D.G, borderColor:D.Gb,
-    ...IOS?{shadowColor:D.G,shadowOpacity:0.55,shadowRadius:8,shadowOffset:{width:0,height:2}}:{elevation:4},
-  },
-  nodeActive:{
-    backgroundColor:D.A, borderWidth:2, borderColor:D.Ab,
-    ...IOS?{shadowColor:D.A,shadowOpacity:0.65,shadowRadius:10,shadowOffset:{width:0,height:2}}:{elevation:6},
-  },
-  aDot:{ width:8, height:8, borderRadius:4, backgroundColor:'#fff' },
-  eDot:{ width:3, height:3, borderRadius:1.5, backgroundColor:D.w24 },
-  lbl:{ fontSize:7, color:D.w38, fontWeight:'600', textAlign:'center', lineHeight:10 },
+  wrap:          { width:'100%', marginTop:22, marginBottom:20, padding:16, borderRadius:18, backgroundColor:'rgba(255,255,255,0.035)', borderWidth:1, borderColor:D.w07 },
+  head:          { flexDirection:'row', alignItems:'flex-end', justifyContent:'space-between', gap:12 },
+  eyebrow:       { color:D.w38, fontSize:8, fontWeight:'800', letterSpacing:1.8, marginBottom:4 },
+  current:       { color:D.w92, fontSize:16, fontWeight:'800', letterSpacing:-0.2 },
+  count:         { color:D.A, fontSize:9, fontWeight:'800', letterSpacing:1.1, marginBottom:2 },
+  segments:      { flexDirection:'row', gap:5, marginVertical:14 },
+  segment:       { flex:1, height:4, borderRadius:4, backgroundColor:D.w10 },
+  segmentDone:   { backgroundColor:'rgba(45,219,166,0.58)' },
+  segmentActive: { height:6, marginTop:-1, backgroundColor:D.A, ...sh(D.A,0.18,6,0) },
+  foot:          { flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10 },
+  completeLabel: { flexDirection:'row', alignItems:'center', gap:5 },
+  doneText:      { color:D.w55, fontSize:10, fontWeight:'600' },
+  nextText:      { color:D.w38, fontSize:10, fontWeight:'600' },
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -475,28 +518,27 @@ function HeaderSection({
   profile, name, scrollY, active, completed, router,
 }: any) {
   const hdrAnim = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: interpolate(scrollY.value, [0,110], [0,-20], Extrapolation.CLAMP) },
-      { scale:      interpolate(scrollY.value, [0,110], [1,0.92], Extrapolation.CLAMP) },
-    ],
+    transform: [{ translateY: interpolate(scrollY.value, [0,110], [0,-10], Extrapolation.CLAMP) }],
     opacity: interpolate(scrollY.value, [0,80], [1,0], Extrapolation.CLAMP),
   }));
 
   return (
     <Animated.View style={[$.hdr, hdrAnim]}>
       {/* Name block */}
-      <View style={{ flex:1 }}>
+      <View style={$.hdrCopy}>
         <Animated.Text entering={FadeIn.delay(60).duration(380)} style={$.greet}>
           {greet()}
         </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(130).duration(200)} style={$.nameText} numberOfLines={1} adjustsFontSizeToFit>
+        <Text style={$.nameText} numberOfLines={1}>
           {name}
-        </Animated.Text>
+        </Text>
         {(active.length > 0 || completed > 0) && (
           <Animated.View entering={FadeIn.delay(300).duration(400)} style={$.summPill}>
             <View style={{ width:5, height:5, borderRadius:3, backgroundColor: active.length > 0 ? D.A : D.G }} />
             <Text style={$.summTxt}>
-              {active.length > 0 ? `${active.length} active` : 'All clear'} · {completed} done
+              {active.length > 0
+                ? `${active.length} ${active.length === 1 ? 'service' : 'services'} in progress`
+                : 'All services complete'}
             </Text>
           </Animated.View>
         )}
@@ -532,21 +574,20 @@ function HeaderSection({
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SECTION: Hero — live tracker OR book CTA (scroll-parallax)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function HeroSection({ job, isLoading, st, stepFor, router, scrollY }: any) {
-  // Hero parallax (card moves at 40% of scroll speed — depth illusion)
-  const heroParallax = useAnimatedStyle(() => ({
-    transform: [{
-      translateY: interpolate(scrollY.value, [0, 300], [0, -55], Extrapolation.CLAMP),
-    }],
-  }));
-
+function HeroSection({ job, isLoading, step, router }: {
+  job: BookingRecord | null;
+  isLoading: boolean;
+  step: number;
+  router: ReturnType<typeof useRouter>;
+}) {
   if (isLoading) return <Shim w={W-44} h={240} r={32} />;
 
   if (job) {
+    const context = getTrackingContext(job, step);
     return (
-      <Animated.View style={heroParallax}>
+      <Animated.View entering={FadeIn.duration(240)}>
         <Tap onPress={() => router.push({ pathname:'/(customer)/track', params:{ id:job.id } })} h="Light">
-          <GBCard colors={GB.amber} radius={30} style={sh(D.A, 0.22, 32, 10)}>
+          <GBCard colors={GB.amber} radius={26} style={sh(D.A, 0.14, 22, 7)}>
             <LinearGradient
               colors={['rgba(255,124,30,0.11)','rgba(207,168,64,0.04)','transparent']}
               start={{x:0,y:0}} end={{x:1.2,y:1.2}}
@@ -560,15 +601,25 @@ function HeroSection({ job, isLoading, st, stepFor, router, scrollY }: any) {
                 <View style={$.livePill}>
                   {job.status === 'pending_confirmation' ? (
                     <>
-                      <Ionicons name="time-outline" size={12} color={D.Y} />
-                      <Text style={[$.liveTxt, { color: D.Y }]}>PENDING CONFIRMATION</Text>
+                      <Ionicons name="time-outline" size={12} color={D.A} />
+                      <Text style={$.liveTxt} numberOfLines={1} adjustsFontSizeToFit>PENDING CONFIRMATION</Text>
                     </>
                   ) : (
                     <>
                       <Pulse color={D.A} size={6} />
-                      <Text style={$.liveTxt}>LIVE  TRACKING</Text>
+                      <Text style={$.liveTxt} numberOfLines={1}>LIVE  TRACKING</Text>
                     </>
                   )}
+                </View>
+              </View>
+
+              <Animated.Text entering={FadeInDown.delay(300).duration(200)} style={$.trVeh} numberOfLines={1} adjustsFontSizeToFit>
+                {String(job.vehicleMake||'')} {String(job.vehicleModel||'')}
+              </Animated.Text>
+              <View style={$.trMetaRow}>
+                <View style={$.trSvcRow}>
+                  <Ionicons name="sparkles-outline" size={13} color={D.A} />
+                  <Text style={$.trSvc} numberOfLines={1}>{job.serviceName}</Text>
                 </View>
                 <View style={$.plateBadge}>
                   <Ionicons name="car-outline" size={10} color={D.w38} />
@@ -576,21 +627,16 @@ function HeroSection({ job, isLoading, st, stepFor, router, scrollY }: any) {
                 </View>
               </View>
 
-              <Animated.Text entering={FadeInDown.delay(300).duration(200)} style={$.trVeh} numberOfLines={1} adjustsFontSizeToFit>
-                {String(job.vehicleMake||'')} {String(job.vehicleModel||'')}
-              </Animated.Text>
-              <Text style={$.trSvc}>{job.serviceName}</Text>
-
-              <Rail step={stepFor()} />
+              <Rail step={step} />
 
               <View style={$.trFooter}>
-                <View style={[$.stPill, {backgroundColor:st?.fill}]}>
-                  <Ionicons name={st?.icon as any||'ellipse'} size={11} color={st?.color} />
-                  <Text style={[$.stTxt, {color:st?.color}]}>{st?.label}</Text>
+                <View style={$.trContext}>
+                  <Ionicons name={context.icon} size={13} color={D.w38} />
+                  <Text style={$.trContextText} numberOfLines={2}>{context.text}</Text>
                 </View>
                 <View style={$.trViewBtn}>
                   <Text style={$.trViewTxt}>View Details</Text>
-                  <Ionicons name="chevron-forward" size={11} color={D.w38} />
+                  <Ionicons name="arrow-forward" size={13} color={D.bg} />
                 </View>
               </View>
             </View>
@@ -601,7 +647,7 @@ function HeroSection({ job, isLoading, st, stepFor, router, scrollY }: any) {
   }
 
   return (
-    <Animated.View style={heroParallax}>
+    <Animated.View entering={FadeIn.duration(240)}>
       <Tap onPress={() => router.push('/(customer)/book')} h="Medium">
         <View style={$.heroCard}>
           <LinearGradient
@@ -663,7 +709,7 @@ function HeroSection({ job, isLoading, st, stepFor, router, scrollY }: any) {
               <View style={$.heroMeta}>
                 {[
                   {i:'time-outline'  as const, t:'2–4 hrs'},
-                  {i:'star-outline'  as const, t:'4.9 ★'},
+                  {i:'star-outline'  as const, t:'Rated 4.9'},
                   {i:'ribbon-outline'as const, t:'Certified'},
                 ].map(m=>(
                   <View key={m.t} style={$.heroMetaChip}>
@@ -681,48 +727,30 @@ function HeroSection({ job, isLoading, st, stepFor, router, scrollY }: any) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION: Stats — animated CountBounce numbers + mini bars
+// SECTION: Stats — restrained three-column summary
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 type StatCellConfig = {
   n: number;
   lbl: string;
   col: string;
-  fi: string;
   ic: keyof typeof Ionicons.glyphMap;
-  delay: number;
 };
 
 function StatCell({
   cell,
   index,
-  total,
-  barW,
 }: {
   cell: StatCellConfig;
   index: number;
-  total: number;
-  barW: SharedValue<number>;
 }) {
-  const barAnim = useAnimatedStyle(() => ({
-    width: `${barW.value * Math.round((cell.n / Math.max(total, 1)) * 100)}%` as any,
-  }));
-
   return (
     <React.Fragment>
       {index > 0 && <View style={$.statDiv} />}
       <View style={$.statCell}>
-        <Animated.View
-          entering={FadeInDown.delay(280 + cell.delay).duration(200)}
-          style={[$.statIconBg, { backgroundColor: cell.fi }]}
-        >
+        <Text style={[$.statN, { color:cell.col }]}>{cell.n}</Text>
+        <View style={$.statMeta}>
           <Ionicons name={cell.ic} size={13} color={cell.col} />
-        </Animated.View>
-        <CountBounce n={cell.n} color={cell.col} delay={300 + cell.delay} />
-        <Text style={$.statLbl}>{cell.lbl}</Text>
-        <View style={$.statBar}>
-          <Animated.View
-            style={[$.statBarFill, { backgroundColor: cell.col }, barAnim]}
-          />
+          <Text style={$.statLbl}>{cell.lbl}</Text>
         </View>
       </View>
     </React.Fragment>
@@ -731,28 +759,17 @@ function StatCell({
 
 function StatsSection({ active, completed, total }: { active:number; completed:number; total:number }) {
   const cells: StatCellConfig[] = [
-    { n:active,    lbl:'Active',    col:'#D98235', fi:'rgba(217,130,53,0.12)', ic:'flash-outline'          as const, delay:0   },
-    { n:completed, lbl:'Completed', col:'#6BC7A4', fi:'rgba(107,199,164,0.11)', ic:'checkmark-done-outline' as const, delay:80  },
-    { n:total,     lbl:'Total Jobs',col:'#8CA6D6', fi:'rgba(140,166,214,0.11)', ic:'layers-outline'         as const, delay:160 },
+    { n:active,    lbl:'Active',    col:D.A,   ic:'flash-outline' },
+    { n:completed, lbl:'Completed', col:D.G,   ic:'checkmark-done-outline' },
+    { n:total,     lbl:'Total Jobs',col:D.w92, ic:'layers-outline' },
   ];
-
-  const barW = useSharedValue(0);
-  useEffect(() => {
-    barW.value = withDelay(400, withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) }));
-  }, [barW, total]);
 
   return (
     <Animated.View entering={FadeInUp.delay(260).duration(200)}>
-      <GBCard colors={GB.neutral} radius={24} style={sh('#000',0.20,10,3)}>
+      <GBCard colors={GB.neutral} radius={22} style={sh('#000',0.20,10,3)}>
         <View style={$.statsRow}>
           {cells.map((cell, index) => (
-            <StatCell
-              key={cell.lbl}
-              cell={cell}
-              index={index}
-              total={total}
-              barW={barW}
-            />
+            <StatCell key={cell.lbl} cell={cell} index={index} />
           ))}
         </View>
       </GBCard>
@@ -766,12 +783,7 @@ function StatsSection({ active, completed, total }: { active:number; completed:n
 function TrustSection() {
   return (
     <Animated.View entering={FadeIn.delay(285).duration(500)}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={$.trustStrip}
-        contentContainerStyle={$.trustScroll}
-      >
+      <View style={$.trustGrid}>
         {TRUST.map((t, i) => (
           <Animated.View
             key={t.label}
@@ -779,120 +791,67 @@ function TrustSection() {
             style={$.trustChipWrap}
           >
             <View style={$.trustChip}>
-              <Ionicons name={t.icon} size={12} color={D.Go} />
+              <Ionicons name={t.icon} size={13} color={D.A} />
               <Text style={$.trustTxt} numberOfLines={1}>{t.label}</Text>
             </View>
           </Animated.View>
         ))}
-      </ScrollView>
+      </View>
     </Animated.View>
   );
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION: Quick actions — asymmetric bento
+// SECTION: Quick actions — balanced two-column grid
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function QuickSection({ router, completed }: any) {
-  const compact = [
-    { icon:'navigate-outline' as const, n:'Track My Car',  sub:'Live job status',   col:D.B, fi:D.Bf, gb:GB.blue,   r:'/(customer)/track' },
-    { icon:'scan-outline'     as const, n:'AI Scan',       sub:'Instant diagnosis', col:D.V, fi:D.Vf, gb:GB.violet, r:'/(customer)/scan'  },
+  const actions = [
+    { icon:'calendar-outline' as const, n:'New Booking', sub:'Schedule premium care', r:'/(customer)/book', primary:true, badge:0 },
+    { icon:'navigate-outline' as const, n:'Track My Car', sub:'Follow live progress', r:'/(customer)/track', primary:false, badge:0 },
+    { icon:'scan-outline' as const, n:'AI Scan', sub:'Instant assessment', r:'/(customer)/scan', primary:false, badge:0 },
+    { icon:'receipt-outline' as const, n:'Service Records', sub:'History and receipts', r:'/(screens)/appointments', primary:false, badge:completed },
   ] as const;
 
   return (
     <Animated.View entering={FadeInUp.delay(320).duration(200)}>
       <Eye label="Quick Access" />
-      <View style={$.qaRow}>
-        {/* TALL — Book Now */}
-        <Animated.View entering={FadeInDown.delay(355).duration(200)} style={$.qaLeft}>
-          <Tap onPress={() => router.push('/(customer)/book')} h="Medium" style={{flex:1}}>
-            <GBCard colors={GB.amber} radius={26} bg={D.s1} style={{flex:1,...sh(D.A,0.24,16,6)}}>
-              <LinearGradient
-                colors={[D.Af,'transparent']}
-                start={{x:0,y:0}} end={{x:1,y:1}}
-                style={StyleSheet.absoluteFill}
-              />
-              <Spec op={0.03} />
-              <View style={[$.qaRail,{backgroundColor:D.A}]} />
-              <View style={$.qaTallBody}>
-                <Animated.View entering={FadeIn.delay(390).duration(400)} style={[$.qaIconBig,{backgroundColor:D.Af}]}>
-                  <Ionicons name="calendar-outline" size={24} color={D.A} />
-                </Animated.View>
-                <View style={{flex:1}} />
-                <Text style={$.qaTallName}>New{'\n'}Booking</Text>
-                <Text style={$.qaSubLbl}>Schedule a service</Text>
-                <View style={$.qaChev}>
-                  <Ionicons name="arrow-forward" size={13} color={D.A} />
-                </View>
-              </View>
-            </GBCard>
-          </Tap>
-        </Animated.View>
-
-        {/* RIGHT stack */}
-        <View style={$.qaRight}>
-          {compact.map((a, i) => (
-            <Animated.View key={a.n} entering={FadeInRight.delay(370+i*65).duration(200)} style={{flex:1}}>
-              <Tap onPress={() => router.push(a.r as any)} style={{flex:1}}>
-                <GBCard colors={a.gb} radius={22} bg={D.s1} style={{flex:1,...sh('#000',0.18,10,3)}}>
-                  <LinearGradient colors={[a.fi,'transparent']} start={{x:0,y:0}} end={{x:1,y:1}} style={StyleSheet.absoluteFill} />
-                  <Spec op={0.03} />
-                  <View style={[$.qaRail,{backgroundColor:a.col}]} />
-                  <View style={$.qaSmBody}>
-                    <View style={[$.qaSmIcon,{backgroundColor:a.fi}]}>
-                      <Ionicons name={a.icon} size={18} color={a.col} />
+      <View style={$.qaGrid}>
+        {actions.map((action, i) => (
+          <Animated.View key={action.n} entering={FadeInDown.delay(350+i*55).duration(200)} style={$.qaGridItem}>
+            <Tap onPress={() => router.push(action.r as any)} h={action.primary ? 'Medium' : 'Light'} style={{flex:1}}>
+              <GBCard colors={action.primary ? GB.amber : GB.neutral} radius={22} bg={D.s1} style={{flex:1,...sh(action.primary ? D.A : '#000',action.primary ? 0.18 : 0.14,12,4)}}>
+                {action.primary && <LinearGradient colors={[D.Af,'transparent']} start={{x:0,y:0}} end={{x:1,y:1}} style={StyleSheet.absoluteFill} />}
+                <View style={$.qaCardBody}>
+                  <View style={$.qaCardTop}>
+                    <View style={[$.qaSmIcon, action.primary && $.qaSmIconPrimary]}>
+                      <Ionicons name={action.icon} size={19} color={D.A} />
                     </View>
-                    <View style={{flex:1,marginLeft:12}}>
-                      <Text style={$.qaSmName}>{a.n}</Text>
-                      <Text style={$.qaSubLbl}>{a.sub}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={11} color={D.w24} />
+                    {action.badge > 0 ? (
+                      <View style={$.qaBadge}><Text style={$.qaBadgeTxt}>{action.badge}</Text></View>
+                    ) : (
+                      <Ionicons name="arrow-up-outline" size={14} color={D.w24} style={{transform:[{rotate:'45deg'}]}} />
+                    )}
                   </View>
-                </GBCard>
-              </Tap>
-            </Animated.View>
-          ))}
-        </View>
-      </View>
-
-      {/* Full-width: My Records */}
-      <Animated.View entering={FadeInUp.delay(445).duration(200)} style={{marginTop:10}}>
-        <Tap onPress={() => router.push('/(screens)/appointments')}>
-          <GBCard colors={GB.green} radius={22} bg={D.s1} style={sh('#000',0.16,10,3)}>
-            <LinearGradient colors={[D.Gf,'transparent']} start={{x:0,y:0}} end={{x:1,y:0}} style={StyleSheet.absoluteFill} />
-            <View style={[$.qaRail,{backgroundColor:D.G}]} />
-            <View style={$.qaWideBody}>
-              <View style={[$.qaSmIcon,{backgroundColor:D.Gf}]}>
-                <Ionicons name="receipt-outline" size={18} color={D.G} />
-              </View>
-              <View style={{flex:1,marginLeft:14}}>
-                <Text style={$.qaSmName}>My Service Records</Text>
-                <Text style={$.qaSubLbl}>Full history · receipts · re-booking</Text>
-              </View>
-              {completed > 0 && (
-                <View style={[$.qaBadge,{backgroundColor:D.Gf}]}>
-                  <Text style={[$.qaBadgeTxt,{color:D.G}]}>{completed}</Text>
+                  <Text style={$.qaSmName}>{action.n}</Text>
+                  <Text style={$.qaSubLbl} numberOfLines={1}>{action.sub}</Text>
                 </View>
-              )}
-              <Ionicons name="chevron-forward" size={13} color={D.w24} style={{marginLeft:8}} />
-            </View>
-          </GBCard>
-        </Tap>
-      </Animated.View>
-
+              </GBCard>
+            </Tap>
+          </Animated.View>
+        ))}
+      </View>
       <Animated.View entering={FadeInUp.delay(480).duration(200)} style={{marginTop:10}}>
         <Tap onPress={() => router.push('/(screens)/payments')}>
-          <GBCard colors={GB.gold} radius={22} bg={D.s1} style={sh('#000',0.16,10,3)}>
-            <LinearGradient colors={[D.Gof,'transparent']} start={{x:0,y:0}} end={{x:1,y:0}} style={StyleSheet.absoluteFill} />
-            <View style={[$.qaRail,{backgroundColor:D.Go}]} />
+          <GBCard colors={GB.neutral} radius={20} bg={D.s1} style={sh('#000',0.14,10,3)}>
             <View style={$.qaWideBody}>
-              <View style={[$.qaSmIcon,{backgroundColor:D.Gof}]}>
-                <Ionicons name="wallet-outline" size={18} color={D.Go} />
+              <View style={$.qaSmIcon}>
+                <Ionicons name="wallet-outline" size={18} color={D.A} />
               </View>
               <View style={{flex:1,marginLeft:14}}>
                 <Text style={$.qaSmName}>Payment History</Text>
                 <Text style={$.qaSubLbl}>Transactions and receipts</Text>
               </View>
-              <Ionicons name="chevron-forward" size={13} color={D.w24} style={{marginLeft:8}} />
+              <Ionicons name="chevron-forward" size={15} color={D.w38} style={{marginLeft:8}} />
             </View>
           </GBCard>
         </Tap>
@@ -969,7 +928,7 @@ function PromoSection({ router }: any) {
         withTiming(0, { duration: 2800, easing: Easing.inOut(Easing.sin) }),
       ), -1, false,
     );
-  }, []);
+  }, [glow]);
   const glowAnim = useAnimatedStyle(() => ({ opacity: interpolate(glow.value, [0,1], [0.06,0.16]) }));
 
   return (
@@ -1188,7 +1147,7 @@ function LoyaltySection({ completed, router }: { completed: number; router: any 
     barAnim.value = withDelay(200, withTiming(Math.min(completed / 5, 1), {
       duration: 1100, easing: Easing.out(Easing.exp),
     }));
-  }, [completed]);
+  }, [barAnim, completed]);
   const fillWidth = useAnimatedStyle(() => ({ width: `${barAnim.value * 100}%` as any }));
   const isGold = completed >= 5;
 
@@ -1250,6 +1209,7 @@ function LoyaltySection({ completed, router }: { completed: number; router: any 
 export default function HomeScreen() {
   const { profile } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const scrollY = useSharedValue(0);
 
   const { data: bookings = [], refetch, isRefetching, isLoading } = useQuery({
@@ -1274,15 +1234,9 @@ export default function HomeScreen() {
     new Date((b.completedAt||b.updatedAt||new Date()) as string).getTime() > d7.getTime()
   ) || null;
 
-  const st = job ? getCustomerHomeHeroPill(job) : null;
+  const heroStep = job ? resolveCustomerHomeRailStep(job) : 0;
 
-  const stepFor = useCallback((): number => {
-    if (!job) return 0;
-    return resolveCustomerHomeRailStep(job);
-  }, [job]);
-
-  const fn = profile?.full_name?.split(' ')[0] || 'Friend';
-  const name = fn.charAt(0).toUpperCase() + fn.slice(1).toLowerCase();
+  const name = getFirstName(profile?.full_name);
 
   const onScroll = useAnimatedScrollHandler({ onScroll: e => { scrollY.value = e.contentOffset.y; } });
   const barAnim = useAnimatedStyle(() => ({
@@ -1294,14 +1248,20 @@ export default function HomeScreen() {
       <Orbs />
 
       {/* Frosted scroll app-bar reveals on scroll */}
-      <Animated.View style={[$.appBar, barAnim]} pointerEvents="none">
+      <Animated.View style={[$.appBar, { height:insets.top + 62 }, barAnim]} pointerEvents="none">
         <BlurView intensity={65} tint="dark" style={StyleSheet.absoluteFill} />
         <LinearGradient colors={['rgba(5,5,8,0.97)','rgba(5,5,8,0.45)']} style={StyleSheet.absoluteFill} />
       </Animated.View>
 
       <Animated.ScrollView
         style={$.scroll}
-        contentContainerStyle={[$.body, { paddingBottom: TabBarHeight + 240 }]}
+        contentContainerStyle={[
+          $.body,
+          {
+            paddingTop:insets.top + 14,
+            paddingBottom:86 + insets.bottom,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -1316,20 +1276,20 @@ export default function HomeScreen() {
         {/* 2. HERO (parallax + parallax scroll) */}
         <View style={$.sect}>
           <HeroSection
-            job={job} isLoading={isLoading} st={st}
-            stepFor={stepFor} router={router} scrollY={scrollY}
+            job={job} isLoading={isLoading}
+            step={heroStep} router={router}
           />
         </View>
 
         {/* 3. STATS (only when data exists) */}
         {bookings.length > 0 && (
-          <View style={[$.sect,{marginTop:-4}]}>
+          <View style={$.sectCompact}>
             <StatsSection active={active.length} completed={completed.length} total={bookings.length} />
           </View>
         )}
 
         {/* 4. TRUST BADGES */}
-        <View style={[$.sect,{marginTop:-8}]}>
+        <View style={$.sectSpacious}>
           <TrustSection />
         </View>
 
@@ -1400,25 +1360,28 @@ export default function HomeScreen() {
 const $ = StyleSheet.create({
   screen:  { flex:1, backgroundColor:D.bg },
   scroll:  { flex:1, zIndex:1 },
-  body:    { paddingHorizontal:22, paddingTop: IOS ? 68 : 52 },
-  sect:    { marginBottom:28 },
+  body:    { paddingHorizontal:20 },
+  sect:    { marginBottom:24 },
+  sectCompact:{ marginBottom:20 },
+  sectSpacious:{ marginBottom:32 },
   orb:     { position:'absolute', borderRadius:999 },
-  appBar:  { position:'absolute', top:0, left:0, right:0, height: IOS?108:80, zIndex:10, overflow:'hidden' },
+  appBar:  { position:'absolute', top:0, left:0, right:0, zIndex:10, overflow:'hidden' },
 
   // ── HEADER ────────────────────────────────────────────────────
-  hdr:      { flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', marginBottom:28 },
-  greet:    { fontSize:13, color:D.w38, fontWeight:'500', marginBottom:5 },
-  nameText: { fontSize:48, fontWeight:'900', color:D.w100, letterSpacing:-2.2, lineHeight:52 },
+  hdr:      { flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', gap:16, marginBottom:36 },
+  hdrCopy:  { flex:1, minWidth:0, paddingTop:1 },
+  greet:    { fontSize:12, color:D.w38, fontWeight:'600', letterSpacing:0.2, marginBottom:5 },
+  nameText: { fontSize:W <= 375 ? 34 : 38, fontWeight:'800', color:D.w100, letterSpacing:-1.1, lineHeight:W <= 375 ? 38 : 42 },
   summPill: {
     flexDirection:'row', alignItems:'center', gap:7, alignSelf:'flex-start',
-    backgroundColor:D.w07, borderRadius:20, paddingHorizontal:11, paddingVertical:5,
-    borderWidth:1, borderColor:D.w10, marginTop:10,
+    backgroundColor:'rgba(255,255,255,0.045)', borderRadius:20, paddingHorizontal:10, paddingVertical:5,
+    borderWidth:1, borderColor:D.w07, marginTop:14,
   },
-  summTxt:  { fontSize:11, color:D.w55, fontWeight:'600' },
-  hdrActions:{ flexDirection:'row', alignItems:'center', gap:8, marginTop:4 },
+  summTxt:  { fontSize:10, color:D.w55, fontWeight:'600' },
+  hdrActions:{ flexDirection:'row', alignItems:'center', gap:10, marginTop:2, flexShrink:0 },
   bellBtn:{
-    width:42, height:42, borderRadius:14, backgroundColor:'rgba(255,255,255,0.055)',
-    borderWidth:1, borderColor:'rgba(255,255,255,0.09)', alignItems:'center', justifyContent:'center',
+    width:44, height:44, borderRadius:15, backgroundColor:'rgba(255,255,255,0.045)',
+    borderWidth:1, borderColor:'rgba(255,255,255,0.08)', alignItems:'center', justifyContent:'center',
     ...sh('#000',0.14,7,2),
   },
   notifBubble:{
@@ -1427,33 +1390,35 @@ const $ = StyleSheet.create({
     alignItems:'center', justifyContent:'center', paddingHorizontal:3,
   },
   notifTxt: { color:'#fff', fontSize:8, fontWeight:'900' },
-  avRing:   { width:42, height:42, borderRadius:14, padding:1.4, ...sh(D.A,0.24,10,3) },
-  avCore:   { flex:1, borderRadius:12.5, backgroundColor:'rgba(10,10,18,0.96)', alignItems:'center', justifyContent:'center', overflow:'hidden' },
+  avRing:   { width:44, height:44, borderRadius:15, padding:1.2, ...sh(D.A,0.18,10,3) },
+  avCore:   { flex:1, borderRadius:13.8, backgroundColor:D.s1, alignItems:'center', justifyContent:'center', overflow:'hidden' },
   avChar:   { color:D.w100, fontWeight:'800', fontSize:15 },
 
   // ── TRACKER CARD ──────────────────────────────────────────────
-  trGlow: { position:'absolute', top:-70, right:-70, width:200, height:200, borderRadius:100, backgroundColor:'rgba(255,124,30,0.08)' },
-  trBody: { padding:24 },
-  trRow1: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:22 },
+  trGlow: { position:'absolute', top:-90, right:-90, width:220, height:220, borderRadius:110, backgroundColor:'rgba(255,124,30,0.055)' },
+  trBody: { padding:22 },
+  trRow1: { flexDirection:'row', alignItems:'center', marginBottom:20 },
   livePill:{
     flexDirection:'row', alignItems:'center', gap:8,
-    backgroundColor:'rgba(255,124,30,0.10)', paddingHorizontal:13, paddingVertical:7, borderRadius:22,
-    borderWidth:1, borderColor:'rgba(255,124,30,0.14)',
+    backgroundColor:'rgba(255,124,30,0.085)', paddingHorizontal:11, paddingVertical:7, borderRadius:22,
+    borderWidth:1, borderColor:'rgba(255,124,30,0.16)', flexShrink:1,
   },
-  liveTxt:   { color:D.A, fontSize:10, fontWeight:'900', letterSpacing:2.8 },
-  plateBadge:{ flexDirection:'row', alignItems:'center', gap:5, backgroundColor:D.w07, paddingHorizontal:11, paddingVertical:5, borderRadius:11, borderWidth:1, borderColor:D.w10 },
-  plateNum:  { color:D.w55, fontSize:11, fontWeight:'700', letterSpacing:2.2 },
-  trVeh:     { fontSize:32, fontWeight:'900', color:D.w100, letterSpacing:-0.8, marginBottom:5 },
-  trSvc:     { fontSize:13, color:D.w38, fontWeight:'600' },
-  trFooter:  { flexDirection:'row', alignItems:'center', paddingTop:14, borderTopWidth:1, borderTopColor:D.w07 },
-  stPill:    { flexDirection:'row', alignItems:'center', gap:6, paddingHorizontal:11, paddingVertical:5, borderRadius:18 },
-  stTxt:     { fontSize:11, fontWeight:'700' },
+  liveTxt:   { color:D.A, fontSize:9, fontWeight:'900', letterSpacing:1.4, flexShrink:1 },
+  plateBadge:{ flexDirection:'row', alignItems:'center', gap:5, backgroundColor:'rgba(255,255,255,0.028)', paddingHorizontal:9, paddingVertical:5, borderRadius:10, borderWidth:1, borderColor:'rgba(255,255,255,0.055)', flexShrink:0 },
+  plateNum:  { color:D.w55, fontSize:10, fontWeight:'700', letterSpacing:1.4 },
+  trVeh:     { fontSize:29, fontWeight:'800', color:D.w100, letterSpacing:-0.7, marginBottom:10 },
+  trMetaRow: { flexDirection:'row', alignItems:'center', gap:10 },
+  trSvcRow:  { flex:1, minWidth:0, flexDirection:'row', alignItems:'center', gap:7 },
+  trSvc:     { fontSize:12, color:D.w55, fontWeight:'600', flex:1 },
+  trFooter:  { flexDirection:'row', alignItems:'center', gap:12, paddingTop:15, borderTopWidth:1, borderTopColor:D.w07 },
+  trContext: { flex:1, minWidth:0, flexDirection:'row', alignItems:'center', gap:7 },
+  trContextText:{ flex:1, fontSize:10.5, lineHeight:15, color:D.w55, fontWeight:'600' },
   trViewBtn: {
-    marginLeft:'auto', flexDirection:'row', alignItems:'center', gap:4,
-    paddingHorizontal:14, paddingVertical:7, borderRadius:12,
-    backgroundColor:D.w07, borderWidth:1, borderColor:D.w10,
+    marginLeft:'auto', flexDirection:'row', alignItems:'center', gap:7,
+    minHeight:38, paddingHorizontal:14, paddingVertical:8, borderRadius:12,
+    backgroundColor:D.A, ...sh(D.A,0.15,8,3),
   },
-  trViewTxt: { color:D.w38, fontSize:11, fontWeight:'700', letterSpacing:0.3 },
+  trViewTxt: { color:D.bg, fontSize:11, fontWeight:'800', letterSpacing:0.2 },
 
   // ── HERO BOOK CTA ─────────────────────────────────────────────
   heroCard:  { borderRadius:30, overflow:'hidden', minHeight:246, ...sh('#B33A12',0.34,28,10) },
@@ -1481,24 +1446,20 @@ const $ = StyleSheet.create({
   // ── STATS ────────────────────────────────────────────────────
   statsRow:   { flexDirection:'row', paddingVertical:17, paddingHorizontal:4 },
   statDiv:    { width:StyleSheet.hairlineWidth, height:44, backgroundColor:'rgba(255,255,255,0.055)', alignSelf:'center' },
-  statCell:   { flex:1, alignItems:'center', gap:5, paddingHorizontal:4 },
-  statIconBg: { width:28, height:28, borderRadius:10, alignItems:'center', justifyContent:'center' },
-  statN:      { fontSize:28, fontWeight:'800', letterSpacing:-0.4 },
-  statLbl:    { fontSize:9, color:D.w38, fontWeight:'700', letterSpacing:1.8, textTransform:'uppercase' },
-  statBar:    { width:40, height:2.5, backgroundColor:'rgba(255,255,255,0.055)', borderRadius:2, overflow:'hidden', marginTop:2 },
-  statBarFill:{ height:'100%', borderRadius:2, opacity:0.58 },
+  statCell:   { flex:1, alignItems:'center', justifyContent:'center', gap:6, paddingHorizontal:6 },
+  statMeta:   { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:5 },
+  statN:      { fontSize:29, lineHeight:31, fontWeight:'800', letterSpacing:-0.5 },
+  statLbl:    { fontSize:8.5, color:D.w38, fontWeight:'700', letterSpacing:0.65, textTransform:'uppercase' },
 
   // ── TRUST ────────────────────────────────────────────────────
-  trustStrip:{ marginRight:-22 },
-  trustScroll:{ paddingLeft:2, paddingRight:40, gap:9 },
-  trustChipWrap:{ flexShrink:0 },
+  trustGrid:{ flexDirection:'row', flexWrap:'wrap', gap:8 },
+  trustChipWrap:{ width:'48%' },
   trustChip:{
     flexDirection:'row', alignItems:'center', gap:6,
-    backgroundColor:'rgba(207,168,64,0.085)', borderWidth:1, borderColor:'rgba(207,168,64,0.16)',
-    paddingHorizontal:13, paddingVertical:7, borderRadius:20,
-    flexShrink:0,
+    backgroundColor:'rgba(255,124,30,0.055)', borderWidth:1, borderColor:'rgba(255,124,30,0.12)',
+    height:42, paddingHorizontal:11, borderRadius:13,
   },
-  trustTxt:{ fontSize:11, color:D.Go, fontWeight:'700', letterSpacing:0.3 },
+  trustTxt:{ fontSize:10, color:D.w55, fontWeight:'700', flexShrink:1 },
 
   // ── EYEBROW ──────────────────────────────────────────────────
   eyeRow: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:14 },
@@ -1508,21 +1469,17 @@ const $ = StyleSheet.create({
   eyeCta: { fontSize:12, color:D.A, fontWeight:'700', letterSpacing:0.2 },
 
   // ── QUICK ACTIONS ────────────────────────────────────────────
-  qaRow:    { flexDirection:'row', gap:10 },
-  qaLeft:   { flex:0.95 },
-  qaRight:  { flex:1.05, gap:10 },
-  qaRail:   { position:'absolute', top:0, left:0, right:0, height:2.5, opacity:0.40 },
-  qaTallBody:{ flex:1, padding:18 },
-  qaIconBig: { width:52, height:52, borderRadius:18, alignItems:'center', justifyContent:'center' },
-  qaTallName:{ fontSize:19, fontWeight:'800', color:D.w92, lineHeight:23, letterSpacing:-0.5 },
-  qaSubLbl:  { fontSize:11, color:D.w38, fontWeight:'500', marginTop:4 },
-  qaChev:    { marginTop:12, width:32, height:32, borderRadius:11, backgroundColor:D.Af, alignItems:'center', justifyContent:'center', alignSelf:'flex-start' },
-  qaSmBody:  { flexDirection:'row', alignItems:'center', padding:16, paddingTop:18, flex:1, minHeight:90 },
-  qaSmIcon:  { width:42, height:42, borderRadius:14, alignItems:'center', justifyContent:'center' },
-  qaSmName:  { fontSize:13, fontWeight:'700', color:D.w92, letterSpacing:-0.2 },
-  qaWideBody:{ flexDirection:'row', alignItems:'center', padding:16, paddingTop:18 },
-  qaBadge:   { width:28, height:28, borderRadius:9, alignItems:'center', justifyContent:'center' },
-  qaBadgeTxt:{ fontSize:12, fontWeight:'800' },
+  qaGrid:       { flexDirection:'row', flexWrap:'wrap', gap:10 },
+  qaGridItem:   { width:'48%', minHeight:132 },
+  qaCardBody:   { flex:1, padding:16 },
+  qaCardTop:    { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:18 },
+  qaSubLbl:     { fontSize:10, color:D.w38, fontWeight:'500', marginTop:5 },
+  qaSmIcon:     { width:38, height:38, borderRadius:13, backgroundColor:D.w04, borderWidth:1, borderColor:D.w07, alignItems:'center', justifyContent:'center' },
+  qaSmIconPrimary:{ backgroundColor:D.Af, borderColor:D.Ab },
+  qaSmName:     { fontSize:14, fontWeight:'700', color:D.w92, letterSpacing:-0.2 },
+  qaWideBody:   { flexDirection:'row', alignItems:'center', padding:14 },
+  qaBadge:      { minWidth:26, height:26, paddingHorizontal:7, borderRadius:9, backgroundColor:D.Gf, borderWidth:1, borderColor:D.Gb, alignItems:'center', justifyContent:'center' },
+  qaBadgeTxt:   { color:D.G, fontSize:11, fontWeight:'800' },
 
   // ── SERVICES ─────────────────────────────────────────────────
   svcWrap:  { width:(W-54)/2.0, marginLeft:11, borderRadius:26, overflow:'hidden', ...sh('#000',0.46,18,8) },

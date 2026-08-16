@@ -13,6 +13,10 @@ const { STAFF_2FA_AUTH_LEVEL, requiresStaffTwoFactor } = await import('../consta
 const { default: Billing } = await import('../models/billing.model.js');
 const { default: Order } = await import('../models/order.model.js');
 const { default: Payment } = await import('../models/payment.model.js');
+const {
+  buildDefaultRecurringSchedule,
+  default: ShopAvailability,
+} = await import('../models/shopAvailability.model.js');
 const { default: User } = await import('../models/user.model.js');
 const orderRoutes = (await import('../routes/orders.routes.js')).default;
 const {
@@ -81,7 +85,7 @@ async function seedEligibleOrder(overrides = {}) {
     vehicleMake: 'Toyota',
     vehicleModel: 'Vios',
     vehiclePlate: 'ABC1234',
-    bookingDate: '2026-06-20',
+    bookingDate: '2099-08-17',
     bookingTime: '10:00',
     status: 'in_progress',
     serviceTrackingStage: 'ready_pickup',
@@ -172,6 +176,17 @@ test('evaluator queues eligible order and preserves readyForPaymentAt on repeate
 });
 
 test('evaluator clears queue fields when pickup evidence becomes incomplete', async () => {
+  await ShopAvailability.syncIndexes();
+  const availability = await ShopAvailability.getSingleton();
+  availability.recurringSchedule = buildDefaultRecurringSchedule().map((row) => ({
+    ...row,
+    open: row.dow === 1,
+    from: row.dow === 1 ? '08:00' : row.from,
+    to: row.dow === 1 ? '17:00' : row.to,
+    slots: row.dow === 1 ? 2 : row.slots,
+  }));
+  await availability.save();
+
   const { order } = await seedEligibleOrder();
   await evaluateReadyForPickupQueueEligibility(order, { persist: true, emit: false });
 

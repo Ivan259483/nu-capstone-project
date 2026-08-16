@@ -51,7 +51,17 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            await onSave(localSettings);
+            // Do not echo legacy appointment fields back through `/settings`.
+            // The only editor for these values is Availability Controls.
+            const {
+                serviceCapacity: _legacyServiceCapacity,
+                operatingHours: _legacyOperatingHours,
+                ...nonAvailabilitySettings
+            } = localSettings as Partial<BusinessSettings> & {
+                serviceCapacity?: unknown;
+                operatingHours?: unknown;
+            };
+            await onSave(nonAvailabilitySettings);
             setIsDirty(false);
         } catch (error) {
             // Error is handled in AdminDashboard
@@ -252,15 +262,26 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                                 />
                                 <p className="text-xs text-zinc-500">Percentage applied to members for all services.</p>
                             </div>
-                            <div className="space-y-4">
-                                <div className="flex justify-between">
-                                    <Label className={isDarkMode ? 'text-zinc-300' : 'text-gray-700'}>Daily Service Capacity</Label>
-                                    <span className="text-orange-500 font-bold">{localSettings.serviceCapacity || 0} Vehicles</span>
-                                </div>
-                                <Slider 
-                                    value={[localSettings.serviceCapacity || 10]} max={50} step={1} 
-                                    onValueChange={(v) => handleChange('serviceCapacity', v[0])} 
-                                />
+                            <div className={`rounded-xl border p-4 ${
+                                isDarkMode
+                                    ? 'border-blue-400/20 bg-blue-500/10 text-blue-100'
+                                    : 'border-blue-100 bg-blue-50 text-blue-950'
+                            }`}>
+                                <p className="text-sm font-semibold">Appointment availability is managed in Availability Controls</p>
+                                <p className={`mt-1 text-xs leading-5 ${isDarkMode ? 'text-blue-200/80' : 'text-blue-800'}`}>
+                                    Open days, operating hours, and capacity are enforced per individual time slot.
+                                    This page no longer stores a separate daily capacity.
+                                </p>
+                                <a
+                                    href="/admin/dashboard?tab=scheduling"
+                                    className={`mt-3 inline-flex rounded-lg px-3 py-2 text-xs font-semibold transition ${
+                                        isDarkMode
+                                            ? 'bg-blue-500 text-white hover:bg-blue-400'
+                                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                                    }`}
+                                >
+                                    Open Admin Appointments
+                                </a>
                             </div>
                             <div className="space-y-4">
                                 <div className="flex justify-between">

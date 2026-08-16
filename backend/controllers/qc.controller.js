@@ -22,7 +22,10 @@ import {
   evaluateReadyForPickupQueueEligibility,
 } from '../utils/readyPickupPaymentFlow.utils.js';
 import { notifySalesBalancePickupQueue } from '../utils/bookingManagerNotifications.utils.js';
-import { isSlotConsumingStatus, releaseBookingSlot } from '../services/slot.service.js';
+import {
+  captureOrderSlotOccupancy,
+  saveOrderWithSlotTransition,
+} from '../services/slot.service.js';
 
 const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
 const QC_APPROVED_ORDER_STATUSES = ['completed', 'released'];
@@ -493,6 +496,7 @@ export const approveJob = async (req, res, next) => {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
+    const occupancyBefore = captureOrderSlotOccupancy(order);
 
     if (order.status === 'ready_for_payment') {
       return res.status(400).json({
@@ -560,10 +564,7 @@ export const approveJob = async (req, res, next) => {
         notify: true,
       });
     }
-    await order.save();
-    if (isSlotConsumingStatus(prevStatus) && !isSlotConsumingStatus(order.status)) {
-      await releaseBookingSlot(order.bookingDate, order.bookingTime);
-    }
+    await saveOrderWithSlotTransition(order, occupancyBefore);
 
     // ── Emit real-time update to customer ───────────────────────────
     try {
@@ -652,6 +653,7 @@ export const returnJob = async (req, res, next) => {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
+    const occupancyBefore = captureOrderSlotOccupancy(order);
 
     // Add QC return note (prefixed so we can detect it for stats)
     const returnContent = `[QC_RETURN] ${reason || note}`;
@@ -670,7 +672,7 @@ export const returnJob = async (req, res, next) => {
     // Clear qcCompletedAt if set
     order.qcCompletedAt = undefined;
 
-    await order.save();
+    await saveOrderWithSlotTransition(order, occupancyBefore);
 
     // Emit socket update
     try {
@@ -757,6 +759,7 @@ export const updateServiceStatus = async (req, res, next) => {
 
     const order = await Order.findById(id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    const occupancyBefore = captureOrderSlotOccupancy(order);
 
     const previousStatus = order.status;
     const gateMediaStages = new Set(TRACKER_GATE_STAGES);
@@ -828,10 +831,7 @@ export const updateServiceStatus = async (req, res, next) => {
       order.paymentStatus = 'paid';
     }
 
-    await order.save();
-    if (isSlotConsumingStatus(previousStatus) && !isSlotConsumingStatus(order.status)) {
-      await releaseBookingSlot(order.bookingDate, order.bookingTime);
-    }
+    await saveOrderWithSlotTransition(order, occupancyBefore);
 
     // ── Emit real-time updates ──────────────────────────────────
     try {

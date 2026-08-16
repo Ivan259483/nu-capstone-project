@@ -10,12 +10,16 @@ import { authenticate, authorize } from '../middleware/auth.middleware.js';
 import {
   getSlotsByDate,
   getSlotsByRange,
+  getPublicAvailabilitySchedule,
   getBusinessSettings,
   updateBusinessSettings,
 } from '../controllers/slot.controller.js';
 import { FULL_ADMIN_ROLES, SETTINGS_MANAGER_ROLES, BOOKING_MANAGER_ROLES } from '../constants/roles.js';
 
 const router = Router();
+
+// Public recurring hours only; no booking counts or customer data.
+router.get('/schedule', getPublicAvailabilitySchedule);
 
 // ── Public slot availability (requires auth — customer/staff/admin all need this) ──
 router.get('/', authenticate, getSlotsByDate);

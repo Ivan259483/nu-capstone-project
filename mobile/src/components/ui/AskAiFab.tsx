@@ -1,15 +1,10 @@
 /**
- * AskAiFab — floating chat entry with a compact spinning orb
- *
- * 1. Pops in as a full pill ("Ask AI" + spinning orb)
- * 2. After 3 seconds, collapses to just the spinning orb
- * 3. Stays as a small orb permanently — tap to open ChatOverlay
+ * AskAiFab — compact premium chat entry that stays clear of navigation.
  */
 
 import React, { useEffect, useState } from 'react';
 import {
   View,
-  Text,
   TouchableOpacity,
   StyleSheet,
   Platform,
@@ -18,8 +13,6 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSpring,
-  withDelay,
   withRepeat,
   Easing,
   interpolate,
@@ -27,6 +20,7 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ChatOverlay from '@/components/ChatOverlay';
 
 // ── Orb palette — brand orange / amber (no purple or blue) ───────────────────
@@ -41,14 +35,11 @@ const ORB_COLORS = [
   '#FF8533',
 ];
 
-const DOT_COUNT = 8;
-const ORB_RADIUS = 10;
-const DOT_SIZE = 5;
+const DOT_COUNT = 7;
+const ORB_RADIUS = 9;
+const DOT_SIZE = 4;
 
-// ── Timings ───────────────────────────────────────────────────────────────────
-const PILL_WIDTH  = 120;  // expanded width
-const ORB_SIZE    = 40;   // collapsed diameter
-const COLLAPSE_DELAY = 2800; // ms before shrinking
+const ORB_SIZE = 40;
 
 // ── Spinning dot ─────────────────────────────────────────────────────────────
 function OrbDot({ index, rotation }: { index: number; rotation: SharedValue<number> }) {
@@ -82,11 +73,11 @@ function SpinningOrb({ size = ORB_SIZE }: { size?: number }) {
 
   useEffect(() => {
     rotation.value = withRepeat(
-      withTiming(2 * Math.PI, { duration: 2000, easing: Easing.linear }),
+      withTiming(2 * Math.PI, { duration: 3500, easing: Easing.linear }),
       -1,
       false
     );
-  }, []);
+  }, [rotation]);
 
   return (
     <View style={[styles.orbContainer, { width: size, height: size }]}>
@@ -100,38 +91,7 @@ function SpinningOrb({ size = ORB_SIZE }: { size?: number }) {
 // ── Main FAB ─────────────────────────────────────────────────────────────────
 export default function AskAiFab() {
   const [chatVisible, setChatVisible] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-
-  // Shared values
-  const fabWidth   = useSharedValue(PILL_WIDTH);
-  const fabScale   = useSharedValue(0);
-  const textOpacity = useSharedValue(1);
-
-  useEffect(() => {
-    // 1. Pop in
-    fabScale.value = withSpring(1, { damping: 14, stiffness: 130 });
-
-    // 2. After delay, collapse to orb
-    const timer = setTimeout(() => {
-      fabWidth.value = withTiming(ORB_SIZE, {
-        duration: 350,
-        easing: Easing.out(Easing.cubic),
-      });
-      textOpacity.value = withTiming(0, { duration: 180 });
-      setTimeout(() => setCollapsed(true), 360);
-    }, COLLAPSE_DELAY);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  const containerStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: fabScale.value }],
-    width: fabWidth.value,
-  }));
-
-  const textStyle = useAnimatedStyle(() => ({
-    opacity: textOpacity.value,
-  }));
+  const insets = useSafeAreaInsets();
 
   const handlePress = () => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -141,21 +101,21 @@ export default function AskAiFab() {
   return (
     <>
       <Animated.View
-        style={styles.fabWrapper}
-        entering={FadeIn.delay(400).duration(300)}
+        style={[
+          styles.fabWrapper,
+          { bottom: 80 + insets.bottom },
+        ]}
+        entering={FadeIn.delay(500).duration(240)}
       >
-        <Animated.View style={[styles.fab, containerStyle]}>
+        <Animated.View style={styles.fab}>
           <TouchableOpacity
             onPress={handlePress}
             activeOpacity={0.82}
             style={styles.touchable}
+            accessibilityRole="button"
+            accessibilityLabel="Open AI assistant"
           >
             <SpinningOrb size={ORB_SIZE} />
-            {!collapsed && (
-              <Animated.Text style={[styles.label, textStyle]}>
-                Ask AI
-              </Animated.Text>
-            )}
           </TouchableOpacity>
         </Animated.View>
       </Animated.View>
@@ -168,21 +128,21 @@ export default function AskAiFab() {
 const styles = StyleSheet.create({
   fabWrapper: {
     position: 'absolute',
-    bottom: 96,
-    right: 16,
+    right: 20,
     zIndex: 999,
   },
   fab: {
+    width: ORB_SIZE,
     height: ORB_SIZE,
     borderRadius: ORB_SIZE / 2,
-    backgroundColor: 'rgba(20, 16, 34, 0.92)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(155, 93, 229, 0.5)',
-    shadowColor: '#9B5DE5',
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 12,
+    backgroundColor: 'rgba(8, 10, 14, 0.96)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 53, 0.38)',
+    shadowColor: '#FF6B35',
+    shadowOpacity: 0.20,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 7,
     overflow: 'hidden',
   },
   touchable: {
@@ -205,14 +165,5 @@ const styles = StyleSheet.create({
     width: DOT_SIZE,
     height: DOT_SIZE,
     borderRadius: DOT_SIZE / 2,
-  },
-  label: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-    marginLeft: 4,
-    marginRight: 10,
-    flexShrink: 1,
   },
 });

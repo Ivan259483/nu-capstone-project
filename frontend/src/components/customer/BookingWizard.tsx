@@ -23,7 +23,8 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
-import { OrderService } from '@/lib/order-service';
+import { OrderService, type AvailableSlotsResponse } from '@/lib/order-service';
+import api from '@/lib/api';
 import type { Service, Vehicle, User } from '@/types';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
@@ -73,7 +74,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
     const [phone, setPhone] = useState(user?.phone || '');
     const [notes, setNotes] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [bookedSlots, setBookedSlots] = useState<string[]>([]);
+    const [availableSlots, setAvailableSlots] = useState<NonNullable<AvailableSlotsResponse['slots']>>([]);
     const [isLoadingSlots, setIsLoadingSlots] = useState(false);
     const [availabilityMessage, setAvailabilityMessage] = useState('');
     const [dateUnavailable, setDateUnavailable] = useState(false);
@@ -83,42 +84,84 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
     // Fetch available slots when date changes
     useEffect(() => {
         if (!date) {
-            setBookedSlots([]);
+            setAvailableSlots([]);
             setDateUnavailable(false);
             setAvailabilityMessage('');
             return;
         }
 
+        let active = true;
+        const controller = new AbortController();
         const fetchSlots = async () => {
             setIsLoadingSlots(true);
             try {
-                const response = await OrderService.getAvailableSlots(date);
+                // Availability is intentionally fetched fresh. A cached response can outlive
+                // an Admin capacity/hours change and must never be used to offer a stale slot.
+                const { data: response } = await api.get<AvailableSlotsResponse>('/orders/available-slots', {
+                    params: { date },
+                    signal: controller.signal,
+                    meta: { suppressErrorToast: true },
+                } as any);
+                if (!active) return;
                 if (response.success) {
-                    const booked = Array.isArray(response.bookedSlots) ? response.bookedSlots : [];
-                    const unavailable = !!response.unavailable;
-                    const message = response.message || response.error || '';
+                    const slots = (Array.isArray(response.slots) ? response.slots : []).filter((slot) => (
+                        typeof slot?.time === 'string'
+                        && slot.time.length > 0
+                        && ['AVAILABLE', 'ALMOST_FULL', 'FULL', 'OVER_CAPACITY'].includes(String(slot.status))
+                        && Number.isFinite(Number(slot.capacity))
+                        && Number.isFinite(Number(slot.booked))
+                        && Number.isFinite(Number(slot.available))
+                    ));
+                    const unavailable = !!response.unavailable || slots.length === 0;
+                    const message = response.message || response.error
+                        || (slots.length === 0 ? 'No bookable time slots are configured for this date.' : '');
 
-                    setBookedSlots(booked);
+                    setAvailableSlots(slots);
                     setDateUnavailable(unavailable);
                     setAvailabilityMessage(message || (unavailable ? 'This date is unavailable for booking.' : ''));
 
-                    // If currently selected time is now booked, clear it
-                    if (time && (unavailable || booked.includes(time))) {
-                        setTime('');
+                    // Reconcile against the exact server-generated time band and its
+                    // per-slot capacity. A slot remains selectable until status is FULL.
+                    setTime((currentTime) => {
+                        if (!currentTime) return currentTime;
+                        const selectedSlot = slots.find((slot) => slot.time === currentTime);
+                        const available = Number(selectedSlot?.available);
+                        const isFull = !selectedSlot
+                            || selectedSlot.status === 'FULL'
+                            || selectedSlot.status === 'OVER_CAPACITY'
+                            || !Number.isFinite(available)
+                            || available <= 0;
+                        if (!unavailable && !isFull) return currentTime;
                         toast.error(message || 'The selected time slot is no longer available.', { id: 'slot-taken' });
-                    }
+                        return '';
+                    });
+                } else {
+                    const message = response.message || response.error || 'Could not verify appointment availability.';
+                    setAvailableSlots([]);
+                    setDateUnavailable(true);
+                    setAvailabilityMessage(message);
+                    setTime('');
                 }
             } catch (error) {
+                if (!active) return;
                 console.error('Failed to fetch booked slots:', error);
                 toast.error('Could not verify time slot availability.', { id: 'slot-error' });
-                setDateUnavailable(false);
-                setAvailabilityMessage('');
+                // Fail closed: never manufacture bookable hours when the authoritative
+                // availability endpoint cannot be reached.
+                setAvailableSlots([]);
+                setDateUnavailable(true);
+                setAvailabilityMessage('Live availability could not be loaded. Please try again.');
+                setTime('');
             } finally {
-                setIsLoadingSlots(false);
+                if (active) setIsLoadingSlots(false);
             }
         };
 
         fetchSlots();
+        return () => {
+            active = false;
+            controller.abort();
+        };
     }, [date]);
 
     // Filter active services
@@ -401,16 +444,25 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                                 } />
                             </SelectTrigger>
                             <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-                                {['09:00 AM', '10:00 AM', '11:00 AM', '01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM'].map(t => {
-                                    const isBooked = bookedSlots.includes(t);
+                                {availableSlots.map(slot => {
+                                    const available = Number(slot.available);
+                                    const isBooked = slot.status === 'FULL'
+                                        || slot.status === 'OVER_CAPACITY'
+                                        || !Number.isFinite(available)
+                                        || available <= 0;
                                     return (
-                                        <SelectItem 
-                                            key={t} 
-                                            value={t} 
+                                        <SelectItem
+                                            key={slot.time}
+                                            value={slot.time}
                                             disabled={isBooked}
                                             className={isBooked ? "opacity-50 text-zinc-500" : ""}
                                         >
-                                            {t} {isBooked && "(Booked)"}
+                                            {slot.label || slot.time}{' '}
+                                            {isBooked
+                                                ? '(Full)'
+                                                : Number.isFinite(Number(slot.available))
+                                                    ? `(${slot.available} available)`
+                                                    : ''}
                                         </SelectItem>
                                     );
                                 })}

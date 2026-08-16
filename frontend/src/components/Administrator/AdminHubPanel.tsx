@@ -73,6 +73,34 @@ const ROUTABLE_TAB_IDS = new Set(['live_tracking', 'pricing', 'scheduling', 'inv
 const SIDEBAR_WIDTH_EXPANDED = 260;
 const SIDEBAR_WIDTH_COLLAPSED = 64;
 const ADMINHUB_THEME_STORAGE_KEY = 'adminhub_theme';
+const ADMINHUB_SIDEBAR_STORAGE_KEY = 'adminhub_sidebar_collapsed';
+const ADMINHUB_NARROW_VIEWPORT_QUERY = '(max-width: 720px)';
+
+function isAdminHubNarrowViewport(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia(ADMINHUB_NARROW_VIEWPORT_QUERY).matches
+  );
+}
+
+function readAdminHubSidebarPreference(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(ADMINHUB_SIDEBAR_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writeAdminHubSidebarPreference(collapsed: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(ADMINHUB_SIDEBAR_STORAGE_KEY, String(collapsed));
+  } catch {
+    /* Keep the in-memory preference when storage is unavailable. */
+  }
+}
 
 type NavChild = { id: string; label: string };
 
@@ -246,9 +274,11 @@ function AdminHubPanelInner({
     return 'dashboard';
   });
   const [visitedPages, setVisitedPages] = useState<Set<string>>(() => new Set([activePage]));
-  const [collapsed, setCollapsed] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches,
+  const [isNarrowViewport, setIsNarrowViewport] = useState(isAdminHubNarrowViewport);
+  const [sidebarCollapsedPreference, setSidebarCollapsedPreference] = useState(
+    readAdminHubSidebarPreference,
   );
+  const collapsed = isNarrowViewport || sidebarCollapsedPreference;
   const [users, setUsers] = useState<any[]>([]);
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [isUsersLoading, setIsUsersLoading] = useState(true);
@@ -264,15 +294,26 @@ function AdminHubPanelInner({
   const navigate = useNavigate();
 
   useEffect(() => {
-    const narrowViewport = window.matchMedia('(max-width: 720px)');
-    const collapseSidebarForNarrowViewport = () => {
-      if (narrowViewport.matches) setCollapsed(true);
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+
+    const narrowViewport = window.matchMedia(ADMINHUB_NARROW_VIEWPORT_QUERY);
+    const syncNarrowViewport = (event?: MediaQueryListEvent) => {
+      setIsNarrowViewport(event?.matches ?? narrowViewport.matches);
     };
 
-    collapseSidebarForNarrowViewport();
-    narrowViewport.addEventListener('change', collapseSidebarForNarrowViewport);
-    return () => narrowViewport.removeEventListener('change', collapseSidebarForNarrowViewport);
+    syncNarrowViewport();
+    narrowViewport.addEventListener('change', syncNarrowViewport);
+    return () => narrowViewport.removeEventListener('change', syncNarrowViewport);
   }, []);
+
+  const toggleSidebar = useCallback(() => {
+    if (isNarrowViewport) return;
+    setSidebarCollapsedPreference((current) => {
+      const next = !current;
+      writeAdminHubSidebarPreference(next);
+      return next;
+    });
+  }, [isNarrowViewport]);
 
   /** Auth context often replaces `user` with a new object reference; depending on it here caused endless refetch + loading skeletons. */
   const currentUserRef = useRef(currentUser);
@@ -753,7 +794,7 @@ function AdminHubPanelInner({
       <div className="ah-main-column">
         <AdminTopBar
           collapsed={collapsed}
-          onToggleSidebar={() => setCollapsed((c) => !c)}
+          onToggleSidebar={toggleSidebar}
           navSearch={navSearch}
           onNavSearchChange={setNavSearch}
           commandPages={commandPages}

@@ -7,7 +7,7 @@ import Product from '../models/product.model.js';
 import Notification from '../models/notification.model.js';
 import Order from '../models/order.model.js';
 import Setting from '../models/setting.model.js';
-import BusinessSettings from '../models/businessSettings.model.js';
+import ShopAvailability, { normalizeRecurringSchedule } from '../models/shopAvailability.model.js';
 import { COMPANY_BRANDING } from '../constants/companyBranding.js';
 import { config } from '../config/environment.js';
 import { getIO } from '../utils/socket.utils.js';
@@ -1842,12 +1842,12 @@ const isPlaceholderPhone = (value = '') => /\(555\)|000-0000/.test(String(value)
 const isPlaceholderEmail = (value = '') => /^admin@autospf\.com$/i.test(String(value || '').trim());
 
 const loadChatBusinessFacts = async () => {
-  const [settings, businessSettings] = await Promise.all([
+  const [settings, availability] = await Promise.all([
     Setting.findOne()
-      .select('contactEmail phoneNumber address operatingHours')
+      .select('contactEmail phoneNumber address')
       .lean()
       .catch(() => null),
-    BusinessSettings.getSettings().catch(() => null),
+    ShopAvailability.getSingleton().catch(() => null),
   ]);
 
   const phone = settings?.phoneNumber && !isPlaceholderPhone(settings.phoneNumber)
@@ -1857,13 +1857,21 @@ const loadChatBusinessFacts = async () => {
     ? settings.contactEmail
     : COMPANY_BRANDING.email;
   const address = settings?.address || COMPANY_BRANDING.address;
-  const hours = businessSettings?.openingHours || settings?.operatingHours || {};
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const hours = availability
+    ? Object.fromEntries(
+        normalizeRecurringSchedule(availability.recurringSchedule).map((row) => [
+          dayNames[row.dow],
+          { isOpen: row.open, open: row.from, close: row.to },
+        ])
+      )
+    : null;
 
   return {
     phone,
     email,
     address,
-    hoursSummary: formatHoursSummary(hours),
+    hoursSummary: hours ? formatHoursSummary(hours) : '',
   };
 };
 

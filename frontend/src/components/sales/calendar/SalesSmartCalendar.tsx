@@ -1,7 +1,7 @@
 /**
  * SalesSmartCalendar.tsx
  * White-theme calendar for Sales Dashboard.
- * — Month / Week views
+ * — Admin Day / Week / Month views
  * — Slot status driven from backend via useCalendarSlots
  * — Per-date booking fetch via useBookingsByDate (on date click)
  * — Real-time updates via Socket.io db_change (inside useCalendarSlots)
@@ -23,7 +23,9 @@ import {
   Clock,
   GripVertical,
   Search,
-  ChevronDown,
+  Plus,
+  FilterX,
+  CalendarPlus2,
 } from 'lucide-react';
 import {
   closestCenter,
@@ -52,11 +54,18 @@ import DayPanel from './DayPanel';
 import DroppableSlot from './DroppableSlot';
 import RescheduleModal from './RescheduleModal';
 import type { DayStatus, CalendarBooking } from './calendarTypes';
-import { EXCLUDED_STATUSES } from './calendarTypes';
 import { useCalendarScheduleDnD } from './CalendarScheduleDnDContext';
 import { formatCalendarCustomerName } from './calendarFormatters';
 import SalesStatCard from '@/components/sales/ui/SalesStatCard';
 import { SALES_ACCENTS } from '@/components/sales/ui/salesTheme';
+import AppointmentDetailsDrawer from './AppointmentDetailsDrawer';
+import AdminNewAppointmentNotice from './AdminNewAppointmentNotice';
+import {
+  APPOINTMENT_STATUS_LEGEND,
+  getAppointmentStatusGroup,
+  getAppointmentStatusMeta,
+  type AppointmentStatusGroupKey,
+} from './calendarStatus';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 function dateKey(d: Date): string { return d.toLocaleDateString('en-CA'); }
@@ -116,22 +125,61 @@ function timeToMinutes(value: string): number {
   if (meridiem === 'AM' && hour === 12) hour = 0;
   return hour * 60 + minute;
 }
-function normaliseBookingStatus(value: string): string {
-  return String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
-}
 function bookingMatchesSearch(booking: CalendarBooking, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return [
     booking.customerName,
-    booking.serviceName,
-    booking.serviceType,
     booking.vehiclePlate,
     booking.bookingReference,
     booking.orderNumber,
-    booking.status,
-    getBookingTime(booking),
+    booking.orderId,
+    booking.bookingId,
+    booking._id,
   ].some((value) => String(value || '').toLowerCase().includes(q));
+}
+
+function getBookingVehicleLabel(booking: CalendarBooking): string {
+  return String(
+    booking.vehicleInfo
+      || [booking.vehicleYear, booking.vehicleMake, booking.vehicleModel].filter(Boolean).join(' ')
+      || booking.vehicleType
+      || '',
+  ).trim();
+}
+
+function getBookingTechnician(booking: CalendarBooking): { value: string; label: string } | null {
+  const assigned = booking.assignedDetailer;
+  if (assigned && typeof assigned === 'object') {
+    const label = String(assigned.name || '').trim();
+    const value = String(assigned._id || assigned.id || label).trim();
+    if (label && value) return { value, label };
+  }
+
+  const staff = booking.serviceStaffAssignments?.find((row) => String(row?.name || '').trim());
+  if (staff?.name) {
+    const label = String(staff.name).trim();
+    return { value: label.toLowerCase(), label };
+  }
+  return null;
+}
+
+function bookingMatchesPremiumFilters(
+  booking: CalendarBooking,
+  query: string,
+  statusFilter: 'all' | AppointmentStatusGroupKey,
+  serviceFilter: string,
+  technicianFilter: string,
+): boolean {
+  if (!bookingMatchesSearch(booking, query)) return false;
+  if (statusFilter !== 'all' && getAppointmentStatusGroup(booking.status) !== statusFilter) return false;
+
+  const service = String(booking.serviceName || booking.serviceType || '').trim();
+  if (serviceFilter !== 'all' && service !== serviceFilter) return false;
+
+  const technician = getBookingTechnician(booking);
+  if (technicianFilter !== 'all' && technician?.value !== technicianFilter) return false;
+  return true;
 }
 
 // ── Status → visual config (stronger contrast for scanability) ───────────────
@@ -162,29 +210,12 @@ const STATUS_VISUAL: Record<DayStatus, { dot: string; label: string; ring: strin
   },
 };
 
-type CalView = 'month' | 'week';
+type CalView = 'day' | 'week' | 'month';
 type CalendarVariant = 'classic' | 'premiumAdmin';
-
-const CHIP_VISUAL: Record<string, { bg: string; text: string; border: string }> = {
-  pending: { bg: '#fffbeb', text: '#a16207', border: '#fde68a' },
-  pending_confirmation: { bg: '#fdf2f8', text: '#be185d', border: '#fbcfe8' },
-  confirmed: { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
-  approved: { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
-  assigned: { bg: '#f5f3ff', text: '#6d28d9', border: '#ddd6fe' },
-  received: { bg: '#ecfeff', text: '#0e7490', border: '#a5f3fc' },
-  queued: { bg: '#eef2ff', text: '#4338ca', border: '#c7d2fe' },
-  processing: { bg: '#fff7ed', text: '#c2410c', border: '#fed7aa' },
-  in_progress: { bg: '#fff7ed', text: '#c2410c', border: '#fed7aa' },
-  'in-progress': { bg: '#fff7ed', text: '#c2410c', border: '#fed7aa' },
-  completed: { bg: '#ecfdf5', text: '#047857', border: '#a7f3d0' },
-  paid: { bg: '#ecfdf5', text: '#047857', border: '#a7f3d0' },
-  released: { bg: '#ecfeff', text: '#0e7490', border: '#a5f3fc' },
-};
-
-const DEFAULT_CHIP_VISUAL = { bg: '#f8fafc', text: '#475569', border: '#e2e8f0' };
+const DEFAULT_CHIP_VISUAL = { bg: '#f8fafc', text: '#475569', border: '#e2e8f0', label: 'Other' };
 
 /** Month grid: show at most this many booking pills, then "N more..." */
-const PREMIUM_MONTH_VISIBLE_EVENTS = 4;
+const PREMIUM_MONTH_VISIBLE_EVENTS = 2;
 
 // ── Day Cell ──────────────────────────────────────────────────────────────────
 function DayCell({
@@ -197,15 +228,15 @@ function DayCell({
   isSelected: boolean;
   onClick: () => void;
 }) {
-  const rawStatus: DayStatus = info?.status ?? 'available';
+  const rawStatus: DayStatus = info?.status ?? 'closed';
   const status: DayStatus = info?.isClosed ? 'closed' : rawStatus;
   const vis = STATUS_VISUAL[status];
   const hasPending = (info?.pendingCount ?? 0) > 0;
   const bookingCount = info?.bookedSlots ?? 0;
-  /** Month cell: show least free seats in any one time band (matches admin "Capacity per time slot"), not sum across all hours. */
-  const slotsLeft = info && !info.isClosed ? Math.max(0, info.minAvailablePerSlot) : null;
 
-  const statusLine = info?.isClosed
+  const statusLine = !info
+    ? 'Availability unavailable'
+    : info.isClosed
     ? (info.closureLabel
         ? `Closed · ${info.closureLabel}`
         : info.closedReason === 'recurring'
@@ -213,8 +244,8 @@ function DayCell({
           : info.closedReason === 'emergency'
             ? 'Closed · Emergency'
             : 'Closed')
-    : slotsLeft !== null
-      ? `${slotsLeft} slot${slotsLeft === 1 ? '' : 's'}`
+    : bookingCount > 0
+      ? `${bookingCount} appointment${bookingCount === 1 ? '' : 's'}`
       : vis.label;
 
   let bg = !info ? '#ffffff' : vis.cellBg;
@@ -319,6 +350,7 @@ function PremiumDayCell({
   isCurrentMonth,
   maxVisibleEvents,
   onClick,
+  onAppointmentClick,
 }: {
   date: Date;
   info: DayMapEntry | undefined;
@@ -328,8 +360,9 @@ function PremiumDayCell({
   isCurrentMonth: boolean;
   maxVisibleEvents: number;
   onClick: () => void;
+  onAppointmentClick: (booking: CalendarBooking) => void;
 }) {
-  const rawStatus: DayStatus = info?.status ?? 'available';
+  const rawStatus: DayStatus = info?.status ?? 'closed';
   const status: DayStatus = info?.isClosed ? 'closed' : rawStatus;
   const visibleLimit = Math.max(0, maxVisibleEvents);
   const visibleBookings = bookings.slice(0, visibleLimit);
@@ -347,6 +380,7 @@ function PremiumDayCell({
         tabIndex={0}
         onClick={onClick}
         onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
             onClick();
@@ -377,14 +411,32 @@ function PremiumDayCell({
           >
             {date.getDate()}
           </div>
+          {info && (info.isClosed || info.bookedSlots > 0) ? (
+            <span
+              className={`max-w-[78%] truncate text-[9px] font-semibold tabular-nums ${
+                info.isClosed ? 'text-rose-500' : 'text-[#98a2b3]'
+              }`}
+              title={
+                info.isClosed
+                  ? info.closureLabel || 'Closed for appointments'
+                  : `${info.bookedSlots} appointment${info.bookedSlots === 1 ? '' : 's'}`
+              }
+            >
+              {info.isClosed
+                ? 'Closed'
+                : `${info.bookedSlots} appointment${info.bookedSlots === 1 ? '' : 's'}`}
+            </span>
+          ) : null}
         </div>
 
         <div className="premium-calendar-events flex min-h-0 w-full flex-1 flex-col justify-start gap-0.5 overflow-hidden">
           {visibleBookings.map((booking) => {
-            const statusKey = normaliseBookingStatus(booking.status);
-            const tone = CHIP_VISUAL[statusKey] || DEFAULT_CHIP_VISUAL;
+            const statusMeta = getAppointmentStatusMeta(booking.status);
+            const tone = statusMeta || DEFAULT_CHIP_VISUAL;
             const time = getBookingTime(booking);
             const service = booking.serviceName || booking.serviceType || 'Booking';
+            const vehicle = getBookingVehicleLabel(booking);
+            const technician = getBookingTechnician(booking)?.label;
             const label = booking.customerName
               ? formatCalendarCustomerName(booking.customerName)
               : booking.bookingReference || 'Customer';
@@ -394,14 +446,26 @@ function PremiumDayCell({
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onClick();
+                  onAppointmentClick(booking);
                 }}
-                className="premium-calendar-event grid h-5 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded border px-1.5 text-left text-[11px] font-semibold leading-none transition hover:brightness-[0.98]"
+                className="premium-calendar-event grid shrink-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-2 items-center gap-x-1 rounded border px-1.5 py-0.5 text-left text-[11px] font-semibold leading-none transition hover:brightness-[0.98]"
                 style={{ background: tone.bg, borderColor: tone.border, color: tone.text }}
-                title={[label, service, time].filter(Boolean).join(' - ')}
+                title={[
+                  label,
+                  time ? `Time: ${time}` : '',
+                  vehicle ? `Vehicle: ${vehicle}` : '',
+                  booking.vehiclePlate ? `Plate: ${booking.vehiclePlate}` : '',
+                  `Service: ${service}`,
+                  technician ? `Technician: ${technician}` : '',
+                  `Status: ${statusMeta?.label || booking.status}`,
+                ].filter(Boolean).join('\n')}
+                aria-label={`${label}, ${time || 'time not set'}, ${service}, ${statusMeta?.label || booking.status}`}
               >
                 <span className="min-w-0 truncate">{label}</span>
                 {time ? <span className="shrink-0 text-[10px] font-medium tabular-nums opacity-90">{time}</span> : null}
+                <span className="col-span-2 min-w-0 truncate text-[9px] font-medium opacity-75">
+                  {[service, vehicle || booking.vehiclePlate].filter(Boolean).join(' · ')}
+                </span>
               </button>
             );
           })}
@@ -423,16 +487,157 @@ function PremiumDayCell({
   );
 }
 
+function PremiumDayAgenda({
+  date,
+  info,
+  bookings,
+  filtersActive,
+  onDateClick,
+  onAppointmentClick,
+  onNewAppointment,
+}: {
+  date: Date;
+  info: DayMapEntry | undefined;
+  bookings: CalendarBooking[];
+  filtersActive: boolean;
+  onDateClick: () => void;
+  onAppointmentClick: (booking: CalendarBooking) => void;
+  onNewAppointment: () => void;
+}) {
+  const dateLabel = date.toLocaleDateString('en-PH', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  return (
+    <div className="premium-calendar-day-agenda flex h-full min-h-0 flex-col bg-[#f9fafb]">
+      <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[#eaecf0] bg-white px-4 py-2.5">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-[#101828]">{dateLabel}</p>
+          <p className="mt-0.5 text-xs text-[#667085]">
+            {!info
+              ? 'Availability information is unavailable'
+              : info.isClosed
+              ? info.closureLabel || 'Closed for appointments'
+              : info && info.bookedSlots > 0
+                ? `${info.bookedSlots} appointment${info.bookedSlots === 1 ? '' : 's'}`
+                : 'No appointments scheduled'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onDateClick}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+          >
+            Day details
+          </button>
+          <button
+            type="button"
+            onClick={onNewAppointment}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700"
+          >
+            <Plus size={14} /> Add appointment
+          </button>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+        {bookings.length === 0 ? (
+          <div className="flex min-h-[220px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white px-5 text-center">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+              <CalendarPlus2 size={20} />
+            </span>
+            <p className="mt-3 text-sm font-semibold text-slate-700">
+              {filtersActive ? 'No appointments found' : 'No appointments scheduled'}
+            </p>
+            <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">
+              {filtersActive
+                ? 'Try changing your filters or clear them to see this day’s bookings.'
+                : 'This date has no appointments yet. Review the day or start a new appointment.'}
+            </p>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={onDateClick}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Open day details
+              </button>
+              {!filtersActive ? (
+                <button
+                  type="button"
+                  onClick={onNewAppointment}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                >
+                  <Plus size={14} /> Add appointment
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-2">
+            {bookings.map((booking) => {
+              const meta = getAppointmentStatusMeta(booking.status);
+              const tone = meta || DEFAULT_CHIP_VISUAL;
+              const customer = formatCalendarCustomerName(booking.customerName);
+              const vehicle = getBookingVehicleLabel(booking);
+              const service = booking.serviceName || booking.serviceType || 'Service';
+              return (
+                <button
+                  key={booking._id || booking.id}
+                  type="button"
+                  onClick={() => onAppointmentClick(booking)}
+                  className="grid w-full grid-cols-[74px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-blue-200 hover:shadow-[0_4px_14px_-8px_rgba(37,99,235,0.28)] sm:grid-cols-[92px_minmax(0,1fr)_auto]"
+                  style={{ borderColor: tone.border }}
+                >
+                  <span className="text-xs font-semibold tabular-nums text-slate-600">
+                    {getBookingTime(booking) || 'No time'}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-slate-900">{customer}</span>
+                    <span className="mt-0.5 block truncate text-xs text-slate-500">
+                      {[service, vehicle, booking.vehiclePlate].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                  <span
+                    className="hidden rounded-full border px-2.5 py-1 text-[10px] font-semibold sm:inline-flex"
+                    style={{ background: tone.bg, borderColor: tone.border, color: tone.text }}
+                  >
+                    {meta?.label || booking.status}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: CalendarVariant } = {}) {
   const isPremiumAdmin = variant === 'premiumAdmin';
   const [view, setView] = useState<CalView>('month');
   const [anchor, setAnchor] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [premiumSearchOpen, setPremiumSearchOpen] = useState(false);
+  const [premiumSearchOpen, setPremiumSearchOpen] = useState(isPremiumAdmin);
   const [premiumSearch, setPremiumSearch] = useState('');
+  const [premiumStatusFilter, setPremiumStatusFilter] = useState<'all' | AppointmentStatusGroupKey>('all');
+  const [premiumServiceFilter, setPremiumServiceFilter] = useState('all');
+  const [premiumTechnicianFilter, setPremiumTechnicianFilter] = useState('all');
+  const [selectedAppointment, setSelectedAppointment] = useState<CalendarBooking | null>(null);
+  const [newAppointmentDate, setNewAppointmentDate] = useState<Date | null>(null);
+  const premiumSearchInputRef = useRef<HTMLInputElement | null>(null);
   
-  const [rescheduleData, setRescheduleData] = useState<{ booking: CalendarBooking; targetDate: string } | null>(null);
+  const [rescheduleData, setRescheduleData] = useState<{
+    booking: CalendarBooking;
+    targetDate: string;
+    allowDateChange?: boolean;
+  } | null>(null);
   /** Shown inside DragOverlay after the day panel closes so the drag continues (see onDragStart). */
   const [dragOverlayBooking, setDragOverlayBooking] = useState<CalendarBooking | null>(null);
   /** Keep payload stable even if the source draggable unmounts during drag. */
@@ -470,7 +675,11 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
     const sw = startOfWeekMonday(anchor);
     return Array.from({ length: 7 }, (_, i) => addDays(sw, i));
   }, [anchor]);
-  const premiumVisibleDates = view === 'month' ? premiumMonthCells : premiumWeekDays;
+  const premiumVisibleDates = view === 'month'
+    ? premiumMonthCells
+    : view === 'week'
+      ? premiumWeekDays
+      : [anchor];
   const premiumRange = useMemo(() => {
     const first = premiumVisibleDates[0] || startOfMonth(anchor);
     const last = premiumVisibleDates[premiumVisibleDates.length - 1] || endOfMonth(anchor);
@@ -481,6 +690,14 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
     loading: monthBookingsLoading,
     refetch: refetchMonthBookings,
   } = useMonthBookings(premiumRange.start, premiumRange.end, isPremiumAdmin);
+
+  const today = useMemo(() => new Date(), []);
+  const todayKey = dateKey(today);
+  const {
+    bookings: todayBookings,
+    loading: todayBookingsLoading,
+    refetch: refetchTodayBookings,
+  } = useMonthBookings(todayKey, todayKey, isPremiumAdmin);
 
   const loadMonthClosures = useCallback(async () => {
     const monthStart = `${year}-${String(month + 1).padStart(2, '0')}-01`;
@@ -507,19 +724,20 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
   const selectedKey = selectedDate ? dateKey(selectedDate) : null;
   const { bookings: dayBookings, loading: dayLoading, refetch: refetchDay } = useBookingsByDate(selectedKey);
 
-  const today = useMemo(() => new Date(), []);
-
   // ── Navigation ──────────────────────────────────────────────────────────────
   const navigate = useCallback((delta: number) => {
     setAnchor(prev => {
       const c = new Date(prev);
       if (view === 'month') c.setMonth(c.getMonth() + delta);
-      else c.setDate(c.getDate() + 7 * delta);
+      else if (view === 'week') c.setDate(c.getDate() + 7 * delta);
+      else c.setDate(c.getDate() + delta);
       return c;
     });
   }, [view]);
 
-  const goToday = useCallback(() => setAnchor(new Date()), []);
+  const goToday = useCallback(() => {
+    setAnchor(new Date());
+  }, []);
 
   // ── Grid cells ──────────────────────────────────────────────────────────────
   const monthCells = useMemo(() => {
@@ -550,21 +768,83 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
     return `${sm} – ${em}`;
   }, [view, anchor]);
 
-  const premiumTitle = useMemo(() => anchor.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' }), [anchor]);
+  const premiumTitle = useMemo(
+    () => anchor.toLocaleDateString('en-PH', view === 'day'
+      ? { month: 'long', day: 'numeric', year: 'numeric' }
+      : { month: 'long', year: 'numeric' }),
+    [anchor, view],
+  );
 
   const premiumDateRangeLabel = useMemo(() => {
     if (view === 'month') return getRangeLabel(startOfMonth(anchor), endOfMonth(anchor));
-    const sw = startOfWeekMonday(anchor);
-    return getRangeLabel(sw, addDays(sw, 6));
+    if (view === 'week') {
+      const sw = startOfWeekMonday(anchor);
+      return getRangeLabel(sw, addDays(sw, 6));
+    }
+    return anchor.toLocaleDateString('en-PH', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
   }, [anchor, view]);
+
+  const premiumServiceOptions = useMemo(() => {
+    const values = new Set<string>();
+    monthBookings.forEach((booking) => {
+      const label = String(booking.serviceName || booking.serviceType || '').trim();
+      if (label) values.add(label);
+    });
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [monthBookings]);
+
+  const premiumTechnicianOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    monthBookings.forEach((booking) => {
+      const technician = getBookingTechnician(booking);
+      if (technician) options.set(technician.value, technician.label);
+    });
+    return Array.from(options, ([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [monthBookings]);
+
+  const premiumFilteredBookings = useMemo(
+    () => monthBookings.filter((booking) => bookingMatchesPremiumFilters(
+      booking,
+      premiumSearch,
+      premiumStatusFilter,
+      premiumServiceFilter,
+      premiumTechnicianFilter,
+    )),
+    [
+      monthBookings,
+      premiumSearch,
+      premiumServiceFilter,
+      premiumStatusFilter,
+      premiumTechnicianFilter,
+    ],
+  );
+
+  const premiumFilteredTodayBookings = useMemo(
+    () => todayBookings.filter((booking) => bookingMatchesPremiumFilters(
+      booking,
+      premiumSearch,
+      premiumStatusFilter,
+      premiumServiceFilter,
+      premiumTechnicianFilter,
+    )),
+    [
+      todayBookings,
+      premiumSearch,
+      premiumServiceFilter,
+      premiumStatusFilter,
+      premiumTechnicianFilter,
+    ],
+  );
 
   const premiumBookingsByDate = useMemo(() => {
     const map = new Map<string, CalendarBooking[]>();
-    const filtered = monthBookings
-      .filter((booking) => !EXCLUDED_STATUSES.has(normaliseBookingStatus(booking.status)))
-      .filter((booking) => bookingMatchesSearch(booking, premiumSearch));
-
-    for (const booking of filtered) {
+    for (const booking of premiumFilteredBookings) {
       const key = getBookingDateKey(booking);
       if (!key) continue;
       const rows = map.get(key) || [];
@@ -581,7 +861,34 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
     }
 
     return map;
-  }, [monthBookings, premiumSearch]);
+  }, [premiumFilteredBookings]);
+
+  const premiumFiltersActive = Boolean(
+    premiumSearch.trim()
+      || premiumStatusFilter !== 'all'
+      || premiumServiceFilter !== 'all'
+      || premiumTechnicianFilter !== 'all',
+  );
+
+  const clearPremiumFilters = useCallback(() => {
+    setPremiumSearch('');
+    setPremiumStatusFilter('all');
+    setPremiumServiceFilter('all');
+    setPremiumTechnicianFilter('all');
+  }, []);
+
+  const premiumKpis = useMemo(() => {
+    const countGroup = (group: AppointmentStatusGroupKey) => premiumFilteredBookings
+      .filter((booking) => getAppointmentStatusGroup(booking.status) === group).length;
+    return {
+      today: premiumFilteredTodayBookings.length,
+      pending: countGroup('pending'),
+      confirmed: countGroup('confirmed'),
+      in_service: countGroup('in_service'),
+      completed: countGroup('completed'),
+      cancelled: countGroup('cancelled'),
+    };
+  }, [premiumFilteredBookings, premiumFilteredTodayBookings]);
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
@@ -600,14 +907,22 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
     refetchDay();
     refresh();
     refetchMonthBookings();
+    refetchTodayBookings();
     loadMonthClosures();
-  }, [refetchDay, refresh, refetchMonthBookings, loadMonthClosures]);
+  }, [refetchDay, refresh, refetchMonthBookings, refetchTodayBookings, loadMonthClosures]);
 
   const handleRefreshAll = useCallback(() => {
     refresh();
     refetchMonthBookings();
+    refetchTodayBookings();
     loadMonthClosures();
-  }, [refresh, refetchMonthBookings, loadMonthClosures]);
+  }, [refresh, refetchMonthBookings, refetchTodayBookings, loadMonthClosures]);
+
+  const handleAdminAppointmentCreated = useCallback((bookingDate: string) => {
+    invalidateDateCache(bookingDate);
+    setNewAppointmentDate(null);
+    handlePanelRefresh();
+  }, [handlePanelRefresh]);
 
   const selectDate = useCallback((date: Date) => {
     if (isPremiumAdmin && view === 'month' && (date.getFullYear() !== year || date.getMonth() !== month)) {
@@ -615,6 +930,25 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
     }
     setSelectedDate(date);
   }, [isPremiumAdmin, month, view, year]);
+
+  const openNewAppointmentNotice = useCallback((date?: Date | null) => {
+    setNewAppointmentDate(date || selectedDate || anchor);
+  }, [anchor, selectedDate]);
+
+  const handleAppointmentChanged = useCallback((updated?: CalendarBooking) => {
+    if (updated) {
+      setSelectedAppointment((current) => current
+        ? ({ ...current, ...updated } as CalendarBooking)
+        : updated);
+    }
+    handlePanelRefresh();
+  }, [handlePanelRefresh]);
+
+  const handleAppointmentRescheduleRequest = useCallback((booking: CalendarBooking) => {
+    const targetDate = getBookingDateKey(booking) || dateKey(anchor);
+    setSelectedAppointment(null);
+    setRescheduleData({ booking, targetDate, allowDateChange: true });
+  }, [anchor]);
 
   // ── Drag and Drop ──────────────────────────────────────────────────────────
   const handleDragEnd = useCallback((event: DragEndEvent) => {
@@ -692,6 +1026,15 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
       
       if (data.success) {
         toast.success('Booking rescheduled successfully!');
+        if (rescheduleData?.allowDateChange) {
+          setSelectedAppointment({
+            ...rescheduleData.booking,
+            bookingDate: newDate,
+            date: newDate,
+            bookingTime: newTime,
+            time: newTime,
+          });
+        }
         setRescheduleData(null);
         handlePanelRefresh();
         invalidateDateCache(newDate);
@@ -718,39 +1061,64 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
     <div className={`flex flex-col bg-white ${isPremiumAdmin ? 'h-full min-h-0 w-full' : 'h-full min-h-0 rounded-2xl'}`}>
       {isPremiumAdmin ? (
         <div className="premium-calendar-surface flex h-full min-h-0 flex-col overflow-hidden bg-white">
-          <div className="premium-calendar-toolbar flex flex-shrink-0 flex-wrap items-center justify-between gap-2 px-3 py-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="premium-calendar-date-badge flex h-10 w-10 shrink-0 flex-col items-center justify-center">
-                <span className="text-[9px] font-semibold uppercase leading-none text-[#667085]">
-                  {today.toLocaleDateString('en-PH', { month: 'short' })}
-                </span>
-                <span className="mt-0.5 text-base font-bold leading-none text-blue-600 tabular-nums">
-                  {today.getDate()}
-                </span>
+          <div className="premium-calendar-kpis grid flex-shrink-0 grid-cols-2 gap-px border-b border-[#eaecf0] bg-[#eaecf0] sm:grid-cols-3 xl:grid-cols-6">
+            {([
+              { key: 'today', label: "Today's Appointments", value: premiumKpis.today, dot: '#2563eb' },
+              ...APPOINTMENT_STATUS_LEGEND.map((item) => ({
+                key: item.key,
+                label: item.label,
+                value: premiumKpis[item.key],
+                dot: item.dot,
+              })),
+            ] as Array<{ key: string; label: string; value: number; dot: string }>).map((item) => (
+              <div key={item.key} className="min-w-0 bg-white px-3 py-2" title={`${item.label}: ${item.value}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[10px] font-semibold uppercase tracking-[0.06em] text-[#667085]">
+                    {item.label}
+                  </span>
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: item.dot }} />
+                </div>
+                <p className="mt-0.5 text-lg font-semibold leading-none tabular-nums text-[#101828]">
+                  {(item.key === 'today' ? todayBookingsLoading : monthBookingsLoading) ? '—' : item.value}
+                </p>
               </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <h2 className="truncate text-base font-semibold leading-tight tracking-normal text-[#101828]">
-                    {premiumTitle}
-                  </h2>
+            ))}
+          </div>
+
+          <div className="premium-calendar-toolbar flex flex-shrink-0 flex-wrap items-center justify-between gap-2 px-3 py-2">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <h2 className="truncate text-base font-semibold leading-tight tracking-normal text-[#101828]">
+                  {premiumTitle}
+                </h2>
+                {view === 'week' ? (
                   <span className="premium-calendar-toolbar-chip px-2 py-0.5 text-[11px] font-medium leading-none text-[#344054]">
                     Week {getWeekOfMonth(anchor)}
                   </span>
-                  <span className="hidden text-xs font-normal text-[#667085] sm:inline">
+                ) : null}
+                {view !== 'day' ? (
+                  <span className="hidden text-xs font-normal text-[#667085] md:inline">
                     · {premiumDateRangeLabel}
                   </span>
-                </div>
+                ) : null}
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="premium-calendar-toolbar-actions flex flex-wrap items-center justify-end gap-1.5">
               <button
                 type="button"
-                onClick={() => setPremiumSearchOpen((open) => !open)}
+                onClick={() => {
+                  setPremiumSearchOpen((open) => {
+                    const next = !open;
+                    if (next) requestAnimationFrame(() => premiumSearchInputRef.current?.focus());
+                    return next;
+                  });
+                }}
                 className={`premium-calendar-toolbar-icon-btn flex h-9 w-9 items-center justify-center text-[#667085] transition ${
-                  premiumSearchOpen || premiumSearch ? 'is-active' : ''
+                  premiumSearchOpen || premiumFiltersActive ? 'is-active' : ''
                 }`}
-                aria-label="Search appointments"
+                aria-label="Toggle appointment filters"
+                aria-expanded={premiumSearchOpen || premiumFiltersActive}
               >
                 <Search size={18} strokeWidth={2} />
               </button>
@@ -781,38 +1149,128 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
                 </button>
               </div>
 
+              <div className="premium-calendar-view-switch inline-flex h-9 overflow-hidden rounded-[10px] border border-[#e4e7ec] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]" aria-label="Calendar view">
+                {(['day', 'week', 'month'] as CalView[]).map((calendarView) => (
+                  <button
+                    key={calendarView}
+                    type="button"
+                    onClick={() => setView(calendarView)}
+                    className={`px-3 text-xs font-semibold capitalize transition ${
+                      view === calendarView
+                        ? 'bg-blue-600 text-white'
+                        : 'text-[#475467] hover:bg-[#f9fafb]'
+                    }`}
+                    aria-pressed={view === calendarView}
+                  >
+                    {calendarView}
+                  </button>
+                ))}
+              </div>
+
               <button
                 type="button"
-                onClick={() => setView((current) => current === 'month' ? 'week' : 'month')}
-                className="premium-calendar-toolbar-select inline-flex h-9 items-center gap-2 px-4 text-sm font-semibold text-[#344054] transition hover:bg-[#f9fafb]"
+                onClick={() => openNewAppointmentNotice()}
+                className="premium-calendar-new-btn inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-blue-600 px-3.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2"
               >
-                {view === 'month' ? 'Month view' : 'Week view'}
-                <ChevronDown size={16} className="text-[#667085]" />
+                <Plus size={15} />
+                <span>New Appointment</span>
               </button>
             </div>
           </div>
 
-          {(premiumSearchOpen || premiumSearch) && (
-            <div className="flex flex-shrink-0 items-center border-b border-[#eaecf0] bg-[#f9fafb] px-3 py-1.5">
-              <div className="relative w-full max-w-md">
+          {(premiumSearchOpen || premiumFiltersActive) && (
+            <div className="premium-calendar-filters flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-[#eaecf0] bg-[#f9fafb] px-3 py-2">
+              <div className="relative min-w-[220px] flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
+                  ref={premiumSearchInputRef}
                   value={premiumSearch}
                   onChange={(event) => setPremiumSearch(event.target.value)}
-                  placeholder="Search customer, service, plate, reference"
-                  className="h-8 w-full rounded-lg border border-[#e4e7ec] bg-white pl-9 pr-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  placeholder="Search customer, plate, or booking ID..."
+                  className="h-9 w-full rounded-lg border border-[#e4e7ec] bg-white pl-9 pr-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
                 />
               </div>
+
+              <select
+                value={premiumStatusFilter}
+                onChange={(event) => setPremiumStatusFilter(event.target.value as 'all' | AppointmentStatusGroupKey)}
+                className="h-9 min-w-[126px] rounded-lg border border-[#e4e7ec] bg-white px-3 text-xs font-semibold text-[#475467] outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                aria-label="Filter by appointment status"
+              >
+                <option value="all">All statuses</option>
+                {APPOINTMENT_STATUS_LEGEND.map((item) => (
+                  <option key={item.key} value={item.key}>{item.label}</option>
+                ))}
+              </select>
+
+              <select
+                value={premiumServiceFilter}
+                onChange={(event) => setPremiumServiceFilter(event.target.value)}
+                className="h-9 min-w-[130px] max-w-[210px] rounded-lg border border-[#e4e7ec] bg-white px-3 text-xs font-semibold text-[#475467] outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                aria-label="Filter by service"
+              >
+                <option value="all">All services</option>
+                {premiumServiceOptions.map((service) => (
+                  <option key={service} value={service}>{service}</option>
+                ))}
+              </select>
+
+              {premiumTechnicianOptions.length > 0 ? (
+                <select
+                  value={premiumTechnicianFilter}
+                  onChange={(event) => setPremiumTechnicianFilter(event.target.value)}
+                  className="h-9 min-w-[140px] max-w-[210px] rounded-lg border border-[#e4e7ec] bg-white px-3 text-xs font-semibold text-[#475467] outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  aria-label="Filter by assigned technician"
+                >
+                  <option value="all">All technicians</option>
+                  {premiumTechnicianOptions.map((technician) => (
+                    <option key={technician.value} value={technician.value}>{technician.label}</option>
+                  ))}
+                </select>
+              ) : null}
+
+              {premiumFiltersActive ? (
+                <button
+                  type="button"
+                  onClick={clearPremiumFilters}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-50"
+                >
+                  <FilterX size={14} /> Clear filters
+                </button>
+              ) : null}
+
+              <span className="ml-auto text-[11px] font-medium text-[#667085]">
+                {premiumFilteredBookings.length} appointment{premiumFilteredBookings.length === 1 ? '' : 's'}
+              </span>
             </div>
           )}
 
-          <div className="premium-calendar-weekdays grid flex-shrink-0 grid-cols-7 border-b border-[#eaecf0] bg-white">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
-              <div key={day} className="px-1 py-1.5 text-center text-xs font-medium text-[#667085]">
-                {day}
-              </div>
+          <div className="premium-calendar-status-legend flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-[#eaecf0] bg-white px-3 py-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#98a2b3]">Status</span>
+            {APPOINTMENT_STATUS_LEGEND.map((item) => (
+              <span key={item.key} className="inline-flex items-center gap-1.5 text-[10px] font-medium text-[#667085]">
+                <span className="h-2 w-2 rounded-full" style={{ background: item.dot }} />
+                {item.label}
+              </span>
             ))}
           </div>
+
+          {premiumFiltersActive && !monthBookingsLoading && premiumFilteredBookings.length === 0 ? (
+            <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              <span>No appointments found. Try changing your filters.</span>
+              <button type="button" onClick={clearPremiumFilters} className="font-semibold hover:underline">Clear filters</button>
+            </div>
+          ) : null}
+
+          {view !== 'day' ? (
+            <div className="premium-calendar-weekdays grid flex-shrink-0 grid-cols-7 border-b border-[#eaecf0] bg-white">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+                <div key={day} className="px-1 py-1.5 text-center text-xs font-medium text-[#667085]">
+                  {day}
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <div className={`premium-calendar-body min-h-0 bg-white ${view === 'month' ? 'is-month-body flex flex-1 flex-col overflow-hidden' : 'flex flex-1 flex-col overflow-hidden'}`}>
             {slotsLoading && dayMap.size === 0 ? (
@@ -820,6 +1278,19 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
                 <Loader2 size={20} className="animate-spin" />
                 <span className="text-sm font-medium">Loading calendar...</span>
               </div>
+            ) : view === 'day' ? (
+              <PremiumDayAgenda
+                date={anchor}
+                info={dayMap.get(dateKey(anchor))}
+                bookings={premiumBookingsByDate.get(dateKey(anchor)) || []}
+                filtersActive={premiumFiltersActive}
+                onDateClick={() => selectDate(anchor)}
+                onAppointmentClick={(booking) => {
+                  setSelectedDate(null);
+                  setSelectedAppointment(booking);
+                }}
+                onNewAppointment={() => openNewAppointmentNotice(anchor)}
+              />
             ) : (
               <div
                 className={`premium-calendar-grid ${view === 'month' ? 'is-month' : 'is-week'} grid h-full min-w-0 grid-cols-7`}
@@ -843,6 +1314,10 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
                       isCurrentMonth={d.getFullYear() === year && d.getMonth() === month}
                       maxVisibleEvents={view === 'month' ? PREMIUM_MONTH_VISIBLE_EVENTS : 6}
                       onClick={() => selectDate(d)}
+                      onAppointmentClick={(booking) => {
+                        setSelectedDate(null);
+                        setSelectedAppointment(booking);
+                      }}
                     />
                   );
                 })}
@@ -908,7 +1383,7 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
             {monthClosures.length} scheduled closure{monthClosures.length === 1 ? '' : 's'} this month
           </p>
           <p className="mt-1 text-xs leading-relaxed text-amber-900/90">
-            Orange <strong>Closed</strong> weekdays are usually from these blocks (calendar “Block date” or Availability Controls), not your weekly Mon–Fri schedule.
+            Orange <strong>Closed</strong> dates may come from a calendar block or from the recurring open/closed schedule in Availability Controls.
           </p>
           <ul className="mt-2 space-y-1 text-xs font-medium text-amber-950/90">
             {monthClosures.slice(0, 6).map((row) => {
@@ -1070,6 +1545,27 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
           dayInfo={selectedKey ? dayMap.get(selectedKey) : undefined}
           onClose={() => setSelectedDate(null)}
           onRefresh={handlePanelRefresh}
+          onNewAppointment={isPremiumAdmin ? () => {
+            openNewAppointmentNotice(selectedDate);
+            setSelectedDate(null);
+          } : undefined}
+        />
+      )}
+
+      {selectedAppointment && (
+        <AppointmentDetailsDrawer
+          booking={selectedAppointment}
+          onClose={() => setSelectedAppointment(null)}
+          onChanged={handleAppointmentChanged}
+          onRequestReschedule={handleAppointmentRescheduleRequest}
+        />
+      )}
+
+      {newAppointmentDate && (
+        <AdminNewAppointmentNotice
+          selectedDate={newAppointmentDate}
+          onClose={() => setNewAppointmentDate(null)}
+          onCreated={handleAdminAppointmentCreated}
         />
       )}
 
@@ -1108,6 +1604,7 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
         <RescheduleModal
           booking={rescheduleData.booking}
           targetDate={rescheduleData.targetDate}
+          allowDateChange={rescheduleData.allowDateChange}
           onClose={() => setRescheduleData(null)}
           onConfirm={handleRescheduleConfirm}
         />

@@ -29,6 +29,7 @@ import { serializeUserForClient, resolvePhoneForClient, USER_PHONE_FIELDS } from
 import { uploadBufferToCloudinary } from '../utils/cloudinaryStorage.utils.js';
 import { normalizeEmailForOtp } from '../utils/otp.utils.js';
 import { issueStaffVerificationLink } from '../services/staffVerification.service.js';
+import { deleteOrdersAndReleaseSlotCounters } from '../services/slot.service.js';
 
 const getQueryByIdOrFirebaseUid = (id) => {
   // If it's a 24-character hex string, assume it's a valid ObjectId
@@ -566,7 +567,6 @@ export const deleteUser = async (req, res, next) => {
     }
 
     // Cascade-clean all related documents
-
     const cleanupLabels = [
       'Orders (customer)', 'Orders (assignedDetailer)', 'Customers',
       'Vehicles', 'ChatConversations', 'ChatSessions', 'ChatMessages',
@@ -574,7 +574,7 @@ export const deleteUser = async (req, res, next) => {
     ];
 
     const cleanup = await Promise.allSettled([
-      Order.deleteMany({ customer: userId }),
+      deleteOrdersAndReleaseSlotCounters({ customer: userId }),
       Order.updateMany({ assignedDetailer: userId }, { $unset: { assignedDetailer: '' } }),
       Customer.deleteMany({ user: userId }),
       Vehicle.deleteMany({ customer: userId }),

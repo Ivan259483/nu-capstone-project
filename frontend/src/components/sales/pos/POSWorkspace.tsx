@@ -1211,6 +1211,7 @@ export default function POSWorkspace({
       const computed = totalsFromCharges(lineItems as BillingLineItem[]);
       const serviceType = cartItems.map((c) => c.name).join(', ') || 'POS service';
       const orderPayload = {
+        isWalkIn: true,
         customer: selectedCustomer.id,
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,

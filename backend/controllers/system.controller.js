@@ -5,6 +5,7 @@ import Service from '../models/service.model.js';
 import Supplier from '../models/supplier.model.js';
 import Category from '../models/category.model.js';
 import Vehicle from '../models/vehicle.model.js';
+import BookingSlotCounter from '../models/bookingSlotCounter.model.js';
 
 /**
  * Export All Data
@@ -72,6 +73,7 @@ export const resetSystem = async (req, res, next) => {
 
     // Delete everything except current admin
     await Order.deleteMany({});
+    await BookingSlotCounter.deleteMany({});
     await Product.deleteMany({});
     await Service.deleteMany({});
     await Supplier.deleteMany({});

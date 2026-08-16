@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import PageLayout from "@/components/PageLayout";
 import LocationMapSection from "@/components/LocationMapSection";
+import { usePublicAvailabilitySchedule } from "@/hooks/usePublicAvailabilitySchedule";
 import { cn } from "@/lib/utils";
 
 /* ── Framer Variants ── */
@@ -64,7 +65,8 @@ const contactInfo = [
 ] as const;
 
 export default function Contact() {
-    const { t } = useLanguage();
+    const { t, lang } = useLanguage();
+    const appointmentHours = usePublicAvailabilitySchedule(lang);
     const [form, setForm] = useState({ name: "", email: "", message: "" });
     const [sent, setSent] = useState(false);
     const [focused, setFocused] = useState<string | null>(null);
@@ -208,7 +210,7 @@ export default function Contact() {
                                         {t(`contact.${key}`)}
                                     </div>
                                     <div className="text-sm font-semibold text-white/70 group-hover:text-white transition-colors duration-300 leading-relaxed">
-                                        {t(`contact.${valueKey}`)}
+                                        {key === 'hours' ? appointmentHours.summary : t(`contact.${valueKey}`)}
                                     </div>
                                 </div>
                             </motion.div>

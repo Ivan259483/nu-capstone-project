@@ -7,21 +7,52 @@
  */
 
 import Order from '../models/order.model.js';
-import ShopAvailability, { buildDefaultRecurringSchedule } from '../models/shopAvailability.model.js';
+import ShopAvailability, { normalizeRecurringSchedule } from '../models/shopAvailability.model.js';
 import ScheduledClosure from '../models/scheduledClosure.model.js';
 import BookingSlotCounter from '../models/bookingSlotCounter.model.js';
 
 const DEFAULT_SLOT_DURATION_MINUTES = 60;
+export const SHOP_TIME_ZONE = process.env.SHOP_TIME_ZONE || 'Asia/Manila';
+
+const shopClockFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: SHOP_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** Current wall-clock date/time in the shop timezone (not the server timezone). */
+export function getShopLocalClock(now = new Date()) {
+  const parts = Object.fromEntries(
+    shopClockFormatter
+      .formatToParts(now)
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value])
+  );
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${parts.hour}:${parts.minute}`,
+    minutes: Number(parts.hour) * 60 + Number(parts.minute),
+  };
+}
 
 // ── Statuses that consume a slot ──────────────────────────────────────────────
 export const SLOT_CONSUMING_STATUSES = [
   'pending_confirmation',
-  'confirmed',
+  'pending',
   'approved',
+  'confirmed',
   'assigned',
+  'queued',
   'received',
   'in_progress',
-  'queued',
+  // Read-only legacy aliases found in existing deployments. New writes remain
+  // constrained by the canonical Order schema enum.
+  'in-progress',
   'processing',
   'quality_check',
 ];
@@ -30,6 +61,22 @@ const SLOT_CONSUMING_STATUS_SET = new Set(SLOT_CONSUMING_STATUSES);
 
 export function isSlotConsumingStatus(status) {
   return SLOT_CONSUMING_STATUS_SET.has(String(status || '').trim());
+}
+
+/** Shared lifecycle predicate used by queries and status/archive transitions. */
+export function orderOccupiesSlot(status, archived = false, isWalkIn = false) {
+  return !archived && !isWalkIn && isSlotConsumingStatus(status);
+}
+
+export function captureOrderSlotOccupancy(order = {}) {
+  const slot = buildSlotCounterKey(order.bookingDate, order.bookingTime);
+  return {
+    status: order.status,
+    archived: order.archived === true,
+    isWalkIn: order.isWalkIn === true,
+    slot,
+    occupies: Boolean(slot) && orderOccupiesSlot(order.status, order.archived, order.isWalkIn),
+  };
 }
 
 // ── Parse 'HH:MM' into total minutes since midnight ───────────────────────────
@@ -75,6 +122,9 @@ export function normalizeBookingTime(timeStr) {
   // Already HH:MM (24-hour) format
   if (/^\d{1,2}:\d{2}$/.test(trimmed)) {
     const [h, m] = trimmed.split(':').map(Number);
+    if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) {
+      return null;
+    }
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
@@ -84,6 +134,7 @@ export function normalizeBookingTime(timeStr) {
     let h = parseInt(match[1], 10);
     const m = parseInt(match[2], 10);
     const period = match[3].toUpperCase();
+    if (h < 1 || h > 12 || m < 0 || m > 59) return null;
     if (period === 'AM') {
       if (h === 12) h = 0;
     } else if (h !== 12) {
@@ -114,7 +165,16 @@ export function normalizeBookingDate(dateStr) {
   if (!dateStr || typeof dateStr !== 'string') return null;
   const trimmed = dateStr.trim();
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const [year, month, day] = trimmed.split('-').map(Number);
+    const parsed = new Date(year, month - 1, day);
+    if (
+      parsed.getFullYear() !== year
+      || parsed.getMonth() !== month - 1
+      || parsed.getDate() !== day
+    ) return null;
+    return trimmed;
+  }
 
   const parsed = new Date(trimmed);
   if (Number.isNaN(parsed.getTime())) return null;
@@ -122,45 +182,11 @@ export function normalizeBookingDate(dateStr) {
   return getLocalDateString(parsed);
 }
 
-function normalizeRecurringSchedule(schedule) {
-  const defaultsByDow = new Map(
-    buildDefaultRecurringSchedule().map((entry) => [entry.dow, entry])
-  );
-
-  const toPlainEntry = (entry) => {
-    if (!entry || typeof entry !== 'object') return null;
-    if (typeof entry.toObject === 'function') {
-      return entry.toObject();
-    }
-    return entry;
-  };
-
-  const source = Array.isArray(schedule) && schedule.length > 0
-    ? schedule
-    : buildDefaultRecurringSchedule();
-
-  const byDow = new Map();
-  for (const entry of source) {
-    const plainEntry = toPlainEntry(entry);
-    if (!plainEntry || !Number.isInteger(plainEntry.dow) || plainEntry.dow < 0 || plainEntry.dow > 6) continue;
-    byDow.set(plainEntry.dow, {
-      ...defaultsByDow.get(plainEntry.dow),
-      ...plainEntry,
-    });
-  }
-
-  return Array.from({ length: 7 }, (_, dow) => ({
-    ...defaultsByDow.get(dow),
-    ...(byDow.get(dow) || {}),
-    dow,
-  }));
-}
-
 async function getAvailabilityConfig() {
-  const doc = await ShopAvailability.findOne().lean();
+  const doc = await ShopAvailability.getSingleton();
   return {
-    emergencyClosed: !!doc?.emergencyClosed,
-    recurringSchedule: normalizeRecurringSchedule(doc?.recurringSchedule),
+    emergencyClosed: !!doc.emergencyClosed,
+    recurringSchedule: normalizeRecurringSchedule(doc.recurringSchedule),
   };
 }
 
@@ -201,6 +227,21 @@ function buildBookingDateMatchValues(normalizedYyyyMmDd) {
     values.add(`${y}/${String(mo).padStart(2, '0')}/${String(d).padStart(2, '0')}`);
     values.add(`${mo}/${d}/${y}`);
     values.add(`${String(mo).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y}`);
+
+    const localDate = new Date(y, mo - 1, d);
+    for (const month of [
+      localDate.toLocaleString('en-US', { month: 'short' }),
+      localDate.toLocaleString('en-US', { month: 'long' }),
+    ]) {
+      values.add(`${month} ${d}, ${y}`);
+      const weekday = localDate.toLocaleString('en-US', { weekday: 'short' });
+      values.add(`${weekday}, ${month} ${d}, ${y}`);
+    }
+    values.add(localDate.toDateString());
+
+    // Known legacy String/JSON serialization of a date-only appointment.
+    values.add(`${normalizedYyyyMmDd}T00:00:00.000Z`);
+    values.add(`${normalizedYyyyMmDd}T00:00:00Z`);
   }
   return [...values];
 }
@@ -216,6 +257,8 @@ async function loadActiveBookingsForDate(normalizedDate, excludeOrderId = null) 
 
   const query = {
     status: { $in: SLOT_CONSUMING_STATUSES },
+    archived: { $ne: true },
+    isWalkIn: { $ne: true },
     bookingDate: { $in: dateValues },
     ...(excludeOrderId ? { _id: { $ne: excludeOrderId } } : {}),
   };
@@ -250,12 +293,14 @@ function buildSlotAvailability(daySchedule, bookedCountByTime = {}) {
   const capacity = Math.max(0, Number(daySchedule?.slots || 0));
   const times = generateTimeSlots(daySchedule, DEFAULT_SLOT_DURATION_MINUTES);
 
-  return times.map((time) => {
+  const rows = times.map((time) => {
     const booked = Math.max(0, Number(bookedCountByTime[time] || 0));
     const available = Math.max(0, capacity - booked);
     const ratio = capacity > 0 ? booked / capacity : 1;
     const status =
-      capacity <= 0 || available <= 0
+      booked > capacity
+        ? 'OVER_CAPACITY'
+        : capacity <= 0 || available <= 0
         ? 'FULL'
         : ratio >= 0.8
           ? 'ALMOST_FULL'
@@ -267,22 +312,64 @@ function buildSlotAvailability(daySchedule, bookedCountByTime = {}) {
       capacity,
       booked,
       available,
+      overCapacityBy: Math.max(0, booked - capacity),
       status,
     };
+  });
+
+  // Preserve appointments that predate an Admin hours reduction. They are not
+  // bookable slots anymore, but remain visible as capacity-zero overages.
+  const generatedTimes = new Set(times);
+  for (const [rawTime, rawBooked] of Object.entries(bookedCountByTime || {})) {
+    const time = normalizeBookingTime(rawTime);
+    const booked = Math.max(0, Number(rawBooked || 0));
+    if (!time || booked <= 0 || generatedTimes.has(time)) continue;
+    rows.push({
+      time,
+      label: formatSlotTimeForDisplay(time),
+      capacity: 0,
+      booked,
+      available: 0,
+      overCapacityBy: booked,
+      status: 'OVER_CAPACITY',
+      outOfSchedule: true,
+    });
+  }
+
+  return rows.sort((a, b) => a.time.localeCompare(b.time));
+}
+
+function applyElapsedSlotState(slots, dateStr, shopClock = getShopLocalClock()) {
+  if (dateStr > shopClock.date) return slots;
+
+  return slots.map((slot) => {
+    const elapsed = dateStr < shopClock.date || toMinutes(slot.time) <= shopClock.minutes;
+    return elapsed
+      ? {
+          ...slot,
+          available: 0,
+          elapsed: true,
+          status: slot.status === 'OVER_CAPACITY' ? slot.status : 'ELAPSED',
+        }
+      : slot;
   });
 }
 
 function summarizeSlotAvailability(slots) {
   const rows = Array.isArray(slots) ? slots : [];
   const totalCapacity = rows.reduce((sum, slot) => sum + Math.max(0, Number(slot.capacity || 0)), 0);
-  const bookedSlots = rows.reduce((sum, slot) => {
-    const capacity = Math.max(0, Number(slot.capacity || 0));
-    const booked = Math.max(0, Number(slot.booked || 0));
-    return sum + Math.min(booked, capacity);
-  }, 0);
+  const bookedSlots = rows.reduce(
+    (sum, slot) => sum + Math.max(0, Number(slot.booked || 0)),
+    0
+  );
   const availableSlots = rows.reduce((sum, slot) => sum + Math.max(0, Number(slot.available || 0)), 0);
   const fullSlots = rows.filter((slot) => slot.status === 'FULL').length;
   const almostFullSlots = rows.filter((slot) => slot.status === 'ALMOST_FULL').length;
+  const overCapacitySlots = rows.filter((slot) => slot.status === 'OVER_CAPACITY').length;
+  const overCapacityBy = rows.reduce(
+    (sum, slot) => sum + Math.max(0, Number(slot.overCapacityBy || 0)),
+    0
+  );
 
   return {
     totalCapacity,
@@ -290,7 +377,11 @@ function summarizeSlotAvailability(slots) {
     availableSlots,
     fullSlots,
     almostFullSlots,
-    allSlotsFull: rows.length > 0 && rows.every((slot) => slot.status === 'FULL'),
+    overCapacitySlots,
+    overCapacityBy,
+    allSlotsFull: rows.length > 0 && rows.every(
+      (slot) => Math.max(0, Number(slot.available || 0)) <= 0
+    ),
   };
 }
 
@@ -309,25 +400,64 @@ async function countActiveBookingsForSlot(normalizedDate, normalizedTime, exclud
   }, 0);
 }
 
+async function ensureBookingSlotCounter(key) {
+  await BookingSlotCounter.init();
+  try {
+    await BookingSlotCounter.updateOne(
+      { date: key.date, time: key.time },
+      {
+        $setOnInsert: {
+          date: key.date,
+          time: key.time,
+          count: 0,
+        },
+      },
+      { upsert: true }
+    );
+  } catch (error) {
+    // Two first-time requests for the same slot may race to create the unique
+    // counter row. The winning insert is exactly the row both requests need.
+    if (error?.code !== 11000) throw error;
+  }
+}
+
 export async function syncBookingSlotCounter(bookingDate, bookingTime, { excludeOrderId = null } = {}) {
   const key = buildSlotCounterKey(bookingDate, bookingTime);
   if (!key) return { ok: false, errorCode: 'INVALID_SLOT', message: 'Invalid booking date or time.' };
 
   const actualCount = await countActiveBookingsForSlot(key.date, key.time, excludeOrderId);
+  await ensureBookingSlotCounter(key);
   await BookingSlotCounter.updateOne(
     { date: key.date, time: key.time },
     {
       $max: { count: actualCount },
       $set: { updatedAt: new Date() },
-      $setOnInsert: { date: key.date, time: key.time, createdAt: new Date() },
     },
-    { upsert: true }
+    { upsert: false }
   );
 
   return { ok: true, ...key, actualCount };
 }
 
 async function getTimeSlotAvailability(bookingDate, bookingTime, { excludeOrderId = null } = {}) {
+  const requestedDate = normalizeBookingDate(bookingDate);
+  if (!requestedDate) {
+    return {
+      ok: false,
+      errorCode: 'INVALID_DATE',
+      message: 'Invalid booking date.',
+      error: 'Invalid booking date.',
+    };
+  }
+  if (requestedDate < getShopLocalClock().date) {
+    return {
+      ok: false,
+      errorCode: 'DATE_IN_PAST',
+      message: 'Appointments cannot be booked in the past.',
+      error: 'Appointments cannot be booked in the past.',
+    };
+  }
+
   const snapshot = await getDateAvailabilitySnapshot(bookingDate, { excludeOrderId });
   if (snapshot.errorCode === 'INVALID_DATE') {
     return {
@@ -367,6 +497,16 @@ async function getTimeSlotAvailability(bookingDate, bookingTime, { excludeOrderI
       errorCode: 'SLOT_UNAVAILABLE',
       message: 'Selected time is outside the shop operating hours.',
       error: 'Selected time is outside the shop operating hours.',
+    };
+  }
+
+  if (slot.elapsed === true || slot.status === 'ELAPSED') {
+    return {
+      ok: false,
+      errorCode: 'TIME_IN_PAST',
+      message: 'Selected time slot has already elapsed.',
+      error: 'Selected time slot has already elapsed.',
+      slot,
     };
   }
 
@@ -423,6 +563,7 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
     };
   }
 
+  const shopClock = getShopLocalClock();
   const config = await getAvailabilityConfig();
   const daySchedule = getDaySchedule(config.recurringSchedule, normalizedDate);
   const closure = await findClosureForDate(normalizedDate);
@@ -430,10 +571,19 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
   const { bookedCount, bookedCountByTime, bookedTimes } = aggregateBookingsForDate(bookings, normalizedDate);
 
   const slotsLimit = Math.max(0, Number(daySchedule?.slots || 0));
-  const slots = buildSlotAvailability(daySchedule, bookedCountByTime);
+  const slots = applyElapsedSlotState(
+    buildSlotAvailability(daySchedule, bookedCountByTime),
+    normalizedDate,
+    shopClock
+  );
   const slotSummary = summarizeSlotAvailability(slots);
   const remaining = slotSummary.availableSlots;
-  const today = getLocalDateString(new Date());
+  const today = shopClock.date;
+  const closedBookingRows = applyElapsedSlotState(
+    buildSlotAvailability({ open: false, slots: 0 }, bookedCountByTime),
+    normalizedDate,
+    shopClock
+  );
 
   if (config.emergencyClosed && normalizedDate === today) {
     return {
@@ -449,9 +599,9 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       remaining,
       bookedCountByTime,
       bookedTimes,
-      slots: [],
+      slots: closedBookingRows,
       totalCapacity: 0,
-      fullTimes: [],
+      fullTimes: closedBookingRows.map((slot) => slot.time),
     };
   }
 
@@ -470,9 +620,9 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       remaining,
       bookedCountByTime,
       bookedTimes,
-      slots: [],
+      slots: closedBookingRows,
       totalCapacity: 0,
-      fullTimes: [],
+      fullTimes: closedBookingRows.map((slot) => slot.time),
     };
   }
 
@@ -490,9 +640,9 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       remaining,
       bookedCountByTime,
       bookedTimes,
-      slots: [],
+      slots: closedBookingRows,
       totalCapacity: 0,
-      fullTimes: [],
+      fullTimes: closedBookingRows.map((slot) => slot.time),
     };
   }
 
@@ -512,9 +662,13 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       bookedTimes,
       slots,
       totalCapacity: slotSummary.totalCapacity,
-      fullTimes: slots.filter((slot) => slot.status === 'FULL').map((slot) => slot.time),
+      fullTimes: slots
+        .filter((slot) => slot.status === 'FULL' || slot.status === 'OVER_CAPACITY')
+        .map((slot) => slot.time),
       fullSlots: slotSummary.fullSlots,
       almostFullSlots: slotSummary.almostFullSlots,
+      overCapacitySlots: slotSummary.overCapacitySlots,
+      overCapacityBy: slotSummary.overCapacityBy,
     };
   }
 
@@ -530,9 +684,13 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
     bookedTimes,
     slots,
     totalCapacity: slotSummary.totalCapacity,
-    fullTimes: slots.filter((slot) => slot.status === 'FULL').map((slot) => slot.time),
+    fullTimes: slots
+      .filter((slot) => slot.status === 'FULL' || slot.status === 'OVER_CAPACITY')
+      .map((slot) => slot.time),
     fullSlots: slotSummary.fullSlots,
     almostFullSlots: slotSummary.almostFullSlots,
+    overCapacitySlots: slotSummary.overCapacitySlots,
+    overCapacityBy: slotSummary.overCapacityBy,
   };
 }
 
@@ -566,14 +724,46 @@ export async function getSlotsForDate(dateStr) {
     && snapshot.errorCode !== 'DATE_FULL'
     && snapshot.errorCode !== 'INVALID_DATE'
   ) {
-    return { date: resolvedDate, isClosed: true, slots: [] };
+    return {
+      date: resolvedDate,
+      isClosed: true,
+      closedReason: snapshot.errorCode || 'DATE_UNAVAILABLE',
+      bookedSlots: snapshot.bookedCount || 0,
+      perSlotCapacity: 0,
+      slots: snapshot.slots || [],
+      status: 'CLOSED',
+    };
   }
 
   if (snapshot.errorCode === 'INVALID_DATE') {
-    return { date: resolvedDate, isClosed: true, slots: [] };
+    return {
+      date: resolvedDate,
+      isClosed: true,
+      closedReason: 'INVALID_DATE',
+      bookedSlots: 0,
+      perSlotCapacity: 0,
+      slots: [],
+      status: 'CLOSED',
+    };
   }
 
-  return { date: resolvedDate, isClosed: false, slots: snapshot.slots || [] };
+  const status = snapshot.overCapacitySlots > 0
+    ? 'OVER_CAPACITY'
+    : snapshot.errorCode === 'DATE_FULL'
+      ? 'FULL'
+      : 'AVAILABLE';
+  return {
+    date: resolvedDate,
+    isClosed: false,
+    bookedSlots: snapshot.bookedCount || 0,
+    perSlotCapacity: Math.max(0, Number(snapshot.daySchedule?.slots || 0)),
+    totalCapacity: snapshot.totalCapacity || 0,
+    availableSlots: snapshot.remaining || 0,
+    overCapacitySlots: snapshot.overCapacitySlots || 0,
+    overCapacityBy: snapshot.overCapacityBy || 0,
+    slots: snapshot.slots || [],
+    status,
+  };
 }
 
 /**
@@ -593,7 +783,8 @@ export async function getSlotsForRange(startStr, endStr) {
   }
 
   const dateSet = new Set(dates);
-  const today = getLocalDateString(new Date());
+  const shopClock = getShopLocalClock();
+  const today = shopClock.date;
   const config = await getAvailabilityConfig();
 
   const closures = await ScheduledClosure.find({
@@ -603,10 +794,14 @@ export async function getSlotsForRange(startStr, endStr) {
 
   const activeBookings = await Order.find({
     status: { $in: SLOT_CONSUMING_STATUSES },
+    archived: { $ne: true },
+    isWalkIn: { $ne: true },
   }).select('bookingDate bookingTime').lean();
 
   const pendingBookings = await Order.find({
     status: 'pending_confirmation',
+    archived: { $ne: true },
+    isWalkIn: { $ne: true },
   }).select('bookingDate').lean();
 
   const bookedByDateTime = {};
@@ -640,13 +835,17 @@ export async function getSlotsForRange(startStr, endStr) {
       const closureLabel = closure
         ? [closure.reason, closure.note].filter(Boolean).join(' — ')
         : null;
+      const bookedSlots = Object.values(bookedByDateTime[dateStr] || {}).reduce(
+        (sum, count) => sum + Math.max(0, Number(count || 0)),
+        0
+      );
       return {
         date: dateStr,
         isClosed: true,
         closedReason,
         closureLabel,
         totalSlots: 0,
-        bookedSlots: 0,
+        bookedSlots,
         availableSlots: 0,
         /** Max bookings allowed in one time band (admin "Capacity per time slot"). */
         perSlotCapacity: 0,
@@ -656,12 +855,18 @@ export async function getSlotsForRange(startStr, endStr) {
         timeBandCount: 0,
         fullSlots: 0,
         almostFullSlots: 0,
+        overCapacitySlots: 0,
+        overCapacityBy: 0,
         pendingCount: pendingByDate[dateStr] || 0,
         status: 'CLOSED',
       };
     }
 
-    const slots = buildSlotAvailability(daySchedule, bookedByDateTime[dateStr] || {});
+    const slots = applyElapsedSlotState(
+      buildSlotAvailability(daySchedule, bookedByDateTime[dateStr] || {}),
+      dateStr,
+      shopClock
+    );
     const summary = summarizeSlotAvailability(slots);
     const perSlotCapacity = Math.max(0, Number(daySchedule?.slots || 0));
     const stillBookable = slots.filter((s) => Math.max(0, Number(s.available || 0)) > 0);
@@ -672,7 +877,9 @@ export async function getSlotsForRange(startStr, endStr) {
     const timeBandCount = slots.length;
 
     let status = 'AVAILABLE';
-    if (summary.totalCapacity <= 0 || summary.allSlotsFull) status = 'FULL';
+    if (dateStr < shopClock.date) status = 'PAST';
+    else if (summary.overCapacitySlots > 0) status = 'OVER_CAPACITY';
+    else if (summary.totalCapacity <= 0 || summary.allSlotsFull) status = 'FULL';
     else if (summary.availableSlots / summary.totalCapacity <= 0.2 || summary.almostFullSlots > 0) status = 'ALMOST_FULL';
 
     return {
@@ -686,6 +893,8 @@ export async function getSlotsForRange(startStr, endStr) {
       timeBandCount,
       fullSlots: summary.fullSlots,
       almostFullSlots: summary.almostFullSlots,
+      overCapacitySlots: summary.overCapacitySlots,
+      overCapacityBy: summary.overCapacityBy,
       pendingCount: pendingByDate[dateStr] || 0,
       status,
     };
@@ -699,7 +908,14 @@ export async function getSlotsForRange(startStr, endStr) {
  * Returns { ok: true } or { ok: false, errorCode, message, error }.
  */
 export async function validateSlotAvailability(bookingDate, bookingTime, excludeOrderId = null) {
-  if (!bookingDate || !bookingTime) return { ok: true };
+  if (!bookingDate || !bookingTime) {
+    return {
+      ok: false,
+      errorCode: 'INVALID_SLOT',
+      message: 'Both booking date and booking time are required.',
+      error: 'Both booking date and booking time are required.',
+    };
+  }
 
   return getTimeSlotAvailability(bookingDate, bookingTime, { excludeOrderId });
 }
@@ -732,6 +948,25 @@ export async function reserveBookingSlot(bookingDate, bookingTime) {
     };
   }
 
+  // Re-read the canonical Admin schedule after the atomic increment. If an
+  // Admin closed/removed/lowered the slot before this linearization point, undo
+  // this hold. A later Admin change preserves the reservation already won.
+  const currentAvailability = await getTimeSlotAvailability(availability.date, availability.time);
+  if (
+    !currentAvailability.ok
+    || counter.count > Math.max(0, Number(currentAvailability.slot?.capacity || 0))
+  ) {
+    await releaseBookingSlot(availability.date, availability.time);
+    if (!currentAvailability.ok) return currentAvailability;
+    return {
+      ok: false,
+      errorCode: 'SLOT_FULL',
+      message: 'Selected time slot is fully booked.',
+      error: 'Selected time slot is fully booked.',
+      slot: currentAvailability.slot,
+    };
+  }
+
   return {
     ok: true,
     date: availability.date,
@@ -754,4 +989,151 @@ export async function releaseBookingSlot(bookingDate, bookingTime) {
   );
 
   return { ok: true, ...key };
+}
+
+async function acquireExistingOrderSlotHold(slot, orderId) {
+  await syncBookingSlotCounter(slot.date, slot.time, { excludeOrderId: orderId || null });
+  await BookingSlotCounter.updateOne(
+    { date: slot.date, time: slot.time },
+    { $inc: { count: 1 }, $set: { updatedAt: new Date() } }
+  );
+  return slot;
+}
+
+/** Persist an existing lifecycle change while accounting for its new slot hold before save. */
+export async function saveOrderWithSlotTransition(order, beforeState, saveOptions = {}) {
+  const before = beforeState?.slot !== undefined
+    ? beforeState
+    : captureOrderSlotOccupancy(beforeState || {});
+  const planned = captureOrderSlotOccupancy(order);
+  const samePlannedSlot = Boolean(
+    before.slot
+    && planned.slot
+    && before.slot.date === planned.slot.date
+    && before.slot.time === planned.slot.time
+  );
+  let acquiredSlot = null;
+
+  if (planned.occupies && (!before.occupies || !samePlannedSlot)) {
+    const reservation = await reserveBookingSlot(planned.slot.date, planned.slot.time);
+    if (!reservation.ok) {
+      const error = new Error(
+        reservation.message || reservation.error || 'Selected time slot is no longer available.'
+      );
+      error.status = 409;
+      error.statusCode = 409;
+      error.code = reservation.errorCode || 'SLOT_FULL';
+      error.errorCode = error.code;
+      error.slotCheck = reservation;
+      throw error;
+    }
+    acquiredSlot = { date: reservation.date, time: reservation.time };
+  }
+
+  try {
+    await order.save(saveOptions);
+  } catch (error) {
+    if (acquiredSlot) await releaseBookingSlot(acquiredSlot.date, acquiredSlot.time);
+    throw error;
+  }
+
+  const after = captureOrderSlotOccupancy(order);
+  const acquiredStillApplies = Boolean(
+    acquiredSlot
+    && after.occupies
+    && after.slot?.date === acquiredSlot.date
+    && after.slot?.time === acquiredSlot.time
+  );
+  if (acquiredSlot && !acquiredStillApplies) {
+    await releaseBookingSlot(acquiredSlot.date, acquiredSlot.time);
+  }
+
+  const sameFinalSlot = Boolean(
+    before.slot
+    && after.slot
+    && before.slot.date === after.slot.date
+    && before.slot.time === after.slot.time
+  );
+  if (before.occupies && (!after.occupies || !sameFinalSlot)) {
+    await releaseBookingSlot(before.slot.date, before.slot.time);
+  }
+
+  return order;
+}
+
+/**
+ * Reconcile a persisted lifecycle transition for an existing appointment.
+ * This does not admit a new booking; it mirrors the saved Order in the atomic
+ * counter, including legitimate over-capacity state after an Admin reduction.
+ */
+export async function reconcilePersistedOrderSlotTransition(beforeState, orderAfter) {
+  const before = beforeState?.slot !== undefined
+    ? beforeState
+    : captureOrderSlotOccupancy(beforeState || {});
+  const after = captureOrderSlotOccupancy(orderAfter || {});
+  const sameSlot = Boolean(
+    before.slot
+    && after.slot
+    && before.slot.date === after.slot.date
+    && before.slot.time === after.slot.time
+  );
+
+  if (before.occupies && (!after.occupies || !sameSlot)) {
+    await releaseBookingSlot(before.slot.date, before.slot.time);
+  }
+  if (after.occupies && (!before.occupies || !sameSlot)) {
+    await acquireExistingOrderSlotHold(after.slot, orderAfter?._id);
+  }
+
+  return { before, after };
+}
+
+/**
+ * Counter-safe companion for hard-delete cascades. Call only after the Order
+ * deletion succeeds and reports deletedCount > 0. Callers preload the rows, so
+ * that result guard prevents a concurrent duplicate cascade from releasing the
+ * same counters twice.
+ */
+export async function releaseBookingSlotsForOrders(orders = []) {
+  const grouped = new Map();
+  for (const order of orders) {
+    if (!orderOccupiesSlot(order?.status, order?.archived, order?.isWalkIn)) continue;
+    const key = buildSlotCounterKey(order.bookingDate, order.bookingTime);
+    if (!key) continue;
+    const id = `${key.date}|${key.time}`;
+    grouped.set(id, { ...key, count: (grouped.get(id)?.count || 0) + 1 });
+  }
+
+  await Promise.all(
+    [...grouped.values()].map(async ({ date, time, count }) => {
+      for (let i = 0; i < count; i += 1) {
+        await releaseBookingSlot(date, time);
+      }
+    })
+  );
+  return { released: [...grouped.values()].reduce((sum, row) => sum + row.count, 0) };
+}
+
+/**
+ * Atomically delete matching Orders one at a time and release capacity from
+ * each document's state at the exact delete point. This avoids stale-preload
+ * races with concurrent cancellation, completion, or archiving transitions.
+ */
+export async function deleteOrdersAndReleaseSlotCounters(filter) {
+  if (!filter || typeof filter !== 'object' || Object.keys(filter).length === 0) {
+    throw new Error('A scoped Order deletion filter is required.');
+  }
+
+  let deletedCount = 0;
+  while (true) {
+    const deleted = await Order.findOneAndDelete(filter)
+      .select('bookingDate bookingTime status archived isWalkIn')
+      .lean();
+    if (!deleted) break;
+
+    deletedCount += 1;
+    await releaseBookingSlotsForOrders([deleted]);
+  }
+
+  return { acknowledged: true, deletedCount };
 }

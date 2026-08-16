@@ -144,7 +144,7 @@ export const en = {
         email: "Email",
         emailValue: "hello@autoshine.ph",
         hours: "Business Hours",
-        hoursValue: "Mon – Sat: 8:00 AM – 6:00 PM",
+        hoursValue: "Contact us for current hours",
         sendMessage: "Send a Message",
         yourName: "Your Name",
         yourEmail: "Your Email",

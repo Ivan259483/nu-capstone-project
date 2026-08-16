@@ -22,7 +22,7 @@ export interface AvailableSlotsResponse {
         capacity: number;
         booked: number;
         available: number;
-        status: 'AVAILABLE' | 'ALMOST_FULL' | 'FULL';
+        status: 'AVAILABLE' | 'ALMOST_FULL' | 'FULL' | 'OVER_CAPACITY';
     }[];
     unavailable?: boolean;
     errorCode?: OrderAvailabilityErrorCode | null;
@@ -584,11 +584,14 @@ export const OrderService = {
      * @param {string} date - The date to check (YYYY-MM-DD)
      */
     async getAvailableSlots(date: string): Promise<AvailableSlotsResponse> {
-        const data = await cachedGet<AvailableSlotsResponse>(
-            `/orders/available-slots?date=${date}`,
-            undefined,
-            TTL.MEDIUM
-        );
+        // Capacity can change while a booking flow is open. Availability reads
+        // are intentionally uncached so every caller sees the persisted Admin
+        // configuration and current exact-slot occupancy.
+        const response = await api.get<AvailableSlotsResponse>('/orders/available-slots', {
+            params: { date },
+            meta: { suppressErrorToast: true },
+        } as any);
+        const data = response.data;
         return {
             success: !!data?.success,
             bookedSlots: Array.isArray(data?.bookedSlots) ? data.bookedSlots : [],

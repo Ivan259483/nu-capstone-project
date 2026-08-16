@@ -8,28 +8,61 @@ import { formatCalendarCustomerName } from './calendarFormatters';
 interface RescheduleModalProps {
   booking: CalendarBooking;
   targetDate: string;
+  allowDateChange?: boolean;
   onClose: () => void;
   onConfirm: (bookingId: string, newDate: string, newTime: string) => Promise<void>;
 }
 
-export default function RescheduleModal({ booking, targetDate, onClose, onConfirm }: RescheduleModalProps) {
+export default function RescheduleModal({
+  booking,
+  targetDate,
+  allowDateChange = false,
+  onClose,
+  onConfirm,
+}: RescheduleModalProps) {
   const [loading, setLoading] = useState(true);
-  const [timeSlots, setTimeSlots] = useState<{ time: string; label?: string; status: string }[]>([]);
+  const [timeSlots, setTimeSlots] = useState<{
+    time: string;
+    label?: string;
+    status: string;
+    available: number;
+  }[]>([]);
+  const [selectedDate, setSelectedDate] = useState(targetDate);
   const [selectedTime, setSelectedTime] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    setSelectedDate(targetDate);
+  }, [targetDate]);
+
+  useEffect(() => {
+    let active = true;
     async function load() {
-      const data = await fetchSlotsByDate(targetDate);
-      if (data && !data.isClosed && data.slots) {
-        setTimeSlots(data.slots.filter(s => s.status !== 'FULL'));
-      } else {
-        setTimeSlots([]);
+      setLoading(true);
+      setSelectedTime('');
+      try {
+        const data = await fetchSlotsByDate(selectedDate);
+        if (!active) return;
+        if (data && !data.isClosed && data.slots) {
+          setTimeSlots(data.slots.filter((slot) => (
+            Number(slot.available) > 0
+            && slot.status !== 'FULL'
+            && slot.status !== 'OVER_CAPACITY'
+          )));
+        } else {
+          setTimeSlots([]);
+        }
+      } catch {
+        if (active) setTimeSlots([]);
+      } finally {
+        if (active) setLoading(false);
       }
-      setLoading(false);
     }
     load();
-  }, [targetDate]);
+    return () => {
+      active = false;
+    };
+  }, [selectedDate]);
 
   const handleConfirm = async () => {
     if (!selectedTime) {
@@ -38,15 +71,16 @@ export default function RescheduleModal({ booking, targetDate, onClose, onConfir
     }
     setSubmitting(true);
     try {
-      await onConfirm(booking._id || booking.id!, targetDate, selectedTime);
+      await onConfirm(booking._id || booking.id!, selectedDate, selectedTime);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const formattedTargetDate = new Date(targetDate).toLocaleDateString('en-PH', {
+  const formattedTargetDate = new Date(`${selectedDate}T00:00:00`).toLocaleDateString('en-PH', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
   });
+  const minimumDate = new Date().toLocaleDateString('en-CA');
   const customerLabel = formatCalendarCustomerName(booking.customerName);
 
   return (
@@ -68,7 +102,7 @@ export default function RescheduleModal({ booking, targetDate, onClose, onConfir
             <h3 className="font-bold text-slate-900">Reschedule Booking</h3>
             <p className="text-xs text-slate-500 mt-0.5">{customerLabel} • {booking.serviceName || booking.serviceType}</p>
           </div>
-          <button onClick={onClose} disabled={submitting} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
+          <button onClick={onClose} disabled={submitting} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400" aria-label="Close reschedule dialog">
             <X size={16} />
           </button>
         </div>
@@ -77,10 +111,30 @@ export default function RescheduleModal({ booking, targetDate, onClose, onConfir
         <div className="p-5">
           <div className="mb-4">
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Target Date</label>
-            <div className="flex items-center gap-2 mt-1.5 p-3 rounded-2xl bg-slate-50/90 text-slate-800 text-sm font-medium border-0 shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
-              <CalIcon size={16} className="text-blue-500" />
-              {formattedTargetDate}
-            </div>
+            {allowDateChange ? (
+              <div className="mt-1.5 rounded-2xl bg-slate-50/90 p-3 shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
+                  <CalIcon size={16} className="text-blue-500" />
+                  {formattedTargetDate}
+                </div>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  min={minimumDate}
+                  disabled={submitting}
+                  onChange={(event) => {
+                    if (event.target.value) setSelectedDate(event.target.value);
+                  }}
+                  className="mt-2 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100 disabled:opacity-60"
+                  aria-label="Choose a new appointment date"
+                />
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mt-1.5 p-3 rounded-2xl bg-slate-50/90 text-slate-800 text-sm font-medium border-0 shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
+                <CalIcon size={16} className="text-blue-500" />
+                {formattedTargetDate}
+              </div>
+            )}
           </div>
 
           <div>

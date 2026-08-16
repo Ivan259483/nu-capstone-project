@@ -1,116 +1,18 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
-import ShopAvailability, { buildDefaultRecurringSchedule } from '../../models/shopAvailability.model.js';
+import ShopAvailability, {
+  normalizeRecurringSchedule,
+  validateRecurringScheduleInput,
+} from '../../models/shopAvailability.model.js';
 import ScheduledClosure from '../../models/scheduledClosure.model.js';
 import { emitAvailabilityUpdated } from '../../utils/availabilityBroadcast.utils.js';
+import { authorize } from '../../middleware/auth.middleware.js';
+import { SETTINGS_MANAGER_ROLES } from '../../constants/roles.js';
 
 const router = Router();
+const requireAvailabilityAdmin = authorize(...SETTINGS_MANAGER_ROLES);
 
-const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const CLOSURE_REASONS = new Set(['Holiday', 'Renovation', 'Emergency', 'Staff Leave', 'Custom']);
-
-function toMinutes(hhmm) {
-  const [h, m] = hhmm.split(':').map(Number);
-  return h * 60 + m;
-}
-
-function normalizeRecurringSchedule(schedule) {
-  const defaultsByDow = new Map(
-    buildDefaultRecurringSchedule().map((entry) => [entry.dow, entry])
-  );
-
-  const toPlainEntry = (entry) => {
-    if (!entry || typeof entry !== 'object') return null;
-    if (typeof entry.toObject === 'function') {
-      return entry.toObject();
-    }
-    return entry;
-  };
-
-  const source = Array.isArray(schedule) && schedule.length > 0
-    ? schedule
-    : buildDefaultRecurringSchedule();
-
-  const byDow = new Map();
-  for (const entry of source) {
-    const plainEntry = toPlainEntry(entry);
-    if (plainEntry && Number.isInteger(plainEntry.dow) && plainEntry.dow >= 0 && plainEntry.dow <= 6) {
-      byDow.set(plainEntry.dow, {
-        ...defaultsByDow.get(plainEntry.dow),
-        ...plainEntry,
-      });
-    }
-  }
-
-  return Array.from({ length: 7 }, (_, dow) => ({
-    ...defaultsByDow.get(dow),
-    ...(byDow.get(dow) || {}),
-    dow,
-  }));
-}
-
-function validateScheduleInput(schedule, { requireAllDays }) {
-  if (!Array.isArray(schedule) || schedule.length === 0) {
-    return { error: 'Schedule must be a non-empty array.' };
-  }
-
-  const seen = new Set();
-  const sanitized = [];
-
-  for (let i = 0; i < schedule.length; i += 1) {
-    const row = schedule[i];
-    if (!row || typeof row !== 'object' || Array.isArray(row)) {
-      return { error: `Schedule row ${i + 1} must be an object.` };
-    }
-
-    const dow = Number(row.dow);
-    if (!Number.isInteger(dow) || dow < 0 || dow > 6) {
-      return { error: `Schedule row ${i + 1} has invalid dow. Expected 0..6.` };
-    }
-
-    if (seen.has(dow)) {
-      return { error: `Schedule has duplicate dow ${dow}.` };
-    }
-    seen.add(dow);
-
-    if (typeof row.open !== 'boolean') {
-      return { error: `Schedule row ${i + 1} must include boolean "open".` };
-    }
-
-    if (typeof row.from !== 'string' || !TIME_RE.test(row.from)) {
-      return { error: `Schedule row ${i + 1} has invalid "from". Expected HH:MM.` };
-    }
-
-    if (typeof row.to !== 'string' || !TIME_RE.test(row.to)) {
-      return { error: `Schedule row ${i + 1} has invalid "to". Expected HH:MM.` };
-    }
-
-    if (row.open && toMinutes(row.from) >= toMinutes(row.to)) {
-      return { error: `Schedule row ${i + 1} must have "from" earlier than "to" when open is true.` };
-    }
-
-    const slots = Number(row.slots);
-    if (!Number.isFinite(slots) || slots < 0) {
-      return { error: `Schedule row ${i + 1} has invalid "slots". Expected a non-negative number.` };
-    }
-
-    sanitized.push({
-      dow,
-      open: row.open,
-      from: row.from,
-      to: row.to,
-      slots,
-    });
-  }
-
-  if (requireAllDays && seen.size !== 7) {
-    return { error: 'Recurring schedule must include all days (dow 0..6).' };
-  }
-
-  return {
-    schedule: sanitized.sort((a, b) => a.dow - b.dow),
-  };
-}
 
 function startOfLocalDay(value) {
   const date = new Date(value);
@@ -163,43 +65,29 @@ function sanitizeClosureInput(input, index = 0) {
 }
 
 async function getMergedRecurringSchedule() {
-  const doc = await ShopAvailability.findOne().lean();
-  return normalizeRecurringSchedule(doc?.recurringSchedule);
+  const doc = await ShopAvailability.getSingleton();
+  return normalizeRecurringSchedule(doc.recurringSchedule);
 }
 
 router.get('/emergency', async (_req, res, next) => {
   try {
-    const doc = await ShopAvailability.findOne().lean();
-    return res.json({ emergencyClosed: !!doc?.emergencyClosed });
+    const doc = await ShopAvailability.getSingleton();
+    return res.json({ emergencyClosed: !!doc.emergencyClosed });
   } catch (err) {
     return next(err);
   }
 });
 
-router.patch('/emergency', async (req, res, next) => {
+router.patch('/emergency', requireAvailabilityAdmin, async (req, res, next) => {
   try {
     const { closed } = req.body || {};
     if (typeof closed !== 'boolean') {
       return res.status(400).json({ error: '"closed" must be a boolean.' });
     }
 
-    const doc = await ShopAvailability.findOneAndUpdate(
-      {},
-      {
-        $set: {
-          emergencyClosed: closed,
-          updatedAt: new Date(),
-        },
-        $setOnInsert: {
-          recurringSchedule: buildDefaultRecurringSchedule(),
-        },
-      },
-      {
-        new: true,
-        upsert: true,
-        setDefaultsOnInsert: true,
-      }
-    );
+    const doc = await ShopAvailability.getSingleton();
+    doc.emergencyClosed = closed;
+    await doc.save();
 
     emitAvailabilityUpdated({ type: 'emergency' });
     return res.json({ emergencyClosed: !!doc.emergencyClosed });
@@ -217,7 +105,7 @@ router.get('/closures', async (_req, res, next) => {
   }
 });
 
-router.post('/closures', async (req, res, next) => {
+router.post('/closures', requireAvailabilityAdmin, async (req, res, next) => {
   try {
     const rows = Array.isArray(req.body) ? req.body : [req.body];
     if (rows.length === 0) {
@@ -245,7 +133,7 @@ router.post('/closures', async (req, res, next) => {
   }
 });
 
-router.delete('/closures/:id', async (req, res, next) => {
+router.delete('/closures/:id', requireAvailabilityAdmin, async (req, res, next) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ error: 'Invalid closure id.' });
@@ -272,25 +160,15 @@ router.get('/recurring', async (_req, res, next) => {
   }
 });
 
-router.put('/recurring', async (req, res, next) => {
+router.put('/recurring', requireAvailabilityAdmin, async (req, res, next) => {
   try {
     const { schedule } = req.body || {};
-    const { schedule: normalized, error } = validateScheduleInput(schedule, { requireAllDays: true });
+    const { schedule: normalized, error } = validateRecurringScheduleInput(schedule, { requireAllDays: true });
     if (error) return res.status(400).json({ error });
 
-    const doc = await ShopAvailability.findOneAndUpdate(
-      {},
-      {
-        $set: {
-          recurringSchedule: normalized,
-          updatedAt: new Date(),
-        },
-        $setOnInsert: {
-          emergencyClosed: false,
-        },
-      },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
+    const doc = await ShopAvailability.getSingleton();
+    doc.recurringSchedule = normalized;
+    await doc.save();
 
     emitAvailabilityUpdated({ type: 'recurring' });
     return res.json(normalizeRecurringSchedule(doc.recurringSchedule));
@@ -308,13 +186,14 @@ router.get('/hours', async (_req, res, next) => {
   }
 });
 
-router.put('/hours', async (req, res, next) => {
+router.put('/hours', requireAvailabilityAdmin, async (req, res, next) => {
   try {
     const { hours } = req.body || {};
-    const { schedule: incoming, error } = validateScheduleInput(hours, { requireAllDays: false });
+    const { schedule: incoming, error } = validateRecurringScheduleInput(hours, { requireAllDays: false });
     if (error) return res.status(400).json({ error });
 
-    const current = await getMergedRecurringSchedule();
+    const doc = await ShopAvailability.getSingleton();
+    const current = normalizeRecurringSchedule(doc.recurringSchedule);
     const byDow = new Map(current.map((row) => [row.dow, row]));
     for (const row of incoming) {
       byDow.set(row.dow, row);
@@ -322,19 +201,8 @@ router.put('/hours', async (req, res, next) => {
 
     const merged = Array.from(byDow.values()).sort((a, b) => a.dow - b.dow);
 
-    const doc = await ShopAvailability.findOneAndUpdate(
-      {},
-      {
-        $set: {
-          recurringSchedule: merged,
-          updatedAt: new Date(),
-        },
-        $setOnInsert: {
-          emergencyClosed: false,
-        },
-      },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
+    doc.recurringSchedule = merged;
+    await doc.save();
 
     emitAvailabilityUpdated({ type: 'hours' });
     return res.json(normalizeRecurringSchedule(doc.recurringSchedule));

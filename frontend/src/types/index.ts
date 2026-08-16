@@ -402,13 +402,8 @@ export interface BusinessSettings {
     
     // Sliders
     membershipDiscount?: number;
-    serviceCapacity?: number;
     inventoryThreshold?: number;
     auditLogRetention?: number; // Days
-
-    operatingHours: {
-        [key: string]: { open: string; close: string };
-    };
 
     notifications: {
         emailNewBookings: boolean;

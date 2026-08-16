@@ -48,6 +48,7 @@ import { getApiErrorMessage, invalidateCache } from '@/services/api/client';
 import { bookingService } from '@/services/api/bookingService';
 import { serviceService } from '@/services/api/serviceService';
 import { vehicleService } from '@/services/api/vehicleService';
+import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import type { ServiceOption, Vehicle } from '@/services/api/types';
 import { Palette, BorderRadius, Shadows, TabBarHeight, Spacing } from '@/constants/theme';
 import AnimatedHeader from '@/components/ui/AnimatedHeader';
@@ -93,12 +94,6 @@ const TERTIARY       = '#85CFFF';   // tech/sensor blue
 const MUTED          = '#555555';   // muted elements
 const DIM_TEXT       = '#777777';   // dim body text
 const GHOST          = 'rgba(255,255,255,0.08)'; // ghost border
-
-const TIME_SLOTS = [
-  '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM',
-  '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM',
-  '4:00 PM', '5:00 PM',
-];
 
 // ─── SPF Package Definitions — mirrors Services.tsx exactly ──────────────────
 interface SPFPackage {
@@ -388,7 +383,6 @@ const vc = StyleSheet.create({
 
 const MONTH_NAMES_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']; // Sunday-first, matches web
-const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 type DayAvailabilityStatus = 'available' | 'full' | 'closed';
 type DayAvailabilityInfo = {
@@ -402,21 +396,83 @@ type DayAvailabilityMap = Record<string, DayAvailabilityInfo>;
 
 type AvailableSlotsPayload = {
   success?: boolean;
-  bookedSlots?: string[];
+  slots?: {
+    time?: string;
+    label?: string;
+    status?: string;
+    available?: number;
+    booked?: number;
+    capacity?: number;
+  }[];
   unavailable?: boolean;
   errorCode?: string | null;
   message?: string | null;
   error?: string | null;
-  remaining?: number | null;
 };
 
 const normalizeAvailableSlotsPayload = (payload: AvailableSlotsPayload) => {
-  const bookedSlots = Array.isArray(payload?.bookedSlots) ? payload.bookedSlots : [];
+  const slots = Array.isArray(payload?.slots) ? payload.slots : [];
   const unavailable = !!payload?.unavailable;
   const errorCode = typeof payload?.errorCode === 'string' ? payload.errorCode : null;
   const message = (payload?.message || payload?.error || '').toString().trim();
-  const remaining = typeof payload?.remaining === 'number' ? payload.remaining : null;
-  return { bookedSlots, unavailable, errorCode, message, remaining };
+  return { slots, unavailable, errorCode, message };
+};
+
+type SlotRangeRow = {
+  date?: string;
+  isClosed?: boolean;
+  closedReason?: 'emergency' | 'closure' | 'recurring' | null;
+  closureLabel?: string | null;
+  availableSlots?: number;
+  status?: string;
+};
+
+const getLocalIsoDate = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const formatIsoDateForDisplay = (value: string | null, includeWeekday = false) => {
+  if (!value) return '—';
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (
+    date.getFullYear() !== Number(match[1])
+    || date.getMonth() !== Number(match[2]) - 1
+    || date.getDate() !== Number(match[3])
+  ) return value;
+  return date.toLocaleDateString('en-US', {
+    ...(includeWeekday ? { weekday: 'long' as const } : {}),
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+};
+
+const getSlotStartMinutes = (value: string): number | null => {
+  const raw = String(value || '').trim();
+  const twentyFour = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (twentyFour) {
+    const hour = Number(twentyFour[1]);
+    const minute = Number(twentyFour[2]);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) return hour * 60 + minute;
+    return null;
+  }
+
+  const twelveHour = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!twelveHour) return null;
+  let hour = Number(twelveHour[1]);
+  const minute = Number(twelveHour[2]);
+  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+  if (twelveHour[3].toUpperCase() === 'AM') {
+    if (hour === 12) hour = 0;
+  } else if (hour !== 12) {
+    hour += 12;
+  }
+  return hour * 60 + minute;
 };
 
 /** Month Calendar Grid Component — mirrors web CustomerDashboard calendar */
@@ -424,11 +480,13 @@ function MonthCalendar({
   selectedDate,
   onSelectDate,
   monthAvailability = {},
+  loading = false,
   onMonthChange,
 }: {
   selectedDate: string | null;
   onSelectDate: (dateKey: string, iso: string) => void;
   monthAvailability?: DayAvailabilityMap;
+  loading?: boolean;
   onMonthChange?: (year: number, month: number) => void;
 }) {
   const { colors } = useTheme();
@@ -469,7 +527,7 @@ function MonthCalendar({
                    (year === today.getFullYear() && month < today.getMonth()) ||
                    (year === today.getFullYear() && month === today.getMonth() && i < today.getDate());
     const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-    grid.push({ day: i, isCurrentMonth: true, dateKey: `${MONTH_NAMES_SHORT[month]} ${i}, ${year}`, iso, isPast });
+    grid.push({ day: i, isCurrentMonth: true, dateKey: iso, iso, isPast });
   }
   const remaining = 7 - (grid.length % 7);
   if (remaining < 7) {
@@ -507,7 +565,7 @@ function MonthCalendar({
           const isStaticDisabled = !item.isCurrentMonth || item.isPast;
           const dayInfo = item.isCurrentMonth && !item.isPast ? monthAvailability[item.iso] : undefined;
           const availStatus = dayInfo?.status;
-          const isUnavailable = !!dayInfo?.unavailable || availStatus === 'closed' || availStatus === 'full';
+          const isUnavailable = loading || !dayInfo || !!dayInfo.unavailable || availStatus === 'closed' || availStatus === 'full';
           const dotColor = availStatus ? DOT_COLORS[availStatus] : undefined;
 
           return (
@@ -518,7 +576,12 @@ function MonthCalendar({
               onPress={() => {
                 if (isStaticDisabled) return;
                 if (isUnavailable) {
-                  Toast.show(dayInfo?.reason || 'This date is unavailable for booking.', 'info');
+                  Toast.show(
+                    loading
+                      ? 'Checking live availability…'
+                      : dayInfo?.reason || 'Live availability could not be confirmed for this date.',
+                    'info',
+                  );
                   return;
                 }
                 onSelectDate(item.dateKey, item.iso);
@@ -719,128 +782,237 @@ export default function BookScreen() {
   const [slotStatuses, setSlotStatuses] = useState<{ time: string; status: SlotStatus }[]>([]);
   const [scheduleMessage, setScheduleMessage] = useState('');
   const [slotsLoading, setSlotsLoading] = useState(false);
+  const monthAvailabilityRequestRef = useRef(0);
+  const slotAvailabilityRequestRef = useRef(0);
+  const selectedDateRef = useRef<string | null>(null);
+  const visibleCalendarMonthRef = useRef({
+    year: new Date().getFullYear(),
+    month: new Date().getMonth(),
+  });
+  selectedDateRef.current = selectedDate;
 
   const fetchMonthAvailability = useCallback(async (y: number, m: number) => {
+    const requestId = ++monthAvailabilityRequestRef.current;
     setMonthAvailLoading(true);
     const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
     const daysInM = new Date(y, m + 1, 0).getDate();
     const result: DayAvailabilityMap = {};
-    const toFetch: string[] = [];
 
     for (let d = 1; d <= daysInM; d++) {
       const date = new Date(y, m, d);
       const iso  = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      if (date.getDay() === 0 || date.getDay() === 6 || date < todayD) {
-        result[iso] = {
-          status: 'closed',
-          unavailable: true,
-          errorCode: date < todayD ? 'PAST_DATE' : 'CLOSED_BY_RECURRING_DAY',
-          reason: date < todayD ? 'Past date is no longer available for booking.' : 'The shop is closed on this day.',
-          remaining: 0,
-        };
-      } else {
-        toFetch.push(iso);
-      }
+      const isPast = date < todayD;
+      result[iso] = {
+        status: 'closed',
+        unavailable: true,
+        errorCode: isPast ? 'PAST_DATE' : 'AVAILABILITY_UNCONFIRMED',
+        reason: isPast
+          ? 'Past date is no longer available for booking.'
+          : 'Live availability could not be confirmed for this date.',
+        remaining: 0,
+      };
     }
 
     try {
       const { apiClient } = await import('@/services/api/client');
-      await Promise.all(toFetch.map(async (iso) => {
-        try {
-          const res = await apiClient.get(`/orders/available-slots?date=${iso}`);
-          const {
-            unavailable,
-            errorCode,
-            message,
-            remaining,
-            bookedSlots,
-          } = normalizeAvailableSlotsPayload(res.data);
+      const start = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+      const end = `${y}-${String(m + 1).padStart(2, '0')}-${String(daysInM).padStart(2, '0')}`;
+      const res = await apiClient.get(`/slots/range?start=${start}&end=${end}`);
+      if (requestId !== monthAvailabilityRequestRef.current) return;
+      const rows: SlotRangeRow[] = Array.isArray(res.data?.data) ? res.data.data : [];
+      if (res.data?.success !== true || rows.length === 0) {
+        throw new Error('Availability range was not returned by the server.');
+      }
 
-          let status: DayAvailabilityStatus = 'available';
-          if (unavailable) {
-            status = errorCode === 'DATE_FULL' ? 'full' : 'closed';
-          } else if ((typeof remaining === 'number' && remaining <= 0) || bookedSlots.length >= TIME_SLOTS.length) {
-            status = 'full';
-          }
+      for (const row of rows) {
+        const iso = typeof row.date === 'string' ? row.date : '';
+        if (!iso || !Object.prototype.hasOwnProperty.call(result, iso)) continue;
+        const date = new Date(`${iso}T00:00:00`);
+        if (date < todayD) continue;
 
-          const fallbackReason =
-            status === 'full'
+        const apiStatus = String(row.status || '').toUpperCase();
+        const knownStatus = ['AVAILABLE', 'ALMOST_FULL', 'FULL', 'OVER_CAPACITY', 'CLOSED'].includes(apiStatus);
+        const remaining = typeof row.availableSlots === 'number'
+          ? row.availableSlots
+          : Number.NaN;
+        const hasValidRemaining = Number.isFinite(remaining) && remaining >= 0;
+        if (!knownStatus || !hasValidRemaining) continue;
+        const isClosed = !!row.isClosed || apiStatus === 'CLOSED';
+        const isFull = !isClosed && (apiStatus === 'FULL' || (remaining !== null && remaining <= 0));
+        const status: DayAvailabilityStatus = isClosed ? 'closed' : isFull ? 'full' : 'available';
+        const closedReason = row.closureLabel
+          || (row.closedReason === 'emergency'
+            ? 'The shop is temporarily closed today.'
+            : row.closedReason === 'recurring'
+              ? 'The shop is closed on this day.'
+              : 'This date is unavailable for booking.');
+
+        result[iso] = {
+          status,
+          unavailable: status !== 'available',
+          errorCode: isClosed
+            ? row.closedReason === 'emergency'
+              ? 'EMERGENCY_CLOSED'
+              : row.closedReason === 'recurring'
+                ? 'CLOSED_BY_RECURRING_DAY'
+                : 'CLOSED_BY_SCHEDULED_CLOSURE'
+            : isFull
+              ? 'DATE_FULL'
+              : null,
+          reason: isClosed
+            ? closedReason
+            : isFull
               ? 'All booking slots for this date are fully booked.'
-              : status === 'closed'
-                ? 'This date is unavailable for booking.'
-                : '';
-
-          result[iso] = {
-            status,
-            unavailable: unavailable || status !== 'available',
-            errorCode: errorCode || (status === 'full' ? 'DATE_FULL' : status === 'closed' ? 'DATE_UNAVAILABLE' : null),
-            reason: message || fallbackReason,
-            remaining,
-          };
-        } catch {
-          result[iso] = {
-            status: 'available',
-            unavailable: false,
-            errorCode: null,
-            reason: '',
-            remaining: null,
-          };
-        }
-      }));
-    } catch { /* network down — keep already-computed closed entries */ }
+              : '',
+          remaining,
+        };
+      }
+    } catch {
+      if (requestId === monthAvailabilityRequestRef.current) {
+        Toast.show('Could not load live calendar availability. Please try again.', 'error');
+      }
+    }
     finally {
-      setMonthAvailability(result);
-      setMonthAvailLoading(false);
+      if (requestId === monthAvailabilityRequestRef.current) {
+        setMonthAvailability(result);
+        setMonthAvailLoading(false);
+      }
     }
   }, []);
 
   const fetchSlotsForDate = useCallback(async (iso: string) => {
     if (!iso) return;
+    const requestId = ++slotAvailabilityRequestRef.current;
     setSlotsLoading(true);
+    setSlotStatuses([]);
     setScheduleMessage('');
     try {
       const { apiClient } = await import('@/services/api/client');
       const res = await apiClient.get(`/orders/available-slots?date=${iso}`);
+      if (requestId !== slotAvailabilityRequestRef.current) return;
+      if (res.data?.success !== true) {
+        throw new Error('Availability was not returned by the server.');
+      }
       const {
         unavailable,
         errorCode,
         message,
-        remaining,
-        bookedSlots,
+        slots,
       } = normalizeAvailableSlotsPayload(res.data);
 
-      if (unavailable && message) {
-        setScheduleMessage(message);
-      }
+      const now = new Date();
+      const isToday = iso === getLocalIsoDate(now);
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      const derived = slots.reduce<{ time: string; status: SlotStatus }[]>((rows, slot) => {
+        const displayTime = String(slot.label || slot.time || '').trim();
+        if (!displayTime) return rows;
 
-      const now   = new Date();
-      const isToday = iso === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      const h = now.getHours();
+        const rawStatus = String(slot.status || '').toUpperCase();
+        const startMinutes = getSlotStartMinutes(String(slot.time || slot.label || ''));
+        const knownStatus = ['AVAILABLE', 'ALMOST_FULL', 'FULL', 'OVER_CAPACITY'].includes(rawStatus);
+        const capacity = typeof slot.capacity === 'number' ? slot.capacity : Number.NaN;
+        const booked = typeof slot.booked === 'number' ? slot.booked : Number.NaN;
+        const available = typeof slot.available === 'number' ? slot.available : Number.NaN;
+        const hasValidCounts = Number.isFinite(capacity)
+          && Number.isInteger(capacity)
+          && capacity >= 0
+          && Number.isFinite(booked)
+          && Number.isInteger(booked)
+          && booked >= 0
+          && Number.isFinite(available)
+          && Number.isInteger(available)
+          && available >= 0
+          && available === Math.max(0, capacity - booked);
 
-      const parseHour = (t: string) => {
-        const [time, period] = t.split(' ');
-        let [hr] = time.split(':').map(Number);
-        if (period === 'PM' && hr !== 12) hr += 12;
-        if (period === 'AM' && hr === 12) hr = 0;
-        return hr;
-      };
-
-      setSlotStatuses(TIME_SLOTS.map(t => {
-        if (unavailable) {
-          return { time: t, status: (errorCode === 'DATE_FULL' ? 'FULL' : 'CLOSED') as SlotStatus };
+        let status: SlotStatus = 'CLOSED';
+        if (knownStatus && hasValidCounts && startMinutes !== null) {
+          status = rawStatus === 'FULL'
+            || rawStatus === 'OVER_CAPACITY'
+            || available <= 0
+            || booked >= capacity
+            ? 'FULL'
+            : 'AVAILABLE';
         }
-        if (typeof remaining === 'number' && remaining <= 0) return { time: t, status: 'FULL' as SlotStatus };
-        if (bookedSlots.includes(t)) return { time: t, status: 'FULL'  as SlotStatus };
-        if (isToday && parseHour(t) <= h) return { time: t, status: 'CLOSED' as SlotStatus };
-        return { time: t, status: 'AVAILABLE' as SlotStatus };
-      }));
+        if (unavailable) status = errorCode === 'DATE_FULL' ? 'FULL' : 'CLOSED';
+        if (isToday && startMinutes !== null && startMinutes <= nowMinutes) status = 'CLOSED';
+        rows.push({ time: displayTime, status });
+        return rows;
+      }, []);
+
+      setSlotStatuses(derived);
+      setSelectedTime((current) => (
+        current && !derived.some((slot) => slot.time === current && slot.status === 'AVAILABLE')
+          ? null
+          : current
+      ));
+
+      if (message) {
+        setScheduleMessage(message);
+      } else if (derived.length === 0) {
+        setScheduleMessage('No bookable time slots were generated for this date.');
+      }
     } catch {
-      setSlotStatuses(TIME_SLOTS.map(t => ({ time: t, status: 'AVAILABLE' as SlotStatus })));
-      setScheduleMessage('');
+      if (requestId === slotAvailabilityRequestRef.current) {
+        setSlotStatuses([]);
+        setSelectedTime(null);
+        setScheduleMessage('Live time-slot availability could not be confirmed. Please try again.');
+      }
     } finally {
-      setSlotsLoading(false);
+      if (requestId === slotAvailabilityRequestRef.current) setSlotsLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (step !== 2) return;
+    const now = new Date();
+    visibleCalendarMonthRef.current = { year: now.getFullYear(), month: now.getMonth() };
+    setMonthAvailability({});
+    fetchMonthAvailability(now.getFullYear(), now.getMonth());
+  }, [step, fetchMonthAvailability]);
+
+  useEffect(() => {
+    if (step !== 2) return;
+    let disposed = false;
+    let socket: Awaited<ReturnType<typeof getSharedSocket>> | null = null;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const refreshAvailability = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        if (disposed) return;
+        const { year, month } = visibleCalendarMonthRef.current;
+        setMonthAvailability({});
+        void fetchMonthAvailability(year, month);
+        if (selectedDateRef.current) {
+          void fetchSlotsForDate(selectedDateRef.current);
+        }
+      }, 150);
+    };
+
+    const handleDbChange = (payload: { collection?: string }) => {
+      if (
+        payload?.collection === 'orders'
+        || payload?.collection === 'shopavailabilities'
+        || payload?.collection === 'scheduledclosures'
+      ) refreshAvailability();
+    };
+
+    void getSharedSocket().then((sharedSocket) => {
+      if (disposed) return;
+      socket = sharedSocket;
+      socket.on('availability_updated', refreshAvailability);
+      socket.on('db_change', handleDbChange);
+      socket.on('booking_updated', refreshAvailability);
+    });
+
+    return () => {
+      disposed = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      socket?.off('availability_updated', refreshAvailability);
+      socket?.off('db_change', handleDbChange);
+      socket?.off('booking_updated', refreshAvailability);
+    };
+  }, [step, fetchMonthAvailability, fetchSlotsForDate]);
 
   // Preview booking reference (generated client-side for display only)
   const previewBookingRef = React.useMemo(() => {
@@ -962,13 +1134,7 @@ export default function BookScreen() {
   // ── Navigation ──
   const goNext = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const nextStep = step + 1;
-    setStep(nextStep);
-    // Pre-load month availability when the user enters the schedule step (step 2)
-    if (nextStep === 2) {
-      const now = new Date();
-      fetchMonthAvailability(now.getFullYear(), now.getMonth());
-    }
+    setStep(step + 1);
   };
   const goBack = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1140,7 +1306,7 @@ export default function BookScreen() {
               {[
                 { icon: 'car-outline', label: 'Vehicle', value: selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : '—' },
                 { icon: 'sparkles-outline', label: 'Service', value: selectedService?.name || (selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg)?.label || '—' : '—') + (selectedPkg ? ` (${VEHICLE_OPTIONS.find(v => v.key === vehicleType)?.label})` : '') },
-                { icon: 'calendar-outline', label: 'Schedule', value: `${selectedDate} • ${selectedTime}` },
+                { icon: 'calendar-outline', label: 'Schedule', value: `${formatIsoDateForDisplay(selectedDate)} • ${selectedTime}` },
               ].map((item, i, arr) => (
                 <View key={i} style={[s4.quickRow, i < arr.length - 1 && { marginBottom: 16 }]}>
                   <View style={s4.quickIconWrap}>
@@ -1684,14 +1850,16 @@ export default function BookScreen() {
               <MonthCalendar
                 selectedDate={selectedDate}
                 onSelectDate={(dateKey, iso) => {
-                  setSelectedDate(dateKey);
+                  setSelectedDate(iso || dateKey);
                   setSelectedTime('');
                   setSlotStatuses([]);
                   setScheduleMessage('');
                   fetchSlotsForDate(iso);
                 }}
                 monthAvailability={monthAvailability}
+                loading={monthAvailLoading}
                 onMonthChange={(y, m) => {
+                  visibleCalendarMonthRef.current = { year: y, month: m };
                   setMonthAvailability({});
                   setSelectedDate(null);
                   setSelectedTime('');
@@ -1744,10 +1912,15 @@ export default function BookScreen() {
                   <ActivityIndicator size="small" color={PRIMARY} />
                   <Text style={[sch.emptyText, { marginTop: 8 }]}>Checking availability…</Text>
                 </View>
+              ) : slotStatuses.length === 0 ? (
+                <View style={sch.emptyState}>
+                  <Ionicons name="calendar-outline" size={22} color={MUTED} />
+                  <Text style={[sch.emptyText, { marginTop: 8 }]}>No confirmed time slots for this date</Text>
+                </View>
               ) : (
                 <Animated.View entering={FadeInDown.delay(80).duration(200)}>
                   <View style={s2.timeGrid}>
-                    {(slotStatuses.length ? slotStatuses : TIME_SLOTS.map(t => ({ time: t, status: 'AVAILABLE' as const }))).map(({ time: t, status }) => {
+                    {slotStatuses.map(({ time: t, status }) => {
                       const isActive   = selectedTime === t;
                       const isFull     = status === 'FULL';
                       const isClosed   = status === 'CLOSED';
@@ -1843,14 +2016,7 @@ export default function BookScreen() {
             const RESERVATION_FEE = 500;
             const balance = Math.max(0, effectivePrice - RESERVATION_FEE);
 
-            // Formatted date: "Wednesday, May 27, 2026"
-            // selectedDate is stored as "May 27, 2026" — parse safely
-            const formattedDate = (() => {
-              if (!selectedDate) return '—';
-              const d = new Date(selectedDate);
-              if (isNaN(d.getTime())) return selectedDate; // fallback if parse fails
-              return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-            })();
+            const formattedDate = formatIsoDateForDisplay(selectedDate, true);
 
             return (
               <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>

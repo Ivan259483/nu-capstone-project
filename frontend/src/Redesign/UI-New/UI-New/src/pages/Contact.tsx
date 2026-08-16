@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import PageLayout from "@/components/PageLayout";
+import { usePublicAvailabilitySchedule } from "@/hooks/usePublicAvailabilitySchedule";
 import { cn } from "@/lib/utils";
 
 const contactInfo = [
@@ -16,7 +17,8 @@ const contactInfo = [
 ] as const;
 
 export default function Contact() {
-    const { t } = useLanguage();
+    const { t, lang } = useLanguage();
+    const appointmentHours = usePublicAvailabilitySchedule(lang);
     const { ref, isVisible } = useScrollAnimation({ threshold: 0.1 });
     const [form, setForm] = useState({ name: "", email: "", message: "" });
     const [sent, setSent] = useState(false);
@@ -61,7 +63,9 @@ export default function Contact() {
                                 </div>
                                 <div>
                                     <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t(`contact.${key}`)}</div>
-                                    <div className="text-sm font-medium text-foreground">{t(`contact.${valueKey}`)}</div>
+                                    <div className="text-sm font-medium text-foreground">
+                                        {key === 'hours' ? appointmentHours.summary : t(`contact.${valueKey}`)}
+                                    </div>
                                 </div>
                             </div>
                         ))}

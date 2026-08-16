@@ -250,7 +250,7 @@ export const en = {
         email: "Email",
         emailValue: "autospf2023@gmail.com",
         hours: "Business Hours",
-        hoursValue: "Mon – Sat: 8:00 AM – 6:00 PM",
+        hoursValue: "Contact us for current hours",
         contactInfo: "Contact Information",
         sendMessage: "Send a Message",
         yourName: "Your Name",

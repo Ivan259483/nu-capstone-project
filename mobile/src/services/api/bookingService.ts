@@ -66,6 +66,29 @@ const hasHttpStatus = (error: unknown, status: number): boolean =>
   error !== null &&
   (error as { response?: { status?: number } }).response?.status === status;
 
+const normalizeBookingDateForApi = (value: string): string => {
+  const trimmed = String(value || '').trim();
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const year = Number(isoMatch[1]);
+    const month = Number(isoMatch[2]);
+    const day = Number(isoMatch[3]);
+    const parsed = new Date(year, month - 1, day);
+    if (
+      parsed.getFullYear() === year
+      && parsed.getMonth() === month - 1
+      && parsed.getDate() === day
+    ) return trimmed;
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return trimmed;
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export const bookingService = {
   async getMyBookings(params: BookingListParams = {}): Promise<BookingRecord[]> {
     const data = await cachedGet<ApiEnvelope<any[]>>('/bookings', {
@@ -115,9 +138,7 @@ export const bookingService = {
     vehicleId?: string;
     downpaymentProof?: string;
   }): Promise<BookingRecord> {
-    const bookingDate = params.date.includes(',')
-      ? params.date
-      : `${params.date}, ${new Date().getFullYear()}`;
+    const bookingDate = normalizeBookingDateForApi(params.date);
 
     const payload = {
       customerName: params.customerName,

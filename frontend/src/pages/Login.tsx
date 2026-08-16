@@ -648,7 +648,8 @@ export default function Login() {
             refreshSocketAuth();
 
             const role = getSafeUserRole(backendUser?.role);
-            if (rememberMe) localStorage.setItem("remembered_email", loginForm.email);
+            if (rememberMe) localStorage.setItem("remembered_email", loginForm.email.trim().toLowerCase());
+            else localStorage.removeItem("remembered_email");
             dismissLoginAuthToasts();
             toast.success(t("auth.verifySuccess"));
             setLoginOtpStep("form");
@@ -910,6 +911,20 @@ export default function Login() {
                                                             </AnimatePresence>
                                                         </div>
 
+                                                        <div className="flex items-center gap-2 px-0.5">
+                                                            <Checkbox
+                                                                id="remember-me"
+                                                                checked={rememberMe}
+                                                                onCheckedChange={(checked) => setRememberMe(checked === true)}
+                                                                className="h-4 w-4 rounded-[4px] border-white/20 bg-white/[0.035] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors data-[state=checked]:border-orange-400/70 data-[state=checked]:bg-orange-500 data-[state=checked]:text-white focus-visible:ring-orange-400/30"
+                                                            />
+                                                            <label
+                                                                htmlFor="remember-me"
+                                                                className="cursor-pointer select-none text-xs font-medium text-zinc-400 transition-colors hover:text-zinc-200"
+                                                            >
+                                                                {t("login.rememberMe")}
+                                                            </label>
+                                                        </div>
                                                     </div>
                                                 </motion.div>
                                             )}

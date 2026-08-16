@@ -6,7 +6,38 @@
  */
 
 import { getSlotsForDate, getSlotsForRange } from '../services/slot.service.js';
-import BusinessSettings from '../models/businessSettings.model.js';
+import ShopAvailability, {
+  normalizeRecurringSchedule,
+  validateRecurringScheduleInput,
+} from '../models/shopAvailability.model.js';
+import { emitAvailabilityUpdated } from '../utils/availabilityBroadcast.utils.js';
+
+const FIXED_SLOT_DURATION_MINUTES = 60;
+const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+const toLegacySettingsPayload = (schedule) => {
+  const recurringSchedule = normalizeRecurringSchedule(schedule);
+  const openingHours = {};
+  for (const row of recurringSchedule) {
+    openingHours[DAY_NAMES[row.dow]] = {
+      isOpen: row.open,
+      open: row.from,
+      close: row.to,
+      capacityPerSlot: row.slots,
+    };
+  }
+
+  const openCapacities = [...new Set(
+    recurringSchedule.filter((row) => row.open).map((row) => row.slots)
+  )];
+  return {
+    source: 'ShopAvailability',
+    openingHours,
+    recurringSchedule,
+    slotDuration: FIXED_SLOT_DURATION_MINUTES,
+    defaultSlotCapacity: openCapacities.length === 1 ? openCapacities[0] : null,
+  };
+};
 
 // ── GET /api/slots?date=YYYY-MM-DD ────────────────────────────────────────────
 export const getSlotsByDate = async (req, res, next) => {
@@ -58,10 +89,31 @@ export const getSlotsByRange = async (req, res, next) => {
 };
 
 // ── GET /api/slots/settings ───────────────────────────────────────────────────
+// Public, occupancy-free projection for marketing/contact pages.
+export const getPublicAvailabilitySchedule = async (_req, res, next) => {
+  try {
+    const availability = await ShopAvailability.getSingleton();
+    const data = normalizeRecurringSchedule(availability.recurringSchedule).map((row) => ({
+      dow: row.dow,
+      open: row.open,
+      from: row.from,
+      to: row.to,
+    }));
+    return res.json({
+      success: true,
+      data,
+      slotDurationMinutes: FIXED_SLOT_DURATION_MINUTES,
+      updatedAt: availability.updatedAt || null,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getBusinessSettings = async (req, res, next) => {
   try {
-    const settings = await BusinessSettings.getSettings();
-    return res.json({ success: true, data: settings });
+    const settings = await ShopAvailability.getSingleton();
+    return res.json({ success: true, data: toLegacySettingsPayload(settings.recurringSchedule) });
   } catch (err) {
     next(err);
   }
@@ -71,19 +123,74 @@ export const getBusinessSettings = async (req, res, next) => {
 // Admin-only — update opening hours, slot duration, capacity, closed dates
 export const updateBusinessSettings = async (req, res, next) => {
   try {
-    const { openingHours, slotDuration, defaultSlotCapacity, customSlotCapacities, closedDates } = req.body;
+    const {
+      openingHours,
+      recurringSchedule: recurringInput,
+      slotDuration,
+      defaultSlotCapacity,
+      customSlotCapacities,
+      closedDates,
+    } = req.body || {};
 
-    const settings = await BusinessSettings.findOne();
-    const doc = settings || new BusinessSettings();
+    if (slotDuration != null && Number(slotDuration) !== FIXED_SLOT_DURATION_MINUTES) {
+      return res.status(400).json({
+        success: false,
+        message: 'Appointment intervals are fixed at 60 minutes. Configure hours and per-slot capacity in Availability Controls.',
+      });
+    }
+    if (customSlotCapacities != null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Per-date capacity overrides are retired. Availability Controls is the authoritative recurring schedule.',
+      });
+    }
+    if (closedDates != null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Use Admin Availability Controls scheduled closures for closed dates.',
+      });
+    }
 
-    if (openingHours)           doc.openingHours = openingHours;
-    if (slotDuration != null)   doc.slotDuration = slotDuration;
-    if (defaultSlotCapacity != null) doc.defaultSlotCapacity = defaultSlotCapacity;
-    if (customSlotCapacities)   doc.customSlotCapacities = customSlotCapacities;
-    if (closedDates)            doc.closedDates = closedDates;
+    const doc = await ShopAvailability.getSingleton();
+    let schedule = normalizeRecurringSchedule(doc.recurringSchedule);
 
+    if (recurringInput != null) {
+      const { schedule: validated, error } = validateRecurringScheduleInput(recurringInput, { requireAllDays: true });
+      if (error) return res.status(400).json({ success: false, message: error });
+      schedule = validated;
+    }
+
+    if (openingHours && typeof openingHours === 'object' && !Array.isArray(openingHours)) {
+      schedule = schedule.map((row) => {
+        const incoming = openingHours[DAY_NAMES[row.dow]];
+        if (!incoming || typeof incoming !== 'object') return row;
+        const capacity = incoming.capacityPerSlot ?? incoming.slots ?? row.slots;
+        return {
+          ...row,
+          open: typeof incoming.isOpen === 'boolean' ? incoming.isOpen : row.open,
+          from: typeof incoming.open === 'string'
+            ? incoming.open
+            : typeof incoming.from === 'string' ? incoming.from : row.from,
+          to: typeof incoming.close === 'string'
+            ? incoming.close
+            : typeof incoming.to === 'string' ? incoming.to : row.to,
+          slots: Number(capacity),
+        };
+      });
+    }
+
+    if (defaultSlotCapacity != null) {
+      const capacity = Number(defaultSlotCapacity);
+      schedule = schedule.map((row) => (row.open ? { ...row, slots: capacity } : row));
+    }
+
+    const { schedule: validated, error } = validateRecurringScheduleInput(schedule, { requireAllDays: true });
+    if (error) return res.status(400).json({ success: false, message: error });
+
+    doc.recurringSchedule = validated;
     await doc.save();
-    return res.json({ success: true, data: doc.toObject() });
+    emitAvailabilityUpdated({ type: 'legacy_settings_alias' });
+    return res.json({ success: true, data: toLegacySettingsPayload(doc.recurringSchedule) });
   } catch (err) {
     next(err);
   }

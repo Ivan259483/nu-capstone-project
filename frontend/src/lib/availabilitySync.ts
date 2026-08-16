@@ -30,10 +30,27 @@ export function syncAvailabilityCaches(): void {
 
 /** Map admin /api/slots/range row → customer month-picker shape. */
 export function mapRangeSummaryToCustomerDay(summary: RangeSlotSummary): CustomerDayAvailabilityInfo {
+  const knownStatus = new Set(['AVAILABLE', 'ALMOST_FULL', 'FULL', 'OVER_CAPACITY', 'CLOSED']);
+  const availableSeats = Number(summary?.availableSlots);
+  if (
+    !summary
+    || typeof summary.isClosed !== 'boolean'
+    || !knownStatus.has(String(summary.status || '').toUpperCase())
+    || !Number.isFinite(availableSeats)
+  ) {
+    return {
+      status: 'closed',
+      unavailable: true,
+      reason: 'Live availability could not be verified for this date.',
+      errorCode: 'AVAILABILITY_UNVERIFIED',
+      remaining: 0,
+    };
+  }
+
   const closed = summary.isClosed || summary.status === 'CLOSED';
   const full =
     !closed
-    && (summary.status === 'FULL' || Number(summary.availableSlots) <= 0);
+    && (summary.status === 'FULL' || availableSeats <= 0);
 
   let status: CustomerDayAvailabilityStatus = 'available';
   if (closed) status = 'closed';
@@ -63,7 +80,7 @@ export function mapRangeSummaryToCustomerDay(summary: RangeSlotSummary): Custome
       : full
         ? 'DATE_FULL'
         : null,
-    remaining: typeof summary.availableSlots === 'number' ? summary.availableSlots : null,
+    remaining: availableSeats,
   };
 }
 

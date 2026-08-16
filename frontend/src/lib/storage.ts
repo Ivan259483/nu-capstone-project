@@ -31,6 +31,7 @@ const STORAGE_KEYS = {
 
 const STORAGE_MIGRATION_KEYS = {
     LEGACY_PLAINTEXT_USERS_REMOVED: 'autospf_migration_legacy_plaintext_users_removed_v1',
+    LEGACY_APPOINTMENT_SETTINGS_REMOVED: 'autospf_migration_legacy_appointment_settings_removed_v1',
 };
 
 // Generic storage functions
@@ -47,6 +48,13 @@ function setItem<T>(key: string, value: T): void {
     localStorage.setItem(key, JSON.stringify(value));
 }
 
+function stripLegacyAppointmentSettings<T extends Record<string, unknown>>(settings: T): T {
+    const sanitized = { ...settings };
+    delete sanitized.operatingHours;
+    delete sanitized.serviceCapacity;
+    return sanitized;
+}
+
 // Initialize with seed data
 export function initializeStorage(): void {
     if (!localStorage.getItem(STORAGE_MIGRATION_KEYS.LEGACY_PLAINTEXT_USERS_REMOVED)) {
@@ -54,6 +62,14 @@ export function initializeStorage(): void {
         // non-session key. Clear it once without touching current-user or token data.
         localStorage.removeItem(STORAGE_KEYS.USERS);
         localStorage.setItem(STORAGE_MIGRATION_KEYS.LEGACY_PLAINTEXT_USERS_REMOVED, '1');
+    }
+
+    if (!localStorage.getItem(STORAGE_MIGRATION_KEYS.LEGACY_APPOINTMENT_SETTINGS_REMOVED)) {
+        const storedSettings = getItem<Record<string, unknown> | null>(STORAGE_KEYS.SETTINGS, null);
+        if (storedSettings) {
+            setItem(STORAGE_KEYS.SETTINGS, stripLegacyAppointmentSettings(storedSettings));
+        }
+        localStorage.setItem(STORAGE_MIGRATION_KEYS.LEGACY_APPOINTMENT_SETTINGS_REMOVED, '1');
     }
 
     if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
@@ -230,15 +246,6 @@ export function initializeStorage(): void {
             businessName: 'DetailPro Shop',
             contactEmail: 'info@detailpro.com',
             phoneNumber: '(555) 123-4567',
-            operatingHours: {
-                Monday: { open: '08:00', close: '18:00' },
-                Tuesday: { open: '08:00', close: '18:00' },
-                Wednesday: { open: '08:00', close: '18:00' },
-                Thursday: { open: '08:00', close: '18:00' },
-                Friday: { open: '08:00', close: '18:00' },
-                Saturday: { open: '09:00', close: '16:00' },
-                Sunday: { open: '', close: '' },
-            },
             notifications: {
                 emailNewBookings: true,
                 lowStockAlerts: true,
@@ -466,20 +473,24 @@ export const activityLogStorage = {
 
 // Settings functions
 export const settingsStorage = {
-    get: (): BusinessSettings => getItem(STORAGE_KEYS.SETTINGS, {
-        businessName: '',
-        contactEmail: '',
-        phoneNumber: '',
-        operatingHours: {},
-        notifications: {
-            emailNewBookings: false,
-            lowStockAlerts: false,
-            dailySummary: false,
-            maintenanceAlerts: false,
-        },
-    }),
+    get: (): BusinessSettings => stripLegacyAppointmentSettings(
+        getItem<Record<string, unknown>>(STORAGE_KEYS.SETTINGS, {
+            businessName: '',
+            contactEmail: '',
+            phoneNumber: '',
+            notifications: {
+                emailNewBookings: false,
+                lowStockAlerts: false,
+                dailySummary: false,
+                maintenanceAlerts: false,
+            },
+        })
+    ) as unknown as BusinessSettings,
     update: (settings: BusinessSettings): void => {
-        setItem(STORAGE_KEYS.SETTINGS, settings);
+        setItem(
+            STORAGE_KEYS.SETTINGS,
+            stripLegacyAppointmentSettings(settings as unknown as Record<string, unknown>)
+        );
     },
 };
 
