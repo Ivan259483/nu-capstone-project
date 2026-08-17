@@ -383,6 +383,7 @@ const vc = StyleSheet.create({
 
 const MONTH_NAMES_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']; // Sunday-first, matches web
+const EMERGENCY_CLOSURE_MESSAGE = 'Bookings for today have been temporarily closed. Please select another available date.';
 
 type DayAvailabilityStatus = 'available' | 'full' | 'closed';
 type DayAvailabilityInfo = {
@@ -390,9 +391,41 @@ type DayAvailabilityInfo = {
   unavailable: boolean;
   reason: string;
   errorCode: string | null;
+  closureType: 'emergency' | 'closure' | 'recurring' | null;
   remaining: number | null;
+  booked: number | null;
+  capacity: number | null;
 };
 type DayAvailabilityMap = Record<string, DayAvailabilityInfo>;
+
+const MOBILE_AVAILABILITY_BADGE = {
+  high: { text: '#16a34a', background: 'rgba(34,197,94,0.10)', border: 'rgba(34,197,94,0.28)' },
+  medium: { text: '#d97706', background: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.28)' },
+  low: { text: '#ea580c', background: 'rgba(249,115,22,0.10)', border: 'rgba(249,115,22,0.28)' },
+  full: { text: '#dc2626', background: 'rgba(239,68,68,0.10)', border: 'rgba(239,68,68,0.26)' },
+  closed: { text: '#94a3b8', background: 'rgba(148,163,184,0.08)', border: 'rgba(148,163,184,0.20)' },
+  emergency: { text: '#dc2626', background: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.36)' },
+} as const;
+
+function getMobileAvailabilityBadge(dayInfo: DayAvailabilityInfo) {
+  if (dayInfo.status === 'closed') {
+    if (dayInfo.errorCode === 'EMERGENCY_CLOSED' || dayInfo.closureType === 'emergency') {
+      return { ...MOBILE_AVAILABILITY_BADGE.emergency, label: 'Emergency Closed' };
+    }
+    return { ...MOBILE_AVAILABILITY_BADGE.closed, label: 'Closed' };
+  }
+  const remaining = Number(dayInfo.remaining);
+  const capacity = Number(dayInfo.capacity);
+  if (dayInfo.status === 'full' || remaining <= 0 || capacity <= 0) {
+    return { ...MOBILE_AVAILABILITY_BADGE.full, label: 'Fully Booked' };
+  }
+  const ratio = remaining / capacity;
+  const tone = remaining <= 2 ? 'low' : ratio >= 0.7 ? 'high' : ratio >= 0.3 ? 'medium' : 'low';
+  return {
+    ...MOBILE_AVAILABILITY_BADGE[tone],
+    label: tone === 'low' ? `${remaining} left` : `${remaining} available`,
+  };
+}
 
 type AvailableSlotsPayload = {
   success?: boolean;
@@ -408,6 +441,12 @@ type AvailableSlotsPayload = {
   errorCode?: string | null;
   message?: string | null;
   error?: string | null;
+  emergencyClosed?: boolean;
+  closureType?: string | null;
+  closedReason?: string | null;
+  businessDate?: string | null;
+  businessTimeZone?: string | null;
+  timeZone?: string | null;
 };
 
 const normalizeAvailableSlotsPayload = (payload: AvailableSlotsPayload) => {
@@ -415,17 +454,52 @@ const normalizeAvailableSlotsPayload = (payload: AvailableSlotsPayload) => {
   const unavailable = !!payload?.unavailable;
   const errorCode = typeof payload?.errorCode === 'string' ? payload.errorCode : null;
   const message = (payload?.message || payload?.error || '').toString().trim();
-  return { slots, unavailable, errorCode, message };
+  const closureType = String(payload?.closureType || payload?.closedReason || '').toLowerCase() || null;
+  const emergencyClosed = errorCode === 'EMERGENCY_CLOSED'
+    || payload?.emergencyClosed === true
+    || closureType === 'emergency';
+  const businessDate = typeof payload?.businessDate === 'string' ? payload.businessDate : null;
+  const businessTimeZone = typeof payload?.businessTimeZone === 'string'
+    ? payload.businessTimeZone
+    : typeof payload?.timeZone === 'string'
+      ? payload.timeZone
+      : null;
+  return {
+    slots,
+    unavailable,
+    errorCode,
+    message,
+    closureType,
+    emergencyClosed,
+    businessDate,
+    businessTimeZone,
+  };
 };
 
 type SlotRangeRow = {
   date?: string;
   isClosed?: boolean;
   closedReason?: 'emergency' | 'closure' | 'recurring' | null;
+  closureType?: 'emergency' | 'closure' | 'recurring' | null;
+  closureReason?: string | null;
+  errorCode?: string | null;
+  emergencyClosed?: boolean;
   closureLabel?: string | null;
   availableSlots?: number;
+  bookedSlots?: number;
+  dailyCapacity?: number;
   status?: string;
 };
+
+const isIsoDate = (value: unknown): value is string => (
+  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+);
+
+const getEmergencyClosureType = (row: SlotRangeRow): boolean => (
+  row.emergencyClosed === true
+  || String(row.errorCode || '').toUpperCase() === 'EMERGENCY_CLOSED'
+  || String(row.closureType || row.closedReason || '').toLowerCase() === 'emergency'
+);
 
 const getLocalIsoDate = (date: Date) => {
   const y = date.getFullYear();
@@ -481,20 +555,35 @@ function MonthCalendar({
   onSelectDate,
   monthAvailability = {},
   loading = false,
+  businessDate,
   onMonthChange,
 }: {
   selectedDate: string | null;
   onSelectDate: (dateKey: string, iso: string) => void;
   monthAvailability?: DayAvailabilityMap;
   loading?: boolean;
+  businessDate?: string | null;
   onMonthChange?: (year: number, month: number) => void;
 }) {
   const { colors } = useTheme();
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const appliedBusinessDateRef = useRef<string | null>(null);
 
   const year  = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
-  const today = new Date();
+  const todayKey = isIsoDate(businessDate) ? businessDate : getLocalIsoDate(new Date());
+
+  useEffect(() => {
+    if (!isIsoDate(businessDate) || appliedBusinessDateRef.current === businessDate) return;
+    appliedBusinessDateRef.current = businessDate;
+    const [businessYear, businessMonth, businessDay] = businessDate.split('-').map(Number);
+    setCurrentMonth((current) => {
+      if (current.getFullYear() === businessYear && current.getMonth() === businessMonth - 1) return current;
+      const next = new Date(businessYear, businessMonth - 1, businessDay);
+      onMonthChange?.(businessYear, businessMonth - 1);
+      return next;
+    });
+  }, [businessDate, onMonthChange]);
 
   const prevMonth = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -523,10 +612,8 @@ function MonthCalendar({
     grid.push({ day: daysInPrevMonth - blanks + i + 1, isCurrentMonth: false, dateKey: '', iso: '', isPast: true });
   }
   for (let i = 1; i <= daysInMonth; i++) {
-    const isPast = (year < today.getFullYear()) ||
-                   (year === today.getFullYear() && month < today.getMonth()) ||
-                   (year === today.getFullYear() && month === today.getMonth() && i < today.getDate());
     const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+    const isPast = iso < todayKey;
     grid.push({ day: i, isCurrentMonth: true, dateKey: iso, iso, isPast });
   }
   const remaining = 7 - (grid.length % 7);
@@ -535,8 +622,6 @@ function MonthCalendar({
       grid.push({ day: i, isCurrentMonth: false, dateKey: '', iso: '', isPast: false });
     }
   }
-
-  const DOT_COLORS = { available: '#22c55e', full: '#ef4444', closed: '#94a3b8' } as const;
 
   return (
     <View style={[cal.container, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, ...Shadows.sm }]}>
@@ -566,13 +651,24 @@ function MonthCalendar({
           const dayInfo = item.isCurrentMonth && !item.isPast ? monthAvailability[item.iso] : undefined;
           const availStatus = dayInfo?.status;
           const isUnavailable = loading || !dayInfo || !!dayInfo.unavailable || availStatus === 'closed' || availStatus === 'full';
-          const dotColor = availStatus ? DOT_COLORS[availStatus] : undefined;
+          const availabilityBadge = dayInfo ? getMobileAvailabilityBadge(dayInfo) : undefined;
 
           return (
             <TouchableOpacity
               key={idx}
               activeOpacity={isStaticDisabled || isUnavailable ? 1 : 0.8}
               disabled={isStaticDisabled}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: isStaticDisabled || isUnavailable, selected: isSelected }}
+              accessibilityLabel={dayInfo && !item.isPast
+                ? `${item.iso}: ${availStatus === 'closed'
+                  ? dayInfo.errorCode === 'EMERGENCY_CLOSED' || dayInfo.closureType === 'emergency'
+                    ? 'Emergency Closed'
+                    : 'Closed'
+                  : availStatus === 'full'
+                    ? 'Fully Booked'
+                    : `${dayInfo.remaining ?? 0} appointment${dayInfo.remaining === 1 ? '' : 's'} available`}`
+                : undefined}
               onPress={() => {
                 if (isStaticDisabled) return;
                 if (isUnavailable) {
@@ -602,9 +698,23 @@ function MonthCalendar({
               ]}>
                 {item.day}
               </Text>
-              {/* Availability dot */}
-              {dotColor && !isSelected && availStatus === 'available' ? (
-                <View style={[cal.dot, { backgroundColor: dotColor }]} />
+              {dayInfo && !item.isPast ? (
+                <View
+                  style={[
+                    cal.availabilityBadge,
+                    availabilityBadge ? {
+                      backgroundColor: availabilityBadge.background,
+                      borderColor: availabilityBadge.border,
+                    } : null,
+                  ]}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={[cal.availabilityText, availabilityBadge ? { color: availabilityBadge.text } : null]}
+                  >
+                    {availabilityBadge?.label}
+                  </Text>
+                </View>
               ) : null}
             </TouchableOpacity>
           );
@@ -655,7 +765,7 @@ const cal = StyleSheet.create({
     paddingVertical: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
+    gap: 1,
   },
   dayCellActiveBorder: {},
   dayCellSelected: {},
@@ -682,10 +792,17 @@ const cal = StyleSheet.create({
     color: ON_PRIMARY,
     fontWeight: '800',
   },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  availabilityBadge: {
+    maxWidth: '98%',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+  },
+  availabilityText: {
+    fontSize: 5.5,
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });
 
@@ -782,26 +899,29 @@ export default function BookScreen() {
   const [slotStatuses, setSlotStatuses] = useState<{ time: string; status: SlotStatus }[]>([]);
   const [scheduleMessage, setScheduleMessage] = useState('');
   const [slotsLoading, setSlotsLoading] = useState(false);
+  const [businessDate, setBusinessDate] = useState<string | null>(null);
+  const [businessTimeZone, setBusinessTimeZone] = useState<string | null>(null);
   const monthAvailabilityRequestRef = useRef(0);
   const slotAvailabilityRequestRef = useRef(0);
   const selectedDateRef = useRef<string | null>(null);
+  const stepRef = useRef(step);
   const visibleCalendarMonthRef = useRef({
     year: new Date().getFullYear(),
     month: new Date().getMonth(),
   });
   selectedDateRef.current = selectedDate;
+  stepRef.current = step;
 
   const fetchMonthAvailability = useCallback(async (y: number, m: number) => {
     const requestId = ++monthAvailabilityRequestRef.current;
     setMonthAvailLoading(true);
-    const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
+    const fallbackBusinessDate = businessDate || getLocalIsoDate(new Date());
     const daysInM = new Date(y, m + 1, 0).getDate();
     const result: DayAvailabilityMap = {};
 
     for (let d = 1; d <= daysInM; d++) {
-      const date = new Date(y, m, d);
       const iso  = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const isPast = date < todayD;
+      const isPast = iso < fallbackBusinessDate;
       result[iso] = {
         status: 'closed',
         unavailable: true,
@@ -809,7 +929,10 @@ export default function BookScreen() {
         reason: isPast
           ? 'Past date is no longer available for booking.'
           : 'Live availability could not be confirmed for this date.',
+        closureType: null,
         remaining: 0,
+        booked: null,
+        capacity: null,
       };
     }
 
@@ -823,27 +946,57 @@ export default function BookScreen() {
       if (res.data?.success !== true || rows.length === 0) {
         throw new Error('Availability range was not returned by the server.');
       }
+      const serverBusinessDate = isIsoDate(res.data?.businessDate)
+        ? res.data.businessDate
+        : fallbackBusinessDate;
+      const serverTimeZone = typeof res.data?.businessTimeZone === 'string'
+        ? res.data.businessTimeZone
+        : typeof res.data?.timeZone === 'string'
+          ? res.data.timeZone
+          : null;
+      setBusinessDate(serverBusinessDate);
+      if (serverTimeZone) setBusinessTimeZone(serverTimeZone);
+
+      for (const iso of Object.keys(result)) {
+        const isPast = iso < serverBusinessDate;
+        result[iso] = {
+          ...result[iso],
+          errorCode: isPast ? 'PAST_DATE' : 'AVAILABILITY_UNCONFIRMED',
+          reason: isPast
+            ? 'Past date is no longer available for booking.'
+            : 'Live availability could not be confirmed for this date.',
+        };
+      }
 
       for (const row of rows) {
         const iso = typeof row.date === 'string' ? row.date : '';
         if (!iso || !Object.prototype.hasOwnProperty.call(result, iso)) continue;
-        const date = new Date(`${iso}T00:00:00`);
-        if (date < todayD) continue;
+        if (iso < serverBusinessDate) continue;
 
         const apiStatus = String(row.status || '').toUpperCase();
         const knownStatus = ['AVAILABLE', 'ALMOST_FULL', 'FULL', 'OVER_CAPACITY', 'CLOSED'].includes(apiStatus);
         const remaining = typeof row.availableSlots === 'number'
           ? row.availableSlots
           : Number.NaN;
+        const booked = typeof row.bookedSlots === 'number' ? row.bookedSlots : Number.NaN;
+        const capacity = typeof row.dailyCapacity === 'number' ? row.dailyCapacity : Number.NaN;
         const hasValidRemaining = Number.isFinite(remaining) && remaining >= 0;
-        if (!knownStatus || !hasValidRemaining) continue;
+        const hasValidDailyCounts = Number.isFinite(booked)
+          && booked >= 0
+          && Number.isFinite(capacity)
+          && capacity >= 0;
+        if (!knownStatus || !hasValidRemaining || !hasValidDailyCounts) continue;
         const isClosed = !!row.isClosed || apiStatus === 'CLOSED';
         const isFull = !isClosed && (apiStatus === 'FULL' || (remaining !== null && remaining <= 0));
         const status: DayAvailabilityStatus = isClosed ? 'closed' : isFull ? 'full' : 'available';
-        const closedReason = row.closureLabel
-          || (row.closedReason === 'emergency'
-            ? 'The shop is temporarily closed today.'
-            : row.closedReason === 'recurring'
+        const emergencyClosed = getEmergencyClosureType(row);
+        const closureType = emergencyClosed
+          ? 'emergency'
+          : (row.closureType || row.closedReason || null);
+        const closedReason = emergencyClosed
+          ? EMERGENCY_CLOSURE_MESSAGE
+          : row.closureReason || row.closureLabel
+            || (closureType === 'recurring'
               ? 'The shop is closed on this day.'
               : 'This date is unavailable for booking.');
 
@@ -851,9 +1004,9 @@ export default function BookScreen() {
           status,
           unavailable: status !== 'available',
           errorCode: isClosed
-            ? row.closedReason === 'emergency'
+            ? emergencyClosed
               ? 'EMERGENCY_CLOSED'
-              : row.closedReason === 'recurring'
+              : closureType === 'recurring'
                 ? 'CLOSED_BY_RECURRING_DAY'
                 : 'CLOSED_BY_SCHEDULED_CLOSURE'
             : isFull
@@ -862,9 +1015,12 @@ export default function BookScreen() {
           reason: isClosed
             ? closedReason
             : isFull
-              ? 'All booking slots for this date are fully booked.'
+              ? 'All appointment times for this date are booked.'
               : '',
+          closureType: isClosed ? closureType : null,
           remaining,
+          booked,
+          capacity,
         };
       }
     } catch {
@@ -878,7 +1034,7 @@ export default function BookScreen() {
         setMonthAvailLoading(false);
       }
     }
-  }, []);
+  }, [businessDate]);
 
   const fetchSlotsForDate = useCallback(async (iso: string) => {
     if (!iso) return;
@@ -898,11 +1054,35 @@ export default function BookScreen() {
         errorCode,
         message,
         slots,
+        emergencyClosed,
+        businessDate: responseBusinessDate,
+        businessTimeZone: responseBusinessTimeZone,
       } = normalizeAvailableSlotsPayload(res.data);
+      if (isIsoDate(responseBusinessDate)) setBusinessDate(responseBusinessDate);
+      if (responseBusinessTimeZone) setBusinessTimeZone(responseBusinessTimeZone);
 
-      const now = new Date();
-      const isToday = iso === getLocalIsoDate(now);
-      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      if (emergencyClosed) {
+        setSlotStatuses([]);
+        setSelectedTime(null);
+        setScheduleMessage(EMERGENCY_CLOSURE_MESSAGE);
+        setMonthAvailability((current) => ({
+          ...current,
+          [iso]: {
+            status: 'closed',
+            unavailable: true,
+            reason: EMERGENCY_CLOSURE_MESSAGE,
+            errorCode: 'EMERGENCY_CLOSED',
+            closureType: 'emergency',
+            remaining: 0,
+            booked: current[iso]?.booked ?? null,
+            capacity: current[iso]?.capacity ?? 0,
+          },
+        }));
+        setStep(2);
+        Toast.show(EMERGENCY_CLOSURE_MESSAGE, 'error');
+        return;
+      }
+
       const derived = slots.reduce<{ time: string; status: SlotStatus }[]>((rows, slot) => {
         const displayTime = String(slot.label || slot.time || '').trim();
         if (!displayTime) return rows;
@@ -934,7 +1114,6 @@ export default function BookScreen() {
             : 'AVAILABLE';
         }
         if (unavailable) status = errorCode === 'DATE_FULL' ? 'FULL' : 'CLOSED';
-        if (isToday && startMinutes !== null && startMinutes <= nowMinutes) status = 'CLOSED';
         rows.push({ time: displayTime, status });
         return rows;
       }, []);
@@ -949,18 +1128,18 @@ export default function BookScreen() {
       if (message) {
         setScheduleMessage(message);
       } else if (derived.length === 0) {
-        setScheduleMessage('No bookable time slots were generated for this date.');
+        setScheduleMessage('No bookable time options were generated for this date.');
       }
     } catch {
       if (requestId === slotAvailabilityRequestRef.current) {
         setSlotStatuses([]);
         setSelectedTime(null);
-        setScheduleMessage('Live time-slot availability could not be confirmed. Please try again.');
+        setScheduleMessage('Live time availability could not be confirmed. Please try again.');
       }
     } finally {
       if (requestId === slotAvailabilityRequestRef.current) setSlotsLoading(false);
     }
-  }, []);
+  }, [businessDate]);
 
   useEffect(() => {
     if (step !== 2) return;
@@ -971,12 +1150,12 @@ export default function BookScreen() {
   }, [step, fetchMonthAvailability]);
 
   useEffect(() => {
-    if (step !== 2) return;
     let disposed = false;
     let socket: Awaited<ReturnType<typeof getSharedSocket>> | null = null;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     const refreshAvailability = () => {
+      if (selectedDateRef.current) setSlotsLoading(true);
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
         if (disposed) return;
@@ -1012,7 +1191,7 @@ export default function BookScreen() {
       socket?.off('db_change', handleDbChange);
       socket?.off('booking_updated', refreshAvailability);
     };
-  }, [step, fetchMonthAvailability, fetchSlotsForDate]);
+  }, [fetchMonthAvailability, fetchSlotsForDate]);
 
   // Preview booking reference (generated client-side for display only)
   const previewBookingRef = React.useMemo(() => {
@@ -1189,7 +1368,26 @@ export default function BookScreen() {
     const effectivePkg = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
     const effectivePrice = effectivePkg ? effectivePkg.prices[vehicleType] : selectedService?.price;
     const effectiveName = selectedService?.name || effectivePkg?.label || '';
-    if (!effectiveName || !selectedDate || !selectedTime) return;
+    const selectedAvailability = selectedDate ? monthAvailability[selectedDate] : undefined;
+    const selectedSlotStillAvailable = !!selectedTime
+      && slotStatuses.some((slot) => slot.time === selectedTime && slot.status === 'AVAILABLE');
+    if (
+      !effectiveName
+      || !selectedDate
+      || !selectedTime
+      || slotsLoading
+      || selectedAvailability?.unavailable
+      || !selectedSlotStillAvailable
+    ) {
+      setStep(2);
+      Toast.show(
+        selectedAvailability?.errorCode === 'EMERGENCY_CLOSED'
+          ? EMERGENCY_CLOSURE_MESSAGE
+          : 'Please select an available appointment date and time.',
+        'error',
+      );
+      return;
+    }
     setIsSubmitting(true);
 
     try {
@@ -1227,8 +1425,41 @@ export default function BookScreen() {
       invalidateCache('/bookings');
       reset();
       router.push('/(customer)/track');
-    } catch (error) {
-      Toast.show(getApiErrorMessage(error, 'Something went wrong. Please try again.'), 'error');
+    } catch (error: any) {
+      const errorPayload = error?.response?.data || {};
+      const status = Number(error?.response?.status || 0);
+      const errorCode = String(errorPayload?.errorCode || '').toUpperCase();
+      const emergencyClosed = errorCode === 'EMERGENCY_CLOSED'
+        || errorPayload?.emergencyClosed === true
+        || String(errorPayload?.closureType || errorPayload?.closedReason || '').toLowerCase() === 'emergency';
+      const message = emergencyClosed
+        ? EMERGENCY_CLOSURE_MESSAGE
+        : getApiErrorMessage(error, 'Something went wrong. Please try again.');
+      if (emergencyClosed || status === 409) {
+        const affectedDate = selectedDate;
+        setSelectedTime(null);
+        setScheduleMessage(message);
+        setStep(2);
+        if (affectedDate && emergencyClosed) {
+          setMonthAvailability((current) => ({
+            ...current,
+            [affectedDate]: {
+              status: 'closed',
+              unavailable: true,
+              reason: EMERGENCY_CLOSURE_MESSAGE,
+              errorCode: 'EMERGENCY_CLOSED',
+              closureType: 'emergency',
+              remaining: 0,
+              booked: current[affectedDate]?.booked ?? null,
+              capacity: current[affectedDate]?.capacity ?? 0,
+            },
+          }));
+        }
+        const { year, month } = visibleCalendarMonthRef.current;
+        void fetchMonthAvailability(year, month);
+        if (affectedDate) void fetchSlotsForDate(affectedDate);
+      }
+      Toast.show(message, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -1238,12 +1469,39 @@ export default function BookScreen() {
   const displayCustomerName = (profile?.full_name || '').trim();
   const displayCustomerPhone = (profile?.phone || phone).trim();
 
+  const selectedDayAvailability = selectedDate ? monthAvailability[selectedDate] : undefined;
+  const selectedTimeIsAvailable = !!selectedTime
+    && slotStatuses.some((slot) => slot.time === selectedTime && slot.status === 'AVAILABLE');
+  const scheduleIsKnownAvailable = !!selectedDate
+    && selectedTimeIsAvailable
+    && !slotsLoading
+    && selectedDayAvailability?.status === 'available'
+    && !selectedDayAvailability.unavailable;
   const canProceedStep0 = !!selectedVehicle && (!!selectedService || !!selectedPkg); // Service: vehicle MUST be selected + package
   const canProceedStep1 = phone.replace(/\D/g, '').length >= 10;                  // Details: valid contact no.
-  const canProceedStep2 = !!selectedDate && !!selectedTime;                        // Schedule: date + time
-  const canProceedStep3 = true;                                                    // Review: always ok
-  const canProceedStep4 = agreedToTerms && tcScrolledToBottom;                     // Terms: scrolled + agreed
-  const canConfirmBooking = canProceedStep4;
+  const canProceedStep2 = scheduleIsKnownAvailable;                                // Schedule: server-confirmed date + time
+  const canProceedStep3 = scheduleIsKnownAvailable;                                // Review remains guarded during live refresh
+  const canProceedStep4 = agreedToTerms && tcScrolledToBottom && scheduleIsKnownAvailable;
+  const canConfirmBooking = canProceedStep4 && scheduleIsKnownAvailable;
+  const availableTimeOptionCount = slotStatuses.filter((slot) => slot.status === 'AVAILABLE').length;
+  const selectedDateCapacityLabel = !selectedDate
+    ? ''
+    : selectedDayAvailability?.status === 'full'
+      ? 'Fully Booked'
+      : selectedDayAvailability?.status === 'closed'
+        ? selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED'
+          ? 'Emergency Closed'
+          : 'Closed'
+        : typeof selectedDayAvailability?.remaining === 'number'
+          ? `${selectedDayAvailability.remaining} appointment${selectedDayAvailability.remaining === 1 ? '' : 's'} remaining`
+          : 'Checking daily availability';
+  const timeOptionCountLabel = !selectedDate
+    ? 'Select a date first'
+    : slotsLoading
+      ? 'Checking available times'
+      : selectedDayAvailability?.status === 'full' || selectedDayAvailability?.status === 'closed'
+        ? 'No time options available'
+        : `${availableTimeOptionCount} available time option${availableTimeOptionCount === 1 ? '' : 's'}`;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Success screen
@@ -1858,6 +2116,7 @@ export default function BookScreen() {
                 }}
                 monthAvailability={monthAvailability}
                 loading={monthAvailLoading}
+                businessDate={businessDate}
                 onMonthChange={(y, m) => {
                   visibleCalendarMonthRef.current = { year: y, month: m };
                   setMonthAvailability({});
@@ -1881,9 +2140,40 @@ export default function BookScreen() {
                   </View>
                 ))}
               </View>
+              {businessDate && businessTimeZone ? (
+                <Text style={[sch.legendText, { marginTop: -6, marginBottom: 8, textAlign: 'center' }]}>Today is {businessDate} in {businessTimeZone}</Text>
+              ) : null}
+
+              {selectedDate ? (
+                <View style={sch.dateSummary}>
+                  <View style={sch.dateSummaryBlock}>
+                    <Text style={sch.dateSummaryLabel}>SELECTED APPOINTMENT DATE</Text>
+                    <Text style={sch.dateSummaryDate}>{formatIsoDateForDisplay(selectedDate)}</Text>
+                  </View>
+                  <View style={[sch.dateSummaryBlock, sch.dateSummaryCapacityBlock]}>
+                    <Text style={sch.dateSummaryLabel}>DAILY SLOT AVAILABILITY</Text>
+                    <Text style={[
+                      sch.dateSummaryCapacity,
+                      selectedDayAvailability?.status === 'full' && sch.dateSummaryCapacityFull,
+                      selectedDayAvailability?.status === 'closed' && sch.dateSummaryCapacityClosed,
+                    ]}>
+                      {selectedDateCapacityLabel}
+                    </Text>
+                    {typeof selectedDayAvailability?.booked === 'number'
+                      && typeof selectedDayAvailability?.capacity === 'number' ? (
+                        <Text style={sch.dateSummaryMeta}>
+                          {selectedDayAvailability.booked} / {selectedDayAvailability.capacity} booked
+                        </Text>
+                      ) : null}
+                  </View>
+                </View>
+              ) : null}
 
               {/* ── Preferred Time ── */}
-              <Text style={sch.sectionLabel}>PREFERRED TIME</Text>
+              <View style={sch.timeSectionHeader}>
+                <Text style={sch.timeSectionLabel}>PREFERRED TIME</Text>
+                <Text style={sch.timeOptionCount}>{timeOptionCountLabel}</Text>
+              </View>
 
               {!!scheduleMessage && (
                 <View style={{ marginBottom: 10, borderWidth: 1, borderColor: '#fde68a', backgroundColor: '#fffbeb', borderRadius: 10, padding: 10 }}>
@@ -1897,7 +2187,7 @@ export default function BookScreen() {
                   <View style={sch.timeLegend}>
                     {[
                       { color: '#111827', label: 'Available' },
-                      { color: '#ef4444', label: 'Full' },
+                      { color: '#ef4444', label: 'Booked' },
                       { color: '#9ca3af', label: 'Closed' },
                     ].map((item) => (
                       <View key={item.label} style={sch.legendItem}>
@@ -1907,6 +2197,31 @@ export default function BookScreen() {
                     ))}
                   </View>
                 </View>
+              ) : selectedDayAvailability?.status === 'full' ? (
+                <View style={sch.emptyState}>
+                  <Ionicons name="calendar-outline" size={22} color={MUTED} />
+                  <Text style={[sch.emptyText, { marginTop: 8 }]}>All appointment times for this date are booked</Text>
+                </View>
+              ) : selectedDayAvailability?.status === 'closed' ? (
+                <View style={sch.emptyState}>
+                  <Ionicons
+                    name="calendar-outline"
+                    size={22}
+                    color={selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED' ? '#dc2626' : MUTED}
+                  />
+                  <Text style={[
+                    sch.emptyText,
+                    { marginTop: 8 },
+                    selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED' && { color: '#dc2626', fontWeight: '700' },
+                  ]}>
+                    {selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED'
+                      ? 'Emergency Closed'
+                      : 'No appointment times are offered on this closed date'}
+                  </Text>
+                  {selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED' ? (
+                    <Text style={[sch.emptyText, { marginTop: 4, textAlign: 'center' }]}>{EMERGENCY_CLOSURE_MESSAGE}</Text>
+                  ) : null}
+                </View>
               ) : slotsLoading ? (
                 <View style={sch.emptyState}>
                   <ActivityIndicator size="small" color={PRIMARY} />
@@ -1915,7 +2230,7 @@ export default function BookScreen() {
               ) : slotStatuses.length === 0 ? (
                 <View style={sch.emptyState}>
                   <Ionicons name="calendar-outline" size={22} color={MUTED} />
-                  <Text style={[sch.emptyText, { marginTop: 8 }]}>No confirmed time slots for this date</Text>
+                  <Text style={[sch.emptyText, { marginTop: 8 }]}>No available time options for this date</Text>
                 </View>
               ) : (
                 <Animated.View entering={FadeInDown.delay(80).duration(200)}>
@@ -1957,7 +2272,7 @@ export default function BookScreen() {
                                 isFull   && { color: '#ef4444' },
                                 isClosed && { color: '#9ca3af' },
                               ]}>{t}</Text>
-                              {isFull   && <Text style={{ fontSize: 9, color: '#ef4444', fontWeight: '600' }}>Full</Text>}
+                              {isFull   && <Text style={{ fontSize: 9, color: '#ef4444', fontWeight: '600' }}>Booked</Text>}
                               {isClosed && <Text style={{ fontSize: 9, color: '#9ca3af' }}>Closed</Text>}
                             </View>
                           )}
@@ -2178,7 +2493,12 @@ export default function BookScreen() {
                   <TouchableOpacity activeOpacity={0.85} onPress={goBack} style={[ss.outlineBtn, { flex: 1 }]}>
                     <Text style={ss.outlineBtnText}>Back</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity activeOpacity={0.88} onPress={goNext} style={{ flex: 2 }}>
+                  <TouchableOpacity
+                    activeOpacity={0.88}
+                    disabled={!canProceedStep3}
+                    onPress={goNext}
+                    style={{ flex: 2, opacity: canProceedStep3 ? 1 : 0.4 }}
+                  >
                     <LinearGradient colors={[PRIMARY_CTR, PRIMARY]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={ss.gradientBtn}>
                       <Text style={ss.gradientBtnText}>Continue</Text>
                       <Ionicons name="arrow-forward" size={18} color={ON_PRIMARY} />
@@ -2280,7 +2600,7 @@ export default function BookScreen() {
             const effectivePrice: number = effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : (selectedService?.price ?? 0);
             const RESERVATION_FEE = 500;
             const balance = Math.max(0, effectivePrice - RESERVATION_FEE);
-            const canSubmit = !!downpaymentProof && !isSubmitting;
+            const canSubmit = !!downpaymentProof && !isSubmitting && canConfirmBooking;
             return (
               <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
                 <View style={ss.editorialHeader}>
@@ -3871,6 +4191,75 @@ const sch = StyleSheet.create({
     fontSize: 11,
     color: MUTED,
     fontWeight: '500',
+  },
+  dateSummary: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: GHOST,
+    borderRadius: 14,
+    backgroundColor: SURFACE_MID,
+    padding: 14,
+  },
+  dateSummaryBlock: {
+    flex: 1,
+    gap: 4,
+  },
+  dateSummaryCapacityBlock: {
+    alignItems: 'flex-end',
+  },
+  dateSummaryLabel: {
+    color: MUTED,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+  },
+  dateSummaryDate: {
+    color: SECONDARY,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  dateSummaryCapacity: {
+    color: '#22c55e',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+    textAlign: 'right',
+  },
+  dateSummaryCapacityFull: {
+    color: '#f59e0b',
+  },
+  dateSummaryCapacityClosed: {
+    color: MUTED,
+  },
+  dateSummaryMeta: {
+    color: MUTED,
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  timeSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  timeSectionLabel: {
+    color: DIM_TEXT,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+  },
+  timeOptionCount: {
+    flex: 1,
+    color: SECONDARY,
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'right',
   },
   emptyState: {
     alignItems: 'center',
