@@ -217,6 +217,13 @@ const DEFAULT_CHIP_VISUAL = { bg: '#f8fafc', text: '#475569', border: '#e2e8f0',
 /** Month grid: show at most this many booking pills, then "N more..." */
 const PREMIUM_MONTH_VISIBLE_EVENTS = 2;
 
+function dayAvailabilityLabel(info: DayMapEntry | undefined): string {
+  if (!info) return 'Availability unavailable';
+  if (info.isClosed) return 'Closed';
+  if (info.availableSlots <= 0 || info.status === 'full') return 'Full';
+  return `${info.availableSlots} slot${info.availableSlots === 1 ? '' : 's'} available`;
+}
+
 // ── Day Cell ──────────────────────────────────────────────────────────────────
 function DayCell({
   date, info, isToday, isPast, isSelected, onClick,
@@ -244,9 +251,7 @@ function DayCell({
           : info.closedReason === 'emergency'
             ? 'Closed · Emergency'
             : 'Closed')
-    : bookingCount > 0
-      ? `${bookingCount} appointment${bookingCount === 1 ? '' : 's'}`
-      : vis.label;
+    : dayAvailabilityLabel(info);
 
   let bg = !info ? '#ffffff' : vis.cellBg;
   /** No stroke borders — depth from shadow only */
@@ -411,20 +416,20 @@ function PremiumDayCell({
           >
             {date.getDate()}
           </div>
-          {info && (info.isClosed || info.bookedSlots > 0) ? (
+          {info ? (
             <span
-              className={`max-w-[78%] truncate text-[9px] font-semibold tabular-nums ${
+              className={`premium-calendar-availability-label max-w-[78%] truncate text-[9px] font-semibold tabular-nums ${
                 info.isClosed ? 'text-rose-500' : 'text-[#98a2b3]'
               }`}
               title={
                 info.isClosed
                   ? info.closureLabel || 'Closed for appointments'
-                  : `${info.bookedSlots} appointment${info.bookedSlots === 1 ? '' : 's'}`
+                  : `${dayAvailabilityLabel(info)} · ${info.bookedSlots} / ${info.dailyCapacity} booked`
               }
             >
               {info.isClosed
                 ? 'Closed'
-                : `${info.bookedSlots} appointment${info.bookedSlots === 1 ? '' : 's'}`}
+                : dayAvailabilityLabel(info)}
             </span>
           ) : null}
         </div>
@@ -521,9 +526,7 @@ function PremiumDayAgenda({
               ? 'Availability information is unavailable'
               : info.isClosed
               ? info.closureLabel || 'Closed for appointments'
-              : info && info.bookedSlots > 0
-                ? `${info.bookedSlots} appointment${info.bookedSlots === 1 ? '' : 's'}`
-                : 'No appointments scheduled'}
+              : `${dayAvailabilityLabel(info)} · ${info.bookedSlots} / ${info.dailyCapacity} booked`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -590,7 +593,7 @@ function PremiumDayAgenda({
                   key={booking._id || booking.id}
                   type="button"
                   onClick={() => onAppointmentClick(booking)}
-                  className="grid w-full grid-cols-[74px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-blue-200 hover:shadow-[0_4px_14px_-8px_rgba(37,99,235,0.28)] sm:grid-cols-[92px_minmax(0,1fr)_auto]"
+                  className="premium-calendar-agenda-card grid w-full grid-cols-[74px_minmax(0,1fr)_auto] items-center gap-3 border bg-white px-3 py-3 text-left transition sm:grid-cols-[92px_minmax(0,1fr)_auto]"
                   style={{ borderColor: tone.border }}
                 >
                   <span className="text-xs font-semibold tabular-nums text-slate-600">

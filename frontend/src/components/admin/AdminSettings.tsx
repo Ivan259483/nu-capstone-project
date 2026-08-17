@@ -269,8 +269,8 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                             }`}>
                                 <p className="text-sm font-semibold">Appointment availability is managed in Availability Controls</p>
                                 <p className={`mt-1 text-xs leading-5 ${isDarkMode ? 'text-blue-200/80' : 'text-blue-800'}`}>
-                                    Open days, operating hours, and capacity are enforced per individual time slot.
-                                    This page no longer stores a separate daily capacity.
+                                    Open days, operating hours, and maximum appointments per day are managed in Availability Controls.
+                                    This page does not store a separate capacity value.
                                 </p>
                                 <a
                                     href="/admin/dashboard?tab=scheduling"

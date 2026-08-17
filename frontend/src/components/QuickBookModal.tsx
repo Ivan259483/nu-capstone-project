@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { OrderService, type AvailableSlotsResponse } from '@/lib/order-service';
 import { cn } from "@/lib/utils";
 import api from '@/lib/api';
+import { syncAvailabilityCaches } from '@/lib/availabilitySync';
 
 /* ─────────────────────── Constants ─────────────────────── */
 const vehicleTypes = ["sedan", "suv", "truck", "van", "sports"] as const;
@@ -228,6 +229,7 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
 
             if (response?.success) {
                 toast.success("Booking confirmed! See you soon.");
+                syncAvailabilityCaches();
                 onClose();
             } else {
                 toast.error(response?.message || 'Failed to submit booking');
@@ -352,7 +354,7 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
                                                     >
                                                         <span className="block">{slot.label || slot.time}</span>
                                                         <span className="mt-0.5 block text-[10px] opacity-70">
-                                                            {full ? 'Full' : `${slot.available} available`}
+                                                            {full ? 'Full' : `${slot.available} slot${slot.available === 1 ? '' : 's'} available`}
                                                         </span>
                                                     </button>
                                                 );

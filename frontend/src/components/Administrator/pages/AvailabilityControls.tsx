@@ -298,7 +298,7 @@ export default function AvailabilityControls() {
         ? { ...row, from: monday.from, to: monday.to, slots: monday.slots }
         : row
     )));
-    toast.success('Applied Monday hours and per-slot capacity to all open days.');
+    toast.success('Applied Monday hours and daily appointment capacity to all open days.');
   };
 
   const saveSchedule = async () => {
@@ -316,7 +316,7 @@ export default function AvailabilityControls() {
       setSchedule(normalized);
       bumpCalendarCache();
       toast.success('Weekly availability saved.', {
-        description: 'Open days, operating hours, and per-time-slot capacity are now live everywhere.',
+        description: 'Open days, operating hours, and daily appointment capacity are now live everywhere.',
       });
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to save weekly availability.'));
@@ -537,7 +537,7 @@ export default function AvailabilityControls() {
         <h3 className="text-sm font-semibold text-slate-900">Weekly Availability</h3>
         <p className="mt-1 text-xs text-slate-600">
           This is the appointment system’s weekly source of truth. Configure open days, operating hours,
-          and the maximum number of appointments allowed in each generated time slot, then save once.
+          and the maximum number of appointments allowed per calendar date, then save once.
         </p>
         <div className="mt-4 overflow-x-auto rounded-2xl bg-white shadow-[0_2px_12px_-4px_rgba(15,23,42,0.08),0_0_0_1px_rgba(226,232,240,0.55)]">
           <table className="ah-table min-w-[760px]">
@@ -547,7 +547,7 @@ export default function AvailabilityControls() {
                 <th>Open</th>
                 <th>From</th>
                 <th>To</th>
-                <th>Capacity per time slot</th>
+                <th>Daily Appointment Capacity</th>
               </tr>
             </thead>
             <tbody>

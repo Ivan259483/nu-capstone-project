@@ -10,6 +10,7 @@ import {
   AVAILABILITY_UPDATED_EVENT,
   ensureAvailabilityRealtimeSync,
   mapRangeSummaryToCustomerDay,
+  syncAvailabilityCaches,
 } from '@/lib/availabilitySync';
 import { ensureBackendAuthToken, getStoredAuthToken } from '../lib/api';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
@@ -1342,6 +1343,8 @@ export default function CustomerDashboard() {
     reason: string;
     errorCode: string | null;
     remaining: number | null;
+    booked: number | null;
+    capacity: number | null;
   };
   const [slotStatuses, setSlotStatuses] = useState<TimeSlot[]>([]);
   const [slotError, setSlotError] = useState<string>('');
@@ -1650,6 +1653,8 @@ export default function CustomerDashboard() {
           errorCode: 'PAST_DATE',
           reason: 'Past date is no longer available for booking.',
           remaining: 0,
+          booked: null,
+          capacity: null,
         };
       }
     }
@@ -1670,6 +1675,8 @@ export default function CustomerDashboard() {
             errorCode: 'AVAILABILITY_UNVERIFIED',
             reason: 'Live availability could not be verified for this date.',
             remaining: 0,
+            booked: null,
+            capacity: null,
           };
         }
       }
@@ -1774,6 +1781,9 @@ export default function CustomerDashboard() {
           duration: 7000,
         });
         setBookingDone(true);
+        // The order is persisted before the API returns, so this immediately
+        // refreshes the selected date and month badge from backend daily totals.
+        syncAvailabilityCaches();
         invalidate('/bookings');
         const created = res.data as any;
         if (created) {
@@ -8033,6 +8043,13 @@ export default function CustomerDashboard() {
                           : isShopClosed
                             ? (dayInfo?.reason || 'Shop is closed on this day.')
                             : '';
+                      const availabilityLabel = isPast
+                        ? ''
+                        : isShopClosed
+                          ? 'Closed'
+                          : isFullyBooked
+                            ? 'Fully Booked'
+                            : `${dayInfo?.remaining ?? 0} slot${dayInfo?.remaining === 1 ? '' : 's'} available`;
                       const dayClassName = [
                         'booking-step3-day',
                         status === 'available' && !disabled ? 'is-available' : '',
@@ -8064,7 +8081,7 @@ export default function CustomerDashboard() {
                         >
                           <span className="booking-step3-day-number">{day}</span>
                           {isToday && <span className="booking-step3-day-tag">Today</span>}
-                          {!isSelected && <span className="booking-step3-day-dot" aria-hidden />}
+                          {availabilityLabel && <span className="booking-step3-day-availability">{availabilityLabel}</span>}
                         </button>
                       );
                     }

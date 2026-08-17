@@ -19,32 +19,17 @@ const monthCache = new Map<string, RangeSlotSummary[]>();
  * Bump when /api/slots/range payload or client interpretation changes.
  * Prevents stale in-memory month data (e.g. old "45 slots" totals) after deploy.
  */
-const SLOT_RANGE_CACHE_SCHEMA = 3;
+const SLOT_RANGE_CACHE_SCHEMA = 4;
 
 /** Call after admin saves availability so the calendar picks up new open/closed days. */
 export function clearCalendarSlotsCache() {
   monthCache.clear();
 }
 
-/**
- * Month cells must never reconstruct per-slot availability from daily totals:
- * distribution across time bands is only known by the backend. Older/malformed
- * payloads therefore fail closed with zero rather than inventing capacity.
- */
-function resolveMonthCellSlotsLeft(s: RangeSlotSummary): number {
-  const m = Number(s.minAvailablePerSlot);
-  if (Number.isFinite(m)) return Math.max(0, m);
-  return 0;
-}
-
 // ── Status normaliser (backend uses UPPER, DayStatus uses lower) ──────────────
 function normaliseStatus(s: string): DayStatus {
   switch (s?.toUpperCase()) {
-    // A date can contain one over-capacity band while other exact bands remain
-    // bookable. Keep the day selectable; the exact-slot modal blocks only the
-    // affected rows. The day-map conversion below upgrades this to `full` when
-    // the backend reports no remaining capacity anywhere on the date.
-    case 'OVER_CAPACITY': return 'almost_full';
+    case 'OVER_CAPACITY': return 'full';
     case 'FULL':        return 'full';
     case 'ALMOST_FULL': return 'almost_full';
     case 'CLOSED':      return 'closed';
@@ -61,8 +46,7 @@ export interface DayMapEntry {
   totalSlots: number;
   bookedSlots: number;
   availableSlots: number;
-  perSlotCapacity: number;
-  minAvailablePerSlot: number;
+  dailyCapacity: number;
   pendingCount: number;
   isClosed: boolean;
   closedReason?: 'emergency' | 'closure' | 'recurring' | null;
@@ -173,6 +157,8 @@ export function useCalendarSlots(year: number, month: number): UseCalendarSlotsR
         'CLOSED',
         'PAST',
       ].includes(rawStatus);
+      const dailyCapacity = Number(s.dailyCapacity);
+      const hasValidDailyCapacity = Number.isFinite(dailyCapacity) && dailyCapacity >= 0;
       map.set(s.date, {
         dateKey: s.date,
         status: s.status === 'OVER_CAPACITY' && Number(s.availableSlots) <= 0
@@ -181,14 +167,13 @@ export function useCalendarSlots(year: number, month: number): UseCalendarSlotsR
         totalSlots: s.totalSlots,
         bookedSlots: s.bookedSlots,
         availableSlots: s.availableSlots,
-        perSlotCapacity: Number.isFinite(Number(s.perSlotCapacity)) ? Math.max(0, Number(s.perSlotCapacity)) : 0,
-        minAvailablePerSlot: resolveMonthCellSlotsLeft(s),
+        dailyCapacity: hasValidDailyCapacity ? dailyCapacity : 0,
         pendingCount: s.pendingCount,
-        isClosed: s.isClosed || rawStatus === 'PAST' || !knownStatus,
+        isClosed: s.isClosed || rawStatus === 'PAST' || !knownStatus || !hasValidDailyCapacity,
         closedReason: s.closedReason ?? null,
         closureLabel: rawStatus === 'PAST'
           ? 'Past date'
-          : !knownStatus
+          : !knownStatus || !hasValidDailyCapacity
             ? 'Availability unavailable'
             : s.closureLabel ?? null,
       });

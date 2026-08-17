@@ -43,34 +43,36 @@ export default function OpsJobSlideOver({ job, open, onClose, technicians, onAss
       onClose={onClose}
       title={job.jobNumber}
       subtitle={job.serviceType}
-      width="w-[520px]"
+      width="w-[460px]"
     >
-      {/* Status + Priority row */}
-      <div className="px-6 pt-4 pb-4">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <OpsStatusBadge status={job.status} />
-          <OpsPriorityBadge priority={job.priority} />
-          <span className={`ops-badge text-[11px] font-medium ${slaClass}`}>
-            SLA: {job.slaStatus}
-          </span>
+      <div className="ops-slide-sticky-tools">
+        {/* Status + Priority row */}
+        <div className="px-6 pt-4 pb-3">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <OpsStatusBadge status={job.status} />
+            <OpsPriorityBadge priority={job.priority} />
+            <span className={`ops-badge text-[11px] font-medium ${slaClass}`}>
+              SLA: {job.slaStatus}
+            </span>
+          </div>
         </div>
-      </div>
 
-      {/* Tabs — pill segments, no underline / divider */}
-      <div className="px-6 pb-4">
-        <div className="ops-tab-segment-wrap" role="tablist">
-          {TABS.map(tab => (
-            <button
-              key={`so-tab-${tab}`}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === tab}
-              onClick={() => setActiveTab(tab)}
-              className={`ops-tab-segment ${activeTab === tab ? 'ops-tab-segment--active' : ''}`}
-            >
-              {tab}
-            </button>
-          ))}
+        {/* Tabs stay reachable while the drawer content scrolls. */}
+        <div className="px-6 pb-4">
+          <div className="ops-tab-segment-wrap" role="tablist">
+            {TABS.map(tab => (
+              <button
+                key={`so-tab-${tab}`}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab}
+                onClick={() => setActiveTab(tab)}
+                className={`ops-tab-segment ${activeTab === tab ? 'ops-tab-segment--active' : ''}`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -79,7 +81,7 @@ export default function OpsJobSlideOver({ job, open, onClose, technicians, onAss
         {activeTab === 'Overview' && (
           <>
             {/* Customer info */}
-            <div className="rounded-2xl p-4 space-y-3 bg-gradient-to-br from-slate-50 to-slate-50/40 shadow-[0_2px_12px_-4px_rgba(15,23,42,0.07)]">
+            <div className="ops-slide-section-card p-4 space-y-3 bg-gradient-to-br from-slate-50 to-slate-50/40">
               <h4 className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Customer</h4>
               <div className="flex items-start gap-3">
                 <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center flex-shrink-0 shadow-sm">
@@ -105,21 +107,21 @@ export default function OpsJobSlideOver({ job, open, onClose, technicians, onAss
 
             {/* Scheduling */}
             <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl p-3.5 bg-slate-50/90 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
+              <div className="ops-slide-section-card p-3.5 bg-slate-50/90">
                 <p className="text-[10.5px] text-gray-400 font-medium uppercase tracking-wide mb-1">Scheduled</p>
                 <p className="text-[14px] font-semibold text-gray-900 tabular-nums">{job.scheduledAt}</p>
               </div>
-              <div className="rounded-xl p-3.5 bg-slate-50/90 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
+              <div className="ops-slide-section-card p-3.5 bg-slate-50/90">
                 <p className="text-[10.5px] text-gray-400 font-medium uppercase tracking-wide mb-1">SLA Deadline</p>
                 <p className="text-[14px] font-semibold text-gray-900 tabular-nums">{job.slaDeadline}</p>
               </div>
-              <div className="rounded-xl p-3.5 bg-slate-50/90 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
+              <div className="ops-slide-section-card p-3.5 bg-slate-50/90">
                 <p className="text-[10.5px] text-gray-400 font-medium uppercase tracking-wide mb-1">ETA</p>
                 <p className={`text-[14px] font-semibold tabular-nums ${job.status === 'Delayed' ? 'text-red-600' : 'text-gray-900'}`}>
                   {job.eta}
                 </p>
               </div>
-              <div className="rounded-xl p-3.5 bg-slate-50/90 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
+              <div className="ops-slide-section-card p-3.5 bg-slate-50/90">
                 <p className="text-[10.5px] text-gray-400 font-medium uppercase tracking-wide mb-1">Vehicle</p>
                 <p className="text-[14px] font-semibold text-gray-900">{job.area}</p>
                 {(job.plateLabel || job.plateLocked) && (
@@ -144,7 +146,7 @@ export default function OpsJobSlideOver({ job, open, onClose, technicians, onAss
             <div>
               <h4 className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-2.5">Assigned Technician</h4>
               {tech ? (
-                <div className="flex items-center gap-3 rounded-xl p-3.5 bg-indigo-50/80 shadow-[0_1px_4px_rgba(79,70,229,0.08)]">
+                <div className="ops-slide-section-card flex items-center gap-3 p-3.5 bg-indigo-50/80">
                   <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-semibold flex-shrink-0 ${tech.avatar}`}>
                     {tech.initials}
                   </div>
@@ -159,7 +161,7 @@ export default function OpsJobSlideOver({ job, open, onClose, technicians, onAss
                   )}
                 </div>
               ) : (
-                <div className="rounded-xl p-4 bg-slate-50/90 shadow-[0_2px_8px_-2px_rgba(15,23,42,0.06)]">
+                <div className="ops-slide-section-card p-4 bg-slate-50/90">
                   <p className="text-[13px] text-gray-400 mb-3 text-center">No technician assigned yet</p>
                   <div className="flex gap-2">
                     <select
@@ -243,7 +245,7 @@ export default function OpsJobSlideOver({ job, open, onClose, technicians, onAss
         {activeTab === 'Notes' && (
           <div>
             <h4 className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-2.5">Job Notes</h4>
-            <div className="rounded-xl p-4 bg-slate-50/90 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
+            <div className="ops-slide-section-card p-4 bg-slate-50/90">
               <p className="text-[13.5px] text-gray-700 leading-relaxed">{job.notes || 'No notes yet'}</p>
             </div>
           </div>

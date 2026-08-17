@@ -28,6 +28,7 @@ import api from '@/lib/api';
 import type { Service, Vehicle, User } from '@/types';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
+import { syncAvailabilityCaches } from '@/lib/availabilitySync';
 
 // Copied from original file
 const SERVICE_IMAGE_MAP: Record<string, string> = {
@@ -120,8 +121,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                     setDateUnavailable(unavailable);
                     setAvailabilityMessage(message || (unavailable ? 'This date is unavailable for booking.' : ''));
 
-                    // Reconcile against the exact server-generated time band and its
-                    // per-slot capacity. A slot remains selectable until status is FULL.
+                    // Every generated time uses the same server-owned daily capacity.
+                    // A time remains selectable until the date reaches that maximum.
                     setTime((currentTime) => {
                         if (!currentTime) return currentTime;
                         const selectedSlot = slots.find((slot) => slot.time === currentTime);
@@ -254,6 +255,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
 
             console.log('✅ Booking Success:', response);
             toast.success("Booking confirmed! Redirecting...");
+            syncAvailabilityCaches();
 
             onSuccess();
             onClose();
@@ -461,7 +463,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                                             {isBooked
                                                 ? '(Full)'
                                                 : Number.isFinite(Number(slot.available))
-                                                    ? `(${slot.available} available)`
+                                                    ? `(${slot.available} slot${slot.available === 1 ? '' : 's'} available)`
                                                     : ''}
                                         </SelectItem>
                                     );

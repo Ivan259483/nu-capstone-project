@@ -590,7 +590,7 @@ export default function AdminNewAppointmentNotice({
                 <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
                   <Clock3 size={15} className="text-blue-600" /> Server time slots
                 </h3>
-                <p className="mt-1 text-xs text-slate-500">Capacity is counted independently for each exact time.</p>
+                <p className="mt-1 text-xs text-slate-500">Every time option shares the date’s daily appointment capacity.</p>
               </div>
               {slotsLoading ? <Loader2 size={18} className="animate-spin text-blue-600" aria-label="Loading time slots" /> : null}
             </div>
@@ -620,7 +620,7 @@ export default function AdminNewAppointmentNotice({
                       ? 'Passed'
                       : full
                         ? 'FULL'
-                        : `${slot.available} available`;
+                        : `${slot.available} slot${slot.available === 1 ? '' : 's'} available`;
                   return (
                     <button
                       key={slot.time}

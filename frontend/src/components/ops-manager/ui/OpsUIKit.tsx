@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 
 // ═══ Types ═══
 export type JobStatus = 'Queued' | 'Assigned' | 'En Route' | 'Ongoing' | 'Completed' | 'Delayed' | 'Cancelled';
@@ -51,35 +52,113 @@ interface SlideOverProps {
   children: React.ReactNode;
 }
 
-export function OpsSlideOver({ open, onClose, title, subtitle, width = 'w-[520px]', children }: SlideOverProps) {
+const SLIDE_OVER_EXIT_MS = 240;
+
+export function OpsSlideOver({ open, onClose, title, subtitle, width = 'w-[460px]', children }: SlideOverProps) {
+  const [shouldRender, setShouldRender] = React.useState(open);
+  const [headerOffset, setHeaderOffset] = React.useState(0);
+  const [contentScrolled, setContentScrolled] = React.useState(false);
+  const titleId = React.useId();
+
+  React.useEffect(() => {
+    if (open) {
+      setShouldRender(true);
+      return undefined;
+    }
+    if (!shouldRender) return undefined;
+
+    const exitTimer = window.setTimeout(() => {
+      setShouldRender(false);
+      setContentScrolled(false);
+    }, SLIDE_OVER_EXIT_MS);
+    return () => window.clearTimeout(exitTimer);
+  }, [open, shouldRender]);
+
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     if (open) window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [open, onClose]);
 
-  if (!open) return null;
+  React.useLayoutEffect(() => {
+    if (!shouldRender) return undefined;
 
-  return (
-    <>
-      <div className="ops-slide-backdrop" onClick={onClose} />
-      <div className={`ops-slide-panel ${width}`}>
-        <div className="flex items-start justify-between px-6 py-5 flex-shrink-0 shadow-[0_8px_24px_-16px_rgba(15,23,42,0.08)]">
+    const topbar = document.querySelector<HTMLElement>('.adminhub-root .ah-topbar');
+    const updateHeaderOffset = () => {
+      const nextOffset = topbar ? Math.max(0, Math.round(topbar.getBoundingClientRect().bottom)) : 0;
+      setHeaderOffset(nextOffset);
+    };
+
+    updateHeaderOffset();
+    window.addEventListener('resize', updateHeaderOffset);
+    const resizeObserver = typeof ResizeObserver !== 'undefined' && topbar
+      ? new ResizeObserver(updateHeaderOffset)
+      : null;
+    resizeObserver?.observe(topbar!);
+
+    return () => {
+      window.removeEventListener('resize', updateHeaderOffset);
+      resizeObserver?.disconnect();
+    };
+  }, [shouldRender]);
+
+  React.useEffect(() => {
+    if (!shouldRender) return undefined;
+
+    const root = document.documentElement;
+    const body = document.body;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyPaddingRight = body.style.paddingRight;
+    const scrollbarGap = Math.max(0, window.innerWidth - root.clientWidth);
+
+    root.classList.add('ops-drawer-open');
+    body.style.overflow = 'hidden';
+    if (scrollbarGap > 0) body.style.paddingRight = `${scrollbarGap}px`;
+
+    return () => {
+      root.classList.remove('ops-drawer-open');
+      body.style.overflow = previousBodyOverflow;
+      body.style.paddingRight = previousBodyPaddingRight;
+    };
+  }, [shouldRender]);
+
+  if (!shouldRender || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      className={`ops-slide-layer ${open ? 'is-open' : 'is-closing'}`}
+      style={{ '--ops-slide-top': `${headerOffset}px` } as React.CSSProperties}
+    >
+      <div className="ops-slide-backdrop" onClick={onClose} aria-hidden="true" />
+      <aside
+        className={`ops-slide-panel ${width}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className={`ops-slide-header ${contentScrolled ? 'is-scrolled' : ''}`}>
           <div>
-            <h2 className="text-[15px] font-semibold text-gray-900">{title}</h2>
+            <h2 id={titleId} className="text-[15px] font-semibold text-gray-900">{title}</h2>
             {subtitle && <p className="text-[12px] text-gray-400 mt-0.5">{subtitle}</p>}
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all duration-150 flex-shrink-0 ml-4"
+            className="ops-slide-close-btn"
+            aria-label="Close order details"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto ops-scrollbar-thin">
+        <div
+          className="ops-slide-scroll ops-scrollbar-thin"
+          onScroll={(event) => setContentScrolled(event.currentTarget.scrollTop > 2)}
+        >
           {children}
         </div>
-      </div>
-    </>
+      </aside>
+    </div>,
+    document.body,
   );
 }

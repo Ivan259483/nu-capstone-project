@@ -41,15 +41,16 @@ export default function AdminAppointmentsPage({ currentUserRole }: Props) {
 
   return (
     <div className="ah-page-enter admin-appointments-page flex min-h-0 flex-1 flex-col gap-2">
-      <div className="inline-flex w-fit shrink-0 items-center gap-0.5 rounded-xl bg-white p-0.5 shadow-[0_1px_8px_-3px_rgba(15,23,42,0.08),0_0_0_1px_rgba(226,232,240,0.55)]">
+      <div className="admin-appointments-tabs inline-flex w-fit shrink-0 items-center gap-0.5 rounded-xl bg-white p-0.5">
         <button
           type="button"
-          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+          className={`admin-appointments-tab inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold transition ${
             activeTab === 'calendar'
               ? 'bg-blue-600 text-white shadow-sm'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
           onClick={() => selectSchedulingTab('calendar')}
+          aria-pressed={activeTab === 'calendar'}
         >
           <CalendarDays size={14} />
           Calendar
@@ -57,12 +58,13 @@ export default function AdminAppointmentsPage({ currentUserRole }: Props) {
         {isAdministrator && (
           <button
             type="button"
-            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+            className={`admin-appointments-tab inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold transition ${
               activeTab === 'availability'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
             onClick={() => selectSchedulingTab('availability')}
+            aria-pressed={activeTab === 'availability'}
           >
             <SlidersHorizontal size={14} />
             Availability Controls

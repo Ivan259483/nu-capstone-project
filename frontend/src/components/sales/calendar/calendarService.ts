@@ -26,12 +26,8 @@ export interface RangeSlotSummary {
   totalSlots: number;
   bookedSlots: number;
   availableSlots: number;
-  /** Admin "Capacity per time slot" (max seats in one hourly window). */
-  perSlotCapacity?: number;
-  /** Least remaining seats in any single window — use for month cells so 5 ≠ 9×5. */
-  minAvailablePerSlot?: number;
-  /** Open-hour bands that day (e.g. 9). Used if minAvailablePerSlot is missing (stale cache / old server). */
-  timeBandCount?: number;
+  /** Maximum appointments for this date, directly from Availability Controls. */
+  dailyCapacity: number;
   almostFullSlots: number;
   fullSlots: number;
   overCapacitySlots?: number;
@@ -41,7 +37,7 @@ export interface RangeSlotSummary {
 }
 
 export async function fetchSlotRange(start: string, end: string): Promise<RangeSlotSummary[]> {
-  const res = await fetch(`/api/slots/range?start=${start}&end=${end}&_cal=3`, {
+  const res = await fetch(`/api/slots/range?start=${start}&end=${end}&_cal=4`, {
     headers: authHeaders(),
   });
   // 401/403 = session expired/invalid — return empty, don't throw
@@ -69,6 +65,10 @@ export interface DateSlotDetail {
   date: string;
   isClosed: boolean;
   status?: 'AVAILABLE' | 'FULL' | 'OVER_CAPACITY' | 'CLOSED';
+  bookedSlots?: number;
+  availableSlots?: number;
+  dailyCapacity?: number;
+  totalCapacity?: number;
   slots: SlotDetail[];
 }
 

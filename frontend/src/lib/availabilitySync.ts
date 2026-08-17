@@ -17,6 +17,8 @@ export type CustomerDayAvailabilityInfo = {
   reason: string;
   errorCode: string | null;
   remaining: number | null;
+  booked: number | null;
+  capacity: number | null;
 };
 
 /** Bust admin month cache, customer slot cache, and notify in-tab listeners. */
@@ -32,11 +34,17 @@ export function syncAvailabilityCaches(): void {
 export function mapRangeSummaryToCustomerDay(summary: RangeSlotSummary): CustomerDayAvailabilityInfo {
   const knownStatus = new Set(['AVAILABLE', 'ALMOST_FULL', 'FULL', 'OVER_CAPACITY', 'CLOSED']);
   const availableSeats = Number(summary?.availableSlots);
+  const dailyCapacity = Number(summary?.dailyCapacity);
+  const booked = Number(summary?.bookedSlots);
   if (
     !summary
     || typeof summary.isClosed !== 'boolean'
     || !knownStatus.has(String(summary.status || '').toUpperCase())
     || !Number.isFinite(availableSeats)
+    || !Number.isFinite(dailyCapacity)
+    || dailyCapacity < 0
+    || !Number.isFinite(booked)
+    || booked < 0
   ) {
     return {
       status: 'closed',
@@ -44,6 +52,8 @@ export function mapRangeSummaryToCustomerDay(summary: RangeSlotSummary): Custome
       reason: 'Live availability could not be verified for this date.',
       errorCode: 'AVAILABILITY_UNVERIFIED',
       remaining: 0,
+      booked: null,
+      capacity: null,
     };
   }
 
@@ -81,6 +91,8 @@ export function mapRangeSummaryToCustomerDay(summary: RangeSlotSummary): Custome
         ? 'DATE_FULL'
         : null,
     remaining: availableSeats,
+    booked,
+    capacity: dailyCapacity,
   };
 }
 
@@ -99,7 +111,7 @@ export function ensureAvailabilityRealtimeSync(): void {
 
   sock.on('db_change', (payload: { collection?: string }) => {
     const coll = payload?.collection;
-    if (coll === 'shopavailabilities' || coll === 'scheduledclosures') {
+    if (coll === 'orders' || coll === 'shopavailabilities' || coll === 'scheduledclosures') {
       syncAvailabilityCaches();
     }
   });

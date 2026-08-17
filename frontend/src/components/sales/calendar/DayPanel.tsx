@@ -534,7 +534,7 @@ export default function DayPanel({
           <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200/80">
             <div className="flex items-center justify-between bg-slate-50 px-3.5 py-2.5">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Time-slot capacity</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Daily appointment capacity</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">Live values from Availability Controls</p>
               </div>
               {slotDetailsLoading ? <Loader2 size={14} className="animate-spin text-blue-500" /> : null}
@@ -561,7 +561,7 @@ export default function DayPanel({
                         ? 'FULL'
                       : booked === 0
                         ? 'Available'
-                        : `${available} available`;
+                        : `${available} slot${available === 1 ? '' : 's'} available`;
                   return (
                     <div key={slot.time} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3.5 py-2.5 text-xs">
                       <span className="font-semibold text-slate-800">{slot.label || slot.time}</span>

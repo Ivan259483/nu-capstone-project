@@ -3913,7 +3913,7 @@ export default function AdminDashboard() {
                                                         ? `(${slot.booked}/${slot.capacity} — Over capacity)`
                                                         : isFull
                                                             ? `(${slot.booked}/${slot.capacity} — Full)`
-                                                            : `(${slot.available} available)`}
+                                                            : `(${slot.available} slot${Number(slot.available) === 1 ? '' : 's'} available)`}
                                             </SelectItem>
                                         );
                                     })}

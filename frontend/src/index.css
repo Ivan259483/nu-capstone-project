@@ -8621,8 +8621,8 @@ a.public-nav-link.public-nav-link--active {
     align-content: center;
     gap: 0.2rem;
     min-width: 0;
-    height: 2.66rem;
-    min-height: 2.58rem;
+    height: 3.45rem;
+    min-height: 3.35rem;
     aspect-ratio: auto;
     border: 1px solid rgb(219 234 254 / 0.82);
     border-radius: 8px;
@@ -8660,6 +8660,18 @@ a.public-nav-link.public-nav-link--active {
     opacity: 0.78;
     text-overflow: ellipsis;
     text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.customer-booking-modal .booking-step3-day-availability {
+    max-width: 100%;
+    overflow: hidden;
+    color: inherit;
+    font-size: 0.46rem;
+    font-weight: 800;
+    line-height: 1.05;
+    text-align: center;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 

@@ -32,6 +32,7 @@ export interface AvailableSlotsResponse {
     slotsLimit?: number | null;
     bookedCount?: number | null;
     totalCapacity?: number | null;
+    dailyCapacity?: number | null;
 }
 
 export interface OrderListOptions {
@@ -586,7 +587,7 @@ export const OrderService = {
     async getAvailableSlots(date: string): Promise<AvailableSlotsResponse> {
         // Capacity can change while a booking flow is open. Availability reads
         // are intentionally uncached so every caller sees the persisted Admin
-        // configuration and current exact-slot occupancy.
+        // configuration and current daily occupancy.
         const response = await api.get<AvailableSlotsResponse>('/orders/available-slots', {
             params: { date },
             meta: { suppressErrorToast: true },
@@ -604,6 +605,7 @@ export const OrderService = {
             slotsLimit: typeof data?.slotsLimit === 'number' ? data.slotsLimit : null,
             bookedCount: typeof data?.bookedCount === 'number' ? data.bookedCount : null,
             totalCapacity: typeof data?.totalCapacity === 'number' ? data.totalCapacity : null,
+            dailyCapacity: typeof data?.dailyCapacity === 'number' ? data.dailyCapacity : null,
         };
     },
 
