@@ -1,35 +1,105 @@
 import mongoose from 'mongoose';
 import { NOTIFICATION_RECIPIENT_ROLES } from '../constants/roles.js';
 
-const notificationSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  message: { type: String, required: true },
-  type: { 
-    type: String, 
-    enum: ['info', 'success', 'warning', 'error', 'booking', 'inventory', 'chat'], 
-    default: 'info' 
+export const ADMIN_NOTIFICATION_CATEGORIES = Object.freeze([
+  'appointments',
+  'live_tracking',
+  'payments',
+  'inventory',
+  'security',
+  'system',
+]);
+
+export const NOTIFICATION_SEVERITIES = Object.freeze([
+  'critical',
+  'warning',
+  'info',
+  'success',
+]);
+
+const notificationActionSchema = new mongoose.Schema(
+  {
+    label: { type: String, trim: true, maxlength: 80 },
+    link: { type: String, trim: true, maxlength: 1000 },
   },
-  isRead: { type: Boolean, default: false },
-  recipientRole: { 
-    type: String, 
-    enum: NOTIFICATION_RECIPIENT_ROLES, 
-    default: 'admin_family' 
+  { _id: false }
+);
+
+const notificationSchema = new mongoose.Schema(
+  {
+    title: { type: String, required: true, trim: true, maxlength: 180 },
+    message: { type: String, required: true, trim: true, maxlength: 2000 },
+
+    // `type` is intentionally open-ended for legacy presentation types such as
+    // booking, warning, and chat.
+    type: { type: String, trim: true, maxlength: 100, default: 'info' },
+    // Stable operational name used for precise filters while `type` remains a
+    // backwards-compatible presentation hint for existing clients.
+    event: { type: String, trim: true, maxlength: 100, default: undefined },
+    category: {
+      type: String,
+      enum: ADMIN_NOTIFICATION_CATEGORIES,
+      default: undefined,
+    },
+    severity: {
+      type: String,
+      enum: NOTIFICATION_SEVERITIES,
+      default: undefined,
+    },
+    source: { type: String, trim: true, maxlength: 120, default: undefined },
+    actionRequired: { type: Boolean, default: false },
+
+    // Kept for targeted-notification backwards compatibility. Role broadcasts
+    // use NotificationUserState so read state is never shared between admins.
+    isRead: { type: Boolean, default: false },
+    readAt: { type: Date, default: null },
+    recipientRole: {
+      type: String,
+      enum: NOTIFICATION_RECIPIENT_ROLES,
+      default: 'admin_family',
+    },
+    priority: {
+      type: String,
+      enum: ['low', 'normal', 'high'],
+      default: 'normal',
+    },
+    // Per-user targeting: when set, only this specific user sees the notification.
+    recipientUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+
+    link: { type: String, trim: true, maxlength: 1000 },
+    action: { type: notificationActionSchema, default: undefined },
+    metadata: mongoose.Schema.Types.Mixed,
+
+    // Repeated operational events may update a recent group instead of creating
+    // a noisy activity-feed row. The service owns the grouping time window.
+    groupingKey: { type: String, trim: true, maxlength: 240, default: undefined },
+    // Deterministic window bucket used with groupingKey to make the first
+    // grouped insert race-safe under concurrent event producers.
+    groupingBucket: { type: String, trim: true, maxlength: 100, default: undefined },
+    groupCount: { type: Number, min: 1, default: 1 },
+    firstOccurredAt: { type: Date, default: Date.now },
+    lastOccurredAt: { type: Date, default: Date.now },
   },
-  priority: {
-    type: String,
-    enum: ['low', 'normal', 'high'],
-    default: 'normal',
-  },
-  // Per-user targeting: when set, only this specific user sees the notification
-  recipientUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
-  link: String,
-  metadata: mongoose.Schema.Types.Mixed
-}, { timestamps: true });
+  { timestamps: true }
+);
 
 // Per-user targeted notifications, sorted by recency
 notificationSchema.index({ recipientUserId: 1, createdAt: -1 });
 // Role-based broadcast notifications (recipientUserId is null for broadcasts)
 notificationSchema.index({ recipientRole: 1, recipientUserId: 1, createdAt: -1 });
+notificationSchema.index({ recipientRole: 1, category: 1, severity: 1, createdAt: -1 });
+notificationSchema.index({ recipientRole: 1, category: 1, event: 1, createdAt: -1 });
+notificationSchema.index({ recipientRole: 1, recipientUserId: 1, groupingKey: 1, lastOccurredAt: -1 });
+notificationSchema.index(
+  { recipientRole: 1, recipientUserId: 1, groupingKey: 1, groupingBucket: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      groupingKey: { $type: 'string' },
+      groupingBucket: { $type: 'string' },
+    },
+  }
+);
 // Customer notification idempotency guard. Only documents with a real idempotency key participate.
 notificationSchema.index(
   { recipientUserId: 1, 'metadata.idempotencyKey': 1 },

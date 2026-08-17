@@ -41,6 +41,11 @@ import {
   issueStaffVerificationLink,
 } from '../services/staffVerification.service.js';
 import { normalizeAuthVersion } from '../utils/authVersion.utils.js';
+import {
+  buildAdminDeepLink,
+  buildAdminGroupingKey,
+  createAdminNotification,
+} from '../services/adminNotification.service.js';
 
 // Roles that require Email OTP 2FA after password verification.
 // 'customer' is intentionally excluded — direct JWT login.
@@ -51,6 +56,43 @@ const PASSWORD_SETUP_PURPOSE = 'password_setup';
 const PASSWORD_SETUP_RESEND_COOLDOWN_MS = 60 * 1000;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NAME_PART_REGEX = /^[a-zA-ZÀ-ÿ\s.\-']+$/;
+
+const notifyAuthSecurityEvent = async ({
+  event,
+  title,
+  message,
+  severity = 'warning',
+  targetUser,
+  actionRequired,
+  groupingWindowMs = 24 * 60 * 60 * 1000,
+  metadata = {},
+}) => {
+  try {
+    const targetUserId = targetUser?._id || targetUser?.id;
+    return await createAdminNotification({
+      title,
+      message,
+      category: 'security',
+      event,
+      severity,
+      source: 'Authentication',
+      actionRequired: actionRequired ?? (severity === 'critical' || severity === 'warning'),
+      groupingKey: buildAdminGroupingKey('security', event, targetUserId || 'unknown_user'),
+      groupingWindowMs,
+      link: buildAdminDeepLink('security', targetUserId ? { userId: String(targetUserId) } : {}),
+      action: { label: 'Review security activity' },
+      metadata: {
+        targetUserId,
+        targetUserName: targetUser?.name,
+        targetUserRole: targetUser?.role,
+        ...metadata,
+      },
+    });
+  } catch (error) {
+    console.warn('[Auth] Admin security notification failed:', error.message);
+    return null;
+  }
+};
 
 /**
  * Generate OTP
@@ -620,6 +662,17 @@ export const resetPassword = async (req, res, next) => {
       type: 'password_reset', module: 'Auth', action: 'Password Reset',
       description: `${user.name || email} reset their password.`, status: 'success',
     });
+
+    if (requiresStaffTwoFactor(user.role)) {
+      await notifyAuthSecurityEvent({
+        event: 'staff_password_reset',
+        title: 'Staff password reset',
+        message: `${user.name || user.email} reset their staff account password.`,
+        severity: 'warning',
+        targetUser: user,
+        actionRequired: false,
+      });
+    }
 
     res.json({
       success: true,
@@ -1624,6 +1677,17 @@ export const login = async (req, res, next) => {
             status: 'warning',
           });
 
+          await notifyAuthSecurityEvent({
+            event: 'account_locked',
+            title: 'Account locked after failed logins',
+            message: `${user.name || emailNormalized} was locked after ${MAX_LOGIN_ATTEMPTS} failed password attempts.`,
+            severity: 'critical',
+            targetUser: user,
+            actionRequired: true,
+            groupingWindowMs: 60 * 60 * 1000,
+            metadata: { loginAttempts: MAX_LOGIN_ATTEMPTS, lockUntil },
+          });
+
           return res.status(423).json({
             success: false,
             message: 'Account locked for 15 minutes due to too many failed attempts.',
@@ -2379,6 +2443,17 @@ export const verifyLoginOtp = async (req, res) => {
           description: `${user.name || user.email} exhausted login OTP attempts.`,
           status: 'warning',
         });
+
+        await notifyAuthSecurityEvent({
+          event: 'account_locked',
+          title: 'Staff account locked during 2FA',
+          message: `${user.name || user.email} exhausted the allowed login OTP attempts.`,
+          severity: 'critical',
+          targetUser: user,
+          actionRequired: true,
+          groupingWindowMs: 60 * 60 * 1000,
+          metadata: { factor: 'email_otp', lockUntil: user.lockUntil },
+        });
         return res.status(429).json({
           success: false,
           message: 'Too many failed attempts. Please wait 15 minutes.',
@@ -2642,6 +2717,21 @@ export const createStaff = async (req, res) => {
       metadata: { targetUserId: user._id, verificationEmailSent: verification.emailSent },
     });
 
+    await notifyAuthSecurityEvent({
+      event: 'staff_account_created',
+      title: 'New staff account added',
+      message: `${req.user?.name || req.user?.email || 'An administrator'} added ${normalizedName} as ${role}.`,
+      severity: 'info',
+      targetUser: user,
+      actionRequired: !user.isVerified,
+      groupingWindowMs: 30 * 24 * 60 * 60 * 1000,
+      metadata: {
+        actorUserId: req.user?.id || req.user?._id,
+        actorName: req.user?.name || req.user?.email,
+        verificationEmailSent: verification.emailSent,
+      },
+    });
+
     const userObject = user.toObject({ virtuals: true });
     delete userObject.password;
     delete userObject.__v;
@@ -2788,6 +2878,17 @@ export const changePassword = async (req, res) => {
       type: 'password_changed', module: 'Auth', action: 'Change Password',
       description: `${user.name || user.email} changed their account password.`, status: 'success',
     });
+
+    if (requiresStaffTwoFactor(user.role)) {
+      await notifyAuthSecurityEvent({
+        event: 'staff_password_changed',
+        title: 'Staff password changed',
+        message: `${user.name || user.email} changed their staff account password.`,
+        severity: 'info',
+        targetUser: user,
+        actionRequired: false,
+      });
+    }
 
     res.json({ success: true, message: 'Password changed successfully.' });
   } catch (error) {

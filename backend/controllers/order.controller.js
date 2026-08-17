@@ -50,8 +50,15 @@ import {
   releaseBookingSlotsForOrders,
   reserveBookingSlot,
   saveOrderWithSlotTransition,
+  validateSlotAvailability,
 } from '../services/slot.service.js';
 import { SPF_PACKAGE_PRICING, getPackageKeyFromName } from '../constants/spfPricing.js';
+import { emitAvailabilityUpdated } from '../utils/availabilityBroadcast.utils.js';
+import {
+  buildAdminDeepLink,
+  buildAdminGroupingKey,
+  createAdminNotification,
+} from '../services/adminNotification.service.js';
 
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
@@ -178,12 +185,35 @@ const findProductByName = async (name) => {
 
 const notifyInventoryIssue = async ({ title, message, metadata }) => {
   try {
-    await Notification.create({
+    const normalizedTitle = String(title || '').toLowerCase();
+    const event = normalizedTitle.includes('out of stock') || Number(metadata?.available) <= 0
+      ? 'out_of_stock'
+      : normalizedTitle.includes('low stock')
+        ? 'low_stock'
+        : 'required_item_unavailable';
+    const severity = event === 'out_of_stock' ? 'critical' : 'warning';
+    const productIdentity = metadata?.productId
+      || metadata?.productName
+      || metadata?.keyword
+      || metadata?.serviceId
+      || metadata?.serviceName
+      || title;
+    const link = buildAdminDeepLink('inventory', {
+      ...(metadata?.productId ? { productId: String(metadata.productId) } : {}),
+    });
+
+    await createAdminNotification({
+      category: 'inventory',
+      event,
+      severity,
       title,
       message,
-      type: 'inventory',
-      recipientRole: 'admin_family',
-      link: '/admin/inventory',
+      source: 'Inventory',
+      actionRequired: true,
+      groupingKey: buildAdminGroupingKey('inventory', event, productIdentity),
+      groupingWindowMs: 24 * 60 * 60 * 1000,
+      link,
+      action: { label: 'View inventory', link },
       metadata,
     });
   } catch (notifyErr) {
@@ -704,6 +734,71 @@ function sameSlotPair(a, b) {
   return Boolean(a && b && a.date === b.date && a.time === b.time);
 }
 
+async function notifyAppointmentCapacity(date) {
+  try {
+    const snapshot = await getDateAvailabilitySnapshot(date);
+    const totalCapacity = Math.max(0, Number(snapshot.totalCapacity ?? snapshot.slotsLimit ?? 0));
+    const remaining = Math.max(0, Number(snapshot.remaining ?? 0));
+    const isFull = snapshot.errorCode === 'DATE_FULL';
+    const isNearingCapacity = snapshot.ok
+      && totalCapacity > 0
+      && remaining > 0
+      && remaining <= Math.max(1, Math.ceil(totalCapacity * 0.2));
+
+    if (!isFull && !isNearingCapacity) return;
+
+    const isToday = date === snapshot.businessDate;
+    const event = isFull ? 'date_fully_booked' : 'nearing_capacity';
+    const title = isFull
+      ? (isToday ? 'Today is fully booked' : `${date} is fully booked`)
+      : `${date} is nearing full capacity`;
+    const message = isFull
+      ? totalCapacity > 0
+        ? `All ${totalCapacity} appointment slots for ${date} are booked.`
+        : `All appointment slots for ${date} are booked.`
+      : `${remaining} of ${totalCapacity} appointment slots remain for ${date}.`;
+    const link = buildAdminDeepLink('appointments', { date });
+
+    await createAdminNotification({
+      category: 'appointments',
+      event,
+      severity: 'warning',
+      title,
+      message,
+      source: 'Appointment Capacity',
+      actionRequired: false,
+      groupingKey: buildAdminGroupingKey('appointments', event, date),
+      groupingWindowMs: 24 * 60 * 60 * 1000,
+      link,
+      action: { label: 'Review schedule', link },
+      metadata: {
+        date,
+        bookedCount: snapshot.bookedCount || 0,
+        totalCapacity,
+        remaining,
+      },
+    });
+  } catch (error) {
+    console.warn('[appointments] Capacity notification failed:', error.message);
+  }
+}
+
+function emitOrderCapacityChange(beforeState, orderAfter, type = 'appointment_capacity_changed') {
+  const before = beforeState?.slot !== undefined
+    ? beforeState
+    : captureOrderSlotOccupancy(beforeState || {});
+  const after = captureOrderSlotOccupancy(orderAfter || {});
+  const sameSlot = sameSlotPair(before.slot, after.slot);
+  const dates = new Set();
+  if (before.occupies && (!after.occupies || !sameSlot)) dates.add(before.slot.date);
+  if (after.occupies && (!before.occupies || !sameSlot)) dates.add(after.slot.date);
+  if (dates.size > 0) {
+    const changedDates = [...dates];
+    emitAvailabilityUpdated({ type, dates: changedDates });
+    void Promise.all(changedDates.map((date) => notifyAppointmentCapacity(date)));
+  }
+}
+
 async function releaseOrderSlotIfConsumed(orderLike) {
   if (!orderLike || !orderOccupiesSlot(orderLike.status, orderLike.archived, orderLike.isWalkIn)) return;
   await releaseBookingSlot(orderLike.bookingDate, orderLike.bookingTime);
@@ -979,6 +1074,11 @@ export const getAvailableSlots = async (req, res, next) => {
         success: false,
         message: snapshot.message,
         error: snapshot.error,
+        emergencyClosed: false,
+        closureType: snapshot.closureType || null,
+        closureReason: snapshot.closureReason || null,
+        businessDate: snapshot.businessDate || null,
+        businessTimeZone: snapshot.businessTimeZone || null,
       });
     }
 
@@ -999,8 +1099,14 @@ export const getAvailableSlots = async (req, res, next) => {
       errorCode: snapshot.errorCode || null,
       message: snapshot.message || null,
       error: snapshot.error || null,
+      emergencyClosed: !!snapshot.emergencyClosed,
+      closureType: snapshot.closureType || null,
+      closureReason: snapshot.closureReason || null,
+      businessDate: snapshot.businessDate || null,
+      businessTimeZone: snapshot.businessTimeZone || null,
       bookedCount: snapshot.bookedCount ?? 0,
       slotsLimit: snapshot.slotsLimit ?? null,
+      dailyCapacity: snapshot.slotsLimit ?? null,
       remaining: snapshot.remaining ?? null,
       totalCapacity: snapshot.totalCapacity ?? null,
       overCapacitySlots: snapshot.overCapacitySlots ?? 0,
@@ -1335,9 +1441,19 @@ export const createOrder = async (req, res, next) => {
       paymentProofUrl: paymentProofUrlInput
     } = req.body;
 
+    // Defense in depth for any direct controller mount: scheduled appointment
+    // creation belongs exclusively to the authenticated customer. Staff may
+    // only use this shared endpoint for an explicitly unscheduled POS walk-in.
+    if (!isCustomerRole(req.user.role) && isWalkIn !== true) {
+      return res.status(403).json({
+        success: false,
+        errorCode: 'APPOINTMENT_CUSTOMER_ONLY',
+        message: 'Only customer accounts may create service appointments.',
+      });
+    }
 
-    // Always trust the authenticated user for customer bookings.
-    // Only admins can create bookings on behalf of another customer.
+    // Always trust the authenticated user for customer appointments. A POS
+    // walk-in must identify the existing customer receiving the service.
     const requestedCustomerId = customerInput || customerIdInput;
     let resolvedCustomerId = req.user.id;
     if (isBookingManagerRole(req.user.role)) {
@@ -1664,6 +1780,7 @@ export const createOrder = async (req, res, next) => {
 
     await order.save();
     reservedSlot = null;
+    emitOrderCapacityChange(null, order, 'appointment_created');
 
     if (resolvedPaymentProof) {
       emitBookingApprovalQueueUpdate(order);
@@ -1717,6 +1834,38 @@ export const createOrder = async (req, res, next) => {
           const notifMessage = hasReservationProof
             ? `${customerLabel} sent a reservation fee proof for ${serviceLabel}. Ref ${bookingRefForSideEffects}. Review payment in Booking Approvals.`
             : `New booking ${orderNumberForSideEffects} — ${customerLabel}, ${serviceLabel}${vehicleLine ? ` (${vehicleLine})` : ''}. Review in Booking Approvals.`;
+          const adminLink = buildAdminDeepLink('appointments', {
+            orderId: orderIdForSideEffects.toString(),
+            bookingReference: bookingRefForSideEffects,
+          });
+          await createAdminNotification({
+            category: 'appointments',
+            event: hasReservationProof ? 'booking_payment_review' : 'booking_created',
+            severity: hasReservationProof ? 'warning' : 'info',
+            title: hasReservationProof ? 'New booking awaiting payment review' : 'New booking received',
+            message: notifMessage,
+            source: 'Appointments',
+            actionRequired: hasReservationProof,
+            groupingKey: buildAdminGroupingKey(
+              'appointments',
+              hasReservationProof ? 'booking_payment_review' : 'booking_created',
+            ),
+            groupedTitle: hasReservationProof
+              ? '{count} bookings await payment review'
+              : '{count} new bookings received',
+            groupedMessage: hasReservationProof
+              ? '{count} recent bookings include payment proof that needs review.'
+              : '{count} new customer bookings were received in the last few minutes.',
+            link: adminLink,
+            action: { label: hasReservationProof ? 'Review payment' : 'Review booking', link: adminLink },
+            metadata: {
+              orderId: orderIdForSideEffects,
+              bookingReference: bookingRefForSideEffects,
+              bookingDate,
+              bookingTime,
+              latestCustomerName: customerLabel,
+            },
+          });
           const salesNotif = await Notification.create({
             title: notifTitle,
             message: notifMessage,
@@ -2011,6 +2160,18 @@ export const updateOrder = async (req, res, next) => {
       });
     }
 
+    const requestsAppointmentSlot = Object.prototype.hasOwnProperty.call(req.body, 'bookingDate')
+      || Object.prototype.hasOwnProperty.call(req.body, 'bookingTime');
+    const createsAppointmentFromUnscheduledOrder = requestsAppointmentSlot
+      && (order.isWalkIn === true || !order.bookingDate || !order.bookingTime);
+    if (createsAppointmentFromUnscheduledOrder && !isCustomerRole(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        errorCode: 'APPOINTMENT_CUSTOMER_ONLY',
+        message: 'Only customer accounts may create service appointments.',
+      });
+    }
+
     const update = {};
     const validOrderStatuses = new Set(Order.schema.path('status').enumValues);
     if (Object.prototype.hasOwnProperty.call(req.body, 'status')) {
@@ -2109,8 +2270,12 @@ export const updateOrder = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid cancellation reason.' });
     }
 
+    const previousOccupancy = captureOrderSlotOccupancy(order);
     const previousStatus = order.status;
     const previousPaymentStatus = order.paymentStatus;
+    const previousAssignedDetailerId = order.assignedDetailer
+      ? String(order.assignedDetailer?._id || order.assignedDetailer)
+      : null;
     const previousSlot = getOrderSlotPair(order);
     const previousConsumedSlot = orderOccupiesSlot(previousStatus, order.archived, order.isWalkIn);
 
@@ -2146,12 +2311,7 @@ export const updateOrder = async (req, res, next) => {
       update.isWalkIn = false;
     }
 
-    if (
-      newDate &&
-      newTime &&
-      nextConsumesSlot &&
-      (!previousConsumedSlot || !sameSlotPair(previousSlot, nextSlot))
-    ) {
+    if (newDate && newTime && nextConsumesSlot && (!previousConsumedSlot || !sameSlotPair(previousSlot, nextSlot))) {
       const slotCheck = await reserveBookingSlot(newDate, newTime);
       if (!slotCheck.ok) {
         return res.status(409).json({
@@ -2175,6 +2335,7 @@ export const updateOrder = async (req, res, next) => {
     ) {
       await releaseBookingSlot(previousSlot.date, previousSlot.time);
     }
+    emitOrderCapacityChange(previousOccupancy, order, 'appointment_updated');
 
     if (previousStatus !== order.status || previousPaymentStatus !== order.paymentStatus) {
       await evaluateReadyForPickupQueueEligibility(order, {
@@ -2224,12 +2385,6 @@ export const updateOrder = async (req, res, next) => {
         console.error('Failed to create payment notification:', notifyError.message);
       }
 
-      // 4. Notify admin panel (refreshes calendar dot color via optimistic update)
-      emitAdminNotification({
-        title: 'Payment Updated',
-        message: `Booking ${order.orderNumber || order._id} marked as paid.`,
-        type: 'payment',
-      });
     }
     // ─────────────────────────────────────────────────────────────────────
 
@@ -2250,6 +2405,187 @@ export const updateOrder = async (req, res, next) => {
         status: 'warning', referenceId: order.orderNumber,
         metadata: { orderId: order._id, previousPaymentStatus, newPaymentStatus: order.paymentStatus },
       });
+    }
+
+    const currentSlot = getOrderSlotPair(order);
+    const bookingLink = buildAdminDeepLink('appointments', {
+      orderId: order._id.toString(),
+      bookingReference: order.bookingReference || order.orderNumber || '',
+    });
+
+    if (previousStatus !== 'cancelled' && order.status === 'cancelled') {
+      try {
+        await createAdminNotification({
+          category: 'appointments',
+          event: 'booking_cancelled',
+          severity: 'warning',
+          title: 'Booking cancelled',
+          message: `${order.customerName || 'A customer'} cancelled booking ${order.bookingReference || order.orderNumber || order._id}.`,
+          source: 'Appointments',
+          actionRequired: false,
+          groupingKey: buildAdminGroupingKey('appointments', 'booking_cancelled', order._id),
+          link: bookingLink,
+          action: { label: 'Review schedule', link: bookingLink },
+          metadata: {
+            orderId: order._id,
+            bookingReference: order.bookingReference || order.orderNumber,
+            cancellationReason: req.body.cancellationReason || null,
+            previousStatus,
+          },
+        });
+      } catch (notificationError) {
+        console.warn('[appointments] Cancellation notification failed:', notificationError.message);
+      }
+    } else if (
+      previousSlot
+      && currentSlot
+      && !sameSlotPair(previousSlot, currentSlot)
+    ) {
+      try {
+        await createAdminNotification({
+          category: 'appointments',
+          event: 'booking_rescheduled',
+          severity: 'info',
+          title: 'Booking rescheduled',
+          message: `${order.bookingReference || order.orderNumber || order._id} moved from ${previousSlot.date} ${previousSlot.time} to ${currentSlot.date} ${currentSlot.time}.`,
+          source: 'Appointments',
+          actionRequired: false,
+          groupingKey: buildAdminGroupingKey('appointments', 'booking_rescheduled', order._id),
+          link: bookingLink,
+          action: { label: 'Open appointment', link: bookingLink },
+          metadata: {
+            orderId: order._id,
+            bookingReference: order.bookingReference || order.orderNumber,
+            oldDate: previousSlot.date,
+            oldTime: previousSlot.time,
+            newDate: currentSlot.date,
+            newTime: currentSlot.time,
+          },
+        });
+      } catch (notificationError) {
+        console.warn('[appointments] Reschedule notification failed:', notificationError.message);
+      }
+    }
+
+    if (previousPaymentStatus !== order.paymentStatus) {
+      const paymentSpec = {
+        paid: {
+          event: 'payment_completed',
+          severity: 'success',
+          title: 'Payment completed',
+          actionRequired: false,
+        },
+        failed: {
+          event: 'payment_failed',
+          severity: 'critical',
+          title: 'Payment failed',
+          actionRequired: true,
+        },
+        refunded: {
+          event: 'refund_processed',
+          severity: 'success',
+          title: 'Refund processed',
+          actionRequired: false,
+        },
+        unpaid: {
+          event: 'payment_pending_review',
+          severity: 'warning',
+          title: 'Payment requires review',
+          actionRequired: true,
+        },
+      }[order.paymentStatus];
+
+      if (paymentSpec) {
+        try {
+          const link = buildAdminDeepLink('payments', { orderId: order._id.toString() });
+          await createAdminNotification({
+            category: 'payments',
+            ...paymentSpec,
+            message: `Booking ${order.bookingReference || order.orderNumber || order._id} changed from ${previousPaymentStatus || 'unknown'} to ${order.paymentStatus}.`,
+            source: 'Payments',
+            groupingKey: buildAdminGroupingKey('payments', paymentSpec.event, order._id),
+            groupingWindowMs: 24 * 60 * 60 * 1000,
+            link,
+            action: { label: paymentSpec.actionRequired ? 'Review payment' : 'View payment', link },
+            metadata: {
+              orderId: order._id,
+              bookingReference: order.bookingReference || order.orderNumber,
+              previousPaymentStatus,
+              paymentStatus: order.paymentStatus,
+              paymentMethod: order.paymentMethod || null,
+              changedBy: req.user?.name || req.user?.email || 'Staff',
+            },
+          });
+        } catch (notificationError) {
+          console.warn('[payments] Status notification failed:', notificationError.message);
+        }
+      }
+    }
+
+    const currentAssignedDetailerId = order.assignedDetailer
+      ? String(order.assignedDetailer?._id || order.assignedDetailer)
+      : null;
+    if (previousAssignedDetailerId !== currentAssignedDetailerId) {
+      try {
+        const hasAssignment = Boolean(currentAssignedDetailerId);
+        const link = buildAdminDeepLink('live_tracking', { orderId: order._id.toString() });
+        await createAdminNotification({
+          category: 'live_tracking',
+          event: hasAssignment ? 'technician_assigned' : 'unassigned_technician',
+          severity: hasAssignment ? 'info' : 'warning',
+          title: hasAssignment ? 'Technician assigned' : 'No technician assigned',
+          message: hasAssignment
+            ? `A technician was assigned to ${order.bookingReference || order.orderNumber || order._id}.`
+            : `${order.bookingReference || order.orderNumber || order._id} no longer has an assigned technician.`,
+          source: 'Live Tracking',
+          actionRequired: !hasAssignment,
+          groupingKey: buildAdminGroupingKey(
+            'live_tracking',
+            hasAssignment ? 'technician_assigned' : 'unassigned_technician',
+            order._id,
+          ),
+          link,
+          action: { label: hasAssignment ? 'View assignment' : 'Assign technician', link },
+          metadata: {
+            orderId: order._id,
+            bookingReference: order.bookingReference || order.orderNumber,
+            previousAssignedDetailerId,
+            assignedDetailerId: currentAssignedDetailerId,
+          },
+        });
+      } catch (notificationError) {
+        console.warn('[live-tracking] Assignment notification failed:', notificationError.message);
+      }
+    }
+
+    if (previousStatus !== order.status && ['in_progress', 'ready_for_payment', 'completed'].includes(order.status)) {
+      const stageSpec = order.status === 'in_progress'
+        ? { event: 'job_in_progress', severity: 'info', title: 'Job in progress' }
+        : order.status === 'completed'
+          ? { event: 'service_completed', severity: 'success', title: 'Service completed' }
+          : { event: 'ready_for_pickup', severity: 'success', title: 'Job ready for final payment' };
+      try {
+        const link = buildAdminDeepLink('live_tracking', { orderId: order._id.toString() });
+        await createAdminNotification({
+          category: 'live_tracking',
+          ...stageSpec,
+          message: `${order.bookingReference || order.orderNumber || order._id} changed from ${previousStatus} to ${order.status}.`,
+          source: 'Live Tracking',
+          actionRequired: false,
+          groupingKey: buildAdminGroupingKey('live_tracking', stageSpec.event, order._id),
+          groupingWindowMs: 24 * 60 * 60 * 1000,
+          link,
+          action: { label: 'View job', link },
+          metadata: {
+            orderId: order._id,
+            bookingReference: order.bookingReference || order.orderNumber,
+            previousStatus,
+            status: order.status,
+          },
+        });
+      } catch (notificationError) {
+        console.warn('[live-tracking] Status notification failed:', notificationError.message);
+      }
     }
 
     if (previousStatus !== order.status && order.status === 'confirmed') {
@@ -2344,6 +2680,7 @@ export const deleteOrder = async (req, res, next) => {
       });
     }
     await releaseOrderSlotIfConsumed(deletedOrder);
+    emitOrderCapacityChange(deletedOrder, null, 'appointment_deleted');
 
     res.json({
       success: true,
@@ -2388,6 +2725,9 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
 
     const previousStatus = order.status;
     const previousPaymentStatus = order.paymentStatus;
+    const previousAssignedDetailerId = order.assignedDetailer
+      ? String(order.assignedDetailer?._id || order.assignedDetailer)
+      : null;
 
     // Perform assignment
     order.assignedDetailer = detailerId;
@@ -2416,6 +2756,64 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
 
     await order.save();
     await order.populate('assignedDetailer', 'name email');
+
+    const assignmentLink = buildAdminDeepLink('live_tracking', {
+      orderId: order._id.toString(),
+    });
+    if (previousAssignedDetailerId !== String(order.assignedDetailer?._id || order.assignedDetailer)) {
+      try {
+        await createAdminNotification({
+          category: 'live_tracking',
+          event: 'technician_assigned',
+          severity: 'info',
+          title: 'Technician assigned',
+          message: `${order.assignedDetailer?.name || 'A technician'} was assigned to ${order.bookingReference || order.orderNumber || order._id}.`,
+          source: 'Live Tracking',
+          actionRequired: false,
+          groupingKey: buildAdminGroupingKey('live_tracking', 'technician_assigned', order._id),
+          groupingWindowMs: 24 * 60 * 60 * 1000,
+          link: assignmentLink,
+          action: { label: 'View assignment', link: assignmentLink },
+          metadata: {
+            orderId: order._id,
+            bookingReference: order.bookingReference || order.orderNumber,
+            previousAssignedDetailerId,
+            assignedDetailerId: order.assignedDetailer?._id || order.assignedDetailer,
+            assignedDetailerName: order.assignedDetailer?.name || null,
+          },
+        });
+      } catch (notificationError) {
+        console.warn('[live-tracking] Assignment notification failed:', notificationError.message);
+      }
+    }
+
+    if (previousPaymentStatus !== 'paid' && order.paymentStatus === 'paid') {
+      try {
+        const paymentLink = buildAdminDeepLink('payments', { orderId: order._id.toString() });
+        await createAdminNotification({
+          category: 'payments',
+          event: 'payment_completed',
+          severity: 'success',
+          title: 'Payment completed',
+          message: `Booking ${order.bookingReference || order.orderNumber || order._id} was marked as paid.`,
+          source: 'Payments',
+          actionRequired: false,
+          groupingKey: buildAdminGroupingKey('payments', 'payment_completed', order._id),
+          groupingWindowMs: 24 * 60 * 60 * 1000,
+          link: paymentLink,
+          action: { label: 'View payment', link: paymentLink },
+          metadata: {
+            orderId: order._id,
+            bookingReference: order.bookingReference || order.orderNumber,
+            previousPaymentStatus,
+            paymentStatus: order.paymentStatus,
+            paymentMethod: order.paymentMethod || null,
+          },
+        });
+      } catch (notificationError) {
+        console.warn('[payments] Completion notification failed:', notificationError.message);
+      }
+    }
 
     // Push live status update to the customer
     emitCustomerStatusUpdate(order);
@@ -2458,15 +2856,6 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
       }
     } catch (notifyError) {
       console.error('Failed to send detailer-assigned notification:', notifyError.message);
-    }
-
-    // If payment status just transitioned to paid, emit admin notification
-    if (previousPaymentStatus !== 'paid' && order.paymentStatus === 'paid') {
-      emitAdminNotification({
-        title: 'Payment Updated',
-        message: `Booking ${order.orderNumber || order._id} marked as paid (via admin).`,
-        type: 'payment',
-      });
     }
 
     // Activity logs for assignment and status changes
@@ -3944,6 +4333,7 @@ export const uploadPaymentProof = async (req, res, next) => {
     }
 
     const previousStatus = order.status;
+    const previousOccupancy = captureOrderSlotOccupancy(order);
     const storedSlot = getOrderSlotPair(order);
     if (!storedSlot) {
       return res.status(409).json({
@@ -3997,8 +4387,34 @@ export const uploadPaymentProof = async (req, res, next) => {
     }
     order = savedOrder;
     reservedSlot = null;
+    emitOrderCapacityChange(previousOccupancy, order, 'appointment_resubmitted');
 
     emitBookingApprovalQueueUpdate(order);
+
+    try {
+      const paymentLink = buildAdminDeepLink('payments', { orderId: order._id.toString() });
+      await createAdminNotification({
+        category: 'payments',
+        event: 'payment_pending_review',
+        severity: 'warning',
+        title: 'Payment pending review',
+        message: `${order.customerName || 'A customer'} submitted payment proof for ${order.bookingReference || order.orderNumber || order._id}.`,
+        source: 'Payments',
+        actionRequired: true,
+        groupingKey: buildAdminGroupingKey('payments', 'payment_pending_review', order._id),
+        groupingWindowMs: 24 * 60 * 60 * 1000,
+        link: paymentLink,
+        action: { label: 'Review payment', link: paymentLink },
+        metadata: {
+          orderId: order._id,
+          bookingReference: order.bookingReference || order.orderNumber,
+          paymentStatus: order.paymentStatus,
+          submittedBy: req.user?.name || req.user?.email || order.customerName || 'Customer',
+        },
+      });
+    } catch (notificationError) {
+      console.warn('[payments] Review notification failed:', notificationError.message);
+    }
 
     const io = getIO();
     // Notify customer
@@ -4216,6 +4632,16 @@ export const rescheduleBooking = async (req, res, next) => {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
+    // Rescheduling may move an existing customer appointment, but it must not
+    // be used to turn a staff-created walk-in/unscheduled order into one.
+    if (order.isWalkIn === true || !getOrderSlotPair(order)) {
+      return res.status(403).json({
+        success: false,
+        errorCode: 'APPOINTMENT_CUSTOMER_ONLY',
+        message: 'Only customer accounts may create service appointments.',
+      });
+    }
+
     if (order.archived === true) {
       return res.status(409).json({
         success: false,
@@ -4233,6 +4659,7 @@ export const rescheduleBooking = async (req, res, next) => {
       });
     }
 
+    const previousOccupancy = captureOrderSlotOccupancy(order);
     const oldDate = order.bookingDate;
     const oldTime = order.bookingTime;
     const oldSlot = getOrderSlotPair(order);
@@ -4247,10 +4674,10 @@ export const rescheduleBooking = async (req, res, next) => {
 
     const occupiedOldSlot = orderOccupiesSlot(order.status, order.archived, order.isWalkIn);
     const occupiesNewSlot = orderOccupiesSlot(order.status, false, false);
-    const needsTargetReservation = occupiesNewSlot
-      && (!occupiedOldSlot || !sameSlotPair(oldSlot, newSlot));
+    const changesExactTime = !sameSlotPair(oldSlot, newSlot);
+    const needsTargetCheck = occupiesNewSlot && (!occupiedOldSlot || changesExactTime);
 
-    if (needsTargetReservation) {
+    if (needsTargetCheck) {
       const slotCheck = await reserveBookingSlot(newDate, newTime);
       if (!slotCheck.ok) {
         return res.status(409).json({
@@ -4302,6 +4729,7 @@ export const rescheduleBooking = async (req, res, next) => {
     if (occupiedOldSlot && oldSlot && !sameSlotPair(oldSlot, newSlot)) {
       await releaseBookingSlot(oldSlot.date, oldSlot.time);
     }
+    emitOrderCapacityChange(previousOccupancy, savedOrder, 'appointment_rescheduled');
 
     // Emit socket event
     try {
@@ -4323,6 +4751,35 @@ export const rescheduleBooking = async (req, res, next) => {
       referenceId: savedOrder.orderNumber,
       metadata: { orderId: savedOrder._id, oldDate, oldTime, newDate: newSlot.date, newTime: newSlot.time }
     });
+
+    try {
+      const link = buildAdminDeepLink('appointments', {
+        orderId: savedOrder._id.toString(),
+        bookingReference: savedOrder.bookingReference || savedOrder.orderNumber || '',
+      });
+      await createAdminNotification({
+        category: 'appointments',
+        event: 'booking_rescheduled',
+        severity: 'info',
+        title: 'Booking rescheduled',
+        message: `${savedOrder.bookingReference || savedOrder.orderNumber || savedOrder._id} moved from ${oldDate} ${oldTime} to ${newSlot.date} ${newSlot.time}.`,
+        source: 'Appointments',
+        actionRequired: false,
+        groupingKey: buildAdminGroupingKey('appointments', 'booking_rescheduled', savedOrder._id),
+        link,
+        action: { label: 'Open appointment', link },
+        metadata: {
+          orderId: savedOrder._id,
+          bookingReference: savedOrder.bookingReference || savedOrder.orderNumber,
+          oldDate,
+          oldTime,
+          newDate: newSlot.date,
+          newTime: newSlot.time,
+        },
+      });
+    } catch (notificationError) {
+      console.warn('[appointments] Reschedule notification failed:', notificationError.message);
+    }
 
     return res.json({ success: true, message: 'Booking rescheduled successfully.', data: formatBookingDto(savedOrder) });
   } catch (error) {

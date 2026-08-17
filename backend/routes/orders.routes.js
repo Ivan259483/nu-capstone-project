@@ -4,6 +4,7 @@ import * as orderController from '../controllers/order.controller.js';
 import * as supplierController from '../controllers/supplier.controller.js';
 import * as trackerController from '../controllers/tracker.controller.js';
 import { authenticate, authorize } from '../middleware/auth.middleware.js';
+import { authorizeOrderCreation } from '../middleware/orderCreationAuthorization.middleware.js';
 import {
   BOOKING_MANAGER_ROLES,
   CUSTOMER_ROLES,
@@ -205,7 +206,7 @@ router.get('/:id', orderController.getOrderById);
  * @desc Create new order
  * @access Private
  */
-router.post('/', orderController.createOrder);
+router.post('/', authorizeOrderCreation, orderController.createOrder);
 
 /**
  * @route POST /api/orders/:id/payment-proof

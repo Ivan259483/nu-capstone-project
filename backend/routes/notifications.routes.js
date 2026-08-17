@@ -1,5 +1,13 @@
 import express from 'express';
-import { getNotifications, markAsRead, markAllAsRead } from '../controllers/notification.controller.js';
+import {
+  bulkSetArchivedState,
+  bulkSetReadState,
+  clearNotifications,
+  getNotifications,
+  getUnreadCount,
+  markAllAsRead,
+  markAsRead,
+} from '../controllers/notification.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -7,7 +15,11 @@ const router = express.Router();
 router.use(authenticate);
 
 router.get('/', getNotifications);
-router.patch('/:id/read', markAsRead);
+router.get('/unread-count', getUnreadCount);
 router.post('/mark-all-read', markAllAsRead);
+router.post('/bulk-status', bulkSetReadState);
+router.post('/archive', bulkSetArchivedState);
+router.post('/clear', clearNotifications);
+router.patch('/:id/read', markAsRead);
 
 export default router;

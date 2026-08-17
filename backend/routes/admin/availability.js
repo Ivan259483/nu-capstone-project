@@ -6,13 +6,53 @@ import ShopAvailability, {
 } from '../../models/shopAvailability.model.js';
 import ScheduledClosure from '../../models/scheduledClosure.model.js';
 import { emitAvailabilityUpdated } from '../../utils/availabilityBroadcast.utils.js';
+import {
+  getBusinessClock,
+  getEffectiveEmergencyClosureState,
+} from '../../utils/businessAvailability.utils.js';
+import { logActivity } from '../../utils/logActivity.utils.js';
 import { authorize } from '../../middleware/auth.middleware.js';
 import { SETTINGS_MANAGER_ROLES } from '../../constants/roles.js';
+import {
+  buildAdminDeepLink,
+  buildAdminGroupingKey,
+  createAdminNotification,
+} from '../../services/adminNotification.service.js';
 
 const router = Router();
 const requireAvailabilityAdmin = authorize(...SETTINGS_MANAGER_ROLES);
 
 const CLOSURE_REASONS = new Set(['Holiday', 'Renovation', 'Emergency', 'Staff Leave', 'Custom']);
+
+async function notifyAvailabilityChange({
+  event,
+  title,
+  message,
+  severity = 'info',
+  actionRequired = false,
+  groupingIdentity = [],
+  metadata = {},
+}) {
+  try {
+    const link = buildAdminDeepLink('availability');
+    await createAdminNotification({
+      category: 'appointments',
+      event,
+      severity,
+      title,
+      message,
+      source: 'Availability Controls',
+      actionRequired,
+      groupingKey: buildAdminGroupingKey('appointments', event, groupingIdentity),
+      groupingWindowMs: 30 * 60 * 1000,
+      link,
+      action: { label: 'Review availability', link },
+      metadata,
+    });
+  } catch (error) {
+    console.warn('[availability] Admin notification failed:', error.message);
+  }
+}
 
 function startOfLocalDay(value) {
   const date = new Date(value);
@@ -22,6 +62,14 @@ function startOfLocalDay(value) {
 function endOfLocalDay(value) {
   const date = new Date(value);
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
+function formatLocalDate(value) {
+  const date = new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function sanitizeClosureInput(input, index = 0) {
@@ -69,10 +117,26 @@ async function getMergedRecurringSchedule() {
   return normalizeRecurringSchedule(doc.recurringSchedule);
 }
 
+function toEmergencyResponse(state) {
+  return {
+    emergencyClosed: state.emergencyClosed,
+    emergencyClosureDate: state.emergencyClosureDate,
+    affectedBusinessDate: state.affectedBusinessDate,
+    businessDate: state.businessDate,
+    timeZone: state.businessTimeZone,
+    businessTimeZone: state.businessTimeZone,
+  };
+}
+
 router.get('/emergency', async (_req, res, next) => {
   try {
-    const doc = await ShopAvailability.getSingleton();
-    return res.json({ emergencyClosed: !!doc.emergencyClosed });
+    const [doc, businessClock] = await Promise.all([
+      ShopAvailability.getSingleton(),
+      getBusinessClock(),
+    ]);
+    return res.json(toEmergencyResponse(
+      getEffectiveEmergencyClosureState(doc, businessClock)
+    ));
   } catch (err) {
     return next(err);
   }
@@ -85,12 +149,64 @@ router.patch('/emergency', requireAvailabilityAdmin, async (req, res, next) => {
       return res.status(400).json({ error: '"closed" must be a boolean.' });
     }
 
-    const doc = await ShopAvailability.getSingleton();
+    const [doc, businessClock] = await Promise.all([
+      ShopAvailability.getSingleton(),
+      getBusinessClock(),
+    ]);
+    const previousState = getEffectiveEmergencyClosureState(doc, businessClock);
+    const actionBusinessDate = closed
+      ? businessClock.date
+      : previousState.affectedBusinessDate || businessClock.date;
+
     doc.emergencyClosed = closed;
+    doc.emergencyClosureDate = closed ? businessClock.date : null;
     await doc.save();
 
-    emitAvailabilityUpdated({ type: 'emergency' });
-    return res.json({ emergencyClosed: !!doc.emergencyClosed });
+    const state = getEffectiveEmergencyClosureState(doc, businessClock);
+    emitAvailabilityUpdated({
+      type: 'emergency',
+      dates: [actionBusinessDate],
+      emergencyClosed: state.emergencyClosed,
+      affectedBusinessDate: actionBusinessDate,
+      businessDate: state.businessDate,
+      businessTimeZone: state.businessTimeZone,
+    });
+
+    const action = closed ? 'Emergency Closure Enabled' : 'Emergency Closure Disabled';
+    await logActivity({
+      req,
+      type: 'settings',
+      module: 'Settings',
+      action,
+      description: `${req.user?.name || 'Admin'} ${closed ? 'enabled' : 'disabled'} emergency closure for business date ${actionBusinessDate}.`,
+      status: closed ? 'warning' : 'info',
+      metadata: {
+        emergencyClosed: closed,
+        affectedBusinessDate: actionBusinessDate,
+        businessDate: state.businessDate,
+        businessTimeZone: state.businessTimeZone,
+      },
+    });
+
+    await notifyAvailabilityChange({
+      event: closed ? 'emergency_closure_enabled' : 'emergency_closure_disabled',
+      title: closed ? 'Emergency closure enabled' : 'Emergency closure disabled',
+      message: closed
+        ? `Customer bookings are blocked for ${actionBusinessDate} until the emergency closure is removed.`
+        : `Customer booking availability for ${actionBusinessDate} has been restored.`,
+      severity: closed ? 'critical' : 'success',
+      actionRequired: closed,
+      groupingIdentity: [actionBusinessDate],
+      metadata: {
+        emergencyClosed: closed,
+        affectedBusinessDate: actionBusinessDate,
+        businessDate: state.businessDate,
+        businessTimeZone: state.businessTimeZone,
+        changedBy: req.user?.name || req.user?.email || 'Admin',
+      },
+    });
+
+    return res.json(toEmergencyResponse(state));
   } catch (err) {
     return next(err);
   }
@@ -122,11 +238,46 @@ router.post('/closures', requireAvailabilityAdmin, async (req, res, next) => {
     if (Array.isArray(req.body)) {
       const created = await ScheduledClosure.insertMany(payloads);
       emitAvailabilityUpdated({ type: 'closures', count: created.length });
+      const firstDate = formatLocalDate(payloads[0].fromDate);
+      const lastDate = formatLocalDate(payloads[payloads.length - 1].toDate);
+      await notifyAvailabilityChange({
+        event: 'scheduled_closure_added',
+        title: `${created.length} scheduled closures added`,
+        message: `Booking availability was blocked for ${created.length} scheduled closure periods from ${firstDate} through ${lastDate}.`,
+        severity: 'warning',
+        actionRequired: true,
+        groupingIdentity: [firstDate, lastDate],
+        metadata: {
+          closureIds: created.map((closure) => closure._id),
+          count: created.length,
+          fromDate: firstDate,
+          toDate: lastDate,
+          changedBy: req.user?.name || req.user?.email || 'Admin',
+        },
+      });
       return res.status(201).json(created);
     }
 
     const created = await ScheduledClosure.create(payloads[0]);
     emitAvailabilityUpdated({ type: 'closure' });
+    const fromDate = formatLocalDate(created.fromDate);
+    const toDate = formatLocalDate(created.toDate);
+    await notifyAvailabilityChange({
+      event: 'scheduled_closure_added',
+      title: 'Scheduled closure added',
+      message: `${created.reason || 'Scheduled closure'} blocks customer booking availability from ${fromDate} through ${toDate}.`,
+      severity: 'warning',
+      actionRequired: true,
+      groupingIdentity: [created._id],
+      metadata: {
+        closureId: created._id,
+        fromDate,
+        toDate,
+        reason: created.reason || null,
+        note: created.note || null,
+        changedBy: req.user?.name || req.user?.email || 'Admin',
+      },
+    });
     return res.status(201).json(created);
   } catch (err) {
     return next(err);
@@ -145,6 +296,23 @@ router.delete('/closures/:id', requireAvailabilityAdmin, async (req, res, next) 
     }
 
     emitAvailabilityUpdated({ type: 'closure_delete' });
+    const fromDate = formatLocalDate(deleted.fromDate);
+    const toDate = formatLocalDate(deleted.toDate);
+    await notifyAvailabilityChange({
+      event: 'scheduled_closure_removed',
+      title: 'Scheduled closure removed',
+      message: `Booking availability was restored for ${fromDate} through ${toDate}.`,
+      severity: 'success',
+      actionRequired: false,
+      groupingIdentity: [deleted._id],
+      metadata: {
+        closureId: deleted._id,
+        fromDate,
+        toDate,
+        reason: deleted.reason || null,
+        changedBy: req.user?.name || req.user?.email || 'Admin',
+      },
+    });
     return res.json({ deleted: true });
   } catch (err) {
     return next(err);
@@ -171,6 +339,17 @@ router.put('/recurring', requireAvailabilityAdmin, async (req, res, next) => {
     await doc.save();
 
     emitAvailabilityUpdated({ type: 'recurring' });
+    await notifyAvailabilityChange({
+      event: 'availability_controls_changed',
+      title: 'Recurring availability updated',
+      message: `${req.user?.name || 'An admin'} changed the recurring appointment schedule.`,
+      severity: 'info',
+      groupingIdentity: ['recurring'],
+      metadata: {
+        updatedDays: normalized.map((row) => row.dow),
+        changedBy: req.user?.name || req.user?.email || 'Admin',
+      },
+    });
     return res.json(normalizeRecurringSchedule(doc.recurringSchedule));
   } catch (err) {
     return next(err);
@@ -205,6 +384,17 @@ router.put('/hours', requireAvailabilityAdmin, async (req, res, next) => {
     await doc.save();
 
     emitAvailabilityUpdated({ type: 'hours' });
+    await notifyAvailabilityChange({
+      event: 'availability_controls_changed',
+      title: 'Appointment hours updated',
+      message: `${req.user?.name || 'An admin'} changed appointment hours or daily capacity.`,
+      severity: 'info',
+      groupingIdentity: ['hours'],
+      metadata: {
+        updatedDays: incoming.map((row) => row.dow),
+        changedBy: req.user?.name || req.user?.email || 'Admin',
+      },
+    });
     return res.json(normalizeRecurringSchedule(doc.recurringSchedule));
   } catch (err) {
     return next(err);

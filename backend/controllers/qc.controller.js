@@ -26,12 +26,62 @@ import {
   captureOrderSlotOccupancy,
   saveOrderWithSlotTransition,
 } from '../services/slot.service.js';
+import {
+  buildAdminDeepLink,
+  buildAdminGroupingKey,
+  createAdminNotification,
+} from '../services/adminNotification.service.js';
 
 const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
 const QC_APPROVED_ORDER_STATUSES = ['completed', 'released'];
 const QC_APPROVED_TRACKER_STAGES = ['ready_pickup', 'completed', 'released'];
 const QC_JOBS_DEFAULT_LIMIT = 20;
 const QC_JOBS_MAX_LIMIT = 100;
+
+const notifyTrackedStage = async (order, stage, actor) => {
+  const spec = {
+    in_progress: {
+      event: 'job_in_progress',
+      title: 'Job in progress',
+      severity: 'info',
+      message: `${order.orderNumber || order.bookingReference || order._id} was moved to In Progress.`,
+    },
+    ready_pickup: {
+      event: 'ready_for_pickup',
+      title: 'Ready for pickup',
+      severity: 'success',
+      message: `${order.orderNumber || order.bookingReference || order._id} is ready for customer pickup.`,
+    },
+    completed: {
+      event: 'service_completed',
+      title: 'Service completed',
+      severity: 'success',
+      message: `${order.orderNumber || order.bookingReference || order._id} was marked completed.`,
+    },
+  }[stage];
+  if (!spec) return null;
+
+  return createAdminNotification({
+    title: spec.title,
+    message: spec.message,
+    category: 'live_tracking',
+    event: spec.event,
+    severity: spec.severity,
+    source: 'Live Tracking',
+    actionRequired: false,
+    groupingKey: buildAdminGroupingKey('live_tracking', spec.event, order._id),
+    groupingWindowMs: 24 * 60 * 60 * 1000,
+    link: buildAdminDeepLink('live_tracking', { orderId: String(order._id) }),
+    action: { label: 'View job' },
+    metadata: {
+      orderId: order._id,
+      bookingReference: order.bookingReference || order.orderNumber,
+      stage,
+      actorUserId: actor?.id || actor?._id,
+      actorName: actor?.name || actor?.email,
+    },
+  });
+};
 
 const QC_JOBS_PROJECTION = [
   'orderNumber',
@@ -613,6 +663,12 @@ export const approveJob = async (req, res, next) => {
       } catch (ne) {
         console.warn('[QC] Failed to notify sales balance pickup:', ne.message);
       }
+
+      try {
+        await notifyTrackedStage(order, 'ready_pickup', req.user);
+      } catch (ne) {
+        console.warn('[QC] Failed to notify Admin about pickup readiness:', ne.message);
+      }
     }
 
     // Trigger workflow orchestrator (async, non-blocking)
@@ -872,6 +928,12 @@ export const updateServiceStatus = async (req, res, next) => {
       await createCustomerStageNotification(order, stage);
     } catch (ne) { console.warn('[QC] Failed to create stage notification:', ne.message); }
 
+    try {
+      await notifyTrackedStage(order, stage, req.user);
+    } catch (ne) {
+      console.warn('[QC] Failed to create Admin stage notification:', ne.message);
+    }
+
     logActivity({
       req, type: 'qc_stage_update', module: 'QualityChecker', action: 'SERVICE_STAGE_UPDATE',
       description: `QC Checker advanced job ${order.orderNumber || order._id} to stage: ${stage}`,
@@ -905,6 +967,13 @@ export const assignServiceStaff = async (req, res, next) => {
     const order = await Order.findById(id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
+    const previousAssignments = Array.isArray(order.serviceStaffAssignments)
+      ? order.serviceStaffAssignments.map((assignment) => ({
+          name: assignment?.name || '',
+          role: assignment?.role || '',
+        }))
+      : [];
+
     order.serviceStaffAssignments = assignments.map((a) => ({
       slot: a.slot,
       name: a.name || '',
@@ -914,6 +983,43 @@ export const assignServiceStaff = async (req, res, next) => {
     }));
 
     await order.save();
+
+    const assignedNames = order.serviceStaffAssignments.map((assignment) => assignment.name).filter(Boolean);
+    const previousNames = previousAssignments.map((assignment) => assignment.name).filter(Boolean);
+    if (assignedNames.join('|') !== previousNames.join('|')) {
+      try {
+        const hasAssignments = assignedNames.length > 0;
+        await createAdminNotification({
+          title: hasAssignments ? 'Technician assigned' : 'No technician assigned',
+          message: hasAssignments
+            ? `${assignedNames.join(', ')} assigned to ${order.orderNumber || order.bookingReference || order._id}.`
+            : `${order.orderNumber || order.bookingReference || order._id} no longer has an assigned technician.`,
+          category: 'live_tracking',
+          event: hasAssignments ? 'technician_assigned' : 'unassigned_technician',
+          severity: hasAssignments ? 'info' : 'warning',
+          source: 'Live Tracking',
+          actionRequired: !hasAssignments,
+          groupingKey: buildAdminGroupingKey(
+            'live_tracking',
+            hasAssignments ? 'technician_assigned' : 'unassigned_technician',
+            order._id,
+          ),
+          groupingWindowMs: 10 * 60 * 1000,
+          link: buildAdminDeepLink('live_tracking', { orderId: String(order._id) }),
+          action: { label: hasAssignments ? 'View assignment' : 'Assign technician' },
+          metadata: {
+            orderId: order._id,
+            bookingReference: order.bookingReference || order.orderNumber,
+            assignments: order.serviceStaffAssignments,
+            previousAssignments,
+            actorUserId: req.user?.id || req.user?._id,
+            actorName: req.user?.name || req.user?.email,
+          },
+        });
+      } catch (notificationError) {
+        console.warn('[QC] Failed to create assignment notification:', notificationError.message);
+      }
+    }
 
     try {
       const io = getIO();

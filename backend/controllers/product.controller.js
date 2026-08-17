@@ -1,10 +1,108 @@
 import Product from '../models/product.model.js';
-import Notification from '../models/notification.model.js';
 import Setting from '../models/setting.model.js';
 import User from '../models/user.model.js';
 import emailService from '../utils/emailService.utils.js';
 import { FULL_ADMIN_ROLES } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
+import {
+  buildAdminDeepLink,
+  buildAdminGroupingKey,
+  createAdminNotification,
+} from '../services/adminNotification.service.js';
+
+const notifyProductStockState = async (
+  product,
+  { previousInventory, actor, manualAdjustment = false } = {},
+) => {
+  if (!product?._id) return;
+  const current = Number(product.inventory) || 0;
+  const minimum = Number(product.minLevel) || 0;
+  const previous = Number(previousInventory);
+  const hasPrevious = Number.isFinite(previous);
+  const productId = String(product._id);
+  const link = buildAdminDeepLink('inventory', { productId });
+  const metadata = {
+    productId: product._id,
+    productName: product.name,
+    sku: product.sku,
+    previousStock: hasPrevious ? previous : undefined,
+    stock: current,
+    minLevel: minimum,
+    actorUserId: actor?.id || actor?._id,
+    actorName: actor?.name || actor?.email,
+  };
+
+  if (manualAdjustment && hasPrevious && previous !== current) {
+    await createAdminNotification({
+      title: 'Inventory manually adjusted',
+      message: `${actor?.name || actor?.email || 'An administrator'} changed ${product.name} stock from ${previous} to ${current}.`,
+      category: 'inventory',
+      event: 'inventory_manually_adjusted',
+      severity: 'info',
+      source: 'Inventory Audit',
+      actionRequired: false,
+      groupingKey: buildAdminGroupingKey('inventory', 'manual_adjustment', productId),
+      groupingWindowMs: 10 * 60 * 1000,
+      groupedTitle: '{count} inventory adjustments recorded',
+      link,
+      action: { label: 'View item' },
+      metadata,
+    });
+  }
+
+  if (current <= 0) {
+    await createAdminNotification({
+      title: 'Out of stock alert',
+      message: `${product.name} is out of stock.`,
+      category: 'inventory',
+      event: 'out_of_stock',
+      severity: 'critical',
+      source: 'Inventory',
+      actionRequired: true,
+      groupingKey: buildAdminGroupingKey('inventory', 'out_of_stock', productId),
+      groupingWindowMs: 24 * 60 * 60 * 1000,
+      link,
+      action: { label: 'Restock item' },
+      metadata,
+    });
+    return;
+  }
+
+  if (current <= minimum) {
+    await createAdminNotification({
+      title: 'Low stock alert',
+      message: `${product.name} has dropped to ${current} ${product.unit || 'units'} (minimum ${minimum}).`,
+      category: 'inventory',
+      event: 'low_stock',
+      severity: 'warning',
+      source: 'Inventory',
+      actionRequired: true,
+      groupingKey: buildAdminGroupingKey('inventory', 'low_stock', productId),
+      groupingWindowMs: 24 * 60 * 60 * 1000,
+      link,
+      action: { label: 'Restock item' },
+      metadata,
+    });
+    return;
+  }
+
+  if (hasPrevious && previous <= minimum && current > minimum && current > previous) {
+    await createAdminNotification({
+      title: 'Stock replenished',
+      message: `${product.name} was replenished to ${current} ${product.unit || 'units'}.`,
+      category: 'inventory',
+      event: 'stock_replenished',
+      severity: 'success',
+      source: 'Inventory',
+      actionRequired: false,
+      groupingKey: buildAdminGroupingKey('inventory', 'stock_replenished', productId),
+      groupingWindowMs: 24 * 60 * 60 * 1000,
+      link,
+      action: { label: 'View item' },
+      metadata,
+    });
+  }
+};
 
 /**
  * Get all products
@@ -134,6 +232,12 @@ export const createProduct = async (req, res, next) => {
       metadata: { productId: product._id, productName: name, initialStock: inventory || 0 },
     });
 
+    try {
+      await notifyProductStockState(product);
+    } catch (notifyErr) {
+      console.error('Failed to create initial stock notification:', notifyErr.message);
+    }
+
     res.status(201).json({
       success: true,
       message: 'Product created successfully',
@@ -196,6 +300,7 @@ export const updateProduct = async (req, res, next) => {
 
     if (process.env.NODE_ENV === 'development') console.log(`[BACKEND NORMALIZED PAYLOAD]`, updateData);
 
+    let previousInventory;
     // If updating inventory, validate stock won't go negative
     if (updateData.inventory !== undefined) {
       const existingProduct = await Product.findById(req.params.id);
@@ -205,6 +310,7 @@ export const updateProduct = async (req, res, next) => {
           message: 'Product not found',
         });
       }
+      previousInventory = Number(existingProduct.inventory) || 0;
 
       // Check if new inventory value would be negative
       if (updateData.inventory < 0) {
@@ -237,8 +343,20 @@ export const updateProduct = async (req, res, next) => {
       metadata: { productId: product._id, productName: product.name, updatedFields: Object.keys(updateData) },
     });
 
+    if (updateData.inventory !== undefined) {
+      try {
+        await notifyProductStockState(product, {
+          previousInventory,
+          actor: req.user,
+          manualAdjustment: true,
+        });
+      } catch (notifyErr) {
+        console.error('Failed to create inventory notification:', notifyErr.message);
+      }
+    }
+
     // Check for Low Stock
-    if (product.inventory <= product.minLevel) {
+    if (updateData.inventory !== undefined && product.inventory <= product.minLevel) {
       logActivity({
         req, type: 'low_stock', module: 'Inventory', action: 'Low Stock Alert',
         description: `${product.name} is below minimum level (${product.inventory}/${product.minLevel}).`,
@@ -246,29 +364,7 @@ export const updateProduct = async (req, res, next) => {
         metadata: { productId: product._id, productName: product.name, stock: product.inventory, minLevel: product.minLevel },
       });
 
-      // 1. Create In-App Notification
-      try {
-        const existingNotification = await Notification.findOne({
-          type: 'inventory',
-          'metadata.productId': product._id,
-          isRead: false
-        });
-
-        if (!existingNotification) {
-          await Notification.create({
-            title: 'Low Stock Alert',
-            message: `${product.name} is running low (${product.inventory} left)`,
-            type: 'inventory',
-            recipientRole: 'admin_family',
-            link: '/admin/inventory',
-            metadata: { productId: product._id }
-          });
-        }
-      } catch (notifyErr) {
-        console.error('Failed to create low stock notification:', notifyErr);
-      }
-
-      // 2. Send Email Alert if enabled
+      // Send email alert if enabled
       try {
         const settings = await Setting.findOne();
         if (settings?.notifications?.lowStockAlerts) {
@@ -337,6 +433,12 @@ export const consumeInventory = async (req, res, next) => {
     product.inventory = newStock;
     await product.save();
 
+    try {
+      await notifyProductStockState(product, { previousInventory: newStock + Number(quantity) });
+    } catch (notifyErr) {
+      console.error('Failed to create inventory notification:', notifyErr.message);
+    }
+
     // Create activity log via centralized logger
     logActivity({
       req, type: 'stock_out', module: 'Inventory', action: 'Inventory Consumed',
@@ -345,36 +447,14 @@ export const consumeInventory = async (req, res, next) => {
       metadata: { productId: product._id, productName: product.name, quantity, previousStock: product.inventory + quantity, newStock: product.inventory },
     });
 
-    // Check for low stock and create notification
+    // Keep the audit trail alongside the persistent operational notification.
     if (product.inventory <= product.minLevel) {
-      try {
-        const Notification = (await import('../models/notification.model.js')).default;
-        const existingNotification = await Notification.findOne({
-          type: 'inventory',
-          'metadata.productId': product._id,
-          isRead: false
-        });
-
-        if (!existingNotification) {
-          await Notification.create({
-            title: 'Low Stock Alert',
-            message: `${product.name} is running low (${product.inventory} left)`,
-            type: 'inventory',
-            recipientRole: 'admin_family',
-            link: '/admin/inventory',
-            metadata: { productId: product._id }
-          });
-
-          logActivity({
-            req, type: 'low_stock', module: 'Inventory', action: 'Low Stock Alert',
-            description: `${product.name} is below minimum level (${product.inventory}/${product.minLevel}).`,
-            userId, userName, status: 'warning', referenceId: product._id?.toString(),
-            metadata: { productId: product._id, productName: product.name },
-          });
-        }
-      } catch (notifyErr) {
-        console.error('Failed to create low stock notification:', notifyErr);
-      }
+      logActivity({
+        req, type: 'low_stock', module: 'Inventory', action: 'Low Stock Alert',
+        description: `${product.name} is below minimum level (${product.inventory}/${product.minLevel}).`,
+        userId, userName, status: 'warning', referenceId: product._id?.toString(),
+        metadata: { productId: product._id, productName: product.name },
+      });
     }
 
     res.json({

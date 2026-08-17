@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
 export const AVAILABILITY_TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+export const AVAILABILITY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const SHOP_AVAILABILITY_SINGLETON_KEY = 'primary';
 
 /** Cold start is intentionally fail-closed until an Admin saves availability. */
@@ -53,8 +54,9 @@ export function normalizeRecurringSchedule(schedule) {
 
 /**
  * Validate and sanitize the recurring availability payload shared by every
- * compatibility/admin write path. `slots` is capacity for each generated time
- * slot, so fractional values are never valid.
+ * compatibility/admin write path. `slots` is the number of hourly appointment
+ * times generated from the day's opening time (bounded by closing time). Each
+ * generated time can hold exactly one active appointment.
  */
 export function validateRecurringScheduleInput(schedule, { requireAllDays = true } = {}) {
   if (!Array.isArray(schedule) || schedule.length === 0) {
@@ -119,7 +121,7 @@ const recurringScheduleSchema = new mongoose.Schema(
       min: 0,
       validate: {
         validator: Number.isInteger,
-        message: 'Capacity per time slot must be a non-negative integer.',
+        message: 'Daily appointment slots must be a non-negative integer.',
       },
     },
   },
@@ -132,7 +134,15 @@ const shopAvailabilitySchema = new mongoose.Schema(
     // deterministic row is promoted to this key; the others are preserved but
     // ignored so migration never destroys an administrator's historical data.
     singletonKey: { type: String, trim: true },
+    // Legacy clients may still inspect this flag, but all effective closure
+    // decisions are derived from emergencyClosureDate + the business clock.
     emergencyClosed: { type: Boolean, default: false },
+    emergencyClosureDate: {
+      type: String,
+      default: null,
+      trim: true,
+      match: AVAILABILITY_DATE_RE,
+    },
     recurringSchedule: {
       type: [recurringScheduleSchema],
       default: undefined,
@@ -200,6 +210,7 @@ shopAvailabilitySchema.statics.getSingleton = async function getSingleton() {
         $setOnInsert: {
           singletonKey: SHOP_AVAILABILITY_SINGLETON_KEY,
           emergencyClosed: false,
+          emergencyClosureDate: null,
           recurringSchedule: buildDefaultRecurringSchedule(),
           updatedAt: new Date(),
         },

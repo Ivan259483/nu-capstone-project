@@ -1,6 +1,11 @@
 import Setting from '../models/setting.model.js';
 import ShopAvailability, { normalizeRecurringSchedule } from '../models/shopAvailability.model.js';
 import { logActivity } from '../utils/logActivity.utils.js';
+import {
+  buildAdminDeepLink,
+  buildAdminGroupingKey,
+  createAdminNotification,
+} from '../services/adminNotification.service.js';
 
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
@@ -113,6 +118,33 @@ export const updateSettings = async (req, res, next) => {
       status: 'info',
       metadata: { updatedFields: Object.keys(settingsUpdate) },
     });
+
+    const updatedFields = Object.keys(settingsUpdate);
+    if (updatedFields.length > 0) {
+      try {
+        await createAdminNotification({
+          title: 'System settings updated',
+          message: `${req.user?.name || req.user?.email || 'An administrator'} updated ${updatedFields.length} system setting${updatedFields.length === 1 ? '' : 's'}.`,
+          category: 'system',
+          event: 'settings_updated',
+          severity: 'info',
+          source: 'Settings',
+          actionRequired: false,
+          groupingKey: buildAdminGroupingKey('system', 'settings_updated', req.user?.id || req.user?._id || 'admin'),
+          groupingWindowMs: 10 * 60 * 1000,
+          groupedTitle: '{count} system settings updates',
+          link: buildAdminDeepLink('security'),
+          action: { label: 'Review activity' },
+          metadata: {
+            updatedFields,
+            actorUserId: req.user?.id || req.user?._id,
+            actorName: req.user?.name || req.user?.email,
+          },
+        });
+      } catch (notificationError) {
+        console.warn('[settings] Admin notification failed:', notificationError.message);
+      }
+    }
 
     res.json({
       success: true,

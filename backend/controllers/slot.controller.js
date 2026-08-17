@@ -11,6 +11,11 @@ import ShopAvailability, {
   validateRecurringScheduleInput,
 } from '../models/shopAvailability.model.js';
 import { emitAvailabilityUpdated } from '../utils/availabilityBroadcast.utils.js';
+import {
+  buildAdminDeepLink,
+  buildAdminGroupingKey,
+  createAdminNotification,
+} from '../services/adminNotification.service.js';
 
 const FIXED_SLOT_DURATION_MINUTES = 60;
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -23,7 +28,7 @@ const toLegacySettingsPayload = (schedule) => {
       isOpen: row.open,
       open: row.from,
       close: row.to,
-      capacityPerSlot: row.slots,
+      dailyAppointmentCapacity: row.slots,
     };
   }
 
@@ -35,7 +40,7 @@ const toLegacySettingsPayload = (schedule) => {
     openingHours,
     recurringSchedule,
     slotDuration: FIXED_SLOT_DURATION_MINUTES,
-    defaultSlotCapacity: openCapacities.length === 1 ? openCapacities[0] : null,
+    defaultDailyAppointmentCapacity: openCapacities.length === 1 ? openCapacities[0] : null,
   };
 };
 
@@ -82,7 +87,14 @@ export const getSlotsByRange = async (req, res, next) => {
     }
 
     const summary = await getSlotsForRange(start, end);
-    return res.json({ success: true, data: summary });
+    const businessMetadata = summary.find((row) => row?.businessDate && row?.businessTimeZone);
+    return res.json({
+      success: true,
+      data: summary,
+      businessDate: businessMetadata?.businessDate || null,
+      businessTimeZone: businessMetadata?.businessTimeZone || null,
+      timeZone: businessMetadata?.businessTimeZone || null,
+    });
   } catch (err) {
     next(err);
   }
@@ -135,7 +147,7 @@ export const updateBusinessSettings = async (req, res, next) => {
     if (slotDuration != null && Number(slotDuration) !== FIXED_SLOT_DURATION_MINUTES) {
       return res.status(400).json({
         success: false,
-        message: 'Appointment intervals are fixed at 60 minutes. Configure hours and per-slot capacity in Availability Controls.',
+        message: 'Appointment intervals are fixed at 60 minutes. Configure hours and daily appointment slots in Availability Controls.',
       });
     }
     if (customSlotCapacities != null) {
@@ -164,7 +176,10 @@ export const updateBusinessSettings = async (req, res, next) => {
       schedule = schedule.map((row) => {
         const incoming = openingHours[DAY_NAMES[row.dow]];
         if (!incoming || typeof incoming !== 'object') return row;
-        const capacity = incoming.capacityPerSlot ?? incoming.slots ?? row.slots;
+        const capacity = incoming.dailyAppointmentCapacity
+          ?? incoming.capacityPerSlot
+          ?? incoming.slots
+          ?? row.slots;
         return {
           ...row,
           open: typeof incoming.isOpen === 'boolean' ? incoming.isOpen : row.open,
@@ -190,6 +205,31 @@ export const updateBusinessSettings = async (req, res, next) => {
     doc.recurringSchedule = validated;
     await doc.save();
     emitAvailabilityUpdated({ type: 'legacy_settings_alias' });
+
+    const link = buildAdminDeepLink('availability');
+    void createAdminNotification({
+      category: 'appointments',
+      event: 'availability_controls_changed',
+      severity: 'info',
+      title: 'Availability controls updated',
+      message: `${req.user?.name || 'An admin'} changed appointment hours or daily capacity.`,
+      source: 'Availability Controls',
+      groupingKey: buildAdminGroupingKey(
+        'appointments',
+        'availability_controls_changed',
+        'legacy_settings',
+      ),
+      groupingWindowMs: 30 * 60 * 1000,
+      link,
+      action: { label: 'Review availability', link },
+      metadata: {
+        changedBy: req.user?.name || req.user?.email || 'Admin',
+        changedFields: Object.keys(req.body || {}).sort(),
+      },
+    }).catch((error) => {
+      console.warn('[slots/settings] Admin notification failed:', error.message);
+    });
+
     return res.json({ success: true, data: toLegacySettingsPayload(doc.recurringSchedule) });
   } catch (err) {
     next(err);

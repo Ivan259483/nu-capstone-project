@@ -3,7 +3,7 @@ import ActivityLog from '../models/activityLog.model.js';
 /**
  * Centralized Activity Logger
  *
- * Usage (fire-and-forget — do NOT await):
+ * Usage (normally fire-and-forget; security-sensitive callers may await):
  *   logActivity({ req, type, module, action, description, status, referenceId, metadata });
  *
  * @param {Object}  opts
@@ -32,10 +32,10 @@ export function logActivity({
   referenceId,
   metadata = {},
 }) {
-  // Fire-and-forget — callers should NOT await this
+  // The returned promise is safe to ignore; its rejection is handled below.
   const user = req?.user;
 
-  ActivityLog.create({
+  return ActivityLog.create({
     type,
     title: action,
     description,

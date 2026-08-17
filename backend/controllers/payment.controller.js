@@ -26,6 +26,11 @@ import {
   resolveReceiptPhoneForClient,
   USER_PHONE_SELECT_FIELDS,
 } from '../utils/phone-client.utils.js';
+import {
+  buildAdminDeepLink,
+  buildAdminGroupingKey,
+  createAdminNotification,
+} from '../services/adminNotification.service.js';
 
 const LOW_STOCK_THRESHOLD = 10;
 const LOCAL_PAYMENTS_PROVIDER = (process.env.LOCAL_PAYMENTS_PROVIDER || 'paymongo').toLowerCase();
@@ -156,25 +161,31 @@ const findProductByName = async (name) => {
 
 const notifyInventoryIssue = async ({ title, message, metadata }) => {
   try {
-    await Notification.create({
+    const normalizedTitle = String(title || '').toLowerCase();
+    const requiredForService = /mapping missing|inventory alert|reservation warning/.test(normalizedTitle);
+    const remaining = Number(metadata?.remaining ?? metadata?.available);
+    const event = requiredForService
+      ? 'required_item_unavailable'
+      : Number.isFinite(remaining) && remaining <= 0
+        ? 'out_of_stock'
+        : 'low_stock';
+    const productScope = metadata?.productId || metadata?.productName || metadata?.serviceId || 'unmapped';
+    await createAdminNotification({
       title,
       message,
-      type: 'inventory',
-      recipientRole: 'admin_family',
-      link: '/admin/inventory',
+      category: 'inventory',
+      event,
+      severity: event === 'out_of_stock' ? 'critical' : 'warning',
+      source: 'Inventory',
+      actionRequired: true,
+      groupingKey: buildAdminGroupingKey('inventory', event, productScope),
+      groupingWindowMs: 24 * 60 * 60 * 1000,
+      link: buildAdminDeepLink('inventory', metadata?.productId ? { productId: String(metadata.productId) } : {}),
+      action: { label: 'Review inventory' },
       metadata,
     });
   } catch (error) {
     console.error('Failed to create inventory notification:', error.message);
-  }
-};
-
-const emitAdminNotification = (notification) => {
-  try {
-    const io = getIO();
-    io.to('admin:chat').emit('admin:notification', notification);
-  } catch (error) {
-    console.warn('Socket not initialized for admin notification:', error.message);
   }
 };
 
@@ -400,27 +411,24 @@ const finalizePayment = async (payment, order, payload = {}) => {
       recipientRole: 'admin_family',
     });
     if (!existing) {
-      const notification = await Notification.create({
+      await createAdminNotification({
         title: 'Payment Completed',
         message: `Payment ${payment.invoiceId} received (${payment.method?.toUpperCase() || 'PAYMENT'})`,
-        type: 'success',
-        recipientRole: 'admin_family',
-        link: '/admin/dashboard?tab=billing',
+        category: 'payments',
+        event: 'payment_completed',
+        severity: 'success',
+        source: 'Payments',
+        actionRequired: false,
+        groupingKey: buildAdminGroupingKey('payments', 'payment_completed', payment._id),
+        groupingWindowMs: 30 * 24 * 60 * 60 * 1000,
+        link: buildAdminDeepLink('payments', { paymentId: String(payment._id), orderId: String(order._id) }),
+        action: { label: 'View payment' },
         metadata: {
           paymentId: payment._id,
           orderId: order._id,
           invoiceId: payment.invoiceId,
           amount: payment.amount,
         },
-      });
-      emitAdminNotification({
-        id: notification._id,
-        title: notification.title,
-        message: notification.message,
-        type: notification.type,
-        isRead: notification.isRead,
-        createdAt: notification.createdAt,
-        link: notification.link,
       });
     }
   } catch (notifyError) {
@@ -465,6 +473,63 @@ const finalizePayment = async (payment, order, payload = {}) => {
   } catch (notifyError) {
     console.error('Failed to notify customer payment completion:', notifyError.message);
   }
+};
+
+const recordFailedStripePayment = async (stripePaymentIntent) => {
+  const paymentId = stripePaymentIntent?.metadata?.paymentId;
+  const payment = paymentId
+    ? await Payment.findById(paymentId)
+    : await Payment.findOne({ providerReference: stripePaymentIntent?.id });
+  if (!payment || payment.status === 'succeeded' || payment.status === 'refunded') return null;
+
+  const failureReason = String(
+    stripePaymentIntent?.last_payment_error?.message
+      || stripePaymentIntent?.cancellation_reason
+      || 'Stripe reported that the payment failed.',
+  ).slice(0, 500);
+  payment.status = 'failed';
+  payment.metadata = {
+    ...(payment.metadata || {}),
+    stripeStatus: stripePaymentIntent?.status || 'failed',
+    failureReason,
+  };
+  await payment.save();
+
+  await createAdminNotification({
+    title: 'Payment failed',
+    message: `Payment ${payment.invoiceId} failed and needs review.`,
+    category: 'payments',
+    event: 'payment_failed',
+    severity: 'critical',
+    source: 'Stripe',
+    actionRequired: true,
+    groupingKey: buildAdminGroupingKey('payments', 'payment_failed', payment._id),
+    groupingWindowMs: 30 * 24 * 60 * 60 * 1000,
+    link: buildAdminDeepLink('payments', {
+      paymentId: String(payment._id),
+      orderId: String(payment.order),
+    }),
+    action: { label: 'Review payment' },
+    metadata: {
+      paymentId: payment._id,
+      orderId: payment.order,
+      invoiceId: payment.invoiceId,
+      amount: payment.amount,
+      providerReference: payment.providerReference,
+      failureReason,
+    },
+  });
+
+  logActivity({
+    type: 'payment_failed',
+    module: 'POS',
+    action: 'Payment Failed',
+    description: `Payment ${payment.invoiceId} failed: ${failureReason}`,
+    status: 'error',
+    referenceId: payment.invoiceId,
+    metadata: { paymentId: payment._id, orderId: payment.order, failureReason },
+  });
+  return payment;
 };
 
 const getOrderForPayment = async (orderId, user) => {
@@ -856,6 +921,14 @@ export const stripeWebhookHandler = async (req, res) => {
       });
     } catch (error) {
       console.error('Failed to finalize payment from webhook:', error.message);
+    }
+  }
+
+  if (event.type === 'payment_intent.payment_failed') {
+    try {
+      await recordFailedStripePayment(event.data.object);
+    } catch (error) {
+      console.error('Failed to record Stripe payment failure:', error.message);
     }
   }
 
@@ -1268,17 +1341,26 @@ export const runPosCheckoutCore = async ({
   }
 
   try {
-    const io = getIO();
-    io.to('admin:chat').emit('admin:notification', {
-      id: payment._id,
-      title: 'POS Payment Completed',
-      message: `₱${amountCollected.toLocaleString()} — ${order.customerName || 'Walk-in'} via ${paymentMethod.toUpperCase()}`,
-      type: 'success',
-      isRead: false,
-      createdAt: new Date().toISOString(),
-      link: '/admin/dashboard?tab=pos',
+    await createAdminNotification({
+      title: 'POS payment completed',
+      message: `Payment ${invoiceId} received — ₱${amountCollected.toLocaleString()} via ${paymentMethod.toUpperCase()}`,
+      category: 'payments',
+      event: 'payment_completed',
+      severity: 'success',
+      source: 'POS',
+      actionRequired: false,
+      groupingKey: buildAdminGroupingKey('payments', 'payment_completed', payment._id),
+      groupingWindowMs: 30 * 24 * 60 * 60 * 1000,
+      link: buildAdminDeepLink('payments', { paymentId: String(payment._id), orderId: String(order._id) }),
+      action: { label: 'View payment' },
+      metadata: { paymentId: payment._id, orderId: order._id, invoiceId, amount: amountCollected },
     });
+  } catch (notificationError) {
+    console.error('Failed to create POS notification:', notificationError.message);
+  }
 
+  try {
+    const io = getIO();
     const customerId = order.customer?._id || order.customer;
     if (customerId) {
       io.to(`user:${customerId.toString()}`).emit('booking:status', {
@@ -1375,19 +1457,6 @@ export const runPosCheckoutCore = async ({
     } catch (receiptNotifyErr) {
       console.warn('[POS] Customer receipt notification failed:', receiptNotifyErr.message);
     }
-  }
-
-  try {
-    await Notification.create({
-      title: 'POS Payment Completed',
-      message: `Payment ${invoiceId} received — ₱${amountCollected.toLocaleString()} via ${paymentMethod.toUpperCase()}`,
-      type: 'success',
-      recipientRole: 'admin_family',
-      link: '/admin/dashboard?tab=pos',
-      metadata: { paymentId: payment._id, orderId: order._id, invoiceId, amount: amountCollected },
-    });
-  } catch (ne) {
-    console.error('Failed to create POS notification:', ne.message);
   }
 
   return { payment, receiptData, inventoryWarnings, invoiceId };

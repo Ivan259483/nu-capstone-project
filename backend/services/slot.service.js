@@ -10,34 +10,23 @@ import Order from '../models/order.model.js';
 import ShopAvailability, { normalizeRecurringSchedule } from '../models/shopAvailability.model.js';
 import ScheduledClosure from '../models/scheduledClosure.model.js';
 import BookingSlotCounter from '../models/bookingSlotCounter.model.js';
+import { emitAvailabilityUpdated } from '../utils/availabilityBroadcast.utils.js';
+import {
+  getBusinessClock,
+  getClockInTimeZone,
+  getEffectiveEmergencyClosureState,
+  SHOP_TIME_ZONE,
+} from '../utils/businessAvailability.utils.js';
 
 const DEFAULT_SLOT_DURATION_MINUTES = 60;
-export const SHOP_TIME_ZONE = process.env.SHOP_TIME_ZONE || 'Asia/Manila';
+export { SHOP_TIME_ZONE };
 
-const shopClockFormatter = new Intl.DateTimeFormat('en-CA', {
-  timeZone: SHOP_TIME_ZONE,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
+export const EMERGENCY_CLOSURE_MESSAGE =
+  'Bookings for today are temporarily closed due to an emergency closure.';
 
 /** Current wall-clock date/time in the shop timezone (not the server timezone). */
-export function getShopLocalClock(now = new Date()) {
-  const parts = Object.fromEntries(
-    shopClockFormatter
-      .formatToParts(now)
-      .filter((part) => part.type !== 'literal')
-      .map((part) => [part.type, part.value])
-  );
-  return {
-    date: `${parts.year}-${parts.month}-${parts.day}`,
-    time: `${parts.hour}:${parts.minute}`,
-    minutes: Number(parts.hour) * 60 + Number(parts.minute),
-  };
+export function getShopLocalClock(now = new Date(), timeZone = SHOP_TIME_ZONE) {
+  return getClockInTimeZone(now, timeZone);
 }
 
 // ── Statuses that consume a slot ──────────────────────────────────────────────
@@ -185,9 +174,40 @@ export function normalizeBookingDate(dateStr) {
 async function getAvailabilityConfig() {
   const doc = await ShopAvailability.getSingleton();
   return {
+    // Retained only for database/client compatibility. Effective state is
+    // derived exclusively from emergencyClosureDate and the business clock.
     emergencyClosed: !!doc.emergencyClosed,
+    emergencyClosureDate: doc.emergencyClosureDate || null,
     recurringSchedule: normalizeRecurringSchedule(doc.recurringSchedule),
   };
+}
+
+function getPerDateAvailabilityMetadata(
+  emergencyState,
+  date,
+  { closureType = null, closureReason = null } = {}
+) {
+  const emergencyClosed = Boolean(
+    emergencyState?.emergencyClosed
+    && date
+    && date === emergencyState.affectedBusinessDate
+  );
+
+  return {
+    emergencyClosed,
+    closureType,
+    closureReason,
+    businessDate: emergencyState.businessDate,
+    businessTimeZone: emergencyState.businessTimeZone,
+  };
+}
+
+function getScheduledClosureLabel(closure) {
+  const label = [closure?.reason, closure?.note]
+    .filter((value) => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.trim())
+    .join(' — ');
+  return label || 'Bookings are unavailable on this date due to a scheduled closure.';
 }
 
 function getDaySchedule(recurringSchedule, dateStr) {
@@ -290,21 +310,18 @@ function aggregateBookingsForDate(bookings, targetDate) {
 }
 
 function buildSlotAvailability(daySchedule, bookedCountByTime = {}) {
-  const capacity = Math.max(0, Number(daySchedule?.slots || 0));
   const times = generateTimeSlots(daySchedule, DEFAULT_SLOT_DURATION_MINUTES);
 
   const rows = times.map((time) => {
     const booked = Math.max(0, Number(bookedCountByTime[time] || 0));
-    const available = Math.max(0, capacity - booked);
-    const ratio = capacity > 0 ? booked / capacity : 1;
+    const capacity = 1;
+    const available = booked === 0 ? 1 : 0;
     const status =
       booked > capacity
         ? 'OVER_CAPACITY'
-        : capacity <= 0 || available <= 0
+        : available <= 0
         ? 'FULL'
-        : ratio >= 0.8
-          ? 'ALMOST_FULL'
-          : 'AVAILABLE';
+        : 'AVAILABLE';
 
     return {
       time,
@@ -357,14 +374,15 @@ function applyElapsedSlotState(slots, dateStr, shopClock = getShopLocalClock()) 
 
 function summarizeSlotAvailability(slots) {
   const rows = Array.isArray(slots) ? slots : [];
-  const totalCapacity = rows.reduce((sum, slot) => sum + Math.max(0, Number(slot.capacity || 0)), 0);
-  const bookedSlots = rows.reduce(
-    (sum, slot) => sum + Math.max(0, Number(slot.booked || 0)),
+  const generatedRows = rows.filter((slot) => slot.outOfSchedule !== true);
+  const totalCapacity = generatedRows.length;
+  const bookedSlots = generatedRows.filter((slot) => Math.max(0, Number(slot.booked || 0)) > 0).length;
+  const availableSlots = generatedRows.reduce(
+    (sum, slot) => sum + Math.max(0, Math.min(1, Number(slot.available || 0))),
     0
   );
-  const availableSlots = rows.reduce((sum, slot) => sum + Math.max(0, Number(slot.available || 0)), 0);
-  const fullSlots = rows.filter((slot) => slot.status === 'FULL').length;
-  const almostFullSlots = rows.filter((slot) => slot.status === 'ALMOST_FULL').length;
+  const fullSlots = generatedRows.filter((slot) => slot.status === 'FULL').length;
+  const almostFullSlots = 0;
   const overCapacitySlots = rows.filter((slot) => slot.status === 'OVER_CAPACITY').length;
   const overCapacityBy = rows.reduce(
     (sum, slot) => sum + Math.max(0, Number(slot.overCapacityBy || 0)),
@@ -394,21 +412,19 @@ function buildSlotCounterKey(bookingDate, bookingTime) {
 
 async function countActiveBookingsForSlot(normalizedDate, normalizedTime, excludeOrderId = null) {
   const bookings = await loadActiveBookingsForDate(normalizedDate, excludeOrderId);
-  return bookings.reduce((count, booking) => {
-    const bookingTime = normalizeBookingTime(booking.bookingTime);
-    return bookingTime === normalizedTime ? count + 1 : count;
-  }, 0);
+  return bookings.reduce((count, booking) => (
+    normalizeBookingTime(booking.bookingTime) === normalizedTime ? count + 1 : count
+  ), 0);
 }
 
 async function ensureBookingSlotCounter(key) {
   await BookingSlotCounter.init();
   try {
     await BookingSlotCounter.updateOne(
-      { date: key.date, time: key.time },
+      key,
       {
         $setOnInsert: {
-          date: key.date,
-          time: key.time,
+          ...key,
           count: 0,
         },
       },
@@ -428,7 +444,7 @@ export async function syncBookingSlotCounter(bookingDate, bookingTime, { exclude
   const actualCount = await countActiveBookingsForSlot(key.date, key.time, excludeOrderId);
   await ensureBookingSlotCounter(key);
   await BookingSlotCounter.updateOne(
-    { date: key.date, time: key.time },
+    key,
     {
       $max: { count: actualCount },
       $set: { updatedAt: new Date() },
@@ -449,22 +465,36 @@ async function getTimeSlotAvailability(bookingDate, bookingTime, { excludeOrderI
       error: 'Invalid booking date.',
     };
   }
-  if (requestedDate < getShopLocalClock().date) {
+  const businessClock = await getBusinessClock();
+  if (requestedDate < businessClock.date) {
     return {
       ok: false,
       errorCode: 'DATE_IN_PAST',
       message: 'Appointments cannot be booked in the past.',
       error: 'Appointments cannot be booked in the past.',
+      emergencyClosed: false,
+      closureType: null,
+      closureReason: null,
+      businessDate: businessClock.date,
+      businessTimeZone: businessClock.timeZone,
     };
   }
 
-  const snapshot = await getDateAvailabilitySnapshot(bookingDate, { excludeOrderId });
+  const snapshot = await getDateAvailabilitySnapshot(bookingDate, {
+    excludeOrderId,
+    businessClock,
+  });
   if (snapshot.errorCode === 'INVALID_DATE') {
     return {
       ok: false,
       errorCode: snapshot.errorCode,
       message: snapshot.message,
       error: snapshot.error,
+      emergencyClosed: snapshot.emergencyClosed,
+      closureType: snapshot.closureType,
+      closureReason: snapshot.closureReason,
+      businessDate: snapshot.businessDate,
+      businessTimeZone: snapshot.businessTimeZone,
     };
   }
 
@@ -477,6 +507,11 @@ async function getTimeSlotAvailability(bookingDate, bookingTime, { excludeOrderI
       errorCode: snapshot.errorCode,
       message: snapshot.message,
       error: snapshot.error,
+      emergencyClosed: snapshot.emergencyClosed,
+      closureType: snapshot.closureType,
+      closureReason: snapshot.closureReason,
+      businessDate: snapshot.businessDate,
+      businessTimeZone: snapshot.businessTimeZone,
     };
   }
 
@@ -514,8 +549,8 @@ async function getTimeSlotAvailability(bookingDate, bookingTime, { excludeOrderI
     return {
       ok: false,
       errorCode: 'SLOT_FULL',
-      message: 'Selected time slot is fully booked.',
-      error: 'Selected time slot is fully booked.',
+      message: 'This time slot has already been booked. Please select another time.',
+      error: 'This time slot has already been booked. Please select another time.',
       slot,
     };
   }
@@ -545,13 +580,20 @@ export function generateTimeSlots(dayConfig, slotDuration = DEFAULT_SLOT_DURATIO
   for (let t = openMin; t < closeMin; t += step) {
     slots.push(fromMinutes(t));
   }
-  return slots;
+  const configuredSlotCount = Math.max(0, Number(dayConfig.slots || 0));
+  return slots.slice(0, configuredSlotCount);
 }
 
 /**
  * Returns per-date availability decision used by all availability checks.
  */
-export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId = null } = {}) {
+export async function getDateAvailabilitySnapshot(
+  bookingDate,
+  { excludeOrderId = null, businessClock = null, availabilityConfig = null } = {}
+) {
+  const shopClock = businessClock || await getBusinessClock();
+  const config = availabilityConfig || await getAvailabilityConfig();
+  const emergencyState = getEffectiveEmergencyClosureState(config, shopClock);
   const normalizedDate = normalizeBookingDate(bookingDate);
   if (!normalizedDate) {
     return {
@@ -560,52 +602,59 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       errorCode: 'INVALID_DATE',
       message: 'Invalid booking date.',
       error: 'Invalid booking date.',
+      ...getPerDateAvailabilityMetadata(emergencyState, null),
     };
   }
 
-  const shopClock = getShopLocalClock();
-  const config = await getAvailabilityConfig();
   const daySchedule = getDaySchedule(config.recurringSchedule, normalizedDate);
   const closure = await findClosureForDate(normalizedDate);
   const bookings = await loadActiveBookingsForDate(normalizedDate, excludeOrderId);
-  const { bookedCount, bookedCountByTime, bookedTimes } = aggregateBookingsForDate(bookings, normalizedDate);
+  const { bookedCountByTime, bookedTimes } = aggregateBookingsForDate(bookings, normalizedDate);
+  const occupiedTimeCount = Object.keys(bookedCountByTime).length;
 
-  const slotsLimit = Math.max(0, Number(daySchedule?.slots || 0));
   const slots = applyElapsedSlotState(
     buildSlotAvailability(daySchedule, bookedCountByTime),
     normalizedDate,
     shopClock
   );
   const slotSummary = summarizeSlotAvailability(slots);
+  const slotsLimit = slotSummary.totalCapacity;
   const remaining = slotSummary.availableSlots;
-  const today = shopClock.date;
   const closedBookingRows = applyElapsedSlotState(
     buildSlotAvailability({ open: false, slots: 0 }, bookedCountByTime),
     normalizedDate,
     shopClock
   );
 
-  if (config.emergencyClosed && normalizedDate === today) {
+  if (
+    emergencyState.emergencyClosed
+    && normalizedDate === emergencyState.affectedBusinessDate
+  ) {
     return {
       ok: false,
       date: normalizedDate,
       errorCode: 'EMERGENCY_CLOSED',
-      message: 'Bookings are temporarily closed for today due to an emergency closure.',
-      error: 'Bookings are temporarily closed for today due to an emergency closure.',
+      message: EMERGENCY_CLOSURE_MESSAGE,
+      error: EMERGENCY_CLOSURE_MESSAGE,
       unavailable: true,
       daySchedule,
-      slotsLimit,
-      bookedCount,
-      remaining,
+      slotsLimit: 0,
+      bookedCount: occupiedTimeCount,
+      remaining: 0,
       bookedCountByTime,
       bookedTimes,
       slots: closedBookingRows,
       totalCapacity: 0,
       fullTimes: closedBookingRows.map((slot) => slot.time),
+      ...getPerDateAvailabilityMetadata(emergencyState, normalizedDate, {
+        closureType: 'emergency',
+        closureReason: EMERGENCY_CLOSURE_MESSAGE,
+      }),
     };
   }
 
   if (closure) {
+    const closureReason = getScheduledClosureLabel(closure);
     return {
       ok: false,
       date: normalizedDate,
@@ -615,14 +664,18 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       unavailable: true,
       closure,
       daySchedule,
-      slotsLimit,
-      bookedCount,
-      remaining,
+      slotsLimit: 0,
+      bookedCount: occupiedTimeCount,
+      remaining: 0,
       bookedCountByTime,
       bookedTimes,
       slots: closedBookingRows,
       totalCapacity: 0,
       fullTimes: closedBookingRows.map((slot) => slot.time),
+      ...getPerDateAvailabilityMetadata(emergencyState, normalizedDate, {
+        closureType: 'scheduled',
+        closureReason,
+      }),
     };
   }
 
@@ -635,14 +688,18 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       error: 'The shop is closed on this day.',
       unavailable: true,
       daySchedule,
-      slotsLimit,
-      bookedCount,
-      remaining,
+      slotsLimit: 0,
+      bookedCount: occupiedTimeCount,
+      remaining: 0,
       bookedCountByTime,
       bookedTimes,
       slots: closedBookingRows,
       totalCapacity: 0,
       fullTimes: closedBookingRows.map((slot) => slot.time),
+      ...getPerDateAvailabilityMetadata(emergencyState, normalizedDate, {
+        closureType: 'recurring',
+        closureReason: 'The shop is closed on this day.',
+      }),
     };
   }
 
@@ -656,7 +713,7 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       unavailable: true,
       daySchedule,
       slotsLimit,
-      bookedCount,
+      bookedCount: slotSummary.bookedSlots,
       remaining,
       bookedCountByTime,
       bookedTimes,
@@ -669,6 +726,7 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       almostFullSlots: slotSummary.almostFullSlots,
       overCapacitySlots: slotSummary.overCapacitySlots,
       overCapacityBy: slotSummary.overCapacityBy,
+      ...getPerDateAvailabilityMetadata(emergencyState, normalizedDate),
     };
   }
 
@@ -678,7 +736,7 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
     unavailable: false,
     daySchedule,
     slotsLimit,
-    bookedCount,
+    bookedCount: slotSummary.bookedSlots,
     remaining,
     bookedCountByTime,
     bookedTimes,
@@ -691,6 +749,7 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
     almostFullSlots: slotSummary.almostFullSlots,
     overCapacitySlots: slotSummary.overCapacitySlots,
     overCapacityBy: slotSummary.overCapacityBy,
+    ...getPerDateAvailabilityMetadata(emergencyState, normalizedDate),
   };
 }
 
@@ -728,8 +787,16 @@ export async function getSlotsForDate(dateStr) {
       date: resolvedDate,
       isClosed: true,
       closedReason: snapshot.errorCode || 'DATE_UNAVAILABLE',
+      emergencyClosed: !!snapshot.emergencyClosed,
+      closureType: snapshot.closureType || null,
+      closureReason: snapshot.closureReason || snapshot.message || null,
+      businessDate: snapshot.businessDate,
+      businessTimeZone: snapshot.businessTimeZone,
       bookedSlots: snapshot.bookedCount || 0,
-      perSlotCapacity: 0,
+      dailyCapacity: 0,
+      totalCapacity: 0,
+      availableSlots: 0,
+      remainingSlots: 0,
       slots: snapshot.slots || [],
       status: 'CLOSED',
     };
@@ -740,8 +807,16 @@ export async function getSlotsForDate(dateStr) {
       date: resolvedDate,
       isClosed: true,
       closedReason: 'INVALID_DATE',
+      emergencyClosed: false,
+      closureType: null,
+      closureReason: snapshot.message || 'Invalid booking date.',
+      businessDate: snapshot.businessDate,
+      businessTimeZone: snapshot.businessTimeZone,
       bookedSlots: 0,
-      perSlotCapacity: 0,
+      dailyCapacity: 0,
+      totalCapacity: 0,
+      availableSlots: 0,
+      remainingSlots: 0,
       slots: [],
       status: 'CLOSED',
     };
@@ -755,8 +830,13 @@ export async function getSlotsForDate(dateStr) {
   return {
     date: resolvedDate,
     isClosed: false,
+    emergencyClosed: false,
+    closureType: null,
+    closureReason: null,
+    businessDate: snapshot.businessDate,
+    businessTimeZone: snapshot.businessTimeZone,
     bookedSlots: snapshot.bookedCount || 0,
-    perSlotCapacity: Math.max(0, Number(snapshot.daySchedule?.slots || 0)),
+    dailyCapacity: snapshot.totalCapacity || 0,
     totalCapacity: snapshot.totalCapacity || 0,
     availableSlots: snapshot.remaining || 0,
     overCapacitySlots: snapshot.overCapacitySlots || 0,
@@ -783,9 +863,11 @@ export async function getSlotsForRange(startStr, endStr) {
   }
 
   const dateSet = new Set(dates);
-  const shopClock = getShopLocalClock();
-  const today = shopClock.date;
-  const config = await getAvailabilityConfig();
+  const [shopClock, config] = await Promise.all([
+    getBusinessClock(),
+    getAvailabilityConfig(),
+  ]);
+  const emergencyState = getEffectiveEmergencyClosureState(config, shopClock);
 
   const closures = await ScheduledClosure.find({
     fromDate: { $lte: endOfLocalDayFromDateString(endStr) },
@@ -822,7 +904,10 @@ export async function getSlotsForRange(startStr, endStr) {
   }
 
   return dates.map((dateStr) => {
-    const closedByEmergency = config.emergencyClosed && dateStr === today;
+    const closedByEmergency = Boolean(
+      emergencyState.emergencyClosed
+      && dateStr === emergencyState.affectedBusinessDate
+    );
     const closure = closures.find((row) => isDateWithinClosure(dateStr, row));
     const daySchedule = getDaySchedule(config.recurringSchedule, dateStr);
 
@@ -832,9 +917,17 @@ export async function getSlotsForRange(startStr, endStr) {
         : closure
           ? 'closure'
           : 'recurring';
-      const closureLabel = closure
-        ? [closure.reason, closure.note].filter(Boolean).join(' — ')
-        : null;
+      const closureType = closedByEmergency
+        ? 'emergency'
+        : closure
+          ? 'scheduled'
+          : 'recurring';
+      const closureReason = closedByEmergency
+        ? EMERGENCY_CLOSURE_MESSAGE
+        : closure
+          ? getScheduledClosureLabel(closure)
+          : 'The shop is closed on this day.';
+      const closureLabel = closureReason;
       const bookedSlots = Object.values(bookedByDateTime[dateStr] || {}).reduce(
         (sum, count) => sum + Math.max(0, Number(count || 0)),
         0
@@ -843,16 +936,16 @@ export async function getSlotsForRange(startStr, endStr) {
         date: dateStr,
         isClosed: true,
         closedReason,
+        emergencyClosed: closedByEmergency,
+        closureType,
+        closureReason,
+        businessDate: emergencyState.businessDate,
+        businessTimeZone: emergencyState.businessTimeZone,
         closureLabel,
         totalSlots: 0,
         bookedSlots,
         availableSlots: 0,
-        /** Max bookings allowed in one time band (admin "Capacity per time slot"). */
-        perSlotCapacity: 0,
-        /** Smallest remaining seats in any single time band — matches admin number when day is empty. */
-        minAvailablePerSlot: 0,
-        /** Hour bands in range (e.g. 9 for 08:00–17:00 @ 60m). Client fallback if minAvailablePerSlot missing. */
-        timeBandCount: 0,
+        dailyCapacity: 0,
         fullSlots: 0,
         almostFullSlots: 0,
         overCapacitySlots: 0,
@@ -862,19 +955,17 @@ export async function getSlotsForRange(startStr, endStr) {
       };
     }
 
+    const rawBookedCount = Object.values(bookedByDateTime[dateStr] || {}).reduce(
+      (sum, count) => sum + Math.max(0, Number(count || 0)),
+      0
+    );
     const slots = applyElapsedSlotState(
       buildSlotAvailability(daySchedule, bookedByDateTime[dateStr] || {}),
       dateStr,
       shopClock
     );
     const summary = summarizeSlotAvailability(slots);
-    const perSlotCapacity = Math.max(0, Number(daySchedule?.slots || 0));
-    const stillBookable = slots.filter((s) => Math.max(0, Number(s.available || 0)) > 0);
-    const minAvailablePerSlot =
-      stillBookable.length > 0
-        ? Math.min(...stillBookable.map((s) => Math.max(0, Number(s.available || 0))))
-        : 0;
-    const timeBandCount = slots.length;
+    const dailyCapacity = summary.totalCapacity;
 
     let status = 'AVAILABLE';
     if (dateStr < shopClock.date) status = 'PAST';
@@ -885,16 +976,20 @@ export async function getSlotsForRange(startStr, endStr) {
     return {
       date: dateStr,
       isClosed: false,
+      emergencyClosed: false,
+      closureType: null,
+      closureReason: null,
+      businessDate: emergencyState.businessDate,
+      businessTimeZone: emergencyState.businessTimeZone,
       totalSlots: summary.totalCapacity,
       bookedSlots: summary.bookedSlots,
       availableSlots: summary.availableSlots,
-      perSlotCapacity,
-      minAvailablePerSlot,
-      timeBandCount,
+      dailyCapacity,
       fullSlots: summary.fullSlots,
       almostFullSlots: summary.almostFullSlots,
       overCapacitySlots: summary.overCapacitySlots,
       overCapacityBy: summary.overCapacityBy,
+      legacyDuplicateBookings: Math.max(0, rawBookedCount - summary.bookedSlots),
       pendingCount: pendingByDate[dateStr] || 0,
       status,
     };
@@ -930,7 +1025,7 @@ export async function reserveBookingSlot(bookingDate, bookingTime) {
     {
       date: availability.date,
       time: availability.time,
-      count: { $lt: availability.slot.capacity },
+      count: { $lt: 1 },
     },
     {
       $inc: { count: 1 },
@@ -943,8 +1038,8 @@ export async function reserveBookingSlot(bookingDate, bookingTime) {
     return {
       ok: false,
       errorCode: 'SLOT_FULL',
-      message: 'Selected time slot is fully booked.',
-      error: 'Selected time slot is fully booked.',
+      message: 'This time slot has already been booked. Please select another time.',
+      error: 'This time slot has already been booked. Please select another time.',
     };
   }
 
@@ -954,15 +1049,15 @@ export async function reserveBookingSlot(bookingDate, bookingTime) {
   const currentAvailability = await getTimeSlotAvailability(availability.date, availability.time);
   if (
     !currentAvailability.ok
-    || counter.count > Math.max(0, Number(currentAvailability.slot?.capacity || 0))
+    || counter.count > 1
   ) {
     await releaseBookingSlot(availability.date, availability.time);
     if (!currentAvailability.ok) return currentAvailability;
     return {
       ok: false,
       errorCode: 'SLOT_FULL',
-      message: 'Selected time slot is fully booked.',
-      error: 'Selected time slot is fully booked.',
+      message: 'This time slot has already been booked. Please select another time.',
+      error: 'This time slot has already been booked. Please select another time.',
       slot: currentAvailability.slot,
     };
   }
@@ -971,7 +1066,7 @@ export async function reserveBookingSlot(bookingDate, bookingTime) {
     ok: true,
     date: availability.date,
     time: availability.time,
-    remaining: Math.max(0, availability.slot.capacity - counter.count),
+    remaining: Math.max(0, 1 - counter.count),
   };
 }
 
@@ -980,7 +1075,7 @@ export async function releaseBookingSlot(bookingDate, bookingTime) {
   if (!key) return { ok: false };
 
   await BookingSlotCounter.findOneAndUpdate(
-    { date: key.date, time: key.time, count: { $gt: 0 } },
+    { ...key, count: { $gt: 0 } },
     {
       $inc: { count: -1 },
       $set: { updatedAt: new Date() },
@@ -994,7 +1089,7 @@ export async function releaseBookingSlot(bookingDate, bookingTime) {
 async function acquireExistingOrderSlotHold(slot, orderId) {
   await syncBookingSlotCounter(slot.date, slot.time, { excludeOrderId: orderId || null });
   await BookingSlotCounter.updateOne(
-    { date: slot.date, time: slot.time },
+    slot,
     { $inc: { count: 1 }, $set: { updatedAt: new Date() } }
   );
   return slot;
@@ -1049,13 +1144,19 @@ export async function saveOrderWithSlotTransition(order, beforeState, saveOption
   }
 
   const sameFinalSlot = Boolean(
-    before.slot
-    && after.slot
+    before.slot && after.slot
     && before.slot.date === after.slot.date
     && before.slot.time === after.slot.time
   );
   if (before.occupies && (!after.occupies || !sameFinalSlot)) {
     await releaseBookingSlot(before.slot.date, before.slot.time);
+  }
+
+  const affectedDates = new Set();
+  if (before.occupies && (!after.occupies || !sameFinalSlot)) affectedDates.add(before.slot.date);
+  if (after.occupies && (!before.occupies || !sameFinalSlot)) affectedDates.add(after.slot.date);
+  if (affectedDates.size > 0) {
+    emitAvailabilityUpdated({ type: 'appointment_capacity_changed', dates: [...affectedDates] });
   }
 
   return order;
@@ -1072,8 +1173,7 @@ export async function reconcilePersistedOrderSlotTransition(beforeState, orderAf
     : captureOrderSlotOccupancy(beforeState || {});
   const after = captureOrderSlotOccupancy(orderAfter || {});
   const sameSlot = Boolean(
-    before.slot
-    && after.slot
+    before.slot && after.slot
     && before.slot.date === after.slot.date
     && before.slot.time === after.slot.time
   );
@@ -1083,6 +1183,13 @@ export async function reconcilePersistedOrderSlotTransition(beforeState, orderAf
   }
   if (after.occupies && (!before.occupies || !sameSlot)) {
     await acquireExistingOrderSlotHold(after.slot, orderAfter?._id);
+  }
+
+  const affectedDates = new Set();
+  if (before.occupies && (!after.occupies || !sameSlot)) affectedDates.add(before.slot.date);
+  if (after.occupies && (!before.occupies || !sameSlot)) affectedDates.add(after.slot.date);
+  if (affectedDates.size > 0) {
+    emitAvailabilityUpdated({ type: 'appointment_capacity_changed', dates: [...affectedDates] });
   }
 
   return { before, after };
@@ -1111,6 +1218,12 @@ export async function releaseBookingSlotsForOrders(orders = []) {
       }
     })
   );
+  if (grouped.size > 0) {
+    emitAvailabilityUpdated({
+      type: 'appointment_capacity_changed',
+      dates: [...new Set([...grouped.values()].map(({ date }) => date))],
+    });
+  }
   return { released: [...grouped.values()].reduce((sum, row) => sum + row.count, 0) };
 }
 

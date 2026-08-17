@@ -30,6 +30,11 @@ import { uploadBufferToCloudinary } from '../utils/cloudinaryStorage.utils.js';
 import { normalizeEmailForOtp } from '../utils/otp.utils.js';
 import { issueStaffVerificationLink } from '../services/staffVerification.service.js';
 import { deleteOrdersAndReleaseSlotCounters } from '../services/slot.service.js';
+import {
+  buildAdminDeepLink,
+  buildAdminGroupingKey,
+  createAdminNotification,
+} from '../services/adminNotification.service.js';
 
 const getQueryByIdOrFirebaseUid = (id) => {
   // If it's a 24-character hex string, assume it's a valid ObjectId
@@ -51,6 +56,45 @@ const getIncomingPhoneValue = (body = {}) => {
     if (hasOwn(body, field)) return { provided: true, value: body[field] };
   }
   return { provided: false, value: undefined };
+};
+
+const notifyAdminUserEvent = async ({
+  event,
+  title,
+  message,
+  severity = 'info',
+  targetUser,
+  actor,
+  actionRequired,
+  metadata = {},
+}) => {
+  try {
+    const targetUserId = targetUser?._id || targetUser?.id;
+    return await createAdminNotification({
+      title,
+      message,
+      category: 'security',
+      event,
+      severity,
+      source: 'User Management',
+      actionRequired: actionRequired ?? (severity === 'critical' || severity === 'warning'),
+      groupingKey: buildAdminGroupingKey('security', event, targetUserId || 'user'),
+      groupingWindowMs: 30 * 24 * 60 * 60 * 1000,
+      link: buildAdminDeepLink('users', targetUserId ? { userId: String(targetUserId) } : {}),
+      action: { label: 'Review user' },
+      metadata: {
+        targetUserId,
+        targetUserName: targetUser?.name,
+        targetUserRole: targetUser?.role,
+        actorUserId: actor?.id || actor?._id,
+        actorName: actor?.name || actor?.email,
+        ...metadata,
+      },
+    });
+  } catch (error) {
+    console.warn('[UserController] Admin notification failed:', error.message);
+    return null;
+  }
 };
 
 /**
@@ -405,6 +449,17 @@ export const updateUser = async (req, res, next) => {
         metadata: { targetUserId: user._id, previousRole: user.role, newRole: requestedRole },
       });
 
+      await notifyAdminUserEvent({
+        event: 'permissions_changed',
+        title: 'Permissions changed',
+        message: `${req.user?.name || req.user?.email || 'An administrator'} changed ${user.name || user.email} from ${user.role} to ${requestedRole}.`,
+        severity: 'warning',
+        actionRequired: true,
+        targetUser: updatedUser || user,
+        actor: req.user,
+        metadata: { previousRole: user.role, newRole: requestedRole },
+      });
+
       // Real-time: notify the affected user so their dashboard switches automatically
       try {
         const io = (await import('../utils/socket.utils.js')).getIO();
@@ -430,6 +485,19 @@ export const updateUser = async (req, res, next) => {
         description: `${req.user?.name || 'Admin'} updated profile for ${user.name || user.email}.`,
         status: 'success', referenceId: user._id?.toString(),
         metadata: { targetUserId: user._id, fields: Object.keys(updatePayload) },
+      });
+    }
+
+    if (updatedUser && staffEmailChangeRequired) {
+      await notifyAdminUserEvent({
+        event: 'staff_email_changed',
+        title: 'Staff email changed',
+        message: `${req.user?.name || req.user?.email || 'An administrator'} changed the email for ${updatedUser.name || 'a staff account'}; re-verification is required.`,
+        severity: 'warning',
+        actionRequired: true,
+        targetUser: updatedUser,
+        actor: req.user,
+        metadata: { previousEmail: user.email, newEmail: updatedUser.email, verificationEmailSent: verification?.emailSent ?? false },
       });
     }
 
@@ -931,6 +999,19 @@ export const createUser = async (req, res, next) => {
           }
         }
 
+        if (staffAccount) {
+          await notifyAdminUserEvent({
+            event: 'staff_account_restored',
+            title: 'Staff account restored',
+            message: `${req.user?.name || req.user?.email || 'An administrator'} restored ${restored.name} as ${restored.role}.`,
+            severity: 'info',
+            actionRequired: !restored.isVerified,
+            targetUser: restored,
+            actor: req.user,
+            metadata: { verificationEmailSent: verification?.emailSent ?? null },
+          });
+        }
+
         return res.status(201).json({
           success: true,
           message: staffAccount
@@ -1003,6 +1084,19 @@ export const createUser = async (req, res, next) => {
         verificationEmailSent: verification?.emailSent ?? null,
       },
     });
+
+    if (staffAccount) {
+      await notifyAdminUserEvent({
+        event: 'staff_account_created',
+        title: 'New staff account added',
+        message: `${req.user?.name || req.user?.email || 'An administrator'} added ${user.name} as ${user.role}.`,
+        severity: 'info',
+        actionRequired: !user.isVerified,
+        targetUser: user,
+        actor: req.user,
+        metadata: { verificationEmailSent: verification?.emailSent ?? null },
+      });
+    }
 
     res.status(201).json({
       success: true,

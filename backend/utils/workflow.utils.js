@@ -21,6 +21,11 @@ import Notification from '../models/notification.model.js';
 import { logActivity } from './logActivity.utils.js';
 import { createCustomerStageNotification } from './customerStageNotifications.utils.js';
 import { notifyCustomerReceiptReady } from './customerReceiptNotification.utils.js';
+import {
+  buildAdminDeepLink,
+  buildAdminGroupingKey,
+  createAdminNotification,
+} from '../services/adminNotification.service.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -182,14 +187,24 @@ async function onConfirmed(order, orderRef, customerId, rooms, actor) {
   }, rooms);
 
   // 5. Staff queue notification
-  await createNotification({
-    title: 'New Job in Queue',
-    message: `Booking ${orderRef} confirmed — ${order.serviceType || 'Service'} for ${order.customerName || 'Customer'}`,
-    type: 'booking',
-    recipientRole: 'admin_family',
-    link: '/admin/dashboard?tab=queue',
-    metadata: { orderId: order._id, bookingRef: orderRef },
-  });
+  try {
+    await createAdminNotification({
+      title: 'New job in queue',
+      message: `Booking ${orderRef} was confirmed — ${order.serviceType || 'Service'} for ${order.customerName || 'Customer'}.`,
+      category: 'live_tracking',
+      event: 'job_queued',
+      severity: 'info',
+      source: 'Live Tracking',
+      actionRequired: false,
+      groupingKey: buildAdminGroupingKey('live_tracking', 'job_queued', order._id),
+      groupingWindowMs: 30 * 24 * 60 * 60 * 1000,
+      link: buildAdminDeepLink('live_tracking', { orderId: String(order._id) }),
+      action: { label: 'Open job' },
+      metadata: { orderId: order._id, bookingRef: orderRef, actor },
+    });
+  } catch (err) {
+    console.error('[WORKFLOW] Admin queue notification failed:', err.message);
+  }
 
   // 6. Customer push notification
   await pushToCustomer(order, 'Booking Confirmed ✓', `Your AutoSPF+ appointment (${orderRef}) is confirmed! We'll notify you when your vehicle check-in begins.`);
@@ -245,6 +260,40 @@ async function onServiceStarted(order, orderRef, customerId, rooms) {
     timestamp: new Date().toISOString(),
   }, rooms);
 
+  const hasAssignedTechnician = Boolean(
+    order.assignedDetailer
+      || (Array.isArray(order.serviceStaffAssignments) && order.serviceStaffAssignments.length > 0),
+  );
+  try {
+    await createAdminNotification({
+      title: hasAssignedTechnician ? 'Job in progress' : 'Job started without a technician',
+      message: hasAssignedTechnician
+        ? `${orderRef} was moved to In Progress.`
+        : `${orderRef} is In Progress but has no technician assignment.`,
+      category: 'live_tracking',
+      event: hasAssignedTechnician ? 'job_in_progress' : 'unassigned_technician',
+      severity: hasAssignedTechnician ? 'info' : 'warning',
+      source: 'Live Tracking',
+      actionRequired: !hasAssignedTechnician,
+      groupingKey: buildAdminGroupingKey(
+        'live_tracking',
+        hasAssignedTechnician ? 'job_in_progress' : 'unassigned_technician',
+        order._id,
+      ),
+      groupingWindowMs: 24 * 60 * 60 * 1000,
+      link: buildAdminDeepLink('live_tracking', { orderId: String(order._id) }),
+      action: { label: hasAssignedTechnician ? 'View job' : 'Assign technician' },
+      metadata: {
+        orderId: order._id,
+        bookingRef: orderRef,
+        assignedDetailerId: order.assignedDetailer?._id || order.assignedDetailer || null,
+        serviceStaffAssignments: order.serviceStaffAssignments || [],
+      },
+    });
+  } catch (err) {
+    console.error('[WORKFLOW] Service-start notification failed:', err.message);
+  }
+
   await pushToCustomer(order, 'Service Started 🔧', `Our team has started working on your vehicle!`);
   if (customerId) {
     await createCustomerStageNotification(order, 'in_progress');
@@ -268,6 +317,27 @@ async function onQCComplete(order, orderRef, customerId, rooms) {
     bookingRef: orderRef,
     timestamp: new Date().toISOString(),
   }, rooms);
+
+  try {
+    await createAdminNotification({
+      title: order.serviceTrackingStage === 'ready_pickup'
+        ? 'Service ready for pickup'
+        : 'Service completed',
+      message: `${orderRef} completed service and is ready for the next operational step.`,
+      category: 'live_tracking',
+      event: order.serviceTrackingStage === 'ready_pickup' ? 'ready_for_pickup' : 'service_completed',
+      severity: 'success',
+      source: 'Live Tracking',
+      actionRequired: false,
+      groupingKey: buildAdminGroupingKey('live_tracking', 'service_completed', order._id),
+      groupingWindowMs: 30 * 24 * 60 * 60 * 1000,
+      link: buildAdminDeepLink('live_tracking', { orderId: String(order._id) }),
+      action: { label: 'View job' },
+      metadata: { orderId: order._id, bookingRef: orderRef, stage: order.serviceTrackingStage },
+    });
+  } catch (err) {
+    console.error('[WORKFLOW] Completion notification failed:', err.message);
+  }
 
   await pushToCustomer(order, 'Quality Check Complete ✅', `Your vehicle has passed our quality inspection! Final settlement is being prepared.`);
 
@@ -370,6 +440,25 @@ async function onCancelled(order, orderRef, customerId, rooms) {
     bookingRef: orderRef,
     timestamp: new Date().toISOString(),
   }, rooms);
+
+  try {
+    await createAdminNotification({
+      title: 'Booking cancelled',
+      message: `${orderRef} was cancelled${order.customerName ? ` for ${order.customerName}` : ''}.`,
+      category: 'appointments',
+      event: 'booking_cancelled',
+      severity: 'warning',
+      source: 'Appointments',
+      actionRequired: false,
+      groupingKey: buildAdminGroupingKey('appointments', 'booking_cancelled', order._id),
+      groupingWindowMs: 30 * 24 * 60 * 60 * 1000,
+      link: buildAdminDeepLink('appointments', { orderId: String(order._id) }),
+      action: { label: 'View appointment' },
+      metadata: { orderId: order._id, bookingRef: orderRef, status: order.status },
+    });
+  } catch (err) {
+    console.error('[WORKFLOW] Cancellation notification failed:', err.message);
+  }
 
   await pushToCustomer(order, 'Booking Cancelled', `Your booking ${orderRef} has been cancelled. Contact us if you have questions.`);
 

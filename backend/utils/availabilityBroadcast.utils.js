@@ -1,6 +1,6 @@
 import { getIO } from './socket.utils.js';
 
-/** Notify all clients that shop hours / closures changed (admin calendar + customer booking). */
+/** Notify all clients that schedule or appointment occupancy changed. */
 export function emitAvailabilityUpdated(meta = {}) {
   try {
     const io = getIO();

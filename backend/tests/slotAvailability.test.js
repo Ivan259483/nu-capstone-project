@@ -13,6 +13,7 @@ process.env.EMAIL_PROVIDER = 'console';
 process.env.RESEND_API_KEY = '';
 process.env.EMAIL_USER = '';
 process.env.EMAIL_PASSWORD = '';
+process.env.SHOP_TIME_ZONE = 'Asia/Manila';
 
 const { config } = await import('../config/environment.js');
 const {
@@ -20,10 +21,12 @@ const {
   STAFF_2FA_AUTH_LEVEL,
 } = await import('../constants/roles.js');
 const { authenticate, authorize } = await import('../middleware/auth.middleware.js');
+const { default: ActivityLog } = await import('../models/activityLog.model.js');
 const { default: BookingSlotCounter } = await import('../models/bookingSlotCounter.model.js');
 const { default: Order } = await import('../models/order.model.js');
 const { default: ScheduledClosure } = await import('../models/scheduledClosure.model.js');
 const { default: Service } = await import('../models/service.model.js');
+const { default: Setting } = await import('../models/setting.model.js');
 const {
   buildDefaultRecurringSchedule,
   default: ShopAvailability,
@@ -36,6 +39,7 @@ const availabilityRouter = (await import('../routes/admin/availability.js')).def
 const orderRoutes = (await import('../routes/orders.routes.js')).default;
 const slotRoutes = (await import('../routes/slot.routes.js')).default;
 const {
+  SHOP_TIME_ZONE,
   SLOT_CONSUMING_STATUSES,
   captureOrderSlotOccupancy,
   deleteOrdersAndReleaseSlotCounters,
@@ -58,12 +62,12 @@ let io;
 let baseUrl;
 let sequence = 0;
 
-const scheduleWithMonday = ({ capacity = 2, mondayOpen = true } = {}) =>
+const scheduleWithMonday = ({ capacity = 2, mondayOpen = true, to = '11:00' } = {}) =>
   buildDefaultRecurringSchedule().map((row) => ({
     ...row,
     open: row.dow === 1 ? mondayOpen : false,
     from: row.dow === 1 ? '08:00' : row.from,
-    to: row.dow === 1 ? '11:00' : row.to,
+    to: row.dow === 1 ? to : row.to,
     slots: row.dow === 1 ? capacity : row.slots,
   }));
 
@@ -73,6 +77,63 @@ const setMondayAvailability = async (options = {}) => {
   doc.recurringSchedule = scheduleWithMonday(options);
   await doc.save();
   return doc;
+};
+
+const scheduleEveryDay = ({ slots = 24 } = {}) =>
+  buildDefaultRecurringSchedule().map((row) => ({
+    ...row,
+    open: true,
+    from: '00:00',
+    to: '23:59',
+    slots,
+  }));
+
+const setEveryDayAvailability = async (options = {}) => {
+  const doc = await ShopAvailability.getSingleton();
+  doc.emergencyClosed = false;
+  if ('emergencyClosureDate' in doc) doc.emergencyClosureDate = null;
+  if ('affectedBusinessDate' in doc) doc.affectedBusinessDate = null;
+  doc.recurringSchedule = scheduleEveryDay(options);
+  await doc.save();
+  return doc;
+};
+
+const addBusinessDays = (dateString, days) => {
+  const date = new Date(`${dateString}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+const dateInTimeZone = (instant, timeZone) => {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+      .formatToParts(instant)
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
+
+const emergencyDateFrom = (value) => {
+  const raw = value?.emergencyClosureDate ?? value?.affectedBusinessDate ?? null;
+  if (raw instanceof Date) return raw.toISOString().slice(0, 10);
+  return typeof raw === 'string' ? raw.slice(0, 10) : raw;
+};
+
+const waitFor = async (read, predicate, { timeoutMs = 1000, intervalMs = 20 } = {}) => {
+  const started = Date.now();
+  let value;
+  while (Date.now() - started < timeoutMs) {
+    value = await read();
+    if (predicate(value)) return value;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return value;
 };
 
 const createOccupyingOrder = async ({
@@ -101,6 +162,8 @@ const reserveAndPersist = async (date, time, status = 'pending_confirmation') =>
   if (reservation.ok) await createOccupyingOrder({ date, time, status });
   return reservation;
 };
+
+const counterAt = (date, time) => BookingSlotCounter.findOne({ date, time }).lean();
 
 const tokenFor = (user) => jwt.sign(
   {
@@ -161,6 +224,15 @@ const seedBookingActors = async () => {
   });
   return { customer, administrator, vehicle, service };
 };
+
+const seedStaffActor = async (role) => User.create({
+  name: `${role} Availability User`,
+  email: `${role}-${sequence += 1}@example.test`,
+  role,
+  status: 'active',
+  isActive: true,
+  isVerified: true,
+});
 
 const bookingPayload = ({ vehicle, service, date = MONDAY, time = '8:00 AM' }) => ({
   vehicle: vehicle._id.toString(),
@@ -228,70 +300,107 @@ after(async () => {
   if (mongo) await mongo.stop();
 });
 
-test('capacity is atomic per exact time slot and a capacity raise takes effect immediately', async () => {
-  await setMondayAvailability({ capacity: 2 });
+test('each generated appointment time has capacity one and daily availability counts open times', async () => {
+  await setMondayAvailability({ capacity: 3 });
 
-  assert.equal((await reserveAndPersist(MONDAY, '08:00')).ok, true);
-  assert.equal((await reserveAndPersist(MONDAY, '8:00 AM')).ok, true);
-
-  const thirdAtEight = await reserveBookingSlot(MONDAY, '08:00');
-  assert.equal(thirdAtEight.ok, false);
-  assert.equal(thirdAtEight.errorCode, 'SLOT_FULL');
-
-  const firstAtNine = await reserveAndPersist(MONDAY, '09:00');
-  assert.equal(firstAtNine.ok, true);
-
-  const beforeRaise = await getSlotsForDate(MONDAY);
+  const emptyDay = await getSlotsForDate(MONDAY);
+  assert.equal(emptyDay.slots.length, 3);
+  assert.equal(emptyDay.dailyCapacity, 3);
+  assert.equal(emptyDay.availableSlots, 3);
   assert.deepEqual(
-    beforeRaise.slots.filter((slot) => ['08:00', '09:00'].includes(slot.time)).map((slot) => ({
-      time: slot.time,
-      capacity: slot.capacity,
-      booked: slot.booked,
-      available: slot.available,
-      status: slot.status,
-    })),
-    [
-      { time: '08:00', capacity: 2, booked: 2, available: 0, status: 'FULL' },
-      { time: '09:00', capacity: 2, booked: 1, available: 1, status: 'AVAILABLE' },
-    ]
+    emptyDay.slots.map(({ capacity, booked, available, status }) => ({ capacity, booked, available, status })),
+    Array.from({ length: 3 }, () => ({ capacity: 1, booked: 0, available: 1, status: 'AVAILABLE' }))
   );
 
-  await setMondayAvailability({ capacity: 3 });
   assert.equal((await reserveAndPersist(MONDAY, '08:00')).ok, true);
-  assert.equal((await reserveBookingSlot(MONDAY, '08:00')).errorCode, 'SLOT_FULL');
+  const duplicate = await reserveBookingSlot(MONDAY, '8:00 AM');
+  assert.equal(duplicate.ok, false);
+  assert.equal(duplicate.errorCode, 'SLOT_FULL');
+  assert.match(duplicate.message, /already been booked/i);
+  assert.equal((await reserveAndPersist(MONDAY, '09:00')).ok, true);
+
+  const day = await getSlotsForDate(MONDAY);
+  assert.equal(day.bookedSlots, 2);
+  assert.equal(day.availableSlots, 1);
+  assert.equal(day.slots.find((slot) => slot.time === '08:00').status, 'FULL');
+  assert.equal(day.slots.find((slot) => slot.time === '09:00').status, 'FULL');
+  assert.equal(day.slots.find((slot) => slot.time === '10:00').status, 'AVAILABLE');
 });
 
-test('concurrent reservations cannot exceed the persisted per-slot capacity', async () => {
-  await setMondayAvailability({ capacity: 2 });
+test('admin and customer APIs stay synchronized through booking, conflict, and cancellation release', async () => {
+  await setMondayAvailability({ capacity: 10, to: '18:00' });
+  const { customer, vehicle, service } = await seedBookingActors();
+  const headers = { Authorization: `Bearer ${tokenFor(customer)}` };
+  const createAt = (time) => requestJson('/api/orders', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(bookingPayload({ vehicle, service, time })),
+  });
+  const readAdminDay = () => requestJson(`/api/slots?date=${MONDAY}`, { headers });
+  const readCustomerDay = () => requestJson(`/api/orders/available-slots?date=${MONDAY}`, { headers });
 
-  const attempts = await Promise.all(
+  const initialAdmin = await readAdminDay();
+  const initialCustomer = await readCustomerDay();
+  assert.equal(initialAdmin.body.availableSlots, 10);
+  assert.equal(initialCustomer.body.remaining, 10);
+  assert.equal(initialCustomer.body.slots.filter((slot) => slot.status === 'AVAILABLE').length, 10);
+
+  const eight = await createAt('8:00 AM');
+  assert.equal(eight.response.status, 201);
+  const afterEightAdmin = await readAdminDay();
+  const afterEightCustomer = await readCustomerDay();
+  assert.equal(afterEightAdmin.body.availableSlots, 9);
+  assert.equal(afterEightCustomer.body.remaining, 9);
+  assert.equal(afterEightAdmin.body.slots.find((slot) => slot.time === '08:00').status, 'FULL');
+  assert.equal(afterEightCustomer.body.slots.find((slot) => slot.time === '08:00').available, 0);
+
+  const duplicateEight = await createAt('8:00 AM');
+  assert.equal(duplicateEight.response.status, 409);
+  assert.match(duplicateEight.body.message, /already been booked/i);
+
+  const nine = await createAt('9:00 AM');
+  assert.equal(nine.response.status, 201);
+  assert.equal((await readAdminDay()).body.availableSlots, 8);
+  assert.equal((await readCustomerDay()).body.remaining, 8);
+
+  const eightId = eight.body.data.id || eight.body.data._id;
+  const cancelled = await requestJson(`/api/orders/${eightId}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ status: 'cancelled', cancellationReason: 'Availability release test' }),
+  });
+  assert.equal(cancelled.response.status, 200);
+
+  const releasedAdmin = await readAdminDay();
+  const releasedCustomer = await readCustomerDay();
+  assert.equal(releasedAdmin.body.availableSlots, 9);
+  assert.equal(releasedCustomer.body.remaining, 9);
+  assert.equal(releasedAdmin.body.slots.find((slot) => slot.time === '08:00').status, 'AVAILABLE');
+  assert.equal(releasedAdmin.body.slots.find((slot) => slot.time === '09:00').status, 'FULL');
+});
+
+test('parallel attempts at one time admit exactly one while different times remain independent', async () => {
+  await setMondayAvailability({ capacity: 3 });
+  const sameTimeAttempts = await Promise.all(
     Array.from({ length: 8 }, () => reserveBookingSlot(MONDAY, '08:00'))
   );
-  assert.equal(attempts.filter((attempt) => attempt.ok).length, 2);
-  assert.equal(attempts.filter((attempt) => !attempt.ok).length, 6);
+  assert.equal(sameTimeAttempts.filter((attempt) => attempt.ok).length, 1);
+  assert.equal(sameTimeAttempts.filter((attempt) => !attempt.ok).length, 7);
+  assert.equal((await counterAt(MONDAY, '08:00')).count, 1);
 
-  const counter = await BookingSlotCounter.findOne({ date: MONDAY, time: '08:00' }).lean();
-  assert.equal(counter.count, 2);
+  assert.equal((await reserveBookingSlot(MONDAY, '09:00')).ok, true);
+  assert.equal((await counterAt(MONDAY, '09:00')).count, 1);
 });
 
-test('a lifecycle re-entry adds its own hold without swallowing an in-flight reservation', async () => {
+test('a lifecycle re-entry cannot take a time held by another reservation', async () => {
   await setMondayAvailability({ capacity: 3 });
   const reactivated = await createOccupyingOrder({ status: 'rejected' });
-  const inFlight = await reserveBookingSlot(MONDAY, '08:00');
-  assert.equal(inFlight.ok, true);
+  assert.equal((await reserveBookingSlot(MONDAY, '08:00')).ok, true);
 
   const before = captureOrderSlotOccupancy(reactivated);
   reactivated.status = 'pending_confirmation';
-  await saveOrderWithSlotTransition(reactivated, before);
-  await createOccupyingOrder({ status: 'pending_confirmation' });
-
-  const third = await reserveBookingSlot(MONDAY, '08:00');
-  assert.equal(third.ok, true);
-  await createOccupyingOrder({ status: 'pending_confirmation' });
-  const fourth = await reserveBookingSlot(MONDAY, '08:00');
-  assert.equal(fourth.ok, false);
-  assert.equal(fourth.errorCode, 'SLOT_FULL');
-  assert.equal((await BookingSlotCounter.findOne({ date: MONDAY, time: '08:00' }).lean()).count, 3);
+  await assert.rejects(() => saveOrderWithSlotTransition(reactivated, before), /already been booked/i);
+  assert.equal((await Order.findById(reactivated._id).lean()).status, 'rejected');
 });
 
 test('a non-consuming lifecycle cannot re-enter a full slot', async () => {
@@ -314,67 +423,53 @@ test('a non-consuming lifecycle cannot re-enter a full slot', async () => {
   );
 
   assert.equal((await Order.findById(rejected._id).lean()).status, 'rejected');
-  assert.equal((await BookingSlotCounter.findOne({ date: MONDAY, time: '08:00' }).lean()).count, 1);
+  assert.equal((await counterAt(MONDAY, '08:00')).count, 1);
 });
 
-test('account cascade deletion releases only the atomically deleted Order state', async () => {
+test('cancellation and deletion release only the exact occupied time', async () => {
   await setMondayAvailability({ capacity: 3 });
   const deletingCustomer = new mongoose.Types.ObjectId();
   const cancelled = await createOccupyingOrder({ customer: deletingCustomer });
-  assert.equal((await reserveBookingSlot(MONDAY, '08:00')).ok, true);
-  await createOccupyingOrder();
-
-  const inFlight = await reserveBookingSlot(MONDAY, '08:00');
-  assert.equal(inFlight.ok, true);
-  assert.equal((await BookingSlotCounter.findOne({ date: MONDAY, time: '08:00' }).lean()).count, 3);
+  await BookingSlotCounter.create({ date: MONDAY, time: '08:00', count: 1 });
+  assert.equal((await reserveAndPersist(MONDAY, '09:00')).ok, true);
 
   const beforeCancellation = captureOrderSlotOccupancy(cancelled);
   cancelled.status = 'cancelled';
   await saveOrderWithSlotTransition(cancelled, beforeCancellation);
-  assert.equal((await BookingSlotCounter.findOne({ date: MONDAY, time: '08:00' }).lean()).count, 2);
+  assert.equal((await counterAt(MONDAY, '08:00')).count, 0);
+  assert.equal((await counterAt(MONDAY, '09:00')).count, 1);
+
+  const afterCancellation = await getSlotsForDate(MONDAY);
+  assert.equal(afterCancellation.availableSlots, 2);
+  assert.equal(afterCancellation.slots.find((slot) => slot.time === '08:00').status, 'AVAILABLE');
 
   const deletion = await deleteOrdersAndReleaseSlotCounters({ customer: deletingCustomer });
   assert.equal(deletion.deletedCount, 1);
-  assert.equal((await BookingSlotCounter.findOne({ date: MONDAY, time: '08:00' }).lean()).count, 2);
-
-  assert.equal((await reserveBookingSlot(MONDAY, '08:00')).ok, true);
-  const overCapacityAttempt = await reserveBookingSlot(MONDAY, '08:00');
-  assert.equal(overCapacityAttempt.ok, false);
-  assert.equal(overCapacityAttempt.errorCode, 'SLOT_FULL');
+  assert.equal((await counterAt(MONDAY, '09:00')).count, 1);
 });
 
-test('lowering capacity preserves real bookings and reports OVER_CAPACITY without admitting more', async () => {
+test('reducing generated slot count preserves an out-of-schedule booking without reopening it', async () => {
   await setMondayAvailability({ capacity: 3 });
-  await reserveAndPersist(MONDAY, '08:00');
-  await reserveAndPersist(MONDAY, '08:00');
-  await reserveAndPersist(MONDAY, '08:00');
+  await reserveAndPersist(MONDAY, '10:00');
 
   await setMondayAvailability({ capacity: 2 });
 
   const day = await getSlotsForDate(MONDAY);
-  const eight = day.slots.find((slot) => slot.time === '08:00');
-  assert.deepEqual(
-    {
-      capacity: eight.capacity,
-      booked: eight.booked,
-      available: eight.available,
-      overCapacityBy: eight.overCapacityBy,
-      status: eight.status,
-    },
-    { capacity: 2, booked: 3, available: 0, overCapacityBy: 1, status: 'OVER_CAPACITY' }
-  );
+  const ten = day.slots.find((slot) => slot.time === '10:00');
+  assert.equal(ten.outOfSchedule, true);
+  assert.equal(ten.status, 'OVER_CAPACITY');
+  assert.equal(ten.capacity, 0);
 
   const [rangeDay] = await getSlotsForRange(MONDAY, MONDAY);
-  assert.equal(rangeDay.bookedSlots, 3);
-  assert.equal(rangeDay.perSlotCapacity, 2);
+  assert.equal(rangeDay.bookedSlots, 0);
+  assert.equal(rangeDay.dailyCapacity, 2);
   assert.equal(rangeDay.overCapacitySlots, 1);
   assert.equal(rangeDay.overCapacityBy, 1);
   assert.equal(rangeDay.status, 'OVER_CAPACITY');
 
-  const extra = await reserveBookingSlot(MONDAY, '08:00');
+  const extra = await reserveBookingSlot(MONDAY, '10:00');
   assert.equal(extra.ok, false);
   assert.equal(extra.errorCode, 'SLOT_FULL');
-  assert.equal(await Order.countDocuments({ bookingDate: MONDAY, bookingTime: '08:00' }), 3);
 });
 
 test('closed days, scheduled closures, outside-hours times, and nonexistent bands are rejected', async () => {
@@ -386,7 +481,13 @@ test('closed days, scheduled closures, outside-hours times, and nonexistent band
   const recurringClosed = await reserveBookingSlot(SATURDAY, '08:00');
   assert.equal(recurringClosed.ok, false);
   assert.equal(recurringClosed.errorCode, 'CLOSED_BY_RECURRING_DAY');
-  assert.equal((await getSlotsForDate(SATURDAY)).isClosed, true);
+  const closedDay = await getSlotsForDate(SATURDAY);
+  assert.equal(closedDay.isClosed, true);
+  assert.equal(closedDay.dailyCapacity, 0);
+  const [closedRangeDay] = await getSlotsForRange(SATURDAY, SATURDAY);
+  assert.equal(closedRangeDay.status, 'CLOSED');
+  assert.equal(closedRangeDay.dailyCapacity, 0);
+  assert.equal(closedRangeDay.availableSlots, 0);
 
   for (const time of ['07:00', '08:30', '11:00']) {
     const invalidBand = await reserveBookingSlot(MONDAY, time);
@@ -448,7 +549,8 @@ test('only lifecycle statuses that occupy appointments consume capacity', async 
   for (const status of excluded) assert.equal(isSlotConsumingStatus(status), false);
 
   const range = await getSlotsForRange(MONDAY, MONDAY);
-  assert.equal(range[0].bookedSlots, consuming.length);
+  assert.equal(range[0].bookedSlots, 1);
+  assert.equal(range[0].overCapacitySlots, 1);
   assert.equal(range[0].pendingCount, 1);
 });
 
@@ -484,7 +586,7 @@ test('Admin schedule writes reject fractional capacity and legacy slot settings 
   });
   assert.equal(aliasUpdate.response.status, 200);
   assert.equal(aliasUpdate.body.data.source, 'ShopAvailability');
-  assert.equal(aliasUpdate.body.data.openingHours.monday.capacityPerSlot, 4);
+  assert.equal(aliasUpdate.body.data.openingHours.monday.dailyAppointmentCapacity, 4);
 
   const persisted = await ShopAvailability.findOne({ singletonKey: SHOP_AVAILABILITY_SINGLETON_KEY }).lean();
   assert.equal(persisted.recurringSchedule.find((row) => row.dow === 1).slots, 4);
@@ -568,7 +670,7 @@ test('past dates and elapsed same-day time slots are rejected by the slot servic
     open: row.dow === todayDow,
     from: row.dow === todayDow ? '00:00' : row.from,
     to: row.dow === todayDow ? '23:59' : row.to,
-    slots: 2,
+    slots: row.dow === todayDow ? 24 : 0,
   }));
   await doc.save();
 
@@ -580,7 +682,7 @@ test('past dates and elapsed same-day time slots are rejected by the slot servic
   assert.equal(snapshot.slots.find((row) => row.time === elapsedTime).status, 'ELAPSED');
 });
 
-test('customer/admin creation and rescheduling are server-enforced per slot', async () => {
+test('only customers create appointments while staff walk-ins and rescheduling remain server-enforced', async () => {
   await setMondayAvailability({ capacity: 2 });
   const { customer, administrator, vehicle, service } = await seedBookingActors();
   const customerHeaders = { Authorization: `Bearer ${tokenFor(customer)}` };
@@ -592,40 +694,49 @@ test('customer/admin creation and rescheduling are server-enforced per slot', as
     body: JSON.stringify(bookingPayload({ vehicle, service, date, time })),
   });
 
+  const adminAppointmentAttempt = await requestJson('/api/orders', {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      ...bookingPayload({ vehicle, service }),
+      customer: customer._id.toString(),
+    }),
+  });
+  assert.equal(adminAppointmentAttempt.response.status, 403);
+  assert.equal(adminAppointmentAttempt.body.errorCode, 'APPOINTMENT_CUSTOMER_ONLY');
+  assert.equal(await Order.countDocuments(), 0);
+
   const humanDateCreate = await createAt('8:00 AM', 'Aug 17, 2099');
   assert.equal(humanDateCreate.response.status, 201);
   const canonicalCreated = await Order.findById(humanDateCreate.body.data.id || humanDateCreate.body.data._id).lean();
   assert.equal(canonicalCreated.bookingDate, MONDAY);
   assert.equal(canonicalCreated.bookingTime, '08:00');
-  assert.equal((await createAt('8:00 AM')).response.status, 201);
-  const rejectedThird = await createAt('8:00 AM');
-  assert.equal(rejectedThird.response.status, 409);
-  assert.equal(rejectedThird.body.errorCode, 'SLOT_FULL');
+  const rejectedDuplicate = await createAt('8:00 AM');
+  assert.equal(rejectedDuplicate.response.status, 409);
+  assert.equal(rejectedDuplicate.body.errorCode, 'SLOT_FULL');
+  assert.match(rejectedDuplicate.body.message, /already been booked/i);
 
   const nine = await createAt('9:00 AM');
   assert.equal(nine.response.status, 201);
   const nineId = nine.body.data.id || nine.body.data._id;
 
-  const fullReschedule = await requestJson(`/api/orders/${nineId}/reschedule`, {
+  const fullDay = await getSlotsForDate(MONDAY);
+  assert.equal(fullDay.availableSlots, 0);
+  assert.equal(fullDay.status, 'FULL');
+
+  const sameDateReschedule = await requestJson(`/api/orders/${nineId}/reschedule`, {
     method: 'PATCH',
     headers: adminHeaders,
     body: JSON.stringify({ newDate: MONDAY, newTime: '8:00 AM' }),
   });
-  assert.equal(fullReschedule.response.status, 409);
-  assert.equal(fullReschedule.body.errorCode, 'SLOT_FULL');
-
-  await setMondayAvailability({ capacity: 3 });
-  const allowedAfterRaise = await requestJson(`/api/orders/${nineId}/reschedule`, {
-    method: 'PATCH',
-    headers: adminHeaders,
-    body: JSON.stringify({ newDate: 'August 17, 2099', newTime: '8:00 AM' }),
-  });
-  assert.equal(allowedAfterRaise.response.status, 200);
+  assert.equal(sameDateReschedule.response.status, 409);
+  assert.match(sameDateReschedule.body.message, /already been booked/i);
   const canonicalRescheduled = await Order.findById(nineId).lean();
   assert.equal(canonicalRescheduled.bookingDate, MONDAY);
-  assert.equal(canonicalRescheduled.bookingTime, '08:00');
+  assert.equal(canonicalRescheduled.bookingTime, '09:00');
   assert.equal((await createAt('8:00 AM')).response.status, 409);
 
+  await setMondayAvailability({ capacity: 3 });
   const genericUpdate = await requestJson(`/api/orders/${nineId}`, {
     method: 'PUT',
     headers: adminHeaders,
@@ -692,9 +803,25 @@ test('customer/admin creation and rescheduling are server-enforced per slot', as
   assert.equal(walkIn.isWalkIn, true);
   assert.equal(walkIn.bookingDate, undefined);
   assert.equal(walkIn.bookingTime, undefined);
+
+  const staffWalkInConversionAttempt = await requestJson(`/api/orders/${walkIn._id}`, {
+    method: 'PUT',
+    headers: adminHeaders,
+    body: JSON.stringify({ bookingDate: MONDAY, bookingTime: '10:00 AM' }),
+  });
+  assert.equal(staffWalkInConversionAttempt.response.status, 403);
+  assert.equal(staffWalkInConversionAttempt.body.errorCode, 'APPOINTMENT_CUSTOMER_ONLY');
+
+  const staffWalkInRescheduleAttempt = await requestJson(`/api/orders/${walkIn._id}/reschedule`, {
+    method: 'PATCH',
+    headers: adminHeaders,
+    body: JSON.stringify({ newDate: MONDAY, newTime: '10:00 AM' }),
+  });
+  assert.equal(staffWalkInRescheduleAttempt.response.status, 403);
+  assert.equal(staffWalkInRescheduleAttempt.body.errorCode, 'APPOINTMENT_CUSTOMER_ONLY');
 });
 
-test('parallel create requests admit exactly the configured capacity with unique order numbers', async () => {
+test('parallel create requests for one time admit exactly one order', async () => {
   await setMondayAvailability({ capacity: 2 });
   const { customer, vehicle, service } = await seedBookingActors();
   const headers = { Authorization: `Bearer ${tokenFor(customer)}` };
@@ -706,17 +833,17 @@ test('parallel create requests admit exactly the configured capacity with unique
     }))
   );
 
-  assert.equal(attempts.filter(({ response }) => response.status === 201).length, 2);
-  assert.equal(attempts.filter(({ response }) => response.status === 409).length, 6);
+  assert.equal(attempts.filter(({ response }) => response.status === 201).length, 1);
+  assert.equal(attempts.filter(({ response }) => response.status === 409).length, 7);
   const persisted = await Order.find({
     bookingDate: MONDAY,
     bookingTime: '08:00',
     status: 'pending_confirmation',
     archived: { $ne: true },
   }).lean();
-  assert.equal(persisted.length, 2);
-  assert.equal(new Set(persisted.map((row) => row.orderNumber)).size, 2);
-  const counter = await BookingSlotCounter.findOne({ date: MONDAY, time: '08:00' }).lean();
+  assert.equal(persisted.length, 1);
+  assert.equal(new Set(persisted.map((row) => row.orderNumber)).size, 1);
+  const counter = await counterAt(MONDAY, '08:00');
   assert.equal(counter.count, persisted.length);
 });
 
@@ -740,9 +867,11 @@ test('duplicate reschedules and rejected-proof retries are counter-idempotent', 
       body: JSON.stringify({ newDate: MONDAY, newTime: '9:00 AM' }),
     }))
   );
-  assert.deepEqual(reschedules.map(({ response }) => response.status).sort(), [200, 200]);
-  assert.equal((await BookingSlotCounter.findOne({ date: MONDAY, time: '08:00' }).lean()).count, 0);
-  assert.equal((await BookingSlotCounter.findOne({ date: MONDAY, time: '09:00' }).lean()).count, 1);
+  const rescheduleStatuses = reschedules.map(({ response }) => response.status);
+  assert.equal(rescheduleStatuses.filter((status) => status === 200).length >= 1, true);
+  assert.equal(rescheduleStatuses.every((status) => status === 200 || status === 409), true);
+  assert.equal((await counterAt(MONDAY, '08:00')).count, 0);
+  assert.equal((await counterAt(MONDAY, '09:00')).count, 1);
 
   const rejected = await requestJson(`/api/orders/${orderId}/reject`, {
     method: 'PATCH',
@@ -750,7 +879,7 @@ test('duplicate reschedules and rejected-proof retries are counter-idempotent', 
     body: JSON.stringify({ reason: 'Retry test' }),
   });
   assert.equal(rejected.response.status, 200);
-  assert.equal((await BookingSlotCounter.findOne({ date: MONDAY, time: '09:00' }).lean()).count, 0);
+  assert.equal((await counterAt(MONDAY, '09:00')).count, 0);
 
   const retries = await Promise.all(
     Array.from({ length: 2 }, () => requestJson(`/api/orders/${orderId}/payment-proof`, {
@@ -759,12 +888,14 @@ test('duplicate reschedules and rejected-proof retries are counter-idempotent', 
       body: JSON.stringify({ paymentProofUrl: 'https://example.test/retry-proof.jpg' }),
     }))
   );
-  assert.deepEqual(retries.map(({ response }) => response.status).sort(), [200, 200]);
+  const retryStatuses = retries.map(({ response }) => response.status);
+  assert.equal(retryStatuses.filter((status) => status === 200).length >= 1, true);
+  assert.equal(retryStatuses.every((status) => status === 200 || status === 409), true);
   const current = await Order.findById(orderId).lean();
   assert.equal(current.status, 'pending_confirmation');
   assert.equal(current.bookingDate, MONDAY);
   assert.equal(current.bookingTime, '09:00');
-  assert.equal((await BookingSlotCounter.findOne({ date: MONDAY, time: '09:00' }).lean()).count, 1);
+  assert.equal((await counterAt(MONDAY, '09:00')).count, 1);
 });
 
 test('archiving releases occupancy and unarchiving cannot bypass a newly full slot', async () => {
@@ -787,7 +918,7 @@ test('archiving releases occupancy and unarchiving cannot bypass a newly full sl
     body: JSON.stringify({ archived: true }),
   });
   assert.equal(archived.response.status, 200);
-  assert.equal((await BookingSlotCounter.findOne({ date: MONDAY, time: '08:00' }).lean()).count, 0);
+  assert.equal((await counterAt(MONDAY, '08:00')).count, 0);
   assert.equal((await createAtEight()).response.status, 201);
 
   const unarchive = await requestJson(`/api/orders/${firstId}`, {
@@ -798,7 +929,7 @@ test('archiving releases occupancy and unarchiving cannot bypass a newly full sl
   assert.equal(unarchive.response.status, 409);
   assert.equal(unarchive.body.errorCode, 'SLOT_FULL');
   assert.equal((await Order.findById(firstId).lean()).archived, true);
-  assert.equal((await BookingSlotCounter.findOne({ date: MONDAY, time: '08:00' }).lean()).count, 1);
+  assert.equal((await counterAt(MONDAY, '08:00')).count, 1);
 });
 
 test('lowering capacity does not block approval of an appointment that already occupies the slot', async () => {
@@ -813,9 +944,7 @@ test('lowering capacity does not block approval of an appointment that already o
     body: JSON.stringify(bookingPayload({ vehicle, service, time: '8:00 AM' })),
   });
   const first = await createAtEight();
-  const second = await createAtEight();
   assert.equal(first.response.status, 201);
-  assert.equal(second.response.status, 201);
 
   await setMondayAvailability({ capacity: 1 });
   const firstId = first.body.data.id || first.body.data._id;
@@ -827,7 +956,411 @@ test('lowering capacity does not block approval of an appointment that already o
   assert.equal(approved.response.status, 200);
 
   const slot = (await getSlotsForDate(MONDAY)).slots.find((row) => row.time === '08:00');
-  assert.equal(slot.booked, 2);
+  assert.equal(slot.booked, 1);
   assert.equal(slot.capacity, 1);
-  assert.equal(slot.status, 'OVER_CAPACITY');
+  assert.equal(slot.status, 'FULL');
+});
+
+test('only an authorized admin can persist todays emergency closure and the action is audited', async () => {
+  await setEveryDayAvailability();
+  const { customer, administrator } = await seedBookingActors();
+  const sales = await seedStaffActor('sales');
+  const businessDate = getShopLocalClock().date;
+  const adminHeaders = { Authorization: `Bearer ${tokenFor(administrator)}` };
+  const customerHeaders = { Authorization: `Bearer ${tokenFor(customer)}` };
+  const salesHeaders = { Authorization: `Bearer ${tokenFor(sales)}` };
+
+  const malformed = await requestJson('/api/admin/availability/emergency', {
+    method: 'PATCH',
+    headers: adminHeaders,
+    body: JSON.stringify({ closed: 'yes' }),
+  });
+  assert.equal(malformed.response.status, 400);
+
+  const customerDenied = await requestJson('/api/admin/availability/emergency', {
+    method: 'PATCH',
+    headers: customerHeaders,
+    body: JSON.stringify({ closed: true }),
+  });
+  assert.equal(customerDenied.response.status, 403);
+
+  const denied = await requestJson('/api/admin/availability/emergency', {
+    method: 'PATCH',
+    headers: salesHeaders,
+    body: JSON.stringify({ closed: true }),
+  });
+  assert.equal(denied.response.status, 403);
+  const untouched = await ShopAvailability.getSingleton();
+  assert.equal(untouched.emergencyClosed, false);
+  assert.equal(emergencyDateFrom(untouched), null);
+
+  const enabled = await requestJson('/api/admin/availability/emergency', {
+    method: 'PATCH',
+    headers: adminHeaders,
+    body: JSON.stringify({ closed: true }),
+  });
+  assert.equal(enabled.response.status, 200);
+  assert.equal(enabled.body.emergencyClosed, true);
+  assert.equal(emergencyDateFrom(enabled.body), businessDate);
+  assert.equal(enabled.body.affectedBusinessDate, businessDate);
+  assert.equal(enabled.body.businessDate, businessDate);
+  assert.equal(enabled.body.timeZone, SHOP_TIME_ZONE);
+  assert.equal(enabled.body.businessTimeZone, SHOP_TIME_ZONE);
+
+  const persisted = await ShopAvailability.findOne({
+    singletonKey: SHOP_AVAILABILITY_SINGLETON_KEY,
+  }).lean();
+  assert.equal(persisted.emergencyClosed, true);
+  assert.equal(emergencyDateFrom(persisted), businessDate);
+
+  const reread = await requestJson('/api/admin/availability/emergency', { headers: adminHeaders });
+  assert.equal(reread.response.status, 200);
+  assert.equal(reread.body.emergencyClosed, true);
+  assert.equal(emergencyDateFrom(reread.body), businessDate);
+  assert.equal(reread.body.businessDate, businessDate);
+  assert.equal(reread.body.businessTimeZone, SHOP_TIME_ZONE);
+
+  const auditRows = await waitFor(
+    () => ActivityLog.find({ action: 'Emergency Closure Enabled' }).lean(),
+    (rows) => rows.length === 1
+  );
+  assert.equal(auditRows.length, 1);
+  assert.equal(auditRows[0].type, 'settings');
+  assert.equal(auditRows[0].module, 'Settings');
+  assert.equal(String(auditRows[0].userId), String(administrator._id));
+  assert.equal(auditRows[0].userRole, 'administrator');
+  assert.equal(
+    auditRows[0].metadata?.affectedBusinessDate || auditRows[0].metadata?.businessDate,
+    businessDate
+  );
+});
+
+test('all availability reads agree on todays emergency closure while future dates remain normal', async () => {
+  await setEveryDayAvailability();
+  const { customer, administrator } = await seedBookingActors();
+  const today = getShopLocalClock().date;
+  const tomorrow = addBusinessDays(today, 1);
+  const customerHeaders = { Authorization: `Bearer ${tokenFor(customer)}` };
+  const adminHeaders = { Authorization: `Bearer ${tokenFor(administrator)}` };
+
+  const enabled = await requestJson('/api/admin/availability/emergency', {
+    method: 'PATCH',
+    headers: adminHeaders,
+    body: JSON.stringify({ closed: true }),
+  });
+  assert.equal(enabled.response.status, 200);
+
+  const [single, range, customerDay, futureDay] = await Promise.all([
+    requestJson(`/api/slots?date=${today}`, { headers: customerHeaders }),
+    requestJson(`/api/slots/range?start=${today}&end=${tomorrow}`, { headers: customerHeaders }),
+    requestJson(`/api/orders/available-slots?date=${today}`, { headers: customerHeaders }),
+    requestJson(`/api/slots?date=${tomorrow}`, { headers: customerHeaders }),
+  ]);
+  for (const result of [single, range, customerDay, futureDay]) {
+    assert.equal(result.response.status, 200);
+  }
+
+  const rangeToday = range.body.data.find((row) => row.date === today);
+  const rangeTomorrow = range.body.data.find((row) => row.date === tomorrow);
+  assert.equal(range.body.businessDate, today);
+  assert.equal(range.body.businessTimeZone, SHOP_TIME_ZONE);
+  for (const payload of [single.body, rangeToday, customerDay.body]) {
+    assert.equal(payload.emergencyClosed, true);
+    assert.equal(payload.closureType, 'emergency');
+    assert.match(String(payload.closureReason), /emergency/i);
+    assert.equal(payload.businessDate, today);
+    assert.equal(payload.businessTimeZone, SHOP_TIME_ZONE);
+  }
+
+  assert.equal(single.body.isClosed, true);
+  assert.equal(single.body.closedReason, 'EMERGENCY_CLOSED');
+  assert.equal(single.body.availableSlots, 0);
+  assert.equal(single.body.remainingSlots, 0);
+  assert.equal(single.body.slots.some((slot) => slot.available > 0), false);
+  assert.equal(rangeToday.isClosed, true);
+  assert.equal(rangeToday.closedReason, 'emergency');
+  assert.equal(rangeToday.availableSlots, 0);
+  assert.equal(customerDay.body.unavailable, true);
+  assert.equal(customerDay.body.errorCode, 'EMERGENCY_CLOSED');
+  assert.equal(customerDay.body.remaining, 0);
+  assert.equal(customerDay.body.slots.some((slot) => slot.available > 0), false);
+
+  for (const payload of [futureDay.body, rangeTomorrow]) {
+    assert.equal(payload.emergencyClosed, false);
+    assert.equal(payload.closureType, null);
+    assert.equal(payload.closureReason, null);
+    assert.equal(payload.isClosed, false);
+    assert.equal(payload.availableSlots > 0, true);
+  }
+});
+
+test('a customer stale-page create is rejected after emergency closure without creating an order or slot hold', async () => {
+  await setEveryDayAvailability();
+  const { customer, administrator, vehicle, service } = await seedBookingActors();
+  const today = getShopLocalClock().date;
+  const customerHeaders = { Authorization: `Bearer ${tokenFor(customer)}` };
+  const adminHeaders = { Authorization: `Bearer ${tokenFor(administrator)}` };
+
+  const staleRead = await requestJson(`/api/orders/available-slots?date=${today}`, {
+    headers: customerHeaders,
+  });
+  assert.equal(staleRead.response.status, 200);
+  assert.notEqual(staleRead.body.errorCode, 'EMERGENCY_CLOSED');
+
+  const enabled = await requestJson('/api/admin/availability/emergency', {
+    method: 'PATCH',
+    headers: adminHeaders,
+    body: JSON.stringify({ closed: true }),
+  });
+  assert.equal(enabled.response.status, 200);
+
+  const beforeCount = await Order.countDocuments({ customer: customer._id });
+  const attempted = await requestJson('/api/orders', {
+    method: 'POST',
+    headers: customerHeaders,
+    body: JSON.stringify(bookingPayload({ vehicle, service, date: today, time: '8:00 AM' })),
+  });
+  assert.equal(attempted.response.status, 409);
+  assert.equal(attempted.body.errorCode, 'EMERGENCY_CLOSED');
+  assert.match(attempted.body.message, /temporarily closed.*emergency closure/i);
+  assert.equal(await Order.countDocuments({ customer: customer._id }), beforeCount);
+  assert.equal(await counterAt(today, '08:00'), null);
+});
+
+test('sales cannot move an existing appointment into an emergency-closed today through either update path', async () => {
+  await setEveryDayAvailability();
+  const { customer, administrator } = await seedBookingActors();
+  const sales = await seedStaffActor('sales');
+  const today = getShopLocalClock().date;
+  const tomorrow = addBusinessDays(today, 1);
+  const adminHeaders = { Authorization: `Bearer ${tokenFor(administrator)}` };
+  const salesHeaders = { Authorization: `Bearer ${tokenFor(sales)}` };
+  const order = await createOccupyingOrder({
+    customer: customer._id,
+    date: tomorrow,
+    time: '08:00',
+    status: 'confirmed',
+  });
+  await BookingSlotCounter.create({ date: tomorrow, time: '08:00', count: 1 });
+
+  const enabled = await requestJson('/api/admin/availability/emergency', {
+    method: 'PATCH',
+    headers: adminHeaders,
+    body: JSON.stringify({ closed: true }),
+  });
+  assert.equal(enabled.response.status, 200);
+
+  const attempted = await requestJson(`/api/orders/${order._id}/reschedule`, {
+    method: 'PATCH',
+    headers: salesHeaders,
+    body: JSON.stringify({ newDate: today, newTime: '9:00 AM' }),
+  });
+  assert.equal(attempted.response.status, 409);
+  assert.equal(attempted.body.errorCode, 'EMERGENCY_CLOSED');
+  assert.match(attempted.body.message, /temporarily closed.*emergency closure/i);
+
+  const genericUpdateAttempt = await requestJson(`/api/orders/${order._id}`, {
+    method: 'PUT',
+    headers: salesHeaders,
+    body: JSON.stringify({ bookingDate: today, bookingTime: '10:00 AM' }),
+  });
+  assert.equal(genericUpdateAttempt.response.status, 409);
+  assert.equal(genericUpdateAttempt.body.errorCode, 'EMERGENCY_CLOSED');
+  assert.match(genericUpdateAttempt.body.message, /temporarily closed.*emergency closure/i);
+
+  const unchanged = await Order.findById(order._id).lean();
+  assert.equal(unchanged.bookingDate, tomorrow);
+  assert.equal(unchanged.bookingTime, '08:00');
+  assert.equal(unchanged.status, 'confirmed');
+  assert.equal((await counterAt(tomorrow, '08:00')).count, 1);
+  assert.equal(await counterAt(today, '09:00'), null);
+  assert.equal(await counterAt(today, '10:00'), null);
+});
+
+test('emergency closure preserves existing appointments and reopening recomputes normal occupancy', async () => {
+  await setEveryDayAvailability();
+  const { customer, administrator } = await seedBookingActors();
+  const today = getShopLocalClock().date;
+  const adminHeaders = { Authorization: `Bearer ${tokenFor(administrator)}` };
+  const existing = await createOccupyingOrder({
+    customer: customer._id,
+    date: today,
+    time: '08:00',
+    status: 'confirmed',
+  });
+  await BookingSlotCounter.create({ date: today, time: '08:00', count: 1 });
+  const baseline = await getSlotsForDate(today);
+
+  const enabled = await requestJson('/api/admin/availability/emergency', {
+    method: 'PATCH',
+    headers: adminHeaders,
+    body: JSON.stringify({ closed: true }),
+  });
+  assert.equal(enabled.response.status, 200);
+  const closed = await getSlotsForDate(today);
+  assert.equal(closed.isClosed, true);
+  assert.equal(closed.emergencyClosed, true);
+  assert.equal(closed.closureType, 'emergency');
+  assert.equal(closed.bookedSlots, 1);
+  const visibleExisting = closed.slots.find((slot) => slot.time === '08:00');
+  assert.equal(visibleExisting.booked, 1);
+
+  const preserved = await Order.findById(existing._id).lean();
+  assert.equal(preserved.status, 'confirmed');
+  assert.equal(preserved.bookingDate, today);
+  assert.equal(preserved.bookingTime, '08:00');
+  assert.equal((await counterAt(today, '08:00')).count, 1);
+
+  const reopenedResponse = await requestJson('/api/admin/availability/emergency', {
+    method: 'PATCH',
+    headers: adminHeaders,
+    body: JSON.stringify({ closed: false }),
+  });
+  assert.equal(reopenedResponse.response.status, 200);
+  assert.equal(reopenedResponse.body.emergencyClosed, false);
+  assert.equal(emergencyDateFrom(reopenedResponse.body), null);
+
+  const reopened = await getSlotsForDate(today);
+  const availabilityProjection = (day) => ({
+    isClosed: day.isClosed,
+    status: day.status,
+    bookedSlots: day.bookedSlots,
+    dailyCapacity: day.dailyCapacity,
+    availableSlots: day.availableSlots,
+    slots: day.slots.map((slot) => ({
+      time: slot.time,
+      capacity: slot.capacity,
+      booked: slot.booked,
+      available: slot.available,
+      status: slot.status,
+      outOfSchedule: slot.outOfSchedule === true,
+    })),
+  });
+  assert.deepEqual(availabilityProjection(reopened), availabilityProjection(baseline));
+  assert.equal((await counterAt(today, '08:00')).count, 1);
+  assert.equal((await Order.findById(existing._id).lean()).status, 'confirmed');
+
+  const disabledAuditRows = await waitFor(
+    () => ActivityLog.find({ action: 'Emergency Closure Disabled' }).lean(),
+    (rows) => rows.length === 1
+  );
+  assert.equal(disabledAuditRows.length, 1);
+  assert.equal(String(disabledAuditRows[0].userId), String(administrator._id));
+});
+
+test('a scheduled closure still wins after emergency bookings are reopened', async () => {
+  await setEveryDayAvailability();
+  const { administrator } = await seedBookingActors();
+  const today = getShopLocalClock().date;
+  const adminHeaders = { Authorization: `Bearer ${tokenFor(administrator)}` };
+  await ScheduledClosure.create({
+    fromDate: new Date(`${today}T00:00:00`),
+    toDate: new Date(`${today}T23:59:59.999`),
+    reason: 'Holiday',
+    note: 'Emergency reopen priority test',
+  });
+
+  await requestJson('/api/admin/availability/emergency', {
+    method: 'PATCH',
+    headers: adminHeaders,
+    body: JSON.stringify({ closed: true }),
+  });
+  const emergency = await getSlotsForDate(today);
+  assert.equal(emergency.closureType, 'emergency');
+
+  const reopened = await requestJson('/api/admin/availability/emergency', {
+    method: 'PATCH',
+    headers: adminHeaders,
+    body: JSON.stringify({ closed: false }),
+  });
+  assert.equal(reopened.response.status, 200);
+  assert.equal(reopened.body.emergencyClosed, false);
+
+  const stillClosed = await getSlotsForDate(today);
+  assert.equal(stillClosed.isClosed, true);
+  assert.equal(stillClosed.emergencyClosed, false);
+  assert.equal(stillClosed.closedReason, 'CLOSED_BY_SCHEDULED_CLOSURE');
+  assert.equal(stillClosed.closureType, 'scheduled');
+  assert.match(String(stillClosed.closureReason), /Holiday/i);
+});
+
+test('a yesterday-scoped emergency state is inactive on the current business date', async () => {
+  const doc = await setEveryDayAvailability();
+  const { administrator } = await seedBookingActors();
+  const today = getShopLocalClock().date;
+  const yesterday = addBusinessDays(today, -1);
+  const tomorrow = addBusinessDays(today, 1);
+  doc.emergencyClosed = true;
+  doc.emergencyClosureDate = yesterday;
+  await doc.save();
+
+  const persisted = await ShopAvailability.findById(doc._id).lean();
+  assert.equal(persisted.emergencyClosed, true, 'legacy mirror remains persisted');
+  assert.equal(emergencyDateFrom(persisted), yesterday);
+
+  const [todayAvailability, futureAvailability] = await Promise.all([
+    getSlotsForDate(today),
+    getSlotsForDate(tomorrow),
+  ]);
+  for (const availability of [todayAvailability, futureAvailability]) {
+    assert.equal(availability.isClosed, false);
+    assert.equal(availability.emergencyClosed, false);
+    assert.notEqual(availability.closureType, 'emergency');
+  }
+
+  const adminStatus = await requestJson('/api/admin/availability/emergency', {
+    headers: { Authorization: `Bearer ${tokenFor(administrator)}` },
+  });
+  assert.equal(adminStatus.response.status, 200);
+  assert.equal(adminStatus.body.emergencyClosed, false);
+  assert.equal(emergencyDateFrom(adminStatus.body), yesterday);
+  assert.equal(adminStatus.body.businessDate, today);
+  assert.equal(adminStatus.body.businessTimeZone, SHOP_TIME_ZONE);
+});
+
+test('emergency closure uses the persisted business timezone instead of the server or browser calendar', async () => {
+  await setEveryDayAvailability();
+  const { administrator } = await seedBookingActors();
+  const configuredTimeZone = 'Pacific/Pago_Pago';
+  await Setting.create({ timezone: configuredTimeZone });
+  const adminHeaders = { Authorization: `Bearer ${tokenFor(administrator)}` };
+  const beforeRequest = new Date();
+
+  const enabled = await requestJson('/api/admin/availability/emergency', {
+    method: 'PATCH',
+    headers: adminHeaders,
+    body: JSON.stringify({ closed: true }),
+  });
+  const afterRequest = new Date();
+  const validBusinessDates = new Set([
+    dateInTimeZone(beforeRequest, configuredTimeZone),
+    dateInTimeZone(afterRequest, configuredTimeZone),
+  ]);
+
+  assert.equal(enabled.response.status, 200);
+  assert.equal(enabled.body.emergencyClosed, true);
+  assert.equal(enabled.body.timeZone, configuredTimeZone);
+  assert.equal(enabled.body.businessTimeZone, configuredTimeZone);
+  assert.equal(validBusinessDates.has(enabled.body.businessDate), true);
+  assert.equal(emergencyDateFrom(enabled.body), enabled.body.businessDate);
+  assert.equal(enabled.body.affectedBusinessDate, enabled.body.businessDate);
+
+  const persisted = await ShopAvailability.findOne({
+    singletonKey: SHOP_AVAILABILITY_SINGLETON_KEY,
+  }).lean();
+  assert.equal(emergencyDateFrom(persisted), enabled.body.businessDate);
+
+  const reread = await requestJson('/api/admin/availability/emergency', { headers: adminHeaders });
+  assert.equal(reread.response.status, 200);
+  assert.equal(reread.body.emergencyClosed, true);
+  assert.equal(reread.body.businessDate, enabled.body.businessDate);
+  assert.equal(reread.body.businessTimeZone, configuredTimeZone);
+
+  const auditRows = await waitFor(
+    () => ActivityLog.find({ action: 'Emergency Closure Enabled' }).lean(),
+    (rows) => rows.length === 1
+  );
+  assert.equal(auditRows.length, 1);
+  assert.equal(auditRows[0].metadata?.affectedBusinessDate, enabled.body.businessDate);
+  assert.equal(auditRows[0].metadata?.businessTimeZone, configuredTimeZone);
 });

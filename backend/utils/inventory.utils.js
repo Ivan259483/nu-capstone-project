@@ -1,7 +1,11 @@
 import Product from '../models/product.model.js';
 import Service from '../models/service.model.js';
-import Notification from '../models/notification.model.js';
 import InventoryTransaction from '../models/inventoryTransaction.model.js';
+import {
+  buildAdminDeepLink,
+  buildAdminGroupingKey,
+  createAdminNotification,
+} from '../services/adminNotification.service.js';
 
 const LOW_STOCK_THRESHOLD = 10;
 
@@ -17,12 +21,40 @@ const findProductByName = async (name) => {
 
 const notifyInventoryIssue = async ({ title, message, metadata }) => {
   try {
-    await Notification.create({
+    const normalizedTitle = String(title || '').toLowerCase();
+    const remaining = Number(metadata?.remaining ?? metadata?.available);
+    const event = normalizedTitle.includes('reservation expired')
+      ? 'inventory_reservation_expired'
+      : /mapping missing|inventory alert|reservation warning/.test(normalizedTitle)
+        ? 'required_item_unavailable'
+        : Number.isFinite(remaining) && remaining <= 0
+          ? 'out_of_stock'
+          : 'low_stock';
+    const severity = event === 'out_of_stock'
+      ? 'critical'
+      : event === 'inventory_reservation_expired'
+        ? 'info'
+        : 'warning';
+    const scope = metadata?.productId
+      || metadata?.productName
+      || metadata?.orderId
+      || metadata?.serviceId
+      || 'inventory';
+    await createAdminNotification({
       title,
       message,
-      type: 'inventory',
-      recipientRole: 'admin_family',
-      link: '/admin/inventory',
+      category: 'inventory',
+      event,
+      severity,
+      source: 'Inventory',
+      actionRequired: severity === 'critical' || severity === 'warning',
+      groupingKey: buildAdminGroupingKey('inventory', event, scope),
+      groupingWindowMs: 24 * 60 * 60 * 1000,
+      link: buildAdminDeepLink(
+        'inventory',
+        metadata?.productId ? { productId: String(metadata.productId) } : {},
+      ),
+      action: { label: 'Review inventory' },
       metadata,
     });
   } catch (error) {
