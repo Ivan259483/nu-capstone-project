@@ -20,8 +20,13 @@ const authHeaders = (): HeadersInit => ({
 // GET /api/slots/range?start=YYYY-MM-DD&end=YYYY-MM-DD
 export interface RangeSlotSummary {
   date: string;
+  businessDate?: string;
+  businessTimeZone?: string;
   isClosed: boolean;
   closedReason?: 'emergency' | 'closure' | 'recurring' | null;
+  closureType?: 'emergency' | 'scheduled' | 'weekly' | 'recurring' | null;
+  closureReason?: string | null;
+  emergencyClosed?: boolean;
   closureLabel?: string | null;
   totalSlots: number;
   bookedSlots: number;
@@ -63,7 +68,13 @@ export interface SlotDetail {
 }
 export interface DateSlotDetail {
   date: string;
+  businessDate?: string;
+  businessTimeZone?: string;
   isClosed: boolean;
+  closedReason?: string | null;
+  closureType?: 'emergency' | 'scheduled' | 'weekly' | 'recurring' | null;
+  closureReason?: string | null;
+  emergencyClosed?: boolean;
   status?: 'AVAILABLE' | 'FULL' | 'OVER_CAPACITY' | 'CLOSED';
   bookedSlots?: number;
   availableSlots?: number;

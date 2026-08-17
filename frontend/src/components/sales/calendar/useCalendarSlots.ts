@@ -50,6 +50,9 @@ export interface DayMapEntry {
   pendingCount: number;
   isClosed: boolean;
   closedReason?: 'emergency' | 'closure' | 'recurring' | null;
+  closureType?: 'emergency' | 'scheduled' | 'weekly' | 'recurring' | null;
+  closureReason?: string | null;
+  emergencyClosed?: boolean;
   closureLabel?: string | null;
 }
 
@@ -57,6 +60,8 @@ export interface UseCalendarSlotsReturn {
   dayMap: Map<string, DayMapEntry>;
   loading: boolean;
   refresh: () => void;
+  businessDate: string | null;
+  businessTimeZone: string | null;
 }
 
 function getMonthRange(year: number, month: number) {
@@ -171,6 +176,9 @@ export function useCalendarSlots(year: number, month: number): UseCalendarSlotsR
         pendingCount: s.pendingCount,
         isClosed: s.isClosed || rawStatus === 'PAST' || !knownStatus || !hasValidDailyCapacity,
         closedReason: s.closedReason ?? null,
+        closureType: s.closureType ?? null,
+        closureReason: s.closureReason ?? null,
+        emergencyClosed: s.emergencyClosed === true || s.closedReason === 'emergency',
         closureLabel: rawStatus === 'PAST'
           ? 'Past date'
           : !knownStatus || !hasValidDailyCapacity
@@ -181,5 +189,16 @@ export function useCalendarSlots(year: number, month: number): UseCalendarSlotsR
     return map;
   }, [summaries]);
 
-  return { dayMap, loading, refresh };
+  const businessMetadata = summaries.find((summary) => (
+    /^\d{4}-\d{2}-\d{2}$/.test(summary.businessDate || '')
+    && typeof summary.businessTimeZone === 'string'
+  ));
+
+  return {
+    dayMap,
+    loading,
+    refresh,
+    businessDate: businessMetadata?.businessDate || null,
+    businessTimeZone: businessMetadata?.businessTimeZone || null,
+  };
 }

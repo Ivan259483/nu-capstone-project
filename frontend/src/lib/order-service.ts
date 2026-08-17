@@ -22,12 +22,17 @@ export interface AvailableSlotsResponse {
         capacity: number;
         booked: number;
         available: number;
-        status: 'AVAILABLE' | 'ALMOST_FULL' | 'FULL' | 'OVER_CAPACITY';
+        status: 'AVAILABLE' | 'ALMOST_FULL' | 'FULL' | 'OVER_CAPACITY' | 'ELAPSED';
     }[];
     unavailable?: boolean;
     errorCode?: OrderAvailabilityErrorCode | null;
     message?: string | null;
     error?: string | null;
+    emergencyClosed?: boolean;
+    closureType?: 'emergency' | 'scheduled' | 'weekly' | 'recurring' | null;
+    closureReason?: string | null;
+    businessDate?: string | null;
+    businessTimeZone?: string | null;
     remaining?: number | null;
     slotsLimit?: number | null;
     bookedCount?: number | null;

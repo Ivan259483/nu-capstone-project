@@ -2,7 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
-import { ensureAvailabilityRealtimeSync, syncAvailabilityCaches } from '@/lib/availabilitySync';
+import {
+  AVAILABILITY_UPDATED_EVENT,
+  ensureAvailabilityRealtimeSync,
+  syncAvailabilityCaches,
+} from '@/lib/availabilitySync';
 
 type ClosureReason = 'Holiday' | 'Renovation' | 'Emergency' | 'Staff Leave' | 'Custom';
 
@@ -30,9 +34,18 @@ interface HolidayRow {
   classification: 'Regular' | 'Special Non-Working' | 'Additional Special Non-Working';
 }
 
+interface EmergencyStatus {
+  emergencyClosed: boolean;
+  emergencyClosureDate: string | null;
+  businessDate: string | null;
+  businessTimeZone: string | null;
+}
+
 const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 const HOURS_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const CLOSURE_REASONS: ClosureReason[] = ['Holiday', 'Renovation', 'Emergency', 'Staff Leave', 'Custom'];
+const REQUIRED_SLOTS_MESSAGE = 'Daily appointment slots is required.';
+const INVALID_SLOTS_MESSAGE = 'Daily appointment slots must be a positive whole number.';
 
 // Official nationwide 2026 holidays from Proclamation No. 1006 (fixed dates only).
 const HOLIDAYS_2026: HolidayRow[] = [
@@ -121,9 +134,33 @@ function normalizeSchedule(payload: any): DaySchedule[] {
   return Array.from({ length: 7 }, (_, dow) => byDow.get(dow) as DaySchedule);
 }
 
+function toSlotDrafts(schedule: DaySchedule[]) {
+  return Object.fromEntries(schedule.map((row) => [row.dow, String(row.slots)])) as Record<number, string>;
+}
+
+function normalizeSlotDraft(raw: string) {
+  if (raw === '') return '';
+  return raw.replace(/^0+(?=\d)/, '');
+}
+
+function getSlotValidationMessage(raw: string) {
+  if (raw.trim() === '') return REQUIRED_SLOTS_MESSAGE;
+  if (!/^\d+$/.test(raw)) return INVALID_SLOTS_MESSAGE;
+
+  const slots = Number(raw);
+  if (!Number.isSafeInteger(slots) || slots < 1) return INVALID_SLOTS_MESSAGE;
+  return null;
+}
+
 export default function AvailabilityControls() {
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [emergencyClosed, setEmergencyClosed] = useState(false);
+  const [emergencyStatus, setEmergencyStatus] = useState<EmergencyStatus>({
+    emergencyClosed: false,
+    emergencyClosureDate: null,
+    businessDate: null,
+    businessTimeZone: null,
+  });
   const [isSavingEmergency, setIsSavingEmergency] = useState(false);
 
   const [closures, setClosures] = useState<ClosureDoc[]>([]);
@@ -137,6 +174,8 @@ export default function AvailabilityControls() {
   });
 
   const [schedule, setSchedule] = useState<DaySchedule[]>([]);
+  const [slotDrafts, setSlotDrafts] = useState<Record<number, string>>({});
+  const [slotErrors, setSlotErrors] = useState<Partial<Record<number, string>>>({});
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
 
   const [selectedHolidayIds, setSelectedHolidayIds] = useState<Record<string, boolean>>({});
@@ -166,7 +205,22 @@ export default function AvailabilityControls() {
 
   const fetchEmergencyStatus = async () => {
     const res = await api.get('/admin/availability/emergency', silentRequestConfig);
-    setEmergencyClosed(!!res?.data?.emergencyClosed);
+    const nextStatus: EmergencyStatus = {
+      emergencyClosed: !!res?.data?.emergencyClosed,
+      emergencyClosureDate: typeof res?.data?.emergencyClosureDate === 'string'
+        ? res.data.emergencyClosureDate
+        : typeof res?.data?.affectedBusinessDate === 'string'
+          ? res.data.affectedBusinessDate
+          : null,
+      businessDate: typeof res?.data?.businessDate === 'string' ? res.data.businessDate : null,
+      businessTimeZone: typeof res?.data?.businessTimeZone === 'string'
+        ? res.data.businessTimeZone
+        : typeof res?.data?.timeZone === 'string'
+          ? res.data.timeZone
+          : null,
+    };
+    setEmergencyClosed(nextStatus.emergencyClosed);
+    setEmergencyStatus(nextStatus);
   };
 
   const fetchClosures = async () => {
@@ -182,7 +236,10 @@ export default function AvailabilityControls() {
 
   const fetchSchedule = async () => {
     const res = await api.get('/admin/availability/recurring', silentRequestConfig);
-    setSchedule(normalizeSchedule(res?.data));
+    const normalized = normalizeSchedule(res?.data);
+    setSchedule(normalized);
+    setSlotDrafts(toSlotDrafts(normalized));
+    setSlotErrors({});
   };
 
   useEffect(() => {
@@ -202,7 +259,14 @@ export default function AvailabilityControls() {
 
     ensureAvailabilityRealtimeSync();
     load();
-    return () => { active = false; };
+    const handleAvailabilityUpdate = () => {
+      void fetchEmergencyStatus().catch(() => undefined);
+    };
+    window.addEventListener(AVAILABILITY_UPDATED_EVENT, handleAvailabilityUpdate);
+    return () => {
+      active = false;
+      window.removeEventListener(AVAILABILITY_UPDATED_EVENT, handleAvailabilityUpdate);
+    };
   }, []);
 
   const toggleEmergency = async (closed: boolean) => {
@@ -211,8 +275,22 @@ export default function AvailabilityControls() {
       const res = await api.patch('/admin/availability/emergency', { closed }, silentRequestConfig);
       const nextValue = !!res?.data?.emergencyClosed;
       setEmergencyClosed(nextValue);
+      setEmergencyStatus({
+        emergencyClosed: nextValue,
+        emergencyClosureDate: typeof res?.data?.emergencyClosureDate === 'string'
+          ? res.data.emergencyClosureDate
+          : typeof res?.data?.affectedBusinessDate === 'string'
+            ? res.data.affectedBusinessDate
+            : null,
+        businessDate: typeof res?.data?.businessDate === 'string' ? res.data.businessDate : null,
+        businessTimeZone: typeof res?.data?.businessTimeZone === 'string'
+          ? res.data.businessTimeZone
+          : typeof res?.data?.timeZone === 'string'
+            ? res.data.timeZone
+            : null,
+      });
       bumpCalendarCache();
-      toast.success(nextValue ? 'Emergency closure enabled for today.' : 'Emergency closure disabled.');
+      toast.success(nextValue ? 'Emergency closure enabled for today.' : 'Shop bookings re-opened under normal availability rules.');
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to update emergency closure.'));
     } finally {
@@ -290,18 +368,51 @@ export default function AvailabilityControls() {
     setSchedule((prev) => prev.map((row) => (row.dow === dow ? { ...row, ...patch } : row)));
   };
 
+  const updateSlotDraft = (dow: number, raw: string) => {
+    setSlotDrafts((prev) => ({ ...prev, [dow]: normalizeSlotDraft(raw) }));
+    setSlotErrors((prev) => {
+      if (!prev[dow]) return prev;
+      const next = { ...prev };
+      delete next[dow];
+      return next;
+    });
+  };
+
   const applyMondayToOpenDays = () => {
     const monday = schedule.find((row) => row.dow === 1);
     if (!monday) return;
     setSchedule((prev) => prev.map((row) => (
       row.open
-        ? { ...row, from: monday.from, to: monday.to, slots: monday.slots }
+        ? { ...row, from: monday.from, to: monday.to }
         : row
     )));
-    toast.success('Applied Monday hours and daily appointment capacity to all open days.');
+    const mondaySlotDraft = slotDrafts[monday.dow] ?? String(monday.slots);
+    setSlotDrafts((prev) => Object.fromEntries(schedule.map((row) => [
+      row.dow,
+      row.open ? mondaySlotDraft : (prev[row.dow] ?? String(row.slots)),
+    ])) as Record<number, string>);
+    setSlotErrors({});
+    toast.success('Applied Monday hours and appointment slot count to all open days.');
   };
 
   const saveSchedule = async () => {
+    const nextSlotErrors: Partial<Record<number, string>> = {};
+    for (const row of schedule) {
+      if (!row.open) continue;
+      const draft = slotDrafts[row.dow] ?? String(row.slots);
+      const message = getSlotValidationMessage(draft);
+      if (message) nextSlotErrors[row.dow] = message;
+    }
+
+    if (Object.keys(nextSlotErrors).length > 0) {
+      setSlotErrors(nextSlotErrors);
+      const firstError = HOURS_DISPLAY_ORDER
+        .map((dow) => nextSlotErrors[dow])
+        .find((message): message is string => Boolean(message));
+      toast.error(firstError || INVALID_SLOTS_MESSAGE);
+      return;
+    }
+
     setIsSavingSchedule(true);
     try {
       const payload = [...schedule].sort((a, b) => a.dow - b.dow).map((row) => ({
@@ -309,14 +420,17 @@ export default function AvailabilityControls() {
         open: !!row.open,
         from: row.from,
         to: row.to,
-        slots: Number.isFinite(Number(row.slots)) ? Math.max(0, Number(row.slots)) : 0,
+        // A closed day's saved count is retained but cannot affect availability.
+        slots: row.open ? Number(slotDrafts[row.dow] ?? String(row.slots)) : row.slots,
       }));
       const res = await api.put('/admin/availability/recurring', { schedule: payload }, silentRequestConfig);
       const normalized = normalizeSchedule(res?.data);
       setSchedule(normalized);
+      setSlotDrafts(toSlotDrafts(normalized));
+      setSlotErrors({});
       bumpCalendarCache();
       toast.success('Weekly availability saved.', {
-        description: 'Open days, operating hours, and daily appointment capacity are now live everywhere.',
+        description: 'Open days, operating hours, and one-customer appointment times are now live everywhere.',
       });
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to save weekly availability.'));
@@ -389,9 +503,29 @@ export default function AvailabilityControls() {
 
   return (
     <div className="flex flex-col gap-5">
-      <section className="ah-card-section p-5">
+      <section className={`ah-card-section p-5 ${emergencyClosed ? 'ring-1 ring-red-200' : 'ring-1 ring-emerald-200/70'}`}>
         <h3 className="text-sm font-semibold text-slate-900">Emergency Closure</h3>
         <p className="mt-1 text-xs text-slate-600">Immediately close or re-open shop bookings for today.</p>
+        <div className={`mt-4 rounded-2xl px-4 py-3 ${
+          emergencyClosed
+            ? 'bg-red-50 text-red-950 ring-1 ring-red-200'
+            : 'bg-emerald-50 text-emerald-950 ring-1 ring-emerald-200'
+        }`}>
+          <p className="text-sm font-bold">
+            {emergencyClosed ? 'Emergency closure active' : 'Shop open'}
+          </p>
+          <p className="mt-1 text-xs font-medium">
+            {emergencyClosed
+              ? 'Shop closed for new bookings today. Existing appointments remain unchanged.'
+              : 'Today follows scheduled closures, weekly hours, and occupied appointment times.'}
+          </p>
+          {emergencyStatus.businessDate && (
+            <p className="mt-1.5 text-[11px] opacity-75">
+              Business date: {emergencyStatus.businessDate}
+              {emergencyStatus.businessTimeZone ? ` · ${emergencyStatus.businessTimeZone}` : ''}
+            </p>
+          )}
+        </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="button"
@@ -404,10 +538,10 @@ export default function AvailabilityControls() {
                 <Loader2 size={14} className="animate-spin" />
                 Saving...
               </>
-            ) : emergencyClosed ? 'Disable emergency closure' : 'Enable emergency closure'}
+            ) : emergencyClosed ? 'Re-open shop bookings' : 'Enable emergency closure'}
           </button>
           <span className={`ah-badge ${emergencyClosed ? 'ah-badge-failed' : 'ah-badge-success'}`}>
-            {emergencyClosed ? 'Shop closed' : 'Shop open'}
+            {emergencyClosed ? 'Emergency Closed' : 'Shop open'}
           </span>
         </div>
       </section>
@@ -537,7 +671,7 @@ export default function AvailabilityControls() {
         <h3 className="text-sm font-semibold text-slate-900">Weekly Availability</h3>
         <p className="mt-1 text-xs text-slate-600">
           This is the appointment system’s weekly source of truth. Configure open days, operating hours,
-          and the maximum number of appointments allowed per calendar date, then save once.
+          and how many one-customer appointment times to generate for each day, then save once.
         </p>
         <div className="mt-4 overflow-x-auto rounded-2xl bg-white shadow-[0_2px_12px_-4px_rgba(15,23,42,0.08),0_0_0_1px_rgba(226,232,240,0.55)]">
           <table className="ah-table min-w-[760px]">
@@ -547,7 +681,7 @@ export default function AvailabilityControls() {
                 <th>Open</th>
                 <th>From</th>
                 <th>To</th>
-                <th>Daily Appointment Capacity</th>
+                <th>Daily Appointment Slots</th>
               </tr>
             </thead>
             <tbody>
@@ -559,7 +693,15 @@ export default function AvailabilityControls() {
                       <input
                         type="checkbox"
                         checked={row.open}
-                        onChange={(event) => updateScheduleRow(row.dow, { open: event.target.checked })}
+                        onChange={(event) => {
+                          updateScheduleRow(row.dow, { open: event.target.checked });
+                          setSlotErrors((prev) => {
+                            if (!prev[row.dow]) return prev;
+                            const next = { ...prev };
+                            delete next[row.dow];
+                            return next;
+                          });
+                        }}
                       />
                       {row.open ? 'Open' : 'Closed'}
                     </label>
@@ -583,17 +725,26 @@ export default function AvailabilityControls() {
                     />
                   </td>
                   <td>
-                    <input
-                      type="number"
-                      min={0}
-                      step={1}
-                      className="ah-input !max-w-[120px]"
-                      value={row.slots}
-                      disabled={!row.open}
-                      onChange={(event) => updateScheduleRow(row.dow, {
-                        slots: Math.max(0, Math.floor(Number(event.target.value) || 0)),
-                      })}
-                    />
+                    <div className="min-w-[180px]">
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        inputMode="numeric"
+                        className="ah-input !max-w-[120px]"
+                        value={slotDrafts[row.dow] ?? String(row.slots)}
+                        disabled={!row.open}
+                        aria-label={`Daily appointment slots for ${DOW_LABELS[row.dow]}`}
+                        aria-invalid={row.open && Boolean(slotErrors[row.dow])}
+                        aria-describedby={slotErrors[row.dow] ? `daily-slots-error-${row.dow}` : undefined}
+                        onChange={(event) => updateSlotDraft(row.dow, event.target.value)}
+                      />
+                      {row.open && slotErrors[row.dow] ? (
+                        <p id={`daily-slots-error-${row.dow}`} className="mt-1 text-xs font-medium text-red-600">
+                          {slotErrors[row.dow]}
+                        </p>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}

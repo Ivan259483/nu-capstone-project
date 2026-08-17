@@ -3002,6 +3002,15 @@
   border-right: none !important;
 }
 
+.adminhub-root .premium-calendar-placeholder {
+  pointer-events: none;
+  user-select: none;
+}
+
+.adminhub-root .premium-calendar-placeholder .premium-calendar-cell {
+  background: #fbfcfe !important;
+}
+
 .adminhub-root .premium-calendar-cell {
   border: none !important;
   outline: none;
@@ -3047,6 +3056,7 @@
 .adminhub-root .premium-calendar-availability-label {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   min-height: 18px;
   border: 1px solid #eef2f7;
   border-radius: 999px;
@@ -3054,6 +3064,53 @@
   padding: 1px 6px;
   color: #7b8798 !important;
   line-height: 1.2;
+}
+
+.adminhub-root .premium-calendar-availability-label::before {
+  width: 4px;
+  height: 4px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+  opacity: 0.82;
+}
+
+.adminhub-root .premium-calendar-availability-label.availability-tone-high {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d !important;
+}
+
+.adminhub-root .premium-calendar-availability-label.availability-tone-medium {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #a16207 !important;
+}
+
+.adminhub-root .premium-calendar-availability-label.availability-tone-low {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #c2410c !important;
+}
+
+.adminhub-root .premium-calendar-availability-label.availability-tone-full {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c !important;
+}
+
+.adminhub-root .premium-calendar-availability-label.availability-tone-emergency {
+  border-color: #fca5a5;
+  background: #fee2e2;
+  color: #991b1b !important;
+}
+
+.adminhub-root .premium-calendar-availability-label.availability-tone-closed,
+.adminhub-root .premium-calendar-availability-label.availability-tone-unavailable {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: #64748b !important;
 }
 
 .adminhub-root .premium-calendar-day-agenda > div:first-child {

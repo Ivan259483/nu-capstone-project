@@ -302,7 +302,7 @@ export default function SettingsView() {
       <SectionCard icon={Clock} title="Appointment Availability" description="Managed centrally by the Admin scheduling controls">
         <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3">
           <p className="text-sm font-semibold text-blue-950">
-            Open days, operating hours, and daily appointment capacity are managed in Availability Controls.
+            Open days, operating hours, and daily appointment slots are managed in Availability Controls.
           </p>
           <p className="mt-1 text-xs leading-5 text-blue-800">
             This settings page does not keep a second appointment schedule. Customer booking, Admin booking,

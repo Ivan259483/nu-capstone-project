@@ -2,11 +2,11 @@
  * Live customer job tracker — filterable table, job slide-over.
  * Shared between Admin Hub (embedded) and any future fullscreen shells.
  */
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Activity, CheckCircle2, Clock3, Radio, RefreshCw, Users } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useOpsData } from './hooks/useOpsData';
-import type { OpsJob } from './ops-types';
+import { mapBookingToJob, type OpsJob } from './ops-types';
 import type { JobStatus } from './ui/OpsUIKit';
 import { OrderService } from '@/lib/order-service';
 import OpsJobSlideOver from './staff-dashboard/OpsJobSlideOver';
@@ -15,6 +15,8 @@ import './ops-manager.css';
 
 export type CustomerTrackerPanelProps = {
   embedded?: boolean;
+  initialOrderId?: string;
+  deepLinkActive?: boolean;
 };
 
 type CommandMetricProps = {
@@ -106,11 +108,16 @@ function LiveMonitorHeader({
   );
 }
 
-export default function CustomerTrackerPanel({ embedded = false }: CustomerTrackerPanelProps) {
+export default function CustomerTrackerPanel({
+  embedded = false,
+  initialOrderId,
+  deepLinkActive = false,
+}: CustomerTrackerPanelProps) {
   const { jobs, technicians, loading, error, refresh, lastRefreshed } = useOpsData();
   const [refreshing, setRefreshing] = useState(false);
   const [selectedJob, setSelectedJob] = useState<OpsJob | null>(null);
   const [slideOverOpen, setSlideOverOpen] = useState(false);
+  const openedDeepLinkOrderRef = useRef<string | null>(null);
   const trackerSummary = useMemo(
     () => ({
       queued: jobs.filter(job => job.status === 'Queued').length,
@@ -131,6 +138,42 @@ export default function CustomerTrackerPanel({ embedded = false }: CustomerTrack
     setSelectedJob(job);
     setSlideOverOpen(true);
   }, []);
+
+  useEffect(() => {
+    const orderId = String(initialOrderId || '').trim();
+    if (!deepLinkActive || !orderId) {
+      if (!deepLinkActive) openedDeepLinkOrderRef.current = null;
+      return;
+    }
+    if (openedDeepLinkOrderRef.current === orderId) return;
+
+    const existingJob = jobs.find((job) => (
+      job.id === orderId
+      || String(job._booking?._id || '') === orderId
+      || String(job._booking?.id || '') === orderId
+    ));
+    if (existingJob) {
+      openedDeepLinkOrderRef.current = orderId;
+      handleJobClick(existingJob);
+      return;
+    }
+    if (loading) return;
+
+    openedDeepLinkOrderRef.current = orderId;
+    let cancelled = false;
+    OrderService.getOrderById(orderId)
+      .then((response) => {
+        if (cancelled || !response?.success || !response.data) return;
+        handleJobClick(mapBookingToJob(response.data, jobs.length));
+      })
+      .catch((error) => {
+        console.error('Failed to open linked job:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deepLinkActive, handleJobClick, initialOrderId, jobs, loading]);
 
   const handleAssign = useCallback(
     async (jobId: string, techId: string) => {

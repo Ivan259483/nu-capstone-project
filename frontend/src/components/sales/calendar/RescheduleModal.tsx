@@ -4,6 +4,10 @@ import { X, Clock, Loader2, Calendar as CalIcon } from 'lucide-react';
 import { fetchSlotsByDate } from './calendarService';
 import type { CalendarBooking } from './calendarTypes';
 import { formatCalendarCustomerName } from './calendarFormatters';
+import {
+  AVAILABILITY_UPDATED_EVENT,
+  ensureAvailabilityRealtimeSync,
+} from '@/lib/availabilitySync';
 
 interface RescheduleModalProps {
   booking: CalendarBooking;
@@ -30,30 +34,54 @@ export default function RescheduleModal({
   const [selectedDate, setSelectedDate] = useState(targetDate);
   const [selectedTime, setSelectedTime] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [availabilityMessage, setAvailabilityMessage] = useState('');
+  const [availabilityRevision, setAvailabilityRevision] = useState(0);
+  const [businessDate, setBusinessDate] = useState(() => new Date().toLocaleDateString('en-CA'));
 
   useEffect(() => {
     setSelectedDate(targetDate);
   }, [targetDate]);
 
   useEffect(() => {
+    ensureAvailabilityRealtimeSync();
+    const refresh = () => setAvailabilityRevision((revision) => revision + 1);
+    window.addEventListener(AVAILABILITY_UPDATED_EVENT, refresh);
+    return () => window.removeEventListener(AVAILABILITY_UPDATED_EVENT, refresh);
+  }, []);
+
+  useEffect(() => {
     let active = true;
     async function load() {
       setLoading(true);
       setSelectedTime('');
+      setAvailabilityMessage('');
       try {
         const data = await fetchSlotsByDate(selectedDate);
         if (!active) return;
+        if (data?.businessDate) setBusinessDate(data.businessDate);
         if (data && !data.isClosed && data.slots) {
           setTimeSlots(data.slots.filter((slot) => (
             Number(slot.available) > 0
             && slot.status !== 'FULL'
             && slot.status !== 'OVER_CAPACITY'
           )));
+          setAvailabilityMessage('');
         } else {
           setTimeSlots([]);
+          const emergencyClosed = data?.emergencyClosed === true
+            || data?.closureType === 'emergency'
+            || data?.closedReason === 'EMERGENCY_CLOSED';
+          setAvailabilityMessage(
+            emergencyClosed
+              ? 'Emergency Closed — bookings for today are temporarily closed.'
+              : data?.closureReason || 'No available time slots on this date.'
+          );
         }
       } catch {
-        if (active) setTimeSlots([]);
+        if (active) {
+          setTimeSlots([]);
+          setAvailabilityMessage('Live availability could not be verified. Please try again.');
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -62,7 +90,7 @@ export default function RescheduleModal({
     return () => {
       active = false;
     };
-  }, [selectedDate]);
+  }, [availabilityRevision, selectedDate]);
 
   const handleConfirm = async () => {
     if (!selectedTime) {
@@ -80,7 +108,7 @@ export default function RescheduleModal({
   const formattedTargetDate = new Date(`${selectedDate}T00:00:00`).toLocaleDateString('en-PH', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
   });
-  const minimumDate = new Date().toLocaleDateString('en-CA');
+  const minimumDate = businessDate;
   const customerLabel = formatCalendarCustomerName(booking.customerName);
 
   return (
@@ -145,7 +173,7 @@ export default function RescheduleModal({
               </div>
             ) : timeSlots.length === 0 ? (
               <div className="mt-3 p-3 rounded-2xl bg-red-50/90 text-red-600 text-sm border-0 shadow-[0_1px_3px_rgba(220,38,38,0.08)]">
-                No available time slots on this date.
+                {availabilityMessage || 'No available time slots on this date.'}
               </div>
             ) : (
               <div className="mt-2 grid grid-cols-3 gap-2">

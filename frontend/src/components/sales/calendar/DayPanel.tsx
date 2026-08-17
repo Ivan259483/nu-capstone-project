@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import {
   X, Clock, Car, CheckCircle, XCircle, Loader2,
-  Calendar, AlertCircle, Package, Banknote, GripVertical, Plus,
+  Calendar, AlertCircle, Package, Banknote, GripVertical,
 } from 'lucide-react';
 import {
   approveBooking,
@@ -42,10 +42,12 @@ function getMeta(status: string) {
 
 // ── Booking Card ──────────────────────────────────────────────────────────────
 function BookingCard({
-  booking, onActionComplete,
+  booking, onActionComplete, onView, readOnly = false,
 }: {
   booking: CalendarBooking;
   onActionComplete: (id: string) => void;
+  onView?: (booking: CalendarBooking) => void;
+  readOnly?: boolean;
 }) {
   const [actioning, setActioning] = useState(false);
   const [rejectMode, setRejectMode] = useState(false);
@@ -107,7 +109,18 @@ function BookingCard({
   const customerLabel = formatCalendarCustomerName(booking.customerName);
 
   return (
-    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_32px_-14px_rgba(15,23,42,0.12),0_0_0_1px_rgba(226,232,240,0.45)]">
+    <div
+      className={`overflow-hidden rounded-2xl bg-white shadow-[0_4px_32px_-14px_rgba(15,23,42,0.12),0_0_0_1px_rgba(226,232,240,0.45)] ${readOnly && onView ? 'cursor-pointer transition hover:shadow-[0_8px_36px_-14px_rgba(15,23,42,0.18),0_0_0_1px_rgba(147,197,253,0.65)]' : ''}`}
+      role={readOnly && onView ? 'button' : undefined}
+      tabIndex={readOnly && onView ? 0 : undefined}
+      onClick={readOnly && onView ? () => onView(booking) : undefined}
+      onKeyDown={readOnly && onView ? (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onView(booking);
+        }
+      } : undefined}
+    >
       {/* Header strip */}
       <div className="bg-gradient-to-br from-slate-50/90 to-white px-4 py-4">
         <div className="flex items-start gap-3">
@@ -229,7 +242,7 @@ function BookingCard({
       )}
 
       {/* Action buttons — ONLY for pending_confirmation */}
-      {isPending && (
+      {isPending && !readOnly && (
         <div className="border-t border-slate-100/60 px-4 pb-4 pt-2">
           {rejectMode ? (
             <div className="space-y-2">
@@ -295,7 +308,8 @@ interface DayPanelProps {
   dayInfo?: DayMapEntry;
   onClose: () => void;
   onRefresh: () => void;
-  onNewAppointment?: () => void;
+  monitoringOnly?: boolean;
+  onAppointmentClick?: (booking: CalendarBooking) => void;
 }
 
 export default function DayPanel({
@@ -305,7 +319,8 @@ export default function DayPanel({
   dayInfo,
   onClose,
   onRefresh,
-  onNewAppointment,
+  monitoringOnly = false,
+  onAppointmentClick,
 }: DayPanelProps) {
   const dateIso = date.toLocaleDateString('en-CA');
   const label = date.toLocaleDateString('en-PH', {
@@ -336,7 +351,10 @@ export default function DayPanel({
   const isEmergencyClosed = closedReason === 'emergency';
   const closedLabel = dayInfo?.closureLabel
     || (isWeeklyDayOff ? 'Weekly day off (Sat/Sun or schedule in Availability Controls)' : null)
-    || (isEmergencyClosed ? 'Emergency closure is on for today' : null);
+    || (isEmergencyClosed ? 'Emergency Closed — bookings are closed today' : null);
+  const remainingAvailability = Number.isFinite(dayInfo?.availableSlots)
+    ? Math.max(0, Number(dayInfo?.availableSlots))
+    : null;
 
   const handleActionComplete = (_id: string) => {
     onRefresh();
@@ -430,7 +448,7 @@ export default function DayPanel({
     return () => {
       activeRequest = false;
     };
-  }, [dateIso]);
+  }, [dateIso, dayInfo?.availableSlots, dayInfo?.closedReason, dayInfo?.isClosed]);
 
   /** Portal → document.body so `position:fixed` is viewport-relative (Admin Hub `.ah-page-enter` uses transform and traps fixed descendants). */
   const drawer = (
@@ -479,7 +497,9 @@ export default function DayPanel({
 
         <div className="flex-shrink-0 px-4 py-3 shadow-[0_1px_0_0_rgba(226,232,240,0.7)]">
           <div className={`flex flex-col gap-2 rounded-2xl px-3.5 py-3 shadow-sm ${
-            isClosedOnCalendar || isBlocked || availabilityUnknown
+            isEmergencyClosed
+              ? 'bg-red-50 text-red-950 ring-1 ring-red-200/90'
+              : isClosedOnCalendar || isBlocked || availabilityUnknown
               ? 'bg-orange-50 text-orange-950 ring-1 ring-orange-200/80'
               : 'bg-emerald-50 text-emerald-950 ring-1 ring-emerald-200/80'
           }`}>
@@ -495,10 +515,19 @@ export default function DayPanel({
                     ? slotDetailsLoading
                       ? 'Checking live availability…'
                       : 'Live availability unavailable'
-                  : isClosedOnCalendar
-                    ? 'Closed on calendar'
+                  : isEmergencyClosed
+                    ? 'Emergency Closed'
+                    : isClosedOnCalendar
+                      ? 'Closed on calendar'
                     : 'Open for customer bookings'}
               </p>
+              {!availabilityUnknown && !isClosedOnCalendar && remainingAvailability !== null && (
+                <p className="mt-1 text-[12px] font-black tabular-nums">
+                  {remainingAvailability === 0
+                    ? 'Fully booked'
+                    : `${remainingAvailability} slot${remainingAvailability === 1 ? '' : 's'} available`}
+                </p>
+              )}
               {isClosedOnCalendar && closedLabel && (
                 <p className="mt-1 text-[11px] font-medium leading-snug opacity-90">{closedLabel}</p>
               )}
@@ -534,14 +563,16 @@ export default function DayPanel({
           <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200/80">
             <div className="flex items-center justify-between bg-slate-50 px-3.5 py-2.5">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Daily appointment capacity</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Appointment time slots</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">Live values from Availability Controls</p>
               </div>
               {slotDetailsLoading ? <Loader2 size={14} className="animate-spin text-blue-500" /> : null}
             </div>
 
             {!slotDetailsLoading && (isClosedOnCalendar || slotDateClosed) ? (
-              <div className="px-3.5 py-3 text-xs font-semibold text-rose-700">Closed — no bookable slots</div>
+              <div className="px-3.5 py-3 text-xs font-semibold text-rose-700">
+                {isEmergencyClosed ? 'Emergency Closed — no new bookings today' : 'Closed — no bookable slots'}
+              </div>
             ) : !slotDetailsLoading && slotDetails.length === 0 ? (
               <div className="px-3.5 py-3 text-xs text-slate-500">No bookable slots for this date.</div>
             ) : (
@@ -554,18 +585,15 @@ export default function DayPanel({
                   const elapsed = slot.status === 'ELAPSED' || slot.elapsed === true;
                   const full = !overCapacity && !elapsed && (slot.status === 'FULL' || capacity <= 0 || available <= 0);
                   const statusLabel = overCapacity
-                    ? 'Over capacity'
+                    ? 'Booking conflict'
                     : elapsed
                       ? 'Passed'
                       : full
-                        ? 'FULL'
-                      : booked === 0
-                        ? 'Available'
-                        : `${available} slot${available === 1 ? '' : 's'} available`;
+                        ? (booked > 0 ? 'Booked' : 'Unavailable')
+                      : 'Available';
                   return (
-                    <div key={slot.time} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3.5 py-2.5 text-xs">
+                    <div key={slot.time} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3.5 py-2.5 text-xs">
                       <span className="font-semibold text-slate-800">{slot.label || slot.time}</span>
-                      <span className="tabular-nums text-slate-600">{booked} / {capacity}</span>
                       <span className={`min-w-[86px] text-right font-bold ${
                         overCapacity
                           ? 'text-rose-700'
@@ -585,7 +613,7 @@ export default function DayPanel({
           </div>
         </div>
 
-        {!loading && active.length > 0 && (
+        {!monitoringOnly && !loading && active.length > 0 && (
           <div className="flex-shrink-0 px-4 pb-3 pt-0 shadow-[0_1px_0_0_rgba(226,232,240,0.7)]">
             <div className="flex items-start gap-2 rounded-xl bg-blue-50/90 px-3 py-2.5 text-[11px] leading-snug text-blue-950 shadow-[0_6px_22px_-12px_rgba(37,99,235,0.22)]">
               <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" aria-hidden />
@@ -609,33 +637,33 @@ export default function DayPanel({
                 <Calendar size={20} className="text-slate-300" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-slate-600">No active bookings</p>
+                <p className="text-sm font-semibold text-slate-600">
+                  {monitoringOnly ? 'No customer bookings for this date.' : 'No active bookings'}
+                </p>
                 <p className="text-xs text-slate-400 mt-1">
                   {excluded.length > 0
                     ? `${excluded.length} booking(s) were cancelled or rejected`
-                    : 'Nothing scheduled for this day'}
+                    : monitoringOnly
+                      ? 'Availability remains controlled by the saved schedule above.'
+                      : 'Nothing scheduled for this day'}
                 </p>
               </div>
-              {onNewAppointment && !isClosedOnCalendar && !slotDateClosed && !availabilityUnknown ? (
-                <button
-                  type="button"
-                  onClick={onNewAppointment}
-                  className="mt-1 inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2"
-                >
-                  <Plus size={14} /> Add appointment
-                </button>
-              ) : null}
             </div>
           ) : (
             <>
-              {active.map(b => (
-                <DraggableBooking key={b._id || b.id} booking={b}>
+              {active.map((b) => {
+                const card = (
                   <BookingCard
                     booking={b}
                     onActionComplete={handleActionComplete}
+                    onView={onAppointmentClick}
+                    readOnly={monitoringOnly}
                   />
-                </DraggableBooking>
-              ))}
+                );
+                return monitoringOnly
+                  ? <React.Fragment key={b._id || b.id}>{card}</React.Fragment>
+                  : <DraggableBooking key={b._id || b.id} booking={b}>{card}</DraggableBooking>;
+              })}
               {excluded.length > 0 && (
                 <div className="pt-2">
                   <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest px-1 mb-2">

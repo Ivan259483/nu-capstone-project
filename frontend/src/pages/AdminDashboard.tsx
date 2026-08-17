@@ -7,8 +7,8 @@ import { db } from '@/config/firebase';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     LogOut, Package, Users, ShoppingCart, PhilippinePeso, Activity, Settings,
-    Plus, Search, AlertTriangle, Bell, Trash2, Edit, Send, CheckCircle,
-    Clock, FileText, ClipboardList, Sun, Moon, Volume2, ShieldCheck, Eye, EyeOff, BarChart,
+    Plus, Search, AlertTriangle, Trash2, Edit, Send, CheckCircle,
+    Clock, FileText, ClipboardList, Sun, Moon, ShieldCheck, Eye, EyeOff, BarChart,
     ChevronDown,
     X,
     Filter,
@@ -21,7 +21,6 @@ import {
     ExternalLink, Sparkles, MoreHorizontal, Tag, Save, DollarSign
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { formatDistanceToNow } from 'date-fns';
 import { io, Socket } from 'socket.io-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,6 +52,11 @@ import { SettingsService } from '@/lib/settings-service';
 import { AdminSettings } from '@/components/admin/AdminSettings';
 import SalesSmartCalendar from '@/components/sales/calendar/SalesSmartCalendar';
 import { fetchSlotsByDate, type SlotDetail } from '@/components/sales/calendar/calendarService';
+import {
+    AVAILABILITY_UPDATED_EVENT,
+    ensureAvailabilityRealtimeSync,
+    syncAvailabilityCaches,
+} from '@/lib/availabilitySync';
 import LandingPageEditor from '@/components/admin/LandingPageEditor';
 // POSSystem removed — staff now use the dedicated Sales Dashboard
 import { ActivityLogs } from '@/components/admin/ActivityLogs';
@@ -60,6 +64,7 @@ import { ServicesPricing } from '@/components/admin/ServicesPricing';
 import { SupplierManagement } from '@/components/admin/SupplierManagement';
 import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
 import AdminHubPanel from '@/components/Administrator/AdminHubPanel';
+import AdminNotificationBell from '@/components/Administrator/notifications/AdminNotificationBell';
 import { WaiversDocs } from '@/components/admin/WaiversDocs';
 import { CheckInDialog } from '@/components/admin/CheckInDialog';
 import { ActivityService } from '@/lib/activity-service-api';
@@ -85,11 +90,6 @@ import {
     isUserRegistrationRole,
     isAIEstimatorRole,
 } from '@/lib/roles';
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -287,6 +287,8 @@ export default function AdminDashboard() {
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
     const [notifications, setNotifications] = useState<SystemNotification[]>([]);
     const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+    const notificationIdsRef = useRef<Set<string>>(new Set());
+    const refreshNotificationsRef = useRef<(() => Promise<boolean>) | null>(null);
     const [settings, setSettings] = useState<BusinessSettings | null>(null);
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [payments, setPayments] = useState<any[]>([]);
@@ -294,6 +296,12 @@ export default function AdminDashboard() {
     /** Signals Admin Hub when the parent bulk sync is available as a background refresh source. */
     const [adminShellBulkLoaded, setAdminShellBulkLoaded] = useState(false);
     const socketRef = useRef<Socket | null>(null);
+
+    useEffect(() => {
+        notificationIdsRef.current = new Set(
+            notifications.map((notification) => String(notification.id || notification._id || '')).filter(Boolean),
+        );
+    }, [notifications]);
 
     // Dynamic Analytics State
     const [dashboardStats, setDashboardStats] = useState({
@@ -358,6 +366,15 @@ export default function AdminDashboard() {
     const [editDateUnavailable, setEditDateUnavailable] = useState(false);
     const [editAvailabilityMessage, setEditAvailabilityMessage] = useState('');
     const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+    const [editAvailabilityRevision, setEditAvailabilityRevision] = useState(0);
+    const [editBusinessDate, setEditBusinessDate] = useState(() => new Date().toLocaleDateString('en-CA'));
+
+    useEffect(() => {
+        ensureAvailabilityRealtimeSync();
+        const refresh = () => setEditAvailabilityRevision((revision) => revision + 1);
+        window.addEventListener(AVAILABILITY_UPDATED_EVENT, refresh);
+        return () => window.removeEventListener(AVAILABILITY_UPDATED_EVENT, refresh);
+    }, []);
 
     // Inventory Modal
     const [showInventoryModal, setShowInventoryModal] = useState(false);
@@ -1016,25 +1033,60 @@ export default function AdminDashboard() {
 
         socketRef.current = socket;
 
-        socket.on('admin:chat', (payload) => {
-            const notificationId = payload?.id || payload?._id || `chat-${Date.now()}`;
-            setNotifications((prev) => {
-                if (prev.some((n) => (n.id || n._id) === notificationId)) {
-                    return prev;
-                }
-                const newNotification: SystemNotification = {
-                    id: notificationId,
-                    title: payload?.title || 'Chat Message',
-                    message: payload?.message || 'New chat message received.',
-                    type: 'chat',
-                    isRead: false,
-                    createdAt: payload?.createdAt || new Date().toISOString(),
-                    link: payload?.link,
+        const upsertSocketNotification = (payload: any, fallbackType: SystemNotification['type']) => {
+            const notificationId = String(payload?.id || payload?._id || `${fallbackType}-${Date.now()}`);
+            const alreadyExists = notificationIdsRef.current.has(notificationId);
+            const incoming: SystemNotification = {
+                id: notificationId,
+                _id: payload?._id,
+                title: payload?.title || (fallbackType === 'chat' ? 'Chat Message' : 'Update'),
+                message: payload?.message || (fallbackType === 'chat' ? 'New chat message received.' : 'A new update was recorded.'),
+                type: payload?.type || fallbackType,
+                priority: payload?.priority,
+                category: payload?.category,
+                severity: payload?.severity,
+                source: payload?.source,
+                actionRequired: payload?.actionRequired,
+                action: payload?.action,
+                groupingKey: payload?.groupingKey,
+                groupCount: payload?.groupCount,
+                firstOccurredAt: payload?.firstOccurredAt,
+                lastOccurredAt: payload?.lastOccurredAt,
+                isRead: Boolean(payload?.isRead),
+                readAt: payload?.readAt,
+                createdAt: payload?.createdAt || new Date().toISOString(),
+                updatedAt: payload?.updatedAt,
+                link: payload?.link,
+                metadata: payload?.metadata,
+            };
+
+            notificationIdsRef.current.add(notificationId);
+            setNotifications((current) => {
+                const existingIndex = current.findIndex((item) => String(item.id || item._id) === notificationId);
+                if (existingIndex < 0) return [incoming, ...current];
+
+                const next = [...current];
+                next[existingIndex] = {
+                    ...next[existingIndex],
+                    ...incoming,
+                    isRead: payload?.isRead ?? next[existingIndex].isRead,
+                    readAt: payload?.readAt ?? next[existingIndex].readAt,
                 };
-                return [newNotification, ...prev];
+                if (existingIndex > 0) {
+                    const [updated] = next.splice(existingIndex, 1);
+                    next.unshift(updated);
+                }
+                return next;
             });
 
-            setUnreadNotificationsCount((prev) => prev + 1);
+            if (!alreadyExists && !incoming.isRead) {
+                setUnreadNotificationsCount((current) => current + 1);
+            }
+            return incoming;
+        };
+
+        socket.on('admin:chat', (payload) => {
+            upsertSocketNotification(payload, 'chat');
 
             if (speechSupported && payload?.message) {
                 speak(`New chat message. ${payload.message}`);
@@ -1042,28 +1094,13 @@ export default function AdminDashboard() {
         });
 
         socket.on('admin:notification', (payload) => {
-            const notificationId = payload?.id || payload?._id || `notif-${Date.now()}`;
-            setNotifications((prev) => {
-                if (prev.some((n) => (n.id || n._id) === notificationId)) {
-                    return prev;
-                }
-                const newNotification: SystemNotification = {
-                    id: notificationId,
-                    title: payload?.title || 'Update',
-                    message: payload?.message || 'A new update was recorded.',
-                    type: payload?.type || 'info',
-                    isRead: false,
-                    createdAt: payload?.createdAt || new Date().toISOString(),
-                    link: payload?.link,
-                };
-                return [newNotification, ...prev];
-            });
+            const incoming = upsertSocketNotification(payload, 'info');
 
-            setUnreadNotificationsCount((prev) => prev + 1);
-
-            if (payload?.message) {
-                toast.success(payload.message);
+            if (incoming.severity === 'critical' && payload?.message) {
+                toast.error(payload.message, { description: 'Critical operational notification' });
             }
+
+            void refreshNotificationsRef.current?.();
 
             // Sync bookings immediately when admin receives a booking-related notification
             if (payload?.type === 'booking') {
@@ -1879,6 +1916,7 @@ export default function AdminDashboard() {
                     setEditTime('');
                     return;
                 }
+                if (response.businessDate) setEditBusinessDate(response.businessDate);
 
                 const slots = (Array.isArray(response.slots) ? response.slots : []).filter((slot) => (
                     typeof slot?.time === 'string'
@@ -1906,7 +1944,11 @@ export default function AdminDashboard() {
                 setEditDateUnavailable(!hasSelectableSlot);
                 setEditAvailabilityMessage(
                     response.isClosed
-                        ? 'This date is closed in Admin Availability Controls.'
+                        ? response.emergencyClosed === true
+                            || response.closureType === 'emergency'
+                            || response.closedReason === 'EMERGENCY_CLOSED'
+                            ? 'Emergency Closed — bookings for today are temporarily closed.'
+                            : response.closureReason || 'This date is closed in Admin Availability Controls.'
                         : !hasSelectableSlot
                             ? 'No time slots can accept another appointment on this date.'
                             : ''
@@ -1944,7 +1986,7 @@ export default function AdminDashboard() {
         };
         fetchEditSlots();
         return () => { active = false; };
-    }, [editDate, isEditScheduleOpen, detailBooking]);
+    }, [editAvailabilityRevision, editDate, isEditScheduleOpen, detailBooking]);
 
     const handleSaveSchedule = async () => {
         if (user && !canAccessBookings) {
@@ -1992,6 +2034,10 @@ export default function AdminDashboard() {
             console.error('Save schedule error:', error);
             const msg = error.response?.data?.message || error.message || 'Failed to update schedule.';
             toast.error(msg, { id: idToast });
+            setEditTime('');
+            setEditAvailabilityMessage(msg);
+            syncAvailabilityCaches();
+            setEditAvailabilityRevision((revision) => revision + 1);
         }
     };
     // ──────────────────────────────────────────────────────────────────
@@ -2065,32 +2111,76 @@ export default function AdminDashboard() {
     };
 
     // Notification handlers
-    const handleMarkAsRead = async (id: string) => {
+    const refreshNotificationFeed = useCallback(async (): Promise<boolean> => {
         try {
-            const res = await NotificationService.markAsRead(id);
+            const res = await NotificationService.getNotifications({ limit: 50, archived: 'exclude' });
             if (res.success) {
-                setNotifications(prev => prev.map(n => n._id === id || n.id === id ? { ...n, isRead: true } : n));
-                setUnreadNotificationsCount(prev => Math.max(0, prev - 1));
+                setNotifications(Array.isArray(res.data) ? res.data : []);
+                setUnreadNotificationsCount(Number(res.unreadCount || 0));
+                return true;
             }
         } catch (error) {
-            console.error('Failed to mark notification as read:', error);
+            console.error('Failed to refresh notifications:', error);
         }
-    };
+        return false;
+    }, []);
 
-    const handleMarkAllRead = async (silent: boolean = false) => {
+    useEffect(() => {
+        refreshNotificationsRef.current = refreshNotificationFeed;
+        return () => {
+            refreshNotificationsRef.current = null;
+        };
+    }, [refreshNotificationFeed]);
+
+    const handleSetNotificationRead = useCallback(async (id: string, isRead: boolean): Promise<boolean> => {
+        try {
+            const res = await NotificationService.setReadStatus(id, isRead);
+            if (!res.success) return false;
+
+            setNotifications(prev => prev.map(n => n._id === id || n.id === id ? {
+                ...n,
+                isRead,
+                readAt: isRead ? (n.readAt || new Date().toISOString()) : null,
+            } : n));
+
+            if (typeof res.unreadCount === 'number') {
+                setUnreadNotificationsCount(res.unreadCount);
+            } else {
+                const countResponse = await NotificationService.getUnreadCount();
+                if (countResponse.success) setUnreadNotificationsCount(countResponse.unreadCount);
+            }
+            return true;
+        } catch (error) {
+            console.error(`Failed to mark notification as ${isRead ? 'read' : 'unread'}:`, error);
+            return false;
+        }
+    }, []);
+
+    const handleMarkAsRead = useCallback(
+        (id: string) => handleSetNotificationRead(id, true),
+        [handleSetNotificationRead],
+    );
+
+    const handleMarkAllRead = useCallback(async (silent: boolean = false): Promise<boolean> => {
         try {
             const res = await NotificationService.markAllAsRead();
             if (res.success) {
-                setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+                setNotifications(prev => prev.map(n => ({
+                    ...n,
+                    isRead: true,
+                    readAt: n.readAt || new Date().toISOString(),
+                })));
                 setUnreadNotificationsCount(0);
                 if (!silent) {
                     toast.success('All notifications marked as read');
                 }
+                return true;
             }
         } catch (error) {
             toast.error('Failed to mark all as read');
         }
-    };
+        return false;
+    }, []);
 
     // Settings handlers
     const handleSaveSettings = async (updatedSettings?: Partial<BusinessSettings>) => {
@@ -2295,6 +2385,11 @@ export default function AdminDashboard() {
                     syncUserDirectoryFromParent
                     directoryUsers={users}
                     directoryBulkLoaded={adminShellBulkLoaded}
+                    notificationFeed={notifications}
+                    notificationUnreadCount={unreadNotificationsCount}
+                    onRefreshNotificationFeed={refreshNotificationFeed}
+                    onSetNotificationRead={handleSetNotificationRead}
+                    onMarkAllNotificationsRead={handleMarkAllRead}
                     inventory={inventory}
                     suppliers={suppliers}
                     services={services}
@@ -2465,55 +2560,22 @@ export default function AdminDashboard() {
                     </div>
                     <div className="tb-right">
                         <div className="flex items-center gap-3 ml-2">
-                            <Popover onOpenChange={(open) => { if (open && unreadNotificationsCount > 0) handleMarkAllRead(true); }}>
-                                <PopoverTrigger asChild>
-                                    <button className="relative cursor-pointer group outline-none p-1 shrink-0 rounded-md text-[var(--text2)] hover:text-[var(--text)] hover:bg-[var(--surface2)] transition-colors">
-                                        <Bell className="w-4 h-4" />
-                                        {unreadNotificationsCount > 0 && (
-                                            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-[var(--red)] text-white text-[9px] font-bold rounded-full flex items-center justify-center animate-pulse border-2 border-[var(--bg)]">
-                                                {unreadNotificationsCount}
-                                            </span>
-                                        )}
-                                    </button>
-                                </PopoverTrigger>
-                                <PopoverContent className={`w-80 p-0 shadow-2xl z-[9999] ${theme === 'light' ? 'bg-white border-zinc-200' : 'bg-[#121214] border-zinc-800'}`} align="end">
-                                    <div className={`flex items-center justify-between p-4 border-b ${theme === 'light' ? 'border-zinc-200' : 'border-zinc-800'}`}>
-                                        <h3 className={`font-bold text-sm ${theme === 'light' ? 'text-zinc-900' : 'text-white'}`}>Notifications</h3>
-                                        <div className="flex items-center gap-2">
-                                            <Button variant="ghost" size="icon" className={`h-6 w-6 ${theme === 'light' ? 'text-zinc-500 hover:text-orange-500' : 'text-zinc-400 hover:text-orange-400'}`} onClick={readLatestChatMessage} title="Read latest chat">
-                                                <Volume2 className="h-4 w-4" />
-                                            </Button>
-                                            {unreadNotificationsCount > 0 && (
-                                                <Button variant="ghost" size="sm" className={`text-[10px] hover:opacity-80 p-0 h-auto ${theme === 'light' ? 'text-orange-600' : 'text-orange-500'}`} onClick={() => handleMarkAllRead()}>Mark all read</Button>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="max-h-[320px] overflow-y-auto">
-                                        {notifications.length === 0 ? (
-                                            <div className="p-8 text-center">
-                                                <Bell className={`w-8 h-8 mx-auto mb-2 opacity-20 ${theme === 'light' ? 'text-zinc-500' : 'text-zinc-400'}`} />
-                                                <p className={`text-xs ${theme === 'light' ? 'text-zinc-500' : 'text-zinc-400'}`}>No new notifications.</p>
-                                            </div>
-                                        ) : (
-                                            <div className={`divide-y ${theme === 'light' ? 'divide-zinc-200' : 'divide-zinc-800/50'}`}>
-                                                {(notifications || []).map((n) => {
-                                                    const notificationId = n.id || n._id;
-                                                    return (
-                                                        <div key={notificationId} className={`p-3.5 cursor-pointer transition-colors ${theme === 'light' ? 'hover:bg-zinc-50' : 'hover:bg-zinc-900/50'} ${!n.isRead ? (theme === 'light' ? 'bg-orange-50' : 'bg-orange-500/10') : ''}`} onClick={() => notificationId && handleMarkAsRead(notificationId)}>
-                                                            <div className="flex justify-between items-start gap-2">
-                                                                <p className={`text-xs font-bold ${!n.isRead ? (theme === 'light' ? 'text-zinc-900' : 'text-zinc-100') : (theme === 'light' ? 'text-zinc-600' : 'text-zinc-300')}`}>{n.title}</p>
-                                                                {!n.isRead && <span className={`w-1.5 h-1.5 rounded-full mt-1 shrink-0 ${theme === 'light' ? 'bg-orange-500' : 'bg-orange-500'}`} />}
-                                                            </div>
-                                                            <p className={`text-[11px] mt-0.5 ${theme === 'light' ? 'text-zinc-500' : 'text-zinc-400'}`}>{n.message}</p>
-                                                            <p className={`text-[9px] mt-1.5 font-mono uppercase tracking-tighter ${theme === 'light' ? 'text-zinc-400' : 'text-zinc-500'}`}>{formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}</p>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
-                                </PopoverContent>
-                            </Popover>
+                            <AdminNotificationBell
+                                notifications={notifications}
+                                unreadCount={unreadNotificationsCount}
+                                onRefresh={refreshNotificationFeed}
+                                onSetRead={handleSetNotificationRead}
+                                onMarkAllRead={handleMarkAllRead}
+                                onOpenNotification={async (notification) => {
+                                    const notificationId = notification.id || notification._id;
+                                    if (notificationId && !notification.isRead) {
+                                        await handleSetNotificationRead(notificationId, true);
+                                    }
+                                    if (notification.link) navigate(notification.link);
+                                }}
+                                onViewAll={() => navigate('/admin/dashboard?tab=notifications')}
+                                theme={theme}
+                            />
                         </div>
                     </div>
                 </div>
@@ -3870,7 +3932,7 @@ export default function AdminDashboard() {
                                 type="date"
                                 value={editDate}
                                 onChange={(e) => setEditDate(e.target.value)}
-                                min={new Date().toISOString().split('T')[0]} // prevent past dates
+                                min={editBusinessDate}
                                 className={theme === 'light' ? 'bg-gray-50 border-gray-300' : 'bg-[#09090b] border-zinc-800'}
                             />
                         </div>
@@ -3910,10 +3972,10 @@ export default function AdminDashboard() {
                                                 {isCurrentSlot
                                                     ? '(Current)'
                                                     : isOverCapacity
-                                                        ? `(${slot.booked}/${slot.capacity} — Over capacity)`
+                                                        ? '(Booking conflict)'
                                                         : isFull
-                                                            ? `(${slot.booked}/${slot.capacity} — Full)`
-                                                            : `(${slot.available} slot${Number(slot.available) === 1 ? '' : 's'} available)`}
+                                                            ? '(Booked)'
+                                                            : '(Available)'}
                                             </SelectItem>
                                         );
                                     })}

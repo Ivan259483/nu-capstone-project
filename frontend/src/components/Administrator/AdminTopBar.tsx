@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Bell,
   ChevronDown,
   Menu,
   Moon,
@@ -15,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { SystemNotification } from '@/lib/notification-service';
 import AdminAccountDropdownMenu from './AdminAccountDropdownMenu';
+import AdminNotificationBell from './notifications/AdminNotificationBell';
 
 type CommandPage = { id: string; label: string; icon: LucideIcon };
 
@@ -32,8 +32,13 @@ interface AdminTopBarProps {
   onAccountSettings: () => void;
   onSignOut: () => void;
   notifications: SystemNotification[];
-  onNotificationClick: (notification: SystemNotification) => void;
-  onMarkAllNotificationsRead: () => void;
+  unreadNotificationsCount?: number;
+  onRefreshNotifications?: () => Promise<unknown> | unknown;
+  onNotificationClick: (notification: SystemNotification) => Promise<unknown> | unknown;
+  onSetNotificationRead: (id: string, isRead: boolean) => Promise<unknown> | unknown;
+  onMarkAllNotificationsRead: () => Promise<unknown> | unknown;
+  onViewAllNotifications: () => void;
+  onNotificationSettings?: () => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
 }
@@ -73,18 +78,21 @@ export default function AdminTopBar({
   onAccountSettings,
   onSignOut,
   notifications,
+  unreadNotificationsCount,
+  onRefreshNotifications,
   onNotificationClick,
+  onSetNotificationRead,
   onMarkAllNotificationsRead,
+  onViewAllNotifications,
+  onNotificationSettings,
   theme,
   onToggleTheme,
 }: AdminTopBarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const commandListRef = useRef<HTMLDivElement>(null);
   const [commandOpen, setCommandOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
   const query = navSearch.trim().toLowerCase();
 
   const commandResults = useMemo(() => {
@@ -213,61 +221,17 @@ export default function AdminTopBar({
           )}
         </button>
 
-        <DropdownMenu open={notificationsOpen} onOpenChange={setNotificationsOpen}>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="ah-topbar-icon-btn ah-topbar-icon-btn--notify"
-              aria-label={
-                unreadCount > 0
-                  ? `Notifications, ${unreadCount} unread`
-                  : 'Notifications'
-              }
-            >
-              <Bell size={17} strokeWidth={1.75} aria-hidden />
-              {unreadCount > 0 ? (
-                <span className="ah-topbar-notify-dot" aria-hidden />
-              ) : null}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="ah-topbar-notify-panel">
-            <div className="ah-topbar-notify-head">
-              <strong>Notifications</strong>
-              {unreadCount > 0 ? (
-                <button
-                  type="button"
-                  className="ah-topbar-notify-mark"
-                  onClick={() => void onMarkAllNotificationsRead()}
-                >
-                  Mark all read
-                </button>
-              ) : null}
-            </div>
-            <div className="ah-topbar-notify-list">
-              {notifications.length === 0 ? (
-                <p className="ah-topbar-notify-empty">No new notifications.</p>
-              ) : (
-                notifications.slice(0, 12).map((n) => {
-                  const id = n.id || n._id || '';
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      className={`ah-topbar-notify-item${n.isRead ? '' : ' is-unread'}`}
-                      onClick={() => {
-                        onNotificationClick(n);
-                        setNotificationsOpen(false);
-                      }}
-                    >
-                      <span className="ah-topbar-notify-title">{n.title}</span>
-                      <span className="ah-topbar-notify-message">{n.message}</span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <AdminNotificationBell
+          notifications={notifications}
+          unreadCount={unreadNotificationsCount}
+          onRefresh={onRefreshNotifications}
+          onSetRead={onSetNotificationRead}
+          onMarkAllRead={onMarkAllNotificationsRead}
+          onOpenNotification={onNotificationClick}
+          onViewAll={onViewAllNotifications}
+          onOpenSettings={onNotificationSettings}
+          theme={theme}
+        />
 
         <DropdownMenu open={profileOpen} onOpenChange={setProfileOpen}>
           <DropdownMenuTrigger asChild>

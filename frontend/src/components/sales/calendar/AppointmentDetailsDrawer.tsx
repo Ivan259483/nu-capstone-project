@@ -94,6 +94,7 @@ export interface AppointmentDetailsDrawerProps {
   onClose: () => void;
   onChanged: (updated?: CalendarBooking) => void;
   onRequestReschedule?: (booking: CalendarBooking) => void;
+  readOnly?: boolean;
 }
 
 const RESCHEDULABLE_STATUSES: ReadonlySet<AppointmentStatus> = new Set([
@@ -282,6 +283,7 @@ export default function AppointmentDetailsDrawer({
   onClose,
   onChanged,
   onRequestReschedule,
+  readOnly = false,
 }: AppointmentDetailsDrawerProps) {
   const bookingId = booking._id || booking.id || '';
   const fallbackRef = useRef<AppointmentRecord>(booking as AppointmentRecord);
@@ -436,14 +438,16 @@ export default function AppointmentDetailsDrawer({
   );
 
   const canReschedule = Boolean(
-    status && onRequestReschedule && RESCHEDULABLE_STATUSES.has(status),
+    !readOnly && status && onRequestReschedule && RESCHEDULABLE_STATUSES.has(status),
   );
-  const canCancel = Boolean(status && CANCELLABLE_STATUSES.has(status));
+  const canCancel = Boolean(!readOnly && status && CANCELLABLE_STATUSES.has(status));
   const hasPrimaryAction =
-    status === 'pending_confirmation' ||
-    status === 'pending' ||
-    status === 'received' ||
-    status === 'in_progress';
+    !readOnly && (
+      status === 'pending_confirmation' ||
+      status === 'pending' ||
+      status === 'received' ||
+      status === 'in_progress'
+    );
   const hasActions = hasPrimaryAction || canReschedule || canCancel;
   const isActioning = Boolean(actionKey);
 
@@ -812,7 +816,7 @@ export default function AppointmentDetailsDrawer({
               <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50/70 p-3">
                 <p className="text-xs font-bold text-rose-900">Cancel this appointment?</p>
                 <p className="mt-0.5 text-[11px] leading-4 text-rose-700">
-                  This changes the booking status to Cancelled and releases its reserved capacity.
+                  This changes the booking status to Cancelled and releases its reserved appointment time.
                 </p>
                 <div className="mt-2 flex justify-end gap-2">
                   <button

@@ -69,12 +69,12 @@ export function mapRangeSummaryToCustomerDay(summary: RangeSlotSummary): Custome
   const reason = closed
     ? summary.closureLabel
       || (summary.closedReason === 'emergency'
-        ? 'Shop is temporarily closed today.'
+        ? 'Bookings for today have been temporarily closed. Please select another available date.'
         : summary.closedReason === 'recurring'
           ? 'This day is closed per the weekly schedule.'
           : 'This date is not available for booking.')
     : full
-      ? 'All booking slots for this date are fully booked.'
+      ? 'All appointment times for this date are booked.'
       : '';
 
   return {
@@ -96,14 +96,15 @@ export function mapRangeSummaryToCustomerDay(summary: RangeSlotSummary): Custome
   };
 }
 
-let socketHooked = false;
+const hookedSockets = new WeakSet<object>();
 
 /** Subscribe to server pushes + Mongo change streams for availability collections. */
 export function ensureAvailabilityRealtimeSync(): void {
-  if (typeof window === 'undefined' || socketHooked) return;
-  socketHooked = true;
+  if (typeof window === 'undefined') return;
 
   const sock = getSharedSocket();
+  if (hookedSockets.has(sock)) return;
+  hookedSockets.add(sock);
 
   sock.on('availability_updated', () => {
     syncAvailabilityCaches();

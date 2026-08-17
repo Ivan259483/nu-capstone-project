@@ -15,10 +15,17 @@ import {
   PhilippinePeso,
   Calendar,
   Package,
+  Bell,
   type LucideIcon,
 } from 'lucide-react';
 import AdminTopBar from './AdminTopBar';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
+import AdminNotificationCenterPage from './notifications/AdminNotificationCenterPage';
+import {
+  getNotificationCategory,
+  getNotificationId,
+  getNotificationLink,
+} from './notifications/notification-utils';
 import AdminUserProfilePage from './pages/AdminUserProfilePage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import AdminUserManagement from './pages/AdminUserManagement';
@@ -66,9 +73,25 @@ interface Props {
   syncUserDirectoryFromParent?: boolean;
   directoryUsers?: any[];
   directoryBulkLoaded?: boolean;
+  notificationFeed?: SystemNotification[];
+  notificationUnreadCount?: number;
+  onRefreshNotificationFeed?: () => Promise<unknown> | unknown;
+  onSetNotificationRead?: (id: string, isRead: boolean) => Promise<unknown> | unknown;
+  onMarkAllNotificationsRead?: () => Promise<unknown> | unknown;
 }
 
-const ROUTABLE_TAB_IDS = new Set(['live_tracking', 'pricing', 'scheduling', 'inventory']);
+const ROUTABLE_TAB_IDS = new Set([
+  'dashboard',
+  'notifications',
+  'scheduling',
+  'live_tracking',
+  'pricing',
+  'inventory',
+  'users',
+  'roles',
+  'logs',
+  'profile',
+]);
 
 const SIDEBAR_WIDTH_EXPANDED = 260;
 const SIDEBAR_WIDTH_COLLAPSED = 64;
@@ -136,6 +159,7 @@ const NAV_SECTION_LABELS: Record<string, string> = {
 
 const PAGE_ICONS: Record<string, LucideIcon> = {
   dashboard: LayoutDashboard,
+  notifications: Bell,
   scheduling: Calendar,
   live_tracking: Radio,
   pricing: PhilippinePeso,
@@ -172,7 +196,10 @@ function buildNavTree(role: string): NavEntry[] {
     id: 'dashboard',
     label: 'Dashboard',
     icon: LayoutDashboard,
-    children: [{ id: 'dashboard', label: 'Dashboard' }],
+    children: [
+      { id: 'dashboard', label: 'Dashboard' },
+      { id: 'notifications', label: 'Notifications' },
+    ],
   };
 
   if (role === 'administrator' || role === 'office_admin') {
@@ -226,6 +253,33 @@ function filterNavTree(tree: NavEntry[], query: string): NavEntry[] {
   });
 }
 
+function getNotificationHubPage(notification: SystemNotification): string | null {
+  const link = String(getNotificationLink(notification) || '').toLowerCase();
+  try {
+    const parsed = new URL(link, window.location.origin);
+    const linkedTab = parsed.searchParams.get('tab');
+    if (linkedTab && ROUTABLE_TAB_IDS.has(linkedTab)) return linkedTab;
+  } catch {
+    /* Fall through to legacy-link and category mapping. */
+  }
+
+  if (/inventory|stock|product/.test(link)) return 'inventory';
+  if (/live[-_/ ]?tracking|tracker|jobs?|orders?/.test(link)) return 'live_tracking';
+  if (/appointments?|bookings?|scheduling|availability|closure|waiver/.test(link)) return 'scheduling';
+  if (/permissions?|roles?/.test(link)) return 'roles';
+  if (/activity|audit|logs?/.test(link)) return 'logs';
+  if (/users?|accounts?|staff/.test(link)) return 'users';
+  if (/billing|payments?|revenue|refund/.test(link)) return 'dashboard';
+
+  const category = getNotificationCategory(notification);
+  if (category === 'inventory') return 'inventory';
+  if (category === 'appointments') return 'scheduling';
+  if (category === 'live_tracking') return 'live_tracking';
+  if (category === 'payments') return 'dashboard';
+  if (category === 'security') return 'logs';
+  return null;
+}
+
 function flattenNavPages(tree: NavEntry[]): Array<{ id: string; label: string; icon: LucideIcon }> {
   const pages: Array<{ id: string; label: string; icon: LucideIcon }> = [];
 
@@ -256,6 +310,11 @@ function AdminHubPanelInner({
   syncUserDirectoryFromParent = false,
   directoryUsers,
   directoryBulkLoaded = false,
+  notificationFeed,
+  notificationUnreadCount,
+  onRefreshNotificationFeed,
+  onSetNotificationRead,
+  onMarkAllNotificationsRead,
 }: Props) {
   const location = useLocation();
   const currentRole = getSafeUserRole(currentUser?.role);
@@ -288,7 +347,9 @@ function AdminHubPanelInner({
     if (typeof window === 'undefined') return 'light';
     return window.localStorage.getItem(ADMINHUB_THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light';
   });
-  const [notifications, setNotifications] = useState<SystemNotification[]>([]);
+  const [notifications, setNotifications] = useState<SystemNotification[]>(
+    () => Array.isArray(notificationFeed) ? notificationFeed : [],
+  );
 
   const { logout } = useAuth();
   const navigate = useNavigate();
@@ -456,10 +517,15 @@ function AdminHubPanelInner({
     });
   }, [activePage]);
 
-  const syncTabSearchParam = useCallback((tabId: string) => {
+  const syncTabSearchParam = useCallback((tabId: string, clearNotificationContext = false) => {
     if (typeof window === 'undefined') return;
 
     const nextParams = new URLSearchParams(window.location.search);
+    if (clearNotificationContext) {
+      ['orderId', 'paymentId', 'productId', 'bookingReference', 'panel'].forEach((key) => {
+        nextParams.delete(key);
+      });
+    }
     if (ROUTABLE_TAB_IDS.has(tabId)) {
       nextParams.set('tab', tabId);
     } else {
@@ -496,7 +562,7 @@ function AdminHubPanelInner({
       if (id !== activePage) {
         setActivePage(id);
       }
-      syncTabSearchParam(id);
+      syncTabSearchParam(id, true);
     },
     [activePage, isQualityChecker, syncTabSearchParam],
   );
@@ -532,55 +598,115 @@ function AdminHubPanelInner({
   }, [hubTheme]);
 
   useEffect(() => {
-    let cancelled = false;
-    NotificationService.getNotifications()
-      .then((res) => {
-        if (!cancelled && res.success && Array.isArray(res.data)) {
-          setNotifications(res.data);
-        }
-      })
-      .catch((error) => {
-        console.warn('[AdminHub] notifications fetch error:', error);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (Array.isArray(notificationFeed)) setNotifications(notificationFeed);
+  }, [notificationFeed]);
+
+  const refreshNotifications = useCallback(async () => {
+    if (onRefreshNotificationFeed) {
+      await onRefreshNotificationFeed();
+      return;
+    }
+
+    const response = await NotificationService.getNotifications({ limit: 50 });
+    if (response.success && Array.isArray(response.data)) {
+      setNotifications(response.data);
+    }
+  }, [onRefreshNotificationFeed]);
+
+  useEffect(() => {
+    void refreshNotifications();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshNotifications();
+    }, 45_000);
+    return () => window.clearInterval(interval);
+  }, [refreshNotifications]);
+
+  const handleSetNotificationRead = useCallback(async (id: string, isRead: boolean) => {
+    const result = onSetNotificationRead
+      ? await onSetNotificationRead(id, isRead)
+      : await NotificationService.setReadStatus(id, isRead);
+    if (result === false || (typeof result === 'object' && result && 'success' in result && !(result as { success?: boolean }).success)) {
+      return false;
+    }
+    setNotifications((current) => current.map((item) => (
+      getNotificationId(item) === id
+        ? { ...item, isRead, readAt: isRead ? new Date().toISOString() : null }
+        : item
+    )));
+    return true;
+  }, [onSetNotificationRead]);
 
   const handleAdminNotificationClick = useCallback(
     async (notification: SystemNotification) => {
-      const id = notification.id || notification._id;
-      if (id) {
-        const res = await NotificationService.markAsRead(id);
-        if (res?.success) {
-          setNotifications((current) =>
-            current.map((item) =>
-              (item.id || item._id) === id ? { ...item, isRead: true } : item,
-            ),
-          );
+      const id = getNotificationId(notification);
+      if (id && !notification.isRead) await handleSetNotificationRead(id, true);
+
+      const link = getNotificationLink(notification);
+      const hubPage = getNotificationHubPage(notification);
+      if (hubPage) {
+        if (link && !/^https?:\/\//i.test(link)) {
+          try {
+            const parsed = new URL(link.startsWith('/') ? link : `/${link}`, window.location.origin);
+            const nextParams = new URLSearchParams(parsed.search);
+            const legacyRecordMatch = parsed.pathname.match(
+              /^\/admin\/(?:bookings|orders|payments|inventory)\/([^/?#]+)/i,
+            );
+            if (legacyRecordMatch && !nextParams.has('orderId') && !nextParams.has('paymentId') && !nextParams.has('productId')) {
+              const recordId = decodeURIComponent(legacyRecordMatch[1]);
+              if (/payments/i.test(parsed.pathname)) nextParams.set('paymentId', recordId);
+              else if (/inventory/i.test(parsed.pathname)) nextParams.set('productId', recordId);
+              else nextParams.set('orderId', recordId);
+            }
+            nextParams.set('tab', hubPage);
+            setActivePage(hubPage);
+            navigate({
+              pathname: location.pathname,
+              search: `?${nextParams.toString()}`,
+              hash: parsed.hash,
+            });
+            return;
+          } catch {
+            /* Fall back to opening only the mapped Admin Hub page. */
+          }
         }
+        selectNavPage(hubPage);
+        return;
       }
-      if (notification.link) {
-        const path = notification.link.startsWith('/')
-          ? notification.link
-          : `/${notification.link}`;
-        navigate(path);
+
+      if (link) {
+        if (/^https?:\/\//i.test(link)) {
+          window.location.assign(link);
+          return;
+        }
+        navigate(link.startsWith('/') ? link : `/${link}`);
       }
     },
-    [navigate],
+    [handleSetNotificationRead, location.pathname, navigate, selectNavPage],
   );
 
   const handleMarkAllNotificationsRead = useCallback(async () => {
-    const res = await NotificationService.markAllAsRead();
-    if (res?.success) {
-      setNotifications((current) => current.map((item) => ({ ...item, isRead: true })));
+    const result = onMarkAllNotificationsRead
+      ? await onMarkAllNotificationsRead()
+      : await NotificationService.markAllAsRead();
+    if (result === false || (typeof result === 'object' && result && 'success' in result && !(result as { success?: boolean }).success)) {
+      return false;
     }
-  }, []);
+    setNotifications((current) => current.map((item) => ({
+      ...item,
+      isRead: true,
+      readAt: item.readAt || new Date().toISOString(),
+    })));
+    return true;
+  }, [onMarkAllNotificationsRead]);
 
   const prefetchCustomerTracker =
     currentRole === 'office_admin' ||
     currentRole === 'administrator' ||
     currentRole === 'staff_quality_checker';
+  const notificationTargetOrderId = useMemo(
+    () => new URLSearchParams(location.search).get('orderId') || undefined,
+    [location.search],
+  );
 
   const navSearchQuery = navSearch.trim().toLowerCase();
 
@@ -806,8 +932,12 @@ function AdminHubPanelInner({
           onAccountSettings={openUserProfile}
           onSignOut={handleSignOut}
           notifications={notifications}
+          unreadNotificationsCount={notificationUnreadCount}
+          onRefreshNotifications={refreshNotifications}
           onNotificationClick={handleAdminNotificationClick}
+          onSetNotificationRead={handleSetNotificationRead}
           onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
+          onViewAllNotifications={() => selectNavPage('notifications')}
           theme={hubTheme}
           onToggleTheme={toggleHubTheme}
         />
@@ -827,6 +957,12 @@ function AdminHubPanelInner({
                 chartsVisible={activePage === 'dashboard'}
                 onRefreshOverview={onLoadData}
                 onExportReport={onExportData}
+              />
+            ))}
+            {renderTabPanel('notifications', (
+              <AdminNotificationCenterPage
+                onOpenNotification={handleAdminNotificationClick}
+                onFeedChanged={refreshNotifications}
               />
             ))}
             {renderTabPanel('scheduling', (
@@ -850,7 +986,11 @@ function AdminHubPanelInner({
             {renderTabPanel('inventory', <InventoryPanel embedded />)}
 
             {prefetchCustomerTracker && renderTabPanel('live_tracking', (
-              <CustomerTrackerPanel embedded />
+              <CustomerTrackerPanel
+                embedded
+                initialOrderId={notificationTargetOrderId}
+                deepLinkActive={activePage === 'live_tracking'}
+              />
             ), { forceMount: true })}
 
             {renderTabPanel('profile', (

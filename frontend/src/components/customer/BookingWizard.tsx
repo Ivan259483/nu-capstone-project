@@ -28,7 +28,28 @@ import api from '@/lib/api';
 import type { Service, Vehicle, User } from '@/types';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
-import { syncAvailabilityCaches } from '@/lib/availabilitySync';
+import {
+    AVAILABILITY_UPDATED_EVENT,
+    ensureAvailabilityRealtimeSync,
+    syncAvailabilityCaches,
+} from '@/lib/availabilitySync';
+
+const EMERGENCY_CLOSURE_MESSAGE = 'Bookings for today have been temporarily closed. Please select another available date.';
+
+const isIsoDate = (value: unknown): value is string => (
+    typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+);
+
+const getAvailabilityErrorCode = (payload: any): string | null => {
+    const value = payload?.errorCode;
+    return typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : null;
+};
+
+const isEmergencyClosurePayload = (payload: any): boolean => (
+    getAvailabilityErrorCode(payload) === 'EMERGENCY_CLOSED'
+    || payload?.emergencyClosed === true
+    || String(payload?.closureType || payload?.closedReason || '').toLowerCase() === 'emergency'
+);
 
 // Copied from original file
 const SERVICE_IMAGE_MAP: Record<string, string> = {
@@ -78,9 +99,31 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
     const [availableSlots, setAvailableSlots] = useState<NonNullable<AvailableSlotsResponse['slots']>>([]);
     const [isLoadingSlots, setIsLoadingSlots] = useState(false);
     const [availabilityMessage, setAvailabilityMessage] = useState('');
+    const [availabilityErrorCode, setAvailabilityErrorCode] = useState<string | null>(null);
+    const [availabilityRevision, setAvailabilityRevision] = useState(0);
+    const [businessDate, setBusinessDate] = useState('');
     const [dateUnavailable, setDateUnavailable] = useState(false);
+    const [dailyAvailability, setDailyAvailability] = useState<{
+        remaining: number;
+        booked: number;
+        capacity: number;
+    } | null>(null);
     const [gcashProof, setGcashProof] = useState<File | null>(null);
     const [waiverSigned, setWaiverSigned] = useState(false);
+
+    // Keep the selected appointment authoritative even while the customer is on
+    // review/payment. The shared socket bridge turns server broadcasts into this
+    // DOM event; every event forces a fresh selected-day availability check.
+    useEffect(() => {
+        ensureAvailabilityRealtimeSync();
+        const handleAvailabilityUpdate = () => {
+            if (!date) return;
+            setIsLoadingSlots(true);
+            setAvailabilityRevision((current) => current + 1);
+        };
+        window.addEventListener(AVAILABILITY_UPDATED_EVENT, handleAvailabilityUpdate);
+        return () => window.removeEventListener(AVAILABILITY_UPDATED_EVENT, handleAvailabilityUpdate);
+    }, [date]);
 
     // Fetch available slots when date changes
     useEffect(() => {
@@ -88,6 +131,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
             setAvailableSlots([]);
             setDateUnavailable(false);
             setAvailabilityMessage('');
+            setAvailabilityErrorCode(null);
+            setDailyAvailability(null);
             return;
         }
 
@@ -97,13 +142,30 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
             setIsLoadingSlots(true);
             try {
                 // Availability is intentionally fetched fresh. A cached response can outlive
-                // an Admin capacity/hours change and must never be used to offer a stale slot.
+                // an Admin slot/hours change and must never be used to offer a stale time.
                 const { data: response } = await api.get<AvailableSlotsResponse>('/orders/available-slots', {
                     params: { date },
                     signal: controller.signal,
                     meta: { suppressErrorToast: true },
                 } as any);
                 if (!active) return;
+                const responsePayload = response as any;
+                const nextBusinessDate = responsePayload?.businessDate;
+                if (isIsoDate(nextBusinessDate)) setBusinessDate(nextBusinessDate);
+
+                const errorCode = getAvailabilityErrorCode(responsePayload);
+                setAvailabilityErrorCode(errorCode);
+                if (isEmergencyClosurePayload(responsePayload)) {
+                    setAvailableSlots([]);
+                    setDateUnavailable(true);
+                    setAvailabilityMessage(EMERGENCY_CLOSURE_MESSAGE);
+                    setDailyAvailability(null);
+                    setTime('');
+                    setStep(3);
+                    toast.error(EMERGENCY_CLOSURE_MESSAGE, { id: 'emergency-closure' });
+                    return;
+                }
+
                 if (response.success) {
                     const slots = (Array.isArray(response.slots) ? response.slots : []).filter((slot) => (
                         typeof slot?.time === 'string'
@@ -115,14 +177,24 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                     ));
                     const unavailable = !!response.unavailable || slots.length === 0;
                     const message = response.message || response.error
-                        || (slots.length === 0 ? 'No bookable time slots are configured for this date.' : '');
+                        || (slots.length === 0 ? 'No bookable time options are configured for this date.' : '');
+                    const rawCapacity = response.dailyCapacity ?? response.slotsLimit;
+                    const capacity = typeof rawCapacity === 'number' ? rawCapacity : Number.NaN;
+                    const remaining = typeof response.remaining === 'number' ? response.remaining : Number.NaN;
+                    const booked = typeof response.bookedCount === 'number' ? response.bookedCount : Number.NaN;
+                    const hasValidDailyAvailability = Number.isFinite(capacity)
+                        && capacity >= 0
+                        && Number.isFinite(remaining)
+                        && remaining >= 0
+                        && Number.isFinite(booked)
+                        && booked >= 0;
 
                     setAvailableSlots(slots);
                     setDateUnavailable(unavailable);
                     setAvailabilityMessage(message || (unavailable ? 'This date is unavailable for booking.' : ''));
+                    setDailyAvailability(hasValidDailyAvailability ? { capacity, remaining, booked } : null);
 
-                    // Every generated time uses the same server-owned daily capacity.
-                    // A time remains selectable until the date reaches that maximum.
+                    // Every generated time has one server-enforced booking position.
                     setTime((currentTime) => {
                         if (!currentTime) return currentTime;
                         const selectedSlot = slots.find((slot) => slot.time === currentTime);
@@ -133,7 +205,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                             || !Number.isFinite(available)
                             || available <= 0;
                         if (!unavailable && !isFull) return currentTime;
-                        toast.error(message || 'The selected time slot is no longer available.', { id: 'slot-taken' });
+                        toast.error(message || 'The selected time is no longer available.', { id: 'slot-taken' });
                         return '';
                     });
                 } else {
@@ -141,17 +213,19 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                     setAvailableSlots([]);
                     setDateUnavailable(true);
                     setAvailabilityMessage(message);
+                    setDailyAvailability(null);
                     setTime('');
                 }
             } catch (error) {
                 if (!active) return;
                 console.error('Failed to fetch booked slots:', error);
-                toast.error('Could not verify time slot availability.', { id: 'slot-error' });
+                toast.error('Could not verify available times.', { id: 'slot-error' });
                 // Fail closed: never manufacture bookable hours when the authoritative
                 // availability endpoint cannot be reached.
                 setAvailableSlots([]);
                 setDateUnavailable(true);
                 setAvailabilityMessage('Live availability could not be loaded. Please try again.');
+                setDailyAvailability(null);
                 setTime('');
             } finally {
                 if (active) setIsLoadingSlots(false);
@@ -163,15 +237,40 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
             active = false;
             controller.abort();
         };
-    }, [date]);
+    }, [date, availabilityRevision]);
 
     // Filter active services
     const activeServices = services.filter(s => s.status === 'Active');
+    const availableTimeOptionCount = availableSlots.filter((slot) => {
+        const remaining = Number(slot.available);
+        return slot.status !== 'FULL'
+            && slot.status !== 'OVER_CAPACITY'
+            && Number.isFinite(remaining)
+            && remaining > 0;
+    }).length;
+    const selectedTimeIsAvailable = !!time && availableSlots.some((slot) => {
+        const remaining = Number(slot.available);
+        return slot.time === time
+            && slot.status !== 'FULL'
+            && slot.status !== 'OVER_CAPACITY'
+            && Number.isFinite(remaining)
+            && remaining > 0;
+    });
+    const scheduleIsKnownAvailable = !!date
+        && selectedTimeIsAvailable
+        && !dateUnavailable
+        && !isLoadingSlots;
 
     const handleNext = () => {
         if (step === 1 && !selectedService) return toast.error("Please select a service");
         if (step === 2 && !selectedVehicleId) return toast.error("Please select a vehicle");
-        if (step === 3 && (!date || !time)) return toast.error("Please select date and time");
+        if (step === 3 && !scheduleIsKnownAvailable) {
+            return toast.error(
+                availabilityErrorCode === 'EMERGENCY_CLOSED'
+                    ? EMERGENCY_CLOSURE_MESSAGE
+                    : 'Please select an available date and time',
+            );
+        }
         setStep(prev => prev + 1);
     };
 
@@ -188,6 +287,15 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
         }
         if (!selectedService) {
             toast.error("Please select a service");
+            return;
+        }
+        if (!scheduleIsKnownAvailable) {
+            setStep(3);
+            toast.error(
+                availabilityErrorCode === 'EMERGENCY_CLOSED'
+                    ? EMERGENCY_CLOSURE_MESSAGE
+                    : 'Please select an available date and time.',
+            );
             return;
         }
         if (!gcashProof) {
@@ -263,7 +371,21 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
 
         } catch (error: any) {
             console.error("❌ Error submitting booking:", error);
-            const message = error.response?.data?.message || error.message || "An error occurred while booking";
+            const errorPayload = error?.response?.data || {};
+            const status = Number(error?.response?.status || 0);
+            const emergencyClosed = isEmergencyClosurePayload(errorPayload);
+            const message = emergencyClosed
+                ? EMERGENCY_CLOSURE_MESSAGE
+                : errorPayload?.message || error.message || "An error occurred while booking";
+            if (emergencyClosed || status === 409) {
+                setTime('');
+                setDateUnavailable(true);
+                setAvailabilityErrorCode(getAvailabilityErrorCode(errorPayload));
+                setAvailabilityMessage(message);
+                setDailyAvailability(null);
+                setStep(3);
+                setAvailabilityRevision((current) => current + 1);
+            }
             toast.error(message);
         } finally {
             setIsSubmitting(false);
@@ -430,11 +552,28 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                             value={date}
                             onChange={(e) => setDate(e.target.value)}
                             className="bg-zinc-900 border-zinc-700 text-white focus:ring-indigo-500"
-                            min={new Date().toISOString().split('T')[0]}
+                            min={businessDate || new Date().toISOString().split('T')[0]}
                         />
+                        {date && dailyAvailability && !dateUnavailable && (
+                            <div className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs">
+                                <span className="font-semibold text-emerald-300">
+                                    {dailyAvailability.remaining} appointment{dailyAvailability.remaining === 1 ? '' : 's'} remaining
+                                </span>
+                                <span className="text-zinc-400">
+                                    {dailyAvailability.booked} / {dailyAvailability.capacity} booked
+                                </span>
+                            </div>
+                        )}
                     </div>
                     <div className="space-y-4">
-                        <Label htmlFor="time" className="text-white">Select Time</Label>
+                        <div className="flex items-center justify-between gap-3">
+                            <Label htmlFor="time" className="text-white">Select Time</Label>
+                            {date && !isLoadingSlots && !dateUnavailable && (
+                                <span className="text-xs font-medium text-zinc-400">
+                                    {availableTimeOptionCount} available time option{availableTimeOptionCount === 1 ? '' : 's'}
+                                </span>
+                            )}
+                        </div>
                         <Select value={time} onValueChange={setTime} name="time" disabled={isLoadingSlots || !date || dateUnavailable}>
                             <SelectTrigger id="time" className="bg-zinc-900 border-zinc-700 text-white focus:ring-indigo-500">
                                 <SelectValue placeholder={
@@ -442,7 +581,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                                         ? 'Loading availability...'
                                         : dateUnavailable
                                             ? (availabilityMessage || 'This date is unavailable.')
-                                            : (date ? 'Select time slot' : 'Select a date first')
+                                            : (date ? 'Select a time' : 'Select a date first')
                                 } />
                             </SelectTrigger>
                             <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
@@ -460,18 +599,27 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                                             className={isBooked ? "opacity-50 text-zinc-500" : ""}
                                         >
                                             {slot.label || slot.time}{' '}
-                                            {isBooked
-                                                ? '(Full)'
-                                                : Number.isFinite(Number(slot.available))
-                                                    ? `(${slot.available} slot${slot.available === 1 ? '' : 's'} available)`
-                                                    : ''}
+                                            {isBooked ? '(Booked)' : '(Available)'}
                                         </SelectItem>
                                     );
                                 })}
                             </SelectContent>
                         </Select>
                         {dateUnavailable && (
-                            <p className="text-xs text-amber-400">{availabilityMessage || 'This date is unavailable for booking.'}</p>
+                            <div className={availabilityErrorCode === 'EMERGENCY_CLOSED'
+                                ? 'rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2'
+                                : ''}
+                            >
+                                {availabilityErrorCode === 'EMERGENCY_CLOSED' && (
+                                    <p className="text-xs font-bold uppercase tracking-wide text-red-300">Emergency Closed</p>
+                                )}
+                                <p className={availabilityErrorCode === 'EMERGENCY_CLOSED'
+                                    ? 'mt-1 text-xs text-red-200'
+                                    : 'text-xs text-amber-400'}
+                                >
+                                    {availabilityMessage || 'This date is unavailable for booking.'}
+                                </p>
+                            </div>
                         )}
                     </div>
                     <div className="space-y-4">
@@ -500,7 +648,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                 </div>
                 <div className="pt-4 border-t border-zinc-800 flex justify-between shrink-0">
                     <Button variant="ghost" onClick={handleBack}><ChevronLeft className="w-4 h-4 mr-2" /> Back</Button>
-                    <Button onClick={handleNext} disabled={!date || !time} className="bg-indigo-600 text-white hover:bg-indigo-700">
+                    <Button onClick={handleNext} disabled={!scheduleIsKnownAvailable} className="bg-indigo-600 text-white hover:bg-indigo-700">
                         Review <ChevronRight className="w-4 h-4 ml-2" />
                     </Button>
                 </div>
@@ -560,7 +708,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                     <Button variant="ghost" onClick={handleBack} disabled={isSubmitting}>
                         <ChevronLeft className="w-4 h-4 mr-2" /> Back
                     </Button>
-                    <Button onClick={handleNext} disabled={isSubmitting} className="bg-indigo-600 text-white hover:bg-indigo-700">
+                    <Button onClick={handleNext} disabled={isSubmitting || !scheduleIsKnownAvailable} className="bg-indigo-600 text-white hover:bg-indigo-700">
                         Proceed to Payment & Waiver <ChevronRight className="w-4 h-4 ml-2" />
                     </Button>
                 </div>
@@ -681,7 +829,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                 </Button>
                 <Button
                     onClick={handleSubmit}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !scheduleIsKnownAvailable}
                     className="bg-green-600 text-white hover:bg-green-700 flex-1 font-semibold shadow-lg shadow-green-900/30"
                 >
                     {isSubmitting ? (

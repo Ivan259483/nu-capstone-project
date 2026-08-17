@@ -8664,15 +8664,59 @@ a.public-nav-link.public-nav-link--active {
 }
 
 .customer-booking-modal .booking-step3-day-availability {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     max-width: 100%;
     overflow: hidden;
-    color: inherit;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    background: #f8fafc;
+    padding: 0.1rem 0.28rem;
+    color: #64748b;
     font-size: 0.46rem;
     font-weight: 800;
     line-height: 1.05;
     text-align: center;
     text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
+}
+
+.customer-booking-modal .booking-step3-day-availability.availability-tone-high {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+    color: #15803d;
+}
+
+.customer-booking-modal .booking-step3-day-availability.availability-tone-medium {
+    border-color: #fde68a;
+    background: #fffbeb;
+    color: #a16207;
+}
+
+.customer-booking-modal .booking-step3-day-availability.availability-tone-low {
+    border-color: #fed7aa;
+    background: #fff7ed;
+    color: #c2410c;
+}
+
+.customer-booking-modal .booking-step3-day-availability.availability-tone-full {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
+.customer-booking-modal .booking-step3-day-availability.availability-tone-emergency {
+    border-color: #fca5a5;
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.customer-booking-modal .booking-step3-day-availability.availability-tone-closed,
+.customer-booking-modal .booking-step3-day-availability.availability-tone-unavailable {
+    border-color: #e2e8f0;
+    background: #f8fafc;
+    color: #64748b;
 }
 
 .customer-booking-modal .booking-step3-day-dot {
@@ -8752,20 +8796,27 @@ a.public-nav-link.public-nav-link--active {
 }
 
 .customer-booking-modal .booking-step3-day.is-full {
-    border-color: rgb(245 158 11 / 0.18);
-    background: #fffbeb;
-    color: #b45309;
+    border-color: rgb(239 68 68 / 0.18);
+    background: #fff7f7;
+    color: #b91c1c;
 }
 
 .customer-booking-modal .booking-step3-day.is-full .booking-step3-day-dot {
-    color: var(--step3-gold);
-    background: var(--step3-gold);
+    color: #dc2626;
+    background: #dc2626;
 }
 
 .customer-booking-modal .booking-step3-day.is-closed {
     border-color: rgb(191 219 254 / 0.4);
     background: linear-gradient(180deg, #f8fbff, #ffffff);
     color: #8ba3c5;
+}
+
+.customer-booking-modal .booking-step3-day.is-emergency-closed {
+    border-color: rgb(248 113 113 / 0.5);
+    background: linear-gradient(180deg, #fff1f2, #fff7f7);
+    color: #b91c1c;
+    box-shadow: inset 0 -18px 28px -30px rgb(220 38 38 / 0.28);
 }
 
 .customer-booking-modal .booking-step3-day.is-closed .booking-step3-day-dot {
@@ -8818,7 +8869,16 @@ a.public-nav-link.public-nav-link--active {
 }
 
 .customer-booking-modal .booking-step3-legend .is-full i {
-    background: var(--step3-gold);
+    background: #dc2626;
+}
+
+.customer-booking-modal .booking-step3-legend .is-emergency {
+    color: #b91c1c;
+}
+
+.customer-booking-modal .booking-step3-legend .is-emergency i {
+    background: #dc2626;
+    box-shadow: 0 0 0 3px rgb(220 38 38 / 0.12);
 }
 
 .customer-booking-modal .booking-step3-side-panel {
@@ -8894,6 +8954,77 @@ a.public-nav-link.public-nav-link--active {
     width: 100%;
     max-width: var(--booking-step3-content-max, 51.25rem);
     margin-inline: auto;
+}
+
+.customer-booking-modal .booking-step3-date-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.54rem;
+    border-bottom: 1px solid rgb(219 234 254 / 0.76);
+    padding: 0.04rem 0.08rem 0.5rem;
+}
+
+.customer-booking-modal .booking-step3-date-summary-copy,
+.customer-booking-modal .booking-step3-date-summary-capacity {
+    display: grid;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+.customer-booking-modal .booking-step3-date-summary-capacity {
+    justify-items: end;
+    text-align: right;
+}
+
+.customer-booking-modal .booking-step3-date-summary span {
+    color: #6b85ad;
+    font-size: 0.58rem;
+    font-weight: 850;
+    letter-spacing: 0.035em;
+    line-height: 1.1;
+    text-transform: uppercase;
+}
+
+.customer-booking-modal .booking-step3-date-summary strong {
+    color: var(--step3-ink);
+    font-size: 0.8rem;
+    font-weight: 900;
+    line-height: 1.2;
+}
+
+.customer-booking-modal .booking-step3-date-summary-capacity strong {
+    color: #047857;
+}
+
+.customer-booking-modal .booking-step3-date-summary.availability-tone-medium .booking-step3-date-summary-capacity strong {
+    color: #a16207;
+}
+
+.customer-booking-modal .booking-step3-date-summary.availability-tone-low .booking-step3-date-summary-capacity strong {
+    color: #c2410c;
+}
+
+.customer-booking-modal .booking-step3-date-summary.is-full .booking-step3-date-summary-capacity strong,
+.customer-booking-modal .booking-step3-date-summary.availability-tone-full .booking-step3-date-summary-capacity strong {
+    color: #b91c1c;
+}
+
+.customer-booking-modal .booking-step3-date-summary.availability-tone-emergency .booking-step3-date-summary-capacity strong {
+    color: #991b1b;
+}
+
+.customer-booking-modal .booking-step3-date-summary.is-closed .booking-step3-date-summary-capacity strong,
+.customer-booking-modal .booking-step3-date-summary.is-checking .booking-step3-date-summary-capacity strong {
+    color: #64748b;
+}
+
+.customer-booking-modal .booking-step3-date-summary small {
+    color: #7890b4;
+    font-size: 0.62rem;
+    font-weight: 700;
+    line-height: 1.1;
 }
 
 .customer-booking-modal .booking-step3-section-head,
@@ -9428,6 +9559,17 @@ a.public-nav-link.public-nav-link--active {
     .customer-booking-modal .booking-step3-time-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0.34rem;
+    }
+
+    .customer-booking-modal .booking-step3-date-summary {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.42rem;
+    }
+
+    .customer-booking-modal .booking-step3-date-summary-capacity {
+        justify-items: start;
+        text-align: left;
     }
 
     .customer-booking-modal .booking-step3-summary {

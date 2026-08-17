@@ -12,6 +12,7 @@ import {
   mapRangeSummaryToCustomerDay,
   syncAvailabilityCaches,
 } from '@/lib/availabilitySync';
+import { getAvailabilityBadge } from '@/lib/availabilityBadge';
 import { ensureBackendAuthToken, getStoredAuthToken } from '../lib/api';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
 import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking, normalizePhilippineMobileInput, resolveProfilePhoneDisplay } from '../lib/phone';
@@ -1324,6 +1325,8 @@ export default function CustomerDashboard() {
   type DayAvailabilityStatus = 'available' | 'full' | 'closed';
   type AvailableSlotsPayload = {
     success?: boolean;
+    businessDate?: string;
+    businessTimeZone?: string;
     slots?: {
       time?: string;
       label?: string;
@@ -1350,6 +1353,7 @@ export default function CustomerDashboard() {
   const [slotError, setSlotError] = useState<string>('');
   const [monthAvailability, setMonthAvailability] = useState<Record<string, DayAvailabilityInfo>>({});
   const [monthAvailLoading, setMonthAvailLoading] = useState(false);
+  const [bookingBusinessDate, setBookingBusinessDate] = useState(() => new Date().toLocaleDateString('en-CA'));
 
   const parseAvailableSlotsPayload = (payload: AvailableSlotsPayload): {
     unavailable: boolean;
@@ -1544,7 +1548,7 @@ export default function CustomerDashboard() {
       });
       const data = await res.json();
       if (!res.ok || data?.success === false) {
-        throw new Error(data?.message || data?.error || 'Could not load time-slot availability.');
+        throw new Error(data?.message || data?.error || 'Could not load available times.');
       }
       const {
         unavailable,
@@ -1553,26 +1557,27 @@ export default function CustomerDashboard() {
         slots: apiSlots,
       } = parseAvailableSlotsPayload(data);
 
+      if (typeof data?.businessDate === 'string') {
+        setBookingBusinessDate(data.businessDate);
+      }
+
       if (unavailable) {
-        setSlotError(availabilityMessage || 'This date is unavailable for booking.');
+        const message = errorCode === 'EMERGENCY_CLOSED'
+          ? 'Bookings for today have been temporarily closed. Please select another available date.'
+          : availabilityMessage || 'This date is unavailable for booking.';
+        setSlotError(message);
+        setBookingForm((current) => ({ ...current, time: '' }));
+        setBookingStep((current) => (current > 3 ? 3 : current));
+        if (currentSelectedTime) {
+          toast.warning('Selected schedule unavailable', { description: message, duration: 5000 });
+        }
       }
 
       // Derive AVAILABLE / FULL / CLOSED for every slot
-      const now = new Date();
-      const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      const isToday = dateIso === todayIso;
-      const currentMinute = now.getHours() * 60 + now.getMinutes();
-
-      const parseMinute = (time: string) => {
-        const normalized = normalizeBookingTimeKey(time);
-        const match = normalized.match(/^(\d{2}):(\d{2})$/);
-        if (!match) return null;
-        return Number(match[1]) * 60 + Number(match[2]);
-      };
-
       const deriveStatusFromApiSlot = (slot: NonNullable<AvailableSlotsPayload['slots']>[number]): SlotStatus => {
         if (unavailable && errorCode !== 'DATE_FULL') return 'CLOSED';
         const status = String(slot.status || '').toUpperCase();
+        if (status === 'ELAPSED') return 'CLOSED';
         const available = Number(slot.available);
         if (
           status === 'FULL'
@@ -1582,10 +1587,6 @@ export default function CustomerDashboard() {
         ) {
           return 'FULL';
         }
-        if (isToday) {
-          const slotMinute = parseMinute(String(slot.time || slot.label || ''));
-          if (slotMinute !== null && slotMinute <= currentMinute) return 'CLOSED';
-        }
         return 'AVAILABLE';
       };
 
@@ -1594,7 +1595,7 @@ export default function CustomerDashboard() {
         if (
           typeof slot.time !== 'string'
           || !slot.time.trim()
-          || !['AVAILABLE', 'ALMOST_FULL', 'FULL', 'OVER_CAPACITY'].includes(status)
+          || !['AVAILABLE', 'ALMOST_FULL', 'FULL', 'OVER_CAPACITY', 'ELAPSED'].includes(status)
           || !Number.isFinite(Number(slot.capacity))
           || !Number.isFinite(Number(slot.booked))
           || !Number.isFinite(Number(slot.available))
@@ -1615,17 +1616,21 @@ export default function CustomerDashboard() {
         const nowStatus = derived.find(
           s => normalizeBookingTimeKey(s.time) === normalizeBookingTimeKey(currentSelectedTime)
         )?.status;
-        if (nowStatus !== 'AVAILABLE') {
+        if (nowStatus !== 'AVAILABLE' && !unavailable) {
           const msg = `"${currentSelectedTime}" is no longer available. Please select another time.`;
           setSlotError(msg);
           setBookingForm(f => ({ ...f, time: '' }));
-          toast.warning('Time slot unavailable', { description: msg, duration: 4000 });
+          toast.warning('Selected time unavailable', { description: msg, duration: 4000 });
         }
       }
     } catch (error) {
       setSlotStatuses([]);
-      setSlotError(error instanceof Error ? error.message : 'Could not verify time-slot availability.');
-      toast.warning('Could not load time slots', {
+      setSlotError(error instanceof Error ? error.message : 'Could not verify available times.');
+      if (currentSelectedTime) {
+        setBookingForm((current) => ({ ...current, time: '' }));
+        setBookingStep((current) => (current > 3 ? 3 : current));
+      }
+      toast.warning('Could not load available times', {
         description: 'Booking is paused until live availability can be verified. Please try again.',
         duration: 4000,
       });
@@ -1636,17 +1641,40 @@ export default function CustomerDashboard() {
 
   const fetchMonthAvailability = async (year: number, month: number) => {
     setMonthAvailLoading(true);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const start = `${year}-${String(month + 1).padStart(2, '0')}-01`;
     const end = `${year}-${String(month + 1).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
     const result: Record<string, DayAvailabilityInfo> = {};
 
+    let summaries: Awaited<ReturnType<typeof fetchSlotRange>> = [];
+    try {
+      summaries = await fetchSlotRange(start, end);
+    } catch {
+      toast.warning('Could not load calendar availability', {
+        description: 'Showing limited dates. Please try again.',
+        duration: 4000,
+      });
+    }
+
+    const serverBusinessDate = summaries.find((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.businessDate || ''))
+      ?.businessDate;
+    if (serverBusinessDate && serverBusinessDate !== bookingBusinessDate) {
+      const [businessYear, businessMonth] = serverBusinessDate.split('-').map(Number);
+      setBookingBusinessDate(serverBusinessDate);
+      if (year !== businessYear || month !== businessMonth - 1) {
+        const authoritativeMonth = new Date(businessYear, businessMonth - 1, 1);
+        setBookingCalMonth(authoritativeMonth);
+        setMonthAvailLoading(false);
+        void fetchMonthAvailability(businessYear, businessMonth - 1);
+        return;
+      }
+    }
+    const effectiveBusinessDate = serverBusinessDate || bookingBusinessDate;
+    const byDate = new Map(summaries.map((summary) => [summary.date, summary]));
+
     for (let d = 1; d <= daysInMonth; d += 1) {
-      const date = new Date(year, month, d);
       const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      if (date < today) {
+      if (iso < effectiveBusinessDate) {
         result[iso] = {
           status: 'closed',
           unavailable: true,
@@ -1656,20 +1684,12 @@ export default function CustomerDashboard() {
           booked: null,
           capacity: null,
         };
+        continue;
       }
-    }
-
-    try {
-      const summaries = await fetchSlotRange(start, end);
-      for (const summary of summaries) {
-        if (result[summary.date]) continue;
-        result[summary.date] = mapRangeSummaryToCustomerDay(summary);
-      }
-      for (let d = 1; d <= daysInMonth; d += 1) {
-        const date = new Date(year, month, d);
-        const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        if (date >= today && !result[iso]) {
-          result[iso] = {
+      const summary = byDate.get(iso);
+      result[iso] = summary
+        ? mapRangeSummaryToCustomerDay(summary)
+        : {
             status: 'closed',
             unavailable: true,
             errorCode: 'AVAILABILITY_UNVERIFIED',
@@ -1678,17 +1698,10 @@ export default function CustomerDashboard() {
             booked: null,
             capacity: null,
           };
-        }
-      }
-    } catch {
-      toast.warning('Could not load calendar availability', {
-        description: 'Showing limited dates. Please try again.',
-        duration: 4000,
-      });
-    } finally {
-      setMonthAvailability(result);
-      setMonthAvailLoading(false);
     }
+
+    setMonthAvailability(result);
+    setMonthAvailLoading(false);
   };
 
   useEffect(() => {
@@ -7992,31 +8005,57 @@ export default function CustomerDashboard() {
                   const vehicleLabel = formatVehicleMakeModelDisplay(bookingForm.vehicleMake, bookingForm.vehicleModel);
                   const plateLabel = formatPlateDisplay(bookingForm.vehiclePlate, 'Vehicle ready');
                   const serviceLabel = bookingForm.serviceName || 'Protection package';
-                  const openSlots = slotStatuses.filter(slot => slot.status === 'AVAILABLE').length;
+                  const availableTimeOptions = slotStatuses.filter(slot => slot.status === 'AVAILABLE').length;
+                  const selectedDayInfo = bookingForm.date ? monthAvailability[bookingForm.date] : undefined;
+                  const selectedDateEmergencyClosed = selectedDayInfo?.errorCode === 'EMERGENCY_CLOSED';
+                  const selectedDayAvailabilityBadge = selectedDayInfo
+                    ? getAvailabilityBadge({
+                        remaining: selectedDayInfo.remaining,
+                        capacity: selectedDayInfo.capacity,
+                        isClosed: selectedDayInfo.status === 'closed',
+                        isEmergencyClosed: selectedDateEmergencyClosed,
+                        unit: 'appointment',
+                      })
+                    : null;
                   const availableDays = Object.values(monthAvailability).filter(day => day.status === 'available' && !day.unavailable).length;
                   const fullDays = Object.values(monthAvailability).filter(day => day.status === 'full').length;
                   const closedDays = Object.values(monthAvailability).filter(day => day.status === 'closed' && day.errorCode !== 'PAST_DATE').length;
                   const bookingContextLabel = [serviceLabel, vehicleLabel, plateLabel].filter(Boolean).join(' · ');
-                  const slotStatusLabel =
+                  const timeOptionStatusLabel =
                     !bookingForm.date ? 'Waiting for date' :
-                      slotsLoading ? 'Syncing slots' :
-                        slotStatuses.length === 0 ? 'No slots posted' :
-                          `${openSlots} open slot${openSlots === 1 ? '' : 's'}`;
-                  const slotFillPct = slotStatuses.length > 0
-                    ? Math.max(8, Math.round((openSlots / slotStatuses.length) * 100))
+                      slotsLoading ? 'Checking available times' :
+                        selectedDayInfo?.status === 'full' ? 'No time options — date is fully booked' :
+                          selectedDateEmergencyClosed ? 'No time options — Emergency Closed' :
+                            selectedDayInfo?.status === 'closed' ? 'No time options — date is closed' :
+                            slotStatuses.length === 0 ? 'No time options available' :
+                              `${availableTimeOptions} available time option${availableTimeOptions === 1 ? '' : 's'}`;
+                  const timeOptionFillPct = slotStatuses.length > 0 && availableTimeOptions > 0
+                    ? Math.max(8, Math.round((availableTimeOptions / slotStatuses.length) * 100))
                     : 0;
-
-                  const localIso = (date: Date) =>
-                    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                  const selectedDateAvailabilityLabel = !bookingForm.date
+                    ? ''
+                    : selectedDayInfo?.status === 'full'
+                      ? 'Fully Booked'
+                      : selectedDateEmergencyClosed
+                        ? 'Emergency Closed'
+                        : selectedDayInfo?.status === 'closed'
+                          ? 'Closed'
+                        : typeof selectedDayInfo?.remaining === 'number'
+                          ? `${selectedDayInfo.remaining} appointment${selectedDayInfo.remaining === 1 ? '' : 's'} remaining`
+                          : 'Checking daily availability';
+                  const selectedDateCapacityDetail = (
+                    typeof selectedDayInfo?.booked === 'number'
+                    && typeof selectedDayInfo?.capacity === 'number'
+                  )
+                    ? `${selectedDayInfo.booked} / ${selectedDayInfo.capacity} booked`
+                    : '';
 
                   const renderCalendarCells = () => {
                     const year = bookingCalMonth.getFullYear();
                     const month = bookingCalMonth.getMonth();
                     const firstDay = new Date(year, month, 1).getDay();
                     const daysInMonth = new Date(year, month + 1, 0).getDate();
-                    const todayD = new Date();
-                    todayD.setHours(0, 0, 0, 0);
-                    const todayIso = localIso(todayD);
+                    const todayIso = bookingBusinessDate;
                     const cells: React.ReactNode[] = [];
 
                     for (let i = 0; i < firstDay; i += 1) {
@@ -8031,25 +8070,29 @@ export default function CustomerDashboard() {
                       const dayInfo = monthAvailability[iso];
                       const status: DayAvailabilityStatus = dayInfo?.status || 'closed';
                       const errorCode = dayInfo?.errorCode || null;
-                      const isPast = errorCode === 'PAST_DATE' || date < todayD;
+                      const isPast = errorCode === 'PAST_DATE';
+                      const isEmergencyClosed = errorCode === 'EMERGENCY_CLOSED';
                       const isShopClosed = !isPast && status === 'closed';
                       const isFullyBooked = status === 'full';
                       const disabled = !!dayInfo?.unavailable || status === 'closed' || status === 'full';
                       const isSelected = bookingForm.date === iso;
+                      const availabilityBadge = isPast
+                        ? null
+                        : getAvailabilityBadge({
+                            remaining: isFullyBooked ? 0 : dayInfo?.remaining,
+                            capacity: dayInfo?.capacity,
+                            isClosed: isShopClosed,
+                            isEmergencyClosed,
+                            unit: 'appointment',
+                          });
                       const unavailableReason = isPast
                         ? 'Past date is no longer available.'
                         : isFullyBooked
-                          ? (dayInfo?.reason || 'All booking slots for this date are fully booked.')
+                          ? (dayInfo?.reason || 'All appointment times for this date are booked.')
                           : isShopClosed
                             ? (dayInfo?.reason || 'Shop is closed on this day.')
                             : '';
-                      const availabilityLabel = isPast
-                        ? ''
-                        : isShopClosed
-                          ? 'Closed'
-                          : isFullyBooked
-                            ? 'Fully Booked'
-                            : `${dayInfo?.remaining ?? 0} slot${dayInfo?.remaining === 1 ? '' : 's'} available`;
+                      const availabilityLabel = availabilityBadge?.label || '';
                       const dayClassName = [
                         'booking-step3-day',
                         status === 'available' && !disabled ? 'is-available' : '',
@@ -8057,6 +8100,7 @@ export default function CustomerDashboard() {
                         isToday ? 'is-today' : '',
                         isPast ? 'is-past' : '',
                         isShopClosed ? 'is-closed' : '',
+                        isEmergencyClosed ? 'is-emergency-closed' : '',
                         isFullyBooked ? 'is-full' : '',
                         monthAvailLoading ? 'is-loading' : '',
                       ].filter(Boolean).join(' ');
@@ -8067,7 +8111,7 @@ export default function CustomerDashboard() {
                           type="button"
                           disabled={disabled}
                           title={disabled ? unavailableReason : undefined}
-                          aria-label={disabled ? `Unavailable: ${unavailableReason}` : `Select ${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}`}
+                          aria-label={disabled ? `Unavailable: ${unavailableReason}` : `Select ${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}; ${availabilityLabel}`}
                           className={dayClassName}
                           data-date={iso}
                           onClick={() => {
@@ -8081,7 +8125,11 @@ export default function CustomerDashboard() {
                         >
                           <span className="booking-step3-day-number">{day}</span>
                           {isToday && <span className="booking-step3-day-tag">Today</span>}
-                          {availabilityLabel && <span className="booking-step3-day-availability">{availabilityLabel}</span>}
+                          {availabilityLabel && (
+                            <span className={`booking-step3-day-availability availability-tone-${availabilityBadge?.tone || 'unavailable'}`}>
+                              {availabilityLabel}
+                            </span>
+                          )}
                         </button>
                       );
                     }
@@ -8095,7 +8143,7 @@ export default function CustomerDashboard() {
                         <div className="booking-step3-hero-copy">
                           <h3 id="booking-step3-title">Choose Date &amp; Time</h3>
                           <span className="booking-step3-context">{bookingContextLabel}</span>
-                          <p>Select an available date, then choose your preferred time slot.</p>
+                          <p>Select an available date, then choose your preferred time.</p>
                         </div>
                       </section>
 
@@ -8162,6 +8210,7 @@ export default function CustomerDashboard() {
                                 { className: 'open', label: 'Available' },
                                 { className: 'full', label: 'Fully booked' },
                                 { className: 'closed', label: 'Closed' },
+                                { className: 'emergency', label: 'Emergency Closed' },
                               ].map(item => (
                                 <span key={item.label} className={`is-${item.className}`}>
                                   <i aria-hidden />
@@ -8172,10 +8221,24 @@ export default function CustomerDashboard() {
                           </section>
 
                           <section className="booking-step3-time-shell">
+                            {bookingForm.date && (
+                              <div className={`booking-step3-date-summary is-${selectedDayInfo?.status || 'checking'} availability-tone-${selectedDayAvailabilityBadge?.tone || 'unavailable'}`}>
+                                <div className="booking-step3-date-summary-copy">
+                                  <span>Selected appointment date</span>
+                                  <strong>{selectedDateFullLabel}</strong>
+                                </div>
+                                <div className="booking-step3-date-summary-capacity">
+                                  <span>Daily slot availability</span>
+                                  <strong>{selectedDateAvailabilityLabel}</strong>
+                                  {selectedDateCapacityDetail && <small>{selectedDateCapacityDetail}</small>}
+                                </div>
+                              </div>
+                            )}
+
                             <div className="booking-step3-section-head">
                               <div>
                                 <span>Preferred Time</span>
-                                <strong>{slotStatusLabel}</strong>
+                                <strong>{timeOptionStatusLabel}</strong>
                               </div>
                               <em className={bookingForm.time ? 'is-picked' : ''}>{bookingForm.time ? 'Selected' : 'Required'}</em>
                             </div>
@@ -8191,10 +8254,26 @@ export default function CustomerDashboard() {
                               <div className="booking-step3-empty-state">
                                 <iconify-icon icon="solar:calendar-search-bold" width="24"></iconify-icon>
                                 <strong>Waiting for date</strong>
-                                <span>Choose an available date above to see time slots.</span>
+                                <span>Choose an available date above to see available times.</span>
+                              </div>
+                            ) : selectedDayInfo?.status === 'full' ? (
+                              <div className="booking-step3-empty-state">
+                                <iconify-icon icon="solar:calendar-minimalistic-bold" width="24"></iconify-icon>
+                                <strong>Fully Booked</strong>
+                                <span>All appointment times for this date are booked.</span>
+                              </div>
+                            ) : selectedDayInfo?.status === 'closed' ? (
+                              <div className="booking-step3-empty-state">
+                                <iconify-icon icon="solar:calendar-mark-bold" width="24"></iconify-icon>
+                                <strong>{selectedDateEmergencyClosed ? 'Emergency Closed' : 'Closed'}</strong>
+                                <span>
+                                  {selectedDateEmergencyClosed
+                                    ? 'Bookings for today have been temporarily closed. Please select another available date.'
+                                    : 'No appointment times are offered on this date.'}
+                                </span>
                               </div>
                             ) : slotsLoading ? (
-                              <div className="booking-step3-time-grid" aria-label="Loading time slots">
+                              <div className="booking-step3-time-grid" aria-label="Loading available times">
                                 {Array.from({ length: 6 }, (_, index) => (
                                   <div key={index} className="booking-step3-time-skeleton" />
                                 ))}
@@ -8202,13 +8281,13 @@ export default function CustomerDashboard() {
                             ) : slotStatuses.length === 0 ? (
                               <div className="booking-step3-empty-state">
                                 <iconify-icon icon="solar:clock-circle-bold" width="24"></iconify-icon>
-                                <strong>No slots posted</strong>
+                                <strong>No time options available</strong>
                                 <span>{selectedDateFullLabel}</span>
                               </div>
                             ) : (
                               <>
                                 <div className="booking-step3-slot-meter" aria-hidden>
-                                  <span style={{ width: `${slotFillPct}%` }} />
+                                  <span style={{ width: `${timeOptionFillPct}%` }} />
                                 </div>
                                 <div className="booking-step3-time-grid">
                                   {slotStatuses.map(({ time: t, status }) => {
@@ -8221,14 +8300,14 @@ export default function CustomerDashboard() {
                                       status === 'CLOSED' ? 'is-closed' : '',
                                       isActive ? 'is-selected' : '',
                                     ].filter(Boolean).join(' ');
-                                    const label = status === 'FULL' ? 'Booked' : status === 'CLOSED' ? 'Closed' : isActive ? 'Selected' : 'Open';
+                                    const label = status === 'FULL' ? 'Booked' : status === 'CLOSED' ? 'Closed' : isActive ? 'Selected' : 'Available';
 
                                     return (
                                       <button
                                         key={t}
                                         type="button"
                                         disabled={isDisabled}
-                                        title={status === 'FULL' ? 'This slot is fully booked' : status === 'CLOSED' ? 'This slot is unavailable' : t}
+                                        title={status === 'FULL' ? 'This time has already been booked' : status === 'CLOSED' ? 'This time is unavailable' : t}
                                         className={slotClassName}
                                         onClick={() => {
                                           if (isDisabled) return;
@@ -8780,7 +8859,7 @@ export default function CustomerDashboard() {
                 !bookingForm.date ? 'Select a date' :
                   !bookingForm.time ? 'Select a time' :
                     slotError ? 'Your selected time is no longer available' :
-                      selectedSlotStatus !== 'AVAILABLE' ? 'Selected slot is no longer available' :
+                      selectedSlotStatus !== 'AVAILABLE' ? 'Selected time is no longer available' :
                         `${step3FooterDateLabel} · ${bookingForm.time} selected`;
               const step4Valid = true; // Summary step — always passable, just review
               const step5Valid = bookingAgreed && bookingTermsReachedEnd;
