@@ -46,6 +46,7 @@ import {
 } from "@/components/auth/RegisterLegalAcknowledgement";
 import AuthSpotlight from "@/components/effects/AuthSpotlight";
 const DEFAULT_LOGIN_REDIRECT = "/customer/dashboard";
+const LOGIN_OTP_SESSION_KEY = "login_otp_session_v1";
 
 const LOGIN_TAB_CONTENT_TRANSITION = {
     duration: 0.42,
@@ -87,6 +88,72 @@ const LOGIN_AUTH_TOAST_CLASS_NAMES: ExternalToast["classNames"] = {
     closeButton:
         "!border-white/10 !bg-zinc-900 !text-zinc-300 transition-colors hover:!bg-zinc-800 hover:!text-white",
 };
+
+interface PendingLoginOtpSession {
+    userId: string;
+    challengeToken: string;
+    maskedEmail: string;
+    email: string;
+    createdAt: number;
+    expiresAt: number;
+}
+
+function getSafeString(value: unknown): string {
+    return typeof value === "string" ? value : "";
+}
+
+function clearStoredLoginOtpSession() {
+    try {
+        sessionStorage.removeItem(LOGIN_OTP_SESSION_KEY);
+    } catch {
+        /* ignore */
+    }
+}
+
+function readStoredLoginOtpSession(): PendingLoginOtpSession | null {
+    try {
+        const raw = sessionStorage.getItem(LOGIN_OTP_SESSION_KEY);
+        if (!raw) return null;
+
+        const parsed = JSON.parse(raw) as Partial<PendingLoginOtpSession>;
+        const userId = getSafeString(parsed.userId);
+        const challengeToken = getSafeString(parsed.challengeToken);
+        const maskedEmail = getSafeString(parsed.maskedEmail);
+        const email = getSafeString(parsed.email);
+        const createdAt = Number(parsed.createdAt);
+        const expiresAt = Number(parsed.expiresAt);
+
+        if (!userId || !challengeToken || !maskedEmail || !email || !Number.isFinite(createdAt) || !Number.isFinite(expiresAt)) {
+            clearStoredLoginOtpSession();
+            return null;
+        }
+
+        if (Date.now() > expiresAt) {
+            clearStoredLoginOtpSession();
+            return null;
+        }
+
+        return {
+            userId,
+            challengeToken,
+            maskedEmail,
+            email,
+            createdAt,
+            expiresAt,
+        };
+    } catch {
+        clearStoredLoginOtpSession();
+        return null;
+    }
+}
+
+function setStoredLoginOtpSession(data: PendingLoginOtpSession) {
+    try {
+        sessionStorage.setItem(LOGIN_OTP_SESSION_KEY, JSON.stringify(data));
+    } catch {
+        /* ignore */
+    }
+}
 
 function isInvalidCredentialsMessage(message?: string): boolean {
     const normalized = (message || "").trim().toLowerCase();
@@ -229,6 +296,28 @@ export default function Login() {
     useEffect(() => {
         if (registerForm.password.length === 0) setShowRegisterPassword(false);
     }, [registerForm.password.length]);
+
+    useEffect(() => {
+        const sessionOtp = readStoredLoginOtpSession();
+        if (!sessionOtp) return;
+
+        setPendingUserId(sessionOtp.userId);
+        setPendingLoginChallenge(sessionOtp.challengeToken);
+        setLoginMaskedEmail(sessionOtp.maskedEmail);
+        setLoginForm((current) => ({ ...current, email: sessionOtp.email }));
+        const nowSeconds = Math.floor((sessionOtp.expiresAt - Date.now()) / 1000);
+        setLoginOtpExpiry(Math.max(0, nowSeconds));
+        setLoginOtpResend(60);
+        setLoginOtpDigits(["", "", "", "", "", ""]);
+        setLoginOtpError("");
+        setLoginOtpStep("otp");
+        setLoginStep("password");
+        setLoginAttempts(0);
+        setIsLocked(false);
+        setLockUntilMs(null);
+        setLockCountdown("");
+        setTimeout(() => loginOtpInputRefs.current[0]?.focus(), 120);
+    }, []);
 
     useEffect(() => {
         if (tab === "register" && prevTabRef.current !== "register") {
@@ -401,6 +490,7 @@ export default function Login() {
         try {
             const emailNorm = loginForm.email.trim().toLowerCase();
             const result = await login(emailNorm, loginForm.password);
+            clearStoredLoginOtpSession();
 
             // ── Unverified account: redirect to OTP verification page ──
             if (result.requiresOtp || result.data?.requiresOtp) {
@@ -424,6 +514,15 @@ export default function Login() {
             // ── 2FA: non-customer role ──
             if (result.requiresOTP) {
                 dismissLoginAuthToasts();
+                const expiresAt = Date.now() + 5 * 60_000;
+                setStoredLoginOtpSession({
+                    userId: result.userId || "",
+                    challengeToken: result.challengeToken || "",
+                    maskedEmail: result.maskedEmail || emailNorm,
+                    email: emailNorm,
+                    createdAt: Date.now(),
+                    expiresAt,
+                });
                 setPendingUserId(result.userId ?? "");
                 setPendingLoginChallenge(result.challengeToken ?? "");
                 setLoginMaskedEmail(result.maskedEmail ?? emailNorm);
@@ -605,6 +704,9 @@ export default function Login() {
                 } else {
                     setLoginOtpError(json.message || t("auth.invalidCode"));
                 }
+                if (json?.code === "OTP_EXPIRED" || json?.code === "LOGIN_OTP_EXPIRED") {
+                    clearStoredLoginOtpSession();
+                }
                 return;
             }
 
@@ -650,6 +752,7 @@ export default function Login() {
             const role = getSafeUserRole(backendUser?.role);
             if (rememberMe) localStorage.setItem("remembered_email", loginForm.email.trim().toLowerCase());
             else localStorage.removeItem("remembered_email");
+            clearStoredLoginOtpSession();
             dismissLoginAuthToasts();
             toast.success(t("auth.verifySuccess"));
             setLoginOtpStep("form");
@@ -681,6 +784,14 @@ export default function Login() {
             });
             const json = await resp.json();
             if (resp.ok && json.success) {
+                setStoredLoginOtpSession({
+                    userId: pendingUserId,
+                    challengeToken: pendingLoginChallenge,
+                    maskedEmail: loginMaskedEmail,
+                    email: loginForm.email.trim().toLowerCase(),
+                    createdAt: Date.now(),
+                    expiresAt: Date.now() + 5 * 60_000,
+                });
                 toast.success(t("auth.codeSent"));
                 setLoginOtpDigits(["", "", "", "", "", ""]);
                 setLoginOtpExpiry(300);
@@ -1057,6 +1168,7 @@ export default function Login() {
                                                 setLoginMaskedEmail("");
                                                 setLoginOtpDigits(["", "", "", "", "", ""]);
                                                 setLoginOtpError("");
+                                                clearStoredLoginOtpSession();
                                             }}
                                             className="flex items-center gap-1 text-zinc-500 transition-colors hover:text-zinc-200"
                                         >
