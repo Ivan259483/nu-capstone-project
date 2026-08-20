@@ -628,7 +628,7 @@ export const confirmAiServiceRequest = async (params: {
  * NEW AI SCAN MODULE — GPT-4 Vision (mock+real toggle), Meshy 3D, Estimator
  *
  * These methods power the new (customer)/ai-scan/ flow:
- *   POST /api/ai/scan                  → analyze damage with GPT-4 Vision
+ *   POST /api/ai/scan                  → analyze damage with Roboflow YOLO11 segmentation
  *   GET  /api/ai/scan/:id              → fetch a saved scan
  *   POST /api/ai/generate-3d-from-scan → start Meshy task using saved images
  *   GET  /api/ai/generate-3d/:taskId   → poll Meshy progress
@@ -646,10 +646,30 @@ export interface AiScanCoordinates {
   height: number;
 }
 
+export interface AiScanMaskPoint {
+  x: number;
+  y: number;
+}
+
+export interface AiScanSegmentation {
+  format: 'polygon' | 'rle';
+  points: AiScanMaskPoint[];
+  pointCount: number;
+}
+
+export interface AiScanDetectedArea {
+  pixels: number;
+  percentage: number;
+  imageWidth: number;
+  imageHeight: number;
+}
+
 export interface AiScanDamage {
   id: string;
   type: string;
+  damageClass: string;
   severity: AiScanSeverity;
+  severityLabel: 'Severe' | 'Moderate' | 'Minor';
   description: string;
   confidence: number;
   coordinates: AiScanCoordinates;
@@ -657,6 +677,51 @@ export interface AiScanDamage {
   imageIndex: number;
   angleHint?: string;
   urgency: AiScanUrgency;
+  segmentation: AiScanSegmentation;
+  detectedArea: AiScanDetectedArea;
+  recommendation: string;
+}
+
+export interface AiScanRecommendationPayload {
+  damageId: string;
+  type: string;
+  damageClass: string;
+  severity: AiScanSeverity;
+  confidence: number;
+  affectedArea: string;
+  detectedArea: AiScanDetectedArea;
+  recommendation: string;
+}
+
+export interface AiScanCostPayload {
+  damageId: string;
+  type: string;
+  severity: AiScanSeverity;
+  confidence: number;
+  affectedArea: string;
+  detectedArea: AiScanDetectedArea;
+}
+
+export interface AiScanVisualizationPayload {
+  damageId: string;
+  type: string;
+  severity: AiScanSeverity;
+  affectedArea: string;
+  imageIndex: number;
+  angleHint?: string;
+  coordinates: AiScanCoordinates;
+  segmentation: AiScanSegmentation;
+}
+
+export interface AiScanArPayload extends AiScanVisualizationPayload {
+  recommendation: string;
+}
+
+export interface AiScanIntegrationPayload {
+  recommendation: AiScanRecommendationPayload[];
+  costEstimation: AiScanCostPayload[];
+  visualization3d: AiScanVisualizationPayload[];
+  ar: AiScanArPayload[];
 }
 
 export interface AiScanLineItem {
@@ -708,9 +773,10 @@ export interface AiScanEstimate {
 
 export interface AiScanResult {
   scanId: string | null;
-  source: 'mock' | 'gpt4_vision' | 'fallback';
+  source: 'roboflow' | 'mock' | 'gpt4_vision' | 'fallback';
   model: string;
   vehicleDetected: boolean;
+  noDamageDetected: boolean;
   overallCondition: AiScanCondition;
   recommendedPackage: string;
   urgency: AiScanUrgency;
@@ -724,6 +790,8 @@ export interface AiScanResult {
   meshyConfigured?: boolean;
   createdAt: string;
   elapsedMs?: number;
+  damageReport?: Record<string, unknown>;
+  integration: AiScanIntegrationPayload;
 }
 
 export interface AiScanInputImage {
@@ -731,6 +799,7 @@ export interface AiScanInputImage {
   fileName?: string;
   mimeType?: string;
   angle?: string;
+  selectedDamageArea?: string;
 }
 
 export interface AiScan3DProgress {
@@ -768,7 +837,11 @@ const toAiCondition = (value: unknown): AiScanCondition => {
 const mapDamage = (raw: any, index: number): AiScanDamage => ({
   id: String(raw?.id || `dmg_${index + 1}`),
   type: String(raw?.type || raw?.damage_type || raw?.name || 'Damage'),
+  damageClass: String(raw?.damageClass || raw?.damage_class || raw?.class || raw?.type || 'damage'),
   severity: toAiSeverity(raw?.severity),
+  severityLabel: raw?.severityLabel === 'Severe' || raw?.severityLabel === 'Minor'
+    ? raw.severityLabel
+    : raw?.severity === 'high' ? 'Severe' : raw?.severity === 'low' ? 'Minor' : 'Moderate',
   description: String(raw?.description || ''),
   confidence: Math.max(0, Math.min(1, Number(raw?.confidence) || 0.85)),
   coordinates: {
@@ -781,6 +854,22 @@ const mapDamage = (raw: any, index: number): AiScanDamage => ({
   imageIndex: Number.isFinite(Number(raw?.imageIndex)) ? Number(raw.imageIndex) : 0,
   angleHint: raw?.angleHint || raw?.angle_hint || 'close_up',
   urgency: toAiUrgency(raw?.urgency),
+  segmentation: {
+    format: raw?.segmentation?.format === 'rle' ? 'rle' : 'polygon',
+    points: (Array.isArray(raw?.segmentation?.points) ? raw.segmentation.points : [])
+      .map((point: any) => ({
+        x: Math.max(0, Math.min(1, Number(point?.x) || 0)),
+        y: Math.max(0, Math.min(1, Number(point?.y) || 0)),
+      })),
+    pointCount: Math.max(0, Number(raw?.segmentation?.pointCount) || raw?.segmentation?.points?.length || 0),
+  },
+  detectedArea: {
+    pixels: Math.max(0, Number(raw?.detectedArea?.pixels) || 0),
+    percentage: Math.max(0, Math.min(100, Number(raw?.detectedArea?.percentage) || 0)),
+    imageWidth: Math.max(1, Number(raw?.detectedArea?.imageWidth) || 1),
+    imageHeight: Math.max(1, Number(raw?.detectedArea?.imageHeight) || 1),
+  },
+  recommendation: String(raw?.recommendation || raw?.recommendedAction || raw?.description || ''),
 });
 
 const mapLineItem = (raw: any, index: number): AiScanLineItem => ({
@@ -830,31 +919,79 @@ const mapEstimate = (raw: any): AiScanEstimate => ({
   assumptions: Array.isArray(raw?.assumptions) ? raw.assumptions.map(String) : [],
 });
 
-const mapAiScanResult = (raw: any): AiScanResult => ({
-  scanId: raw?.scanId ? String(raw.scanId) : null,
-  source: ['mock', 'gpt4_vision', 'fallback'].includes(raw?.source) ? raw.source : 'mock',
-  model: String(raw?.model || 'gpt-4-vision-mock'),
-  vehicleDetected: raw?.vehicleDetected !== false,
-  overallCondition: toAiCondition(raw?.overallCondition),
-  recommendedPackage: String(raw?.recommendedPackage || 'SPF 89 Advanced'),
-  urgency: toAiUrgency(raw?.urgency),
-  summary: String(raw?.summary || ''),
-  damages: (Array.isArray(raw?.damages) ? raw.damages : []).map(mapDamage),
-  estimate: mapEstimate(raw?.estimate || {}),
-  imageUrls: Array.isArray(raw?.imageUrls) ? raw.imageUrls.map(String) : [],
-  angles: Array.isArray(raw?.angles) ? raw.angles.map(String) : [],
-  vehicleId: raw?.vehicleId ? String(raw.vehicleId) : undefined,
-  openaiConfigured: Boolean(raw?.openaiConfigured),
-  meshyConfigured: Boolean(raw?.meshyConfigured),
-  createdAt: String(raw?.createdAt || new Date().toISOString()),
-  elapsedMs: Number.isFinite(Number(raw?.elapsedMs)) ? Number(raw.elapsedMs) : undefined,
+const buildIntegrationPayload = (damages: AiScanDamage[]): AiScanIntegrationPayload => ({
+  recommendation: damages.map((damage) => ({
+    damageId: damage.id,
+    type: damage.type,
+    damageClass: damage.damageClass,
+    severity: damage.severity,
+    confidence: damage.confidence,
+    affectedArea: damage.affectedArea,
+    detectedArea: damage.detectedArea,
+    recommendation: damage.recommendation,
+  })),
+  costEstimation: damages.map((damage) => ({
+    damageId: damage.id,
+    type: damage.type,
+    severity: damage.severity,
+    confidence: damage.confidence,
+    affectedArea: damage.affectedArea,
+    detectedArea: damage.detectedArea,
+  })),
+  visualization3d: damages.map((damage) => ({
+    damageId: damage.id,
+    type: damage.type,
+    severity: damage.severity,
+    affectedArea: damage.affectedArea,
+    imageIndex: damage.imageIndex,
+    angleHint: damage.angleHint,
+    coordinates: damage.coordinates,
+    segmentation: damage.segmentation,
+  })),
+  ar: damages.map((damage) => ({
+    damageId: damage.id,
+    type: damage.type,
+    severity: damage.severity,
+    affectedArea: damage.affectedArea,
+    imageIndex: damage.imageIndex,
+    angleHint: damage.angleHint,
+    coordinates: damage.coordinates,
+    segmentation: damage.segmentation,
+    recommendation: damage.recommendation,
+  })),
 });
 
+const mapAiScanResult = (raw: any): AiScanResult => {
+  const damages = (Array.isArray(raw?.damages) ? raw.damages : []).map(mapDamage);
+
+  return {
+    scanId: raw?.scanId ? String(raw.scanId) : null,
+    source: ['roboflow', 'mock', 'gpt4_vision', 'fallback'].includes(raw?.source) ? raw.source : 'fallback',
+    model: String(raw?.model || 'unknown-damage-model'),
+    vehicleDetected: raw?.vehicleDetected !== false,
+    noDamageDetected: Boolean(raw?.noDamageDetected) || damages.length === 0,
+    overallCondition: toAiCondition(raw?.overallCondition),
+    recommendedPackage: String(raw?.recommendedPackage || 'SPF 89 Advanced'),
+    urgency: toAiUrgency(raw?.urgency),
+    summary: String(raw?.summary || ''),
+    damages,
+    estimate: mapEstimate(raw?.estimate || {}),
+    imageUrls: Array.isArray(raw?.imageUrls) ? raw.imageUrls.map(String) : [],
+    angles: Array.isArray(raw?.angles) ? raw.angles.map(String) : [],
+    vehicleId: raw?.vehicleId ? String(raw.vehicleId) : undefined,
+    openaiConfigured: Boolean(raw?.openaiConfigured),
+    meshyConfigured: Boolean(raw?.meshyConfigured),
+    createdAt: String(raw?.createdAt || new Date().toISOString()),
+    elapsedMs: Number.isFinite(Number(raw?.elapsedMs)) ? Number(raw.elapsedMs) : undefined,
+    damageReport: raw?.damageReport && typeof raw.damageReport === 'object' ? raw.damageReport : undefined,
+    integration: buildIntegrationPayload(damages),
+  };
+};
+
 /**
- * POST /api/ai/scan — Run GPT-4 Vision damage analysis on uploaded images.
- * If OPENAI_API_KEY is not set on the backend, a realistic mock response is
- * returned. When the key is added later, the same call automatically uses
- * the live API.
+ * POST /api/ai/scan — Send mobile images to the existing Express proxy.
+ * Roboflow credentials remain server-side; this client only receives the
+ * normalized AutoGloss Damage Report.
  */
 export const runAiScan = async (
   images: AiScanInputImage[],
@@ -878,6 +1015,7 @@ export const runAiScan = async (
 
   const angles = images.map((img) => img.angle || 'close_up');
   formData.append('angles', JSON.stringify(angles));
+  formData.append('damageAreas', JSON.stringify(images.map((img) => img.selectedDamageArea || '')));
   if (options.vehicleId) {
     formData.append('vehicleId', options.vehicleId);
   }
@@ -900,7 +1038,19 @@ export const runAiScan = async (
         : 'The server returned 404 for POST /api/ai/scan. Start the backend from this repo and confirm routes are mounted at /api/ai.';
       throw buildError('AI_SCAN_ENDPOINT_MISSING', hint, false);
     }
-    throw err;
+    if (isAxiosError(err)) {
+      const status = Number(err.response?.status) || 0;
+      const code = String(err.response?.data?.code || err.code || 'AI_SCAN_FAILED');
+      const timedOut = err.code === 'ECONNABORTED' || status === 504;
+      const message = String(
+        err.response?.data?.message
+        || (timedOut
+          ? 'The Roboflow damage scan timed out. Check your connection and retry.'
+          : 'The vehicle damage scan could not be completed.')
+      );
+      throw buildError(code, message, !status || status === 429 || status >= 500);
+    }
+    throw buildError('AI_SCAN_FAILED', 'The vehicle damage scan could not be completed.', true);
   }
 
   options.onUploadProgress?.(100);

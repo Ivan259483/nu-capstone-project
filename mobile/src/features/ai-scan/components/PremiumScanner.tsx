@@ -49,19 +49,19 @@ export const severityMeta: Record<
   { label: string; color: string; bg: string; icon: keyof typeof Ionicons.glyphMap }
 > = {
   high: {
-    label: 'Critical',
+    label: 'Severe',
     color: scannerColors.red,
     bg: 'rgba(239,68,68,0.14)',
     icon: 'alert-circle-outline',
   },
   medium: {
-    label: 'Medium',
+    label: 'Moderate',
     color: scannerColors.yellow,
     bg: 'rgba(245,158,11,0.14)',
     icon: 'warning-outline',
   },
   low: {
-    label: 'Low',
+    label: 'Minor',
     color: scannerColors.green,
     bg: 'rgba(16,185,129,0.14)',
     icon: 'information-circle-outline',

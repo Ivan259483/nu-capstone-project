@@ -25,7 +25,7 @@ export interface AiScanStoreState {
   capturedImages: AiScanInputImage[];
   vehicleId: string | null;
 
-  // GPT-4 Vision result
+  // Roboflow YOLO11 segmentation result
   scan: AiScanResult | null;
   scanError: string | null;
 

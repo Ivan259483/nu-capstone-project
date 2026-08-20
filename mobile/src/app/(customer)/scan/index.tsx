@@ -33,14 +33,15 @@ import type { AiScanInputImage } from '@/services/api/aiService';
 const MAX_IMAGES = 5;
 
 const CAPTURE_SLOTS = [
-  { angle: 'front', label: 'Front', hint: 'Full nose and hood', icon: 'car-sport-outline' },
-  { angle: 'rear', label: 'Rear', hint: 'Bumper and trunk', icon: 'return-down-back-outline' },
-  { angle: 'left', label: 'Left', hint: 'Driver-side panels', icon: 'arrow-back-outline' },
-  { angle: 'right', label: 'Right', hint: 'Passenger-side panels', icon: 'arrow-forward-outline' },
-  { angle: 'close_up', label: 'Close-up', hint: 'Visible damage zone', icon: 'contract-outline' },
+  { angle: 'front', damageArea: 'Front Bumper', label: 'Front', hint: 'Full nose and hood', icon: 'car-sport-outline' },
+  { angle: 'rear', damageArea: 'Rear Bumper', label: 'Rear', hint: 'Bumper and trunk', icon: 'return-down-back-outline' },
+  { angle: 'left', damageArea: 'Left Panel', label: 'Left', hint: 'Driver-side panels', icon: 'arrow-back-outline' },
+  { angle: 'right', damageArea: 'Right Panel', label: 'Right', hint: 'Passenger-side panels', icon: 'arrow-forward-outline' },
+  { angle: 'close_up', damageArea: 'Panel', label: 'Close-up', hint: 'Visible damage zone', icon: 'contract-outline' },
 ] as const;
 
 const angleHintFromIndex = (index: number) => CAPTURE_SLOTS[index]?.angle ?? 'close_up';
+const damageAreaHintFromIndex = (index: number) => CAPTURE_SLOTS[index]?.damageArea ?? 'Panel';
 
 export default function AiScanEntry() {
   const router = useRouter();
@@ -66,6 +67,7 @@ export default function AiScanEntry() {
         fileName: asset.fileName || `vehicle_${Date.now()}_${idx}.jpg`,
         mimeType: asset.mimeType || 'image/jpeg',
         angle: angleHintFromIndex(prev.length + idx),
+        selectedDamageArea: damageAreaHintFromIndex(prev.length + idx),
       }));
       return [...prev, ...additions];
     });

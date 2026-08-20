@@ -133,7 +133,11 @@ export default function AnalyzingScreen() {
       } catch (error) {
         if (!mounted) return;
         clearInterval(interval);
-        const message = error instanceof Error ? error.message : 'AI scan failed. Please retry.';
+        const message = error instanceof Error
+          ? error.message
+          : typeof error === 'object' && error !== null && 'message' in error
+            ? String(error.message)
+            : 'AI scan failed. Please retry.';
         setFailed(true);
         setStatus(message);
         aiScanStore.setScanError(message);

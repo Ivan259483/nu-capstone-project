@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Polygon } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AiPill,
@@ -38,41 +39,48 @@ const causeForDamage = (damage: AiScanDamage) => {
   return 'AI recommends technician validation under controlled shop lighting.';
 };
 
-function DamageOverlay({
-  damage,
-  active,
-  onPress,
-}: {
-  damage: AiScanDamage;
-  active: boolean;
-  onPress: () => void;
-}) {
+const severityRank = { high: 3, medium: 2, low: 1 } as const;
+
+function DamageMaskLayer({ damage }: { damage: AiScanDamage }) {
+  if (damage.segmentation.points.length < 3) return null;
+
   const meta = severityMeta[damage.severity];
+  const points = damage.segmentation.points
+    .map((point) => `${Math.round(point.x * 1000)},${Math.round(point.y * 1000)}`)
+    .join(' ');
+
   return (
-    <Pressable
-      onPress={onPress}
-      style={[
-        styles.damageBox,
-        {
-          left: `${damage.coordinates.x * 100}%`,
-          top: `${damage.coordinates.y * 100}%`,
-          width: `${damage.coordinates.width * 100}%`,
-          height: `${damage.coordinates.height * 100}%`,
-          borderColor: meta.color,
-          backgroundColor: meta.bg,
-        },
-        active && styles.damageBoxActive,
-      ]}
+    <Svg
+      pointerEvents="none"
+      viewBox="0 0 1000 1000"
+      preserveAspectRatio="none"
+      style={styles.maskLayer}
+      accessibilityLabel="Roboflow damage segmentation masks"
     >
-      <LinearGradient
-        colors={[`${meta.color}33`, 'transparent']}
-        style={StyleSheet.absoluteFill}
+      <Polygon
+        points={points}
+        fill={`${meta.color}2B`}
+        stroke={meta.color}
+        strokeWidth={4}
       />
-      <View style={[styles.damageDot, { backgroundColor: meta.color }]} />
-      <View style={[styles.damageLabel, { borderColor: `${meta.color}88` }]}>
-        <Text style={styles.damageLabelText}>{Math.round(damage.confidence * 100)}%</Text>
-      </View>
-    </Pressable>
+    </Svg>
+  );
+}
+
+function AssessmentField({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: string;
+}) {
+  return (
+    <View style={styles.assessmentField}>
+      <Text style={styles.assessmentLabel}>{label}</Text>
+      <Text style={[styles.assessmentValue, accent ? { color: accent } : null]}>{value}</Text>
+    </View>
   );
 }
 
@@ -82,12 +90,25 @@ export default function ResultsScreen() {
   const scan = useAiScanStore((state) => state.scan);
   const scanError = useAiScanStore((state) => state.scanError);
   const capturedImages = useAiScanStore((state) => state.capturedImages);
+  const [showOverlay, setShowOverlay] = useState(false);
   const [activeDamageId, setActiveDamageId] = useState<string | null>(
     scan?.damages[0]?.id ?? null
   );
 
-  const damages = scan?.damages ?? [];
-  const activeDamage = damages.find((damage) => damage.id === activeDamageId) ?? damages[0];
+  const damages = useMemo(() => scan?.damages ?? [], [scan?.damages]);
+  const rankedDamages = useMemo(
+    () =>
+      [...damages].sort(
+        (left, right) =>
+          severityRank[right.severity] - severityRank[left.severity]
+          || right.confidence - left.confidence
+          || right.detectedArea.percentage - left.detectedArea.percentage
+      ),
+    [damages]
+  );
+  const activeDamage = rankedDamages.find((damage) => damage.id === activeDamageId)
+    ?? rankedDamages[0];
+  const overallSeverity = rankedDamages[0]?.severity ?? 'low';
   const activeImageIndex = activeDamage?.imageIndex ?? 0;
   const heroImage =
     scan?.imageUrls[activeImageIndex] ||
@@ -99,13 +120,12 @@ export default function ResultsScreen() {
   const avgConfidence = damages.length
     ? damages.reduce((sum, damage) => sum + damage.confidence, 0) / damages.length
     : 0;
-  const highCount = damages.filter((damage) => damage.severity === 'high').length;
+  const severeCount = damages.filter((damage) => damage.severity === 'high').length;
 
   const repairLines = useMemo(
     () =>
       [...(scan?.estimate.lineItems ?? [])].sort((a, b) => {
-        const rank = { high: 3, medium: 2, low: 1 };
-        return rank[b.severity] - rank[a.severity] || b.confidence - a.confidence;
+        return severityRank[b.severity] - severityRank[a.severity] || b.confidence - a.confidence;
       }),
     [scan?.estimate.lineItems]
   );
@@ -160,34 +180,39 @@ export default function ResultsScreen() {
             {heroImage ? <Image source={{ uri: heroImage }} style={styles.heroImage} /> : null}
             <View style={styles.heroGradient} />
             <View style={styles.heroTop}>
-              <AiPill label="AI diagnostic layer" icon="radio-outline" />
-              <View style={styles.conditionBadge}>
-                <Text style={styles.conditionText}>{scan.overallCondition}</Text>
-              </View>
+              <AiPill
+                label={showOverlay ? 'AI segmentation' : 'Original scan'}
+                icon={showOverlay ? 'layers-outline' : 'image-outline'}
+              />
+              <SeverityBadge severity={overallSeverity} />
             </View>
-            <View style={styles.overlayLayer}>
-              {damages.map((damage) => (
-                <DamageOverlay
-                  key={damage.id}
-                  damage={damage}
-                  active={damage.id === activeDamage?.id}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setActiveDamageId(damage.id);
-                  }}
-                />
-              ))}
-            </View>
-            <View style={styles.heatLegend}>
-              <Text style={styles.heatLegendText}>Heatmap intensity</Text>
-              <View style={styles.heatBar}>
-                <LinearGradient
-                  colors={[scannerColors.green, scannerColors.yellow, scannerColors.red]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={StyleSheet.absoluteFill}
-                />
+            {showOverlay && activeDamage ? (
+              <View style={styles.overlayLayer}>
+                <DamageMaskLayer damage={activeDamage} />
               </View>
+            ) : null}
+            <View style={styles.overlayControlWrap}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.overlayControlTitle}>AI damage overlay</Text>
+                <Text style={styles.overlayControlSub} numberOfLines={1}>
+                  {showOverlay && activeDamage
+                    ? `Showing #${rankedDamages.findIndex((item) => item.id === activeDamage.id) + 1} · ${activeDamage.type}`
+                    : 'Off · viewing the clean source image'}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="switch"
+                accessibilityLabel="AI damage overlay"
+                accessibilityState={{ checked: showOverlay }}
+                hitSlop={8}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setShowOverlay((visible) => !visible);
+                }}
+                style={[styles.overlaySwitch, showOverlay && styles.overlaySwitchOn]}
+              >
+                <View style={[styles.overlaySwitchKnob, showOverlay && styles.overlaySwitchKnobOn]} />
+              </Pressable>
             </View>
           </GlassPanel>
         </Animated.View>
@@ -198,8 +223,8 @@ export default function ResultsScreen() {
             <Text style={styles.metricLabel}>Detected issues</Text>
           </GlassPanel>
           <GlassPanel style={styles.metricCard}>
-            <Text style={styles.metricValue}>{highCount}</Text>
-            <Text style={styles.metricLabel}>Critical zones</Text>
+            <Text style={styles.metricValue}>{severeCount}</Text>
+            <Text style={styles.metricLabel}>Severe findings</Text>
           </GlassPanel>
           <GlassPanel style={styles.metricCard}>
             <Text style={styles.metricValue}>{Math.round(avgConfidence * 100)}%</Text>
@@ -207,19 +232,102 @@ export default function ResultsScreen() {
           </GlassPanel>
         </View>
 
+        {scan.noDamageDetected ? (
+          <GlassPanel style={styles.clearReportCard}>
+            <Ionicons name="checkmark-circle-outline" size={24} color={scannerColors.green} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.clearReportTitle}>No damage prediction found</Text>
+              <Text style={styles.clearReportText}>
+                No YOLO11 instance met the configured confidence threshold. A technician can still perform a manual inspection.
+              </Text>
+            </View>
+          </GlassPanel>
+        ) : null}
+
+        {!scan.noDamageDetected && rankedDamages.length ? (
+          <View>
+            <View style={styles.sectionHead}>
+              <View>
+                <Text style={styles.sectionTitle}>Detected damage ranking</Text>
+                <Text style={styles.sectionText}>Ranked by severity, confidence, and affected area.</Text>
+              </View>
+            </View>
+            <View style={styles.damageRankingList}>
+              {rankedDamages.map((damage, index) => {
+                const selected = damage.id === activeDamage?.id;
+                const meta = severityMeta[damage.severity];
+                return (
+                  <Pressable
+                    key={damage.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setActiveDamageId(damage.id);
+                    }}
+                    style={({ pressed }) => [
+                      styles.damageRankRow,
+                      selected && { borderColor: `${meta.color}88`, backgroundColor: `${meta.color}12` },
+                      pressed && { opacity: 0.86 },
+                    ]}
+                  >
+                    <View style={[styles.damageRankNumber, selected && { backgroundColor: meta.color }]}>
+                      <Text style={styles.damageRankNumberText}>{index + 1}</Text>
+                    </View>
+                    <View style={styles.damageRankBody}>
+                      <View style={styles.damageRankTop}>
+                        <Text style={styles.damageRankTitle} numberOfLines={1}>{damage.type}</Text>
+                        <SeverityBadge severity={damage.severity} />
+                      </View>
+                      <Text style={styles.damageRankComponent} numberOfLines={1}>
+                        {damage.affectedArea}
+                      </Text>
+                      <Text style={styles.damageRankMeta}>
+                        {Math.round(damage.confidence * 100)}% confidence · {damage.detectedArea.percentage.toFixed(2)}% area
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name={selected ? 'checkmark-circle' : 'chevron-forward'}
+                      size={19}
+                      color={selected ? meta.color : scannerColors.textMuted}
+                    />
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+
         {activeDamage ? (
           <Animated.View entering={FadeInDown.duration(340).delay(90)}>
             <GlassPanel style={styles.insightCard}>
               <View style={styles.insightHead}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.insightEyebrow}>Tap-to-inspect damage point</Text>
-                  <Text style={styles.insightTitle}>{activeDamage.affectedArea}</Text>
+                  <Text style={styles.insightEyebrow}>AI Damage Assessment</Text>
+                  <Text style={styles.insightTitle}>{activeDamage.type}</Text>
                 </View>
                 <SeverityBadge severity={activeDamage.severity} />
               </View>
-              <Text style={styles.insightDescription}>
-                {activeDamage.description || activeDamage.type}
-              </Text>
+
+              <View style={styles.assessmentGrid}>
+                <AssessmentField label="Damage type" value={activeDamage.type} />
+                <AssessmentField label="Affected component" value={activeDamage.affectedArea} />
+                <AssessmentField
+                  label="Confidence score"
+                  value={`${Math.round(activeDamage.confidence * 100)}%`}
+                  accent={scannerColors.orange}
+                />
+                <AssessmentField
+                  label="Severity"
+                  value={activeDamage.severityLabel}
+                  accent={severityMeta[activeDamage.severity].color}
+                />
+                <AssessmentField
+                  label="Detection area"
+                  value={`${activeDamage.detectedArea.percentage.toFixed(2)}%`}
+                  accent={scannerColors.orangeSoft}
+                />
+              </View>
               <ConfidenceMeter value={activeDamage.confidence} />
               <View style={styles.insightDivider} />
               <View style={styles.insightBlock}>
@@ -229,8 +337,7 @@ export default function ResultsScreen() {
               <View style={styles.insightBlock}>
                 <Text style={styles.insightBlockTitle}>Recommended action</Text>
                 <Text style={styles.insightBlockText}>
-                  Prioritize {activeDamage.type.toLowerCase()} correction on {activeDamage.affectedArea}
-                  before final coating or protection work.
+                  {activeDamage.recommendation || `Prioritize ${activeDamage.type.toLowerCase()} correction on ${activeDamage.affectedArea} before final coating or protection work.`}
                 </Text>
               </View>
             </GlassPanel>
@@ -266,6 +373,22 @@ export default function ResultsScreen() {
           <Text style={styles.summaryMeta}>
             Source: {scan.source} - Model: {scan.model} - Images: {displayImageCount}
           </Text>
+          <View style={styles.handoffDivider} />
+          <Text style={styles.handoffTitle}>Diagnosis data ready for</Text>
+          <View style={styles.handoffGrid}>
+            {[
+              { label: 'Repair advice', icon: 'sparkles-outline' as const },
+              { label: 'Cost estimate', icon: 'cash-outline' as const },
+              { label: 'Meshy 3D', icon: 'cube-outline' as const },
+              { label: 'AR overlay', icon: 'aperture-outline' as const },
+            ].map((item) => (
+              <View key={item.label} style={styles.handoffItem}>
+                <Ionicons name={item.icon} size={15} color={scannerColors.orange} />
+                <Text style={styles.handoffItemText}>{item.label}</Text>
+                <Ionicons name="checkmark-circle" size={14} color={scannerColors.green} />
+              </View>
+            ))}
+          </View>
         </GlassPanel>
 
         <Pressable
@@ -324,7 +447,7 @@ const styles = StyleSheet.create({
   },
   heroGradient: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.25)',
+    backgroundColor: 'rgba(0,0,0,0.12)',
   },
   heroTop: {
     position: 'absolute',
@@ -336,85 +459,59 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  conditionBadge: {
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.56)',
-    borderWidth: 1,
-    borderColor: scannerColors.borderStrong,
-  },
-  conditionText: {
-    color: scannerColors.text,
-    fontSize: 11,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-    letterSpacing: 0.7,
-  },
   overlayLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 2,
   },
-  damageBox: {
-    position: 'absolute',
-    minWidth: 34,
-    minHeight: 34,
-    borderWidth: 2,
-    borderRadius: 12,
-    overflow: 'visible',
+  maskLayer: {
+    ...StyleSheet.absoluteFillObject,
   },
-  damageBoxActive: {
-    borderWidth: 3,
-    shadowColor: '#fff',
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-  },
-  damageDot: {
-    position: 'absolute',
-    top: -7,
-    left: -7,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 2,
-    borderColor: '#fff',
-  },
-  damageLabel: {
-    position: 'absolute',
-    right: -8,
-    bottom: -14,
-    borderRadius: 999,
-    borderWidth: 1,
-    backgroundColor: 'rgba(0,0,0,0.76)',
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-  },
-  damageLabelText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '900',
-  },
-  heatLegend: {
+  overlayControlWrap: {
     position: 'absolute',
     left: 14,
     right: 14,
     bottom: 14,
-    borderRadius: 18,
-    backgroundColor: 'rgba(0,0,0,0.62)',
-    padding: 12,
+    zIndex: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(4,6,9,0.80)',
+    paddingHorizontal: 13,
+    paddingVertical: 11,
     borderWidth: 1,
     borderColor: scannerColors.border,
   },
-  heatLegendText: {
-    color: scannerColors.textSoft,
-    fontSize: 11,
-    fontWeight: '800',
-    marginBottom: 8,
+  overlayControlTitle: {
+    color: scannerColors.text,
+    fontSize: 12,
+    fontWeight: '900',
   },
-  heatBar: {
-    height: 8,
-    borderRadius: 4,
-    overflow: 'hidden',
+  overlayControlSub: {
+    color: scannerColors.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  overlaySwitch: {
+    width: 44,
+    height: 26,
+    borderRadius: 13,
+    padding: 3,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  overlaySwitchOn: {
+    backgroundColor: scannerColors.orange,
+  },
+  overlaySwitchKnob: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+  },
+  overlaySwitchKnobOn: {
+    alignSelf: 'flex-end',
   },
   metricRow: {
     flexDirection: 'row',
@@ -433,6 +530,78 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     marginTop: 3,
+  },
+  clearReportCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    borderColor: 'rgba(16,185,129,0.32)',
+  },
+  clearReportTitle: {
+    color: scannerColors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  clearReportText: {
+    color: scannerColors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+    marginTop: 3,
+  },
+  damageRankingList: {
+    gap: 9,
+    marginTop: 12,
+  },
+  damageRankRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: scannerColors.border,
+    backgroundColor: 'rgba(255,255,255,0.035)',
+    padding: 12,
+  },
+  damageRankNumber: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  damageRankNumberText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  damageRankBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  damageRankTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  damageRankTitle: {
+    flex: 1,
+    color: scannerColors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  damageRankComponent: {
+    color: scannerColors.textSoft,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  damageRankMeta: {
+    color: scannerColors.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 4,
   },
   insightCard: {
     borderColor: 'rgba(255,107,53,0.18)',
@@ -456,12 +625,33 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     marginTop: 2,
   },
-  insightDescription: {
-    color: scannerColors.textSoft,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '600',
+  assessmentGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 9,
     marginBottom: 16,
+  },
+  assessmentField: {
+    width: '48%',
+    minHeight: 66,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: scannerColors.border,
+    backgroundColor: 'rgba(255,255,255,0.035)',
+    padding: 11,
+  },
+  assessmentLabel: {
+    color: scannerColors.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  assessmentValue: {
+    color: scannerColors.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginTop: 5,
   },
   insightDivider: {
     height: 1,
@@ -541,6 +731,40 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     marginTop: 12,
+  },
+  handoffDivider: {
+    height: 1,
+    backgroundColor: scannerColors.border,
+    marginVertical: 14,
+  },
+  handoffTitle: {
+    color: scannerColors.text,
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 9,
+  },
+  handoffGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  handoffItem: {
+    width: '48%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,107,53,0.18)',
+    backgroundColor: 'rgba(255,107,53,0.07)',
+    paddingHorizontal: 9,
+    paddingVertical: 9,
+  },
+  handoffItemText: {
+    flex: 1,
+    color: scannerColors.textSoft,
+    fontSize: 10,
+    fontWeight: '800',
   },
   webArRow: {
     flexDirection: 'row',
