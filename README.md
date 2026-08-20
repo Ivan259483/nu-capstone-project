@@ -122,6 +122,9 @@ FIREBASE_PRIVATE_KEY="<firebase-private-key-with-escaped-newlines>"
 
 GROQ_API_KEY=<groq-api-key>
 ROBOFLOW_API_KEY=<roboflow-api-key>
+ROBOFLOW_WORKSPACE=ivan-tadena
+ROBOFLOW_WORKFLOW_ID=vehicle-damage-dataset-vvehicle-damage-dataset-le164-1-yolo11s-seg-t1-logic
+ROBOFLOW_IMAGE_INPUT=image
 MESHY_API_KEY=<meshy-api-key>
 
 CLOUDINARY_CLOUD_NAME=<cloudinary-cloud-name>
