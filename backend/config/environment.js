@@ -8,6 +8,22 @@ const __dirname = path.dirname(__filename);
 // Load .env file — but do NOT override env vars already set by the platform (Railway, etc.)
 dotenv.config({ path: path.join(__dirname, '..', '.env'), override: false });
 
+// Startup-only presence check. Never log configuration values because the API
+// key and other deployment settings are server-side secrets.
+const ROBOFLOW_ENV_KEYS = [
+  'ROBOFLOW_API_KEY',
+  'ROBOFLOW_API_URL',
+  'ROBOFLOW_WORKSPACE',
+  'ROBOFLOW_WORKFLOW_ID',
+  'ROBOFLOW_IMAGE_INPUT',
+];
+
+console.log('\nRoboflow Configuration:');
+ROBOFLOW_ENV_KEYS.forEach((key) => {
+  const configured = Boolean(String(process.env[key] || '').trim());
+  console.log(`  ${key}: ${configured ? 'configured' : 'missing'}`);
+});
+
 // Determine email provider based on available credentials
 const determineEmailProvider = () => {
   const providedProvider = process.env.EMAIL_PROVIDER;

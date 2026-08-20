@@ -85,11 +85,14 @@ const notificationSchema = new mongoose.Schema(
 
 // Per-user targeted notifications, sorted by recency
 notificationSchema.index({ recipientUserId: 1, createdAt: -1 });
+notificationSchema.index({ recipientUserId: 1, lastOccurredAt: -1, _id: -1 });
 // Role-based broadcast notifications (recipientUserId is null for broadcasts)
 notificationSchema.index({ recipientRole: 1, recipientUserId: 1, createdAt: -1 });
+notificationSchema.index({ recipientRole: 1, recipientUserId: 1, lastOccurredAt: -1, _id: -1 });
 notificationSchema.index({ recipientRole: 1, category: 1, severity: 1, createdAt: -1 });
 notificationSchema.index({ recipientRole: 1, category: 1, event: 1, createdAt: -1 });
 notificationSchema.index({ recipientRole: 1, recipientUserId: 1, groupingKey: 1, lastOccurredAt: -1 });
+notificationSchema.index({ recipientUserId: 1, 'metadata.orderId': 1, 'metadata.kind': 1, 'metadata.stage': 1 });
 notificationSchema.index(
   { recipientRole: 1, recipientUserId: 1, groupingKey: 1, groupingBucket: 1 },
   {

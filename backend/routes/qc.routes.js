@@ -2,9 +2,6 @@ import express from 'express';
 import { authenticate, authorize } from '../middleware/auth.middleware.js';
 import {
   getQCJobs,
-  getQCStats,
-  getQCActivity,
-  getQCTechnicianReport,
   approveJob,
   returnJob,
   updateQCChecklist,
@@ -12,6 +9,11 @@ import {
   assignServiceStaff,
   updateQCHandoffSheet,
 } from '../controllers/qc.controller.js';
+import {
+  getQCActivityOptimized,
+  getQCStatsOptimized,
+  getQCTechnicianReportOptimized,
+} from '../controllers/qcRead.controller.js';
 
 const router = express.Router();
 
@@ -33,21 +35,21 @@ router.get('/jobs', authorize(...QC_ALLOWED_ROLES), getQCJobs);
  * @desc    Get aggregated QC dashboard KPIs
  * @access  QC Checker, Admin
  */
-router.get('/dashboard/stats', authorize(...QC_ALLOWED_ROLES), getQCStats);
+router.get('/dashboard/stats', authorize(...QC_ALLOWED_ROLES), getQCStatsOptimized);
 
 /**
  * @route   GET /api/qc/activity
  * @desc    Recent QC review activity feed
  * @access  QC Checker, Admin
  */
-router.get('/activity', authorize(...QC_ALLOWED_ROLES), getQCActivity);
+router.get('/activity', authorize(...QC_ALLOWED_ROLES), getQCActivityOptimized);
 
 /**
  * @route   GET /api/qc/reports/technicians
  * @desc    Per-technician approval performance report
  * @access  QC Checker, Admin
  */
-router.get('/reports/technicians', authorize(...QC_ALLOWED_ROLES), getQCTechnicianReport);
+router.get('/reports/technicians', authorize(...QC_ALLOWED_ROLES), getQCTechnicianReportOptimized);
 
 /**
  * @route   PATCH /api/qc/jobs/:id/approve

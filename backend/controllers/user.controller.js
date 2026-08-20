@@ -35,6 +35,7 @@ import {
   buildAdminGroupingKey,
   createAdminNotification,
 } from '../services/adminNotification.service.js';
+import { runInBackground } from '../utils/performance.utils.js';
 
 const getQueryByIdOrFirebaseUid = (id) => {
   // If it's a 24-character hex string, assume it's a valid ObjectId
@@ -100,13 +101,29 @@ const notifyAdminUserEvent = async ({
 /**
  * PATCH /api/users/me/activity — session heartbeat for admin “presence” UI
  */
+const ACTIVITY_WRITE_COOLDOWN_MS = 30_000;
+const recentActivityWrites = new Map();
+
 export const touchMyActivity = async (req, res, next) => {
-  try {
-    await User.findByIdAndUpdate(req.user.id, { lastSeenAt: new Date() });
-    res.json({ success: true });
-  } catch (error) {
-    next(error);
-  }
+  const userId = String(req.user.id);
+  const now = Date.now();
+  const lastQueuedAt = recentActivityWrites.get(userId) || 0;
+
+  // Authentication has already confirmed the live account. Presence is
+  // best-effort metadata, so acknowledge immediately and write out of band.
+  res.json({ success: true });
+
+  if (now - lastQueuedAt < ACTIVITY_WRITE_COOLDOWN_MS) return;
+  recentActivityWrites.set(userId, now);
+  runInBackground({ req, kind: 'db', name: 'users.activity.updateLastSeen' }, async () => {
+    await User.updateOne({ _id: userId }, { $set: { lastSeenAt: new Date() } });
+    if (recentActivityWrites.size > 1_000) {
+      const cutoff = Date.now() - ACTIVITY_WRITE_COOLDOWN_MS;
+      for (const [key, timestamp] of recentActivityWrites) {
+        if (timestamp < cutoff) recentActivityWrites.delete(key);
+      }
+    }
+  });
 };
 
 /**

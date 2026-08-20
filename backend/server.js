@@ -1,5 +1,7 @@
-import dotenv from 'dotenv';
-dotenv.config();
+// Load backend/.env before evaluating modules that read process.env at import time.
+// config/environment.js resolves the file relative to itself, so startup does not
+// depend on whether Node was launched from the repository root or backend/.
+import { config } from './config/environment.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
 const __filename = fileURLToPath(import.meta.url);
@@ -16,7 +18,6 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
 import mongoose from 'mongoose';
-import { config } from './config/environment.js';
 import connectDB from './config/database.js';
 import errorHandler from './middleware/errorHandler.middleware.js';
 import { initializeMailer } from './utils/mail.utils.js'; // Import mailer
@@ -182,7 +183,12 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
     if (durationMs > 1000) {
-      console.warn(`⚠️ SLOW REQUEST: ${req.method} ${logPath} — ${durationMs.toFixed(0)}ms`);
+      const breakdown = (res.locals.performanceTimings || [])
+        .map((entry) => `${entry.kind}.${entry.name}=${entry.durationMs.toFixed(1)}ms`)
+        .join(', ');
+      console.warn(
+        `⚠️ SLOW REQUEST: ${req.method} ${logPath} — ${durationMs.toFixed(0)}ms${breakdown ? ` [${breakdown}]` : ''}`
+      );
     }
   });
   

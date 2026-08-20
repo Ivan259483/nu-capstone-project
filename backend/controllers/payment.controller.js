@@ -31,6 +31,10 @@ import {
   buildAdminGroupingKey,
   createAdminNotification,
 } from '../services/adminNotification.service.js';
+import {
+  getPendingPaymentsSummary,
+  PENDING_PAYMENT_STATUSES,
+} from '../services/pendingPayments.service.js';
 
 const LOW_STOCK_THRESHOLD = 10;
 const LOCAL_PAYMENTS_PROVIDER = (process.env.LOCAL_PAYMENTS_PROVIDER || 'paymongo').toLowerCase();
@@ -1019,16 +1023,18 @@ export const getMyPayments = async (req, res, next) => {
 export const getAllPayments = async (req, res, next) => {
   try {
     const { limit = 100 } = req.query || {};
-    const payments = await Payment.find()
-      .sort({ createdAt: -1 })
-      .limit(Number(limit))
-      .populate('order', 'orderNumber customerName serviceType')
-      .populate('customer', 'name email')
-      .lean();
-
-    const totalRevenue = await Payment.aggregate([
-      { $match: { status: 'succeeded' } },
-      { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
+    const [payments, totalRevenue, pendingPayments] = await Promise.all([
+      Payment.find()
+        .sort({ createdAt: -1 })
+        .limit(Number(limit))
+        .populate('order', 'orderNumber customerName serviceType')
+        .populate('customer', 'name email')
+        .lean(),
+      Payment.aggregate([
+        { $match: { status: 'succeeded' } },
+        { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
+      ]),
+      getPendingPaymentsSummary(),
     ]);
 
     res.json({
@@ -1036,6 +1042,12 @@ export const getAllPayments = async (req, res, next) => {
       data: payments,
       totalRevenue: totalRevenue?.[0]?.total || 0,
       totalCount: totalRevenue?.[0]?.count || 0,
+      pendingPaymentsSummary: {
+        totalOutstanding: pendingPayments.totalOutstanding,
+        count: pendingPayments.count,
+        statusCounts: pendingPayments.statusCounts,
+        statusesIncluded: PENDING_PAYMENT_STATUSES,
+      },
     });
   } catch (error) {
     next(error);

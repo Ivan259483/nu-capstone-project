@@ -43,6 +43,10 @@ import {
 } from '../services/meshy.service.js';
 import { buildEstimateFromDamages } from '../services/estimator.service.js';
 import { isServiceOperationRole } from '../constants/roles.js';
+import {
+  getOrSetResponseCache,
+  invalidateResponseCache,
+} from '../utils/responseCache.utils.js';
 
 // ── Module-level Replicate session state ──────────────────────────────────────
 // Set to true once a 402 is received so we skip all subsequent calls this
@@ -1166,6 +1170,7 @@ export const get3DModelStatus = async (req, res) => {
           { modelTaskId: taskId },
           readyUpdate
         );
+        invalidateResponseCache('ai:scans:');
         console.log(`[Meshy Poll] 💾 Scan updated with ${permanentModelUrl === modelUrl ? 'raw Meshy' : 'Cloudinary permanent'} URL`);
       } catch (dbErr) {
         console.warn(`[Meshy Poll] Could not persist ready model for taskId=${taskId}:`, dbErr?.message);
@@ -1901,6 +1906,7 @@ export const scanWithGPTVision = async (req, res) => {
         estimate,
         modelStatus: 'idle',
       });
+      invalidateResponseCache('ai:scans:');
     } catch (dbErr) {
       console.warn(
         `[AI Scan][${requestId}] Persist failed (non-fatal):`,
@@ -1987,8 +1993,10 @@ export const getScanById = async (req, res) => {
         urgency: scan.urgency,
         summary: scan.summary,
         damages: scan.damages || [],
+        damageReport: scan.damageReport || {},
         estimate: scan.estimate || {},
         imageUrls: scan.imageUrls || [],
+        imageArchive: scan.imageArchive || {},
         angles: scan.angles || [],
         vehicleId: scan.vehicleId || '',
         modelTaskId: scan.modelTaskId || '',
@@ -2026,6 +2034,19 @@ const toSafeWebARDamage = (damage = {}) => ({
   imageIndex: Number.isFinite(Number(damage.imageIndex)) ? Number(damage.imageIndex) : 0,
   angleHint: String(damage.angleHint || 'close_up'),
   urgency: String(damage.urgency || 'Can Wait'),
+  segmentation: {
+    format: damage.segmentation?.format === 'rle' ? 'rle' : 'polygon',
+    points: Array.isArray(damage.segmentation?.points)
+      ? damage.segmentation.points.slice(0, 500).map((point) => ({
+          x: Math.max(0, Math.min(1, Number(point?.x) || 0)),
+          y: Math.max(0, Math.min(1, Number(point?.y) || 0)),
+        }))
+      : [],
+  },
+  detectedArea: {
+    pixels: Math.max(0, Number(damage.detectedArea?.pixels) || 0),
+    percentage: Math.max(0, Math.min(100, Number(damage.detectedArea?.percentage) || 0)),
+  },
   coordinates: {
     x: Math.max(0, Math.min(1, Number(damage.coordinates?.x) || 0)),
     y: Math.max(0, Math.min(1, Number(damage.coordinates?.y) || 0)),
@@ -2303,6 +2324,7 @@ export const generate3DFromScan = async (req, res) => {
     scan.modelStatus = 'processing';
     scan.meshyPollBase = workingBase;
     await scan.save();
+    invalidateResponseCache('ai:scans:');
 
     return res.json({
       success: true,
@@ -2605,22 +2627,62 @@ export const proxyGlb = async (req, res) => {
  */
 export const listAiScans = async (req, res) => {
   try {
-    const limit  = Math.min(Number(req.query.limit) || 50, 100);
-    const skip   = Number(req.query.skip) || 0;
+    const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 25, 1), 100);
+    const skip = Math.max(Number.parseInt(req.query.skip, 10) || 0, 0);
+    const includeTotal = String(req.query.includeTotal || 'true').toLowerCase() !== 'false';
     const filter = {};
     if (req.query.modelStatus) filter.modelStatus = req.query.modelStatus;
+    const cacheKey = `ai:scans:status:${filter.modelStatus || 'all'}:skip:${skip}:limit:${limit}:total:${includeTotal}`;
+    const cached = await getOrSetResponseCache(cacheKey, 20_000, async () => {
+      const scansQuery = AIScan.aggregate([
+        { $match: filter },
+        { $sort: { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        {
+          $project: {
+            customer: 1,
+            overallCondition: 1,
+            summary: 1,
+            damages: 1,
+            'estimate.totalEstimate': 1,
+            'estimate.formattedTotal': 1,
+            'estimate.lineItems.serviceName': 1,
+            'estimate.lineItems.damageType': 1,
+            'estimate.lineItems.subtotalMin': 1,
+            'estimate.lineItems.subtotalMax': 1,
+            modelStatus: 1,
+            modelUrl: 1,
+            createdAt: 1,
+          },
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'customer',
+            foreignField: '_id',
+            pipeline: [
+              { $project: { name: 1, firstName: 1, lastName: 1, email: 1 } },
+            ],
+            as: 'customerDocument',
+          },
+        },
+        {
+          $set: {
+            customer: { $arrayElemAt: ['$customerDocument', 0] },
+          },
+        },
+        { $unset: 'customerDocument' },
+      ]).option({ maxTimeMS: 5_000 });
+      const [scans, total] = await Promise.all([
+        scansQuery,
+        includeTotal ? AIScan.countDocuments(filter).maxTimeMS(5_000) : Promise.resolve(undefined),
+      ]);
+      return { scans, total };
+    });
 
-    const [scans, total] = await Promise.all([
-      AIScan.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('customer', 'name firstName lastName email phoneNumber')
-        .lean(),
-      AIScan.countDocuments(filter),
-    ]);
-
-    return res.json({ success: true, data: scans, total });
+    res.setHeader?.('X-Response-Cache', cached.status);
+    return res.json({ success: true, data: cached.value.scans, total: cached.value.total });
   } catch (error) {
     console.error('[AI] listAiScans error:', error);
     return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch scans.' });

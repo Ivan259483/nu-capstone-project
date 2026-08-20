@@ -11,7 +11,6 @@ import {
   confirmServiceRequest,
   generateRepairPreview,
   uploadImage,
-  scanWithGPTVision,
   getScanById,
   getWebARSession,
   generate3DFromScan,
@@ -24,6 +23,8 @@ import {
 import { authenticate, authorize, optionalAuthenticate } from '../middleware/auth.middleware.js';
 import { SERVICE_OPERATION_ROLES } from '../constants/roles.js';
 import { config } from '../config/environment.js';
+import { detectVehicleDamage } from '../controllers/damageDetection.controller.js';
+import { handleDamageImageUpload } from '../middleware/damageImageUpload.middleware.js';
 
 const router = express.Router();
 
@@ -39,6 +40,18 @@ const aiGenerationLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many 3D generation requests. Please try again later.' },
+});
+
+const damageDetectionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    code: 'DAMAGE_SCAN_RATE_LIMITED',
+    message: 'Too many damage scans. Please wait before trying again.',
+  },
 });
 
 router.post('/analyze', upload.array('images', 5), analyzeDamage);
@@ -74,8 +87,14 @@ router.post('/confirm', authenticate, confirmServiceRequest);
 router.post('/repair-preview', generateRepairPreview);
 router.post('/upload-image', upload.single('image'), uploadImage);
 
-/* ── NEW AI Scan Module — GPT-4 Vision (mock+real), Meshy 3D, Estimator ── */
-router.post('/scan', optionalAuthenticate, upload.array('images', 5), scanWithGPTVision);
+/* ── AI Scan Module — Roboflow YOLO11 segmentation, Meshy 3D, Estimator ── */
+router.post(
+  '/scan',
+  optionalAuthenticate,
+  damageDetectionLimiter,
+  handleDamageImageUpload,
+  detectVehicleDamage
+);
 router.get('/scan/:id', optionalAuthenticate, getScanById);
 router.get('/webar-session/:scanId', optionalAuthenticate, getWebARSession);
 // Accepts both JSON { scanId } (normal path) and multipart images[] (direct fallback when Cloudinary is down).

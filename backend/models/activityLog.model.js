@@ -60,6 +60,12 @@ const activityLogSchema = new mongoose.Schema({
       'started_job',
       'completed_job',
 
+      // ── Quality Control ──
+      'qc_approved',
+      'qc_returned',
+      'qc_stage_update',
+      'qc_handoff_sheet',
+
       // ── Customer ──
       'customer_registered',
       'customer_booking',
@@ -101,7 +107,7 @@ const activityLogSchema = new mongoose.Schema({
   },
   module: {
     type: String,
-    enum: ['Auth', 'Booking', 'User', 'POS', 'Inventory', 'System', 'Settings', 'Report', 'Service', 'Customer'],
+    enum: ['Auth', 'Booking', 'User', 'POS', 'Inventory', 'System', 'Settings', 'Report', 'Service', 'Customer', 'QualityChecker'],
     default: 'System'
   },
   action: {

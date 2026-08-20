@@ -10,6 +10,8 @@
         "check:email-dns": "node scripts/check-email-dns.js",
         "bootstrap:administrator": "node scripts/bootstrap-administrator.js",
         "migrate:encryption-key": "node scripts/migrate-legacy-encryption-key.js",
+        "audit:encryption": "node scripts/audit-encrypted-records.js",
+        "indexes:performance": "node scripts/create-performance-indexes.js",
         "test": "node --test tests/*.test.js"
     },
     "keywords": [

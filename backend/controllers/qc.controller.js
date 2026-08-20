@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Order from '../models/order.model.js';
 import { safeDecryptOrderField } from '../utils/orderFieldDecrypt.utils.js';
 import { resolvePlainVehiclePlate } from '../utils/vehiclePlate.utils.js';
@@ -31,6 +32,9 @@ import {
   buildAdminGroupingKey,
   createAdminNotification,
 } from '../services/adminNotification.service.js';
+import {
+  invalidateResponseCache,
+} from '../utils/responseCache.utils.js';
 
 const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
 const QC_APPROVED_ORDER_STATUSES = ['completed', 'released'];
@@ -166,6 +170,103 @@ const getQCApprovalDateExpression = () => ({
   ],
 });
 
+const normalizeRangeDays = (value) => {
+  const n = Number(value);
+  if (n === 30 || n === 14 || n === 7 || n === 1) return n;
+  return 14;
+};
+
+const makeDateMidnight = (value) => {
+  const d = new Date(value);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const formatDateForTrend = (d) => {
+  const x = new Date(d);
+  const m = String(x.getMonth() + 1).padStart(2, '0');
+  const day = String(x.getDate()).padStart(2, '0');
+  return `${m}/${day}`;
+};
+
+const resolveTrendRange = (rangeDays) => {
+  const safeDays = normalizeRangeDays(rangeDays);
+  const today = makeDateMidnight(new Date());
+  const todayEnd = new Date(today);
+  todayEnd.setDate(today.getDate() + 1);
+
+  const currentStart = new Date(today);
+  currentStart.setDate(today.getDate() - (safeDays - 1));
+  const previousStart = new Date(currentStart);
+  previousStart.setDate(currentStart.getDate() - safeDays);
+
+  const trendWindowDays = safeDays * 2;
+  const trendStart = new Date(today);
+  trendStart.setDate(today.getDate() - (trendWindowDays - 1));
+
+  return { safeDays, todayEnd, currentStart, previousStart, trendStart };
+};
+
+const resolveQcScopeFilter = (req) => {
+  const scopeValue = String(req.query.scope || req.query.myJobsScope || '').toLowerCase();
+  const scopeMine =
+    scopeValue === 'mine'
+    || scopeValue === 'my-jobs'
+    || scopeValue === 'myjobs'
+    || scopeValue === 'me';
+  const flag = String(req.query.myJobs || req.query.my_jobs || req.query.mine || '').toLowerCase();
+  const mineByFlag = flag === '1' || flag === 'true';
+
+  if (!scopeMine && !mineByFlag) return {};
+
+  const userId = req?.user?.id || req?.user?._id;
+  if (!userId) return {};
+
+  const normalizedUserId = String(userId);
+  return {
+    assignedDetailer: mongoose.Types.ObjectId.isValid(normalizedUserId)
+      ? new mongoose.Types.ObjectId(normalizedUserId)
+      : normalizedUserId,
+  };
+};
+
+const invalidateQcReadCaches = () => invalidateResponseCache('qc:');
+
+const makeTrendMap = (days, startDate, endDate) => {
+  const trendMap = new Map();
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const key = formatDateForTrend(d);
+    trendMap.set(key, { date: key, approved: 0, returned: 0 });
+  }
+
+  return trendMap;
+};
+
+const sumTrendWindow = (trend, startInclusive, endExclusive) => {
+  let approved = 0;
+  let returned = 0;
+
+  trend.forEach((item) => {
+    approved += Number(item.approved) || 0;
+    returned += Number(item.returned) || 0;
+  });
+
+  const throughput = approved + returned;
+  const reviewedOutcomes = throughput;
+  const approvalRate = reviewedOutcomes > 0 ? Math.round((approved / reviewedOutcomes) * 100) : 0;
+
+  return {
+    approved,
+    returned,
+    throughput,
+    reviewedOutcomes,
+    approvalRate,
+  };
+};
+
 /**
  * GET /api/qc/jobs
  * Returns a bounded page of in-progress orders awaiting QC review.
@@ -181,6 +282,7 @@ export const getQCJobs = async (req, res, next) => {
     const filter = {
       status: { $in: QC_JOB_STATUSES },
       archived: false,
+      ...resolveQcScopeFilter(req),
     };
 
     const rows = await Order.find(filter)
@@ -334,46 +436,114 @@ export const getQCJobs = async (req, res, next) => {
  */
 export const getQCStats = async (req, res, next) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
+    const { safeDays, todayEnd, currentStart, previousStart, trendStart } = resolveTrendRange(
+      req.query.rangeDays || req.query.days || 14
+    );
+    const today = makeDateMidnight(new Date());
+    const scopeMatch = resolveQcScopeFilter(req);
 
     // All statuses that represent active or completed service work
     const ACTIVE_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
-    const QUEUE_STATUSES  = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment'];
+    const QUEUE_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment'];
 
     const [
       awaitingCount,
       approvedTodayRows,
       returnedCount,
+      rangeApprovedCurrentRows,
+      rangeReturnedCurrentRows,
+      rangeApprovedPreviousRows,
+      rangeReturnedPreviousRows,
       serviceDistribution,
+      qcApprovedLifetime,
+      totalQCReviewed,
+      avgTimeResult,
+      trendApprovedRaw,
+      trendReturnedRaw,
+      topReturnReasonsRaw,
     ] = await Promise.all([
       // Awaiting validation: any active order not yet released/completed
       Order.countDocuments({
         status: { $in: QUEUE_STATUSES },
         archived: { $ne: true },
+        ...scopeMatch,
       }),
 
       // Approved today: explicit QC completion, ready-for-pickup, completed, or released today.
       Order.aggregate([
-        { $match: getQCApprovedOutcomeMatch() },
+        { $match: { ...getQCApprovedOutcomeMatch(), ...scopeMatch } },
         { $project: { approvalDate: getQCApprovalDateExpression() } },
-        { $match: { approvalDate: { $gte: today, $lt: tomorrow } } },
+        { $match: { approvalDate: { $gte: today, $lt: todayEnd } } },
         { $count: 'count' },
       ]),
 
       // Returned: orders with a [QC_RETURN] staff note
       Order.countDocuments({
         archived: { $ne: true },
+        ...scopeMatch,
         'staffNotes.content': { $regex: /^\[QC_RETURN\]/, $options: 'i' },
       }),
+
+      // Approved in selected period
+      Order.aggregate([
+        { $match: { ...getQCApprovedOutcomeMatch(), ...scopeMatch } },
+        { $project: { approvalDate: getQCApprovalDateExpression() } },
+        { $match: { approvalDate: { $gte: currentStart, $lt: todayEnd } } },
+        { $count: 'count' },
+      ]),
+
+      // Returned in selected period
+      Order.aggregate([
+        {
+          $match: {
+            archived: { $ne: true },
+            ...scopeMatch,
+            staffNotes: { $exists: true, $ne: [] },
+          },
+        },
+        { $unwind: '$staffNotes' },
+        {
+          $match: {
+            'staffNotes.createdAt': { $gte: currentStart, $lt: todayEnd },
+            'staffNotes.content': { $regex: /^\[QC_RETURN\]/, $options: 'i' },
+          },
+        },
+        { $group: { _id: null, count: { $sum: 1 } } },
+      ]),
+
+      // Approved in previous period
+      Order.aggregate([
+        { $match: { ...getQCApprovedOutcomeMatch(), ...scopeMatch } },
+        { $project: { approvalDate: getQCApprovalDateExpression() } },
+        { $match: { approvalDate: { $gte: previousStart, $lt: currentStart } } },
+        { $count: 'count' },
+      ]),
+
+      // Returned in previous period
+      Order.aggregate([
+        {
+          $match: {
+            archived: { $ne: true },
+            ...scopeMatch,
+            staffNotes: { $exists: true, $ne: [] },
+          },
+        },
+        { $unwind: '$staffNotes' },
+        {
+          $match: {
+            'staffNotes.createdAt': { $gte: previousStart, $lt: currentStart },
+            'staffNotes.content': { $regex: /^\[QC_RETURN\]/, $options: 'i' },
+          },
+        },
+        { $group: { _id: null, count: { $sum: 1 } } },
+      ]),
 
       // Service type breakdown — all orders ever processed
       Order.aggregate([
         {
           $match: {
             archived: { $ne: true },
+            ...scopeMatch,
             status: { $in: ACTIVE_STATUSES },
           },
         },
@@ -386,46 +556,50 @@ export const getQCStats = async (req, res, next) => {
         { $sort: { count: -1 } },
         { $limit: 6 },
       ]),
-    ]);
-    const approvedTodayCount = approvedTodayRows?.[0]?.count || 0;
 
-    // Avg review time — QC-cleared jobs: qcCompletedAt − createdAt (meaningful duration)
-    const avgTimeResult = await Order.aggregate([
-      {
-        $match: {
-          archived: { $ne: true },
-          qcCompletedAt: { $exists: true, $ne: null },
-        },
-      },
-      {
-        $project: {
-          reviewTimeMs: {
-            $subtract: ['$qcCompletedAt', '$createdAt'],
+      // Reports KPIs — lifetime QC outcomes (do not use approvedToday for approval %)
+      Order.countDocuments({
+        ...getQCApprovedOutcomeMatch(),
+        ...scopeMatch,
+      }),
+      Order.countDocuments({
+        archived: { $ne: true },
+        ...scopeMatch,
+        $or: [
+          ...getQCApprovedOutcomeConditions(),
+          { staffNotes: { $elemMatch: { content: { $regex: /^\[QC_RETURN\]/, $options: 'i' } } } },
+        ],
+      }),
+
+      // Avg review time — QC-cleared jobs: qcCompletedAt − createdAt (meaningful duration)
+      Order.aggregate([
+        {
+          $match: {
+            archived: { $ne: true },
+            ...scopeMatch,
+            qcCompletedAt: { $exists: true, $ne: null },
           },
         },
-      },
-      {
-        $group: {
-          _id: null,
-          avgMs: { $avg: '$reviewTimeMs' },
+        {
+          $project: {
+            reviewTimeMs: {
+              $subtract: ['$qcCompletedAt', '$createdAt'],
+            },
+          },
         },
-      },
-    ]);
+        {
+          $group: {
+            _id: null,
+            avgMs: { $avg: '$reviewTimeMs' },
+          },
+        },
+      ]),
 
-    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-    const mmddKey = (d) => {
-      const x = new Date(d);
-      const m = String(x.getMonth() + 1).padStart(2, '0');
-      const day = String(x.getDate()).padStart(2, '0');
-      return `${m}/${day}`;
-    };
-
-    // Trend: approved = count of QC completions per day; returned = unique orders with a return note that day
-    const [trendApprovedRaw, trendReturnedRaw] = await Promise.all([
+      // Trend: approved = count of QC completions per day; returned = unique orders with a return note that day
       Order.aggregate([
-        { $match: getQCApprovedOutcomeMatch() },
+        { $match: { ...getQCApprovedOutcomeMatch(), ...scopeMatch } },
         { $project: { approvalDate: getQCApprovalDateExpression() } },
-        { $match: { approvalDate: { $gte: fourteenDaysAgo } } },
+        { $match: { approvalDate: { $gte: trendStart, $lt: todayEnd } } },
         {
           $group: {
             _id: { $dateToString: { format: '%m/%d', date: '$approvalDate' } },
@@ -433,12 +607,19 @@ export const getQCStats = async (req, res, next) => {
           },
         },
       ]),
+
       Order.aggregate([
-        { $match: { archived: { $ne: true }, staffNotes: { $exists: true, $ne: [] } } },
+        {
+          $match: {
+            archived: { $ne: true },
+            ...scopeMatch,
+            staffNotes: { $exists: true, $ne: [] },
+          },
+        },
         { $unwind: '$staffNotes' },
         {
           $match: {
-            'staffNotes.createdAt': { $gte: fourteenDaysAgo },
+            'staffNotes.createdAt': { $gte: trendStart, $lt: todayEnd },
             'staffNotes.content': { $regex: /^\[QC_RETURN\]/, $options: 'i' },
           },
         },
@@ -452,14 +633,49 @@ export const getQCStats = async (req, res, next) => {
         },
         { $group: { _id: '$_id.day', c: { $sum: 1 } } },
       ]),
+
+      Order.aggregate([
+        {
+          $match: {
+            archived: { $ne: true },
+            ...scopeMatch,
+            staffNotes: { $exists: true, $ne: [] },
+          },
+        },
+        { $unwind: '$staffNotes' },
+        {
+          $match: {
+            'staffNotes.createdAt': { $gte: currentStart, $lt: todayEnd },
+            'staffNotes.content': { $regex: /^\[QC_RETURN\]/, $options: 'i' },
+          },
+        },
+        {
+          $addFields: {
+            returnReason: {
+              $trim: {
+                input: {
+                  $toLower: {
+                    $substrBytes: ['$staffNotes.content', 10, 180],
+                  },
+                },
+              },
+            },
+          },
+        },
+        { $match: { returnReason: { $ne: '' } } },
+        { $group: { _id: '$returnReason', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 6 },
+      ]),
     ]);
 
-    const trendMap = new Map();
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
-      const key = mmddKey(d);
-      trendMap.set(key, { date: key, approved: 0, returned: 0 });
-    }
+    const approvedTodayCount = approvedTodayRows?.[0]?.count || 0;
+    const approvedCurrent = rangeApprovedCurrentRows?.[0]?.count || 0;
+    const returnedCurrent = rangeReturnedCurrentRows?.[0]?.count || 0;
+    const approvedPrevious = rangeApprovedPreviousRows?.[0]?.count || 0;
+    const returnedPrevious = rangeReturnedPreviousRows?.[0]?.count || 0;
+
+    const trendMap = makeTrendMap(safeDays * 2, trendStart, today);
     trendApprovedRaw.forEach((row) => {
       const entry = trendMap.get(row._id);
       if (entry) entry.approved += row.c;
@@ -468,23 +684,12 @@ export const getQCStats = async (req, res, next) => {
       const entry = trendMap.get(row._id);
       if (entry) entry.returned += row.c;
     });
-    const trendData = [...trendMap.values()];
 
-    // Reports KPIs — lifetime QC outcomes (do not use approvedToday for approval %)
-    const [qcApprovedLifetime, totalQCReviewed] = await Promise.all([
-      Order.countDocuments(getQCApprovedOutcomeMatch()),
-      Order.countDocuments({
-        archived: { $ne: true },
-        $or: [
-          ...getQCApprovedOutcomeConditions(),
-          { staffNotes: { $elemMatch: { content: { $regex: /^\[QC_RETURN\]/, $options: 'i' } } } },
-        ],
-      }),
-    ]);
-    const qcApprovalRatePct =
-      totalQCReviewed > 0 ? Math.round((qcApprovedLifetime / totalQCReviewed) * 100) : 0;
-    const qcReturnRatePct =
-      totalQCReviewed > 0 ? Math.round((returnedCount / totalQCReviewed) * 100) : 0;
+    const trendDataAll = [...trendMap.values()];
+    const previousTrendData = trendDataAll.slice(0, safeDays);
+    const trendData = trendDataAll.slice(-safeDays);
+    const currentSummary = sumTrendWindow(trendData, currentStart, todayEnd);
+    const previousSummary = sumTrendWindow(previousTrendData, previousStart, currentStart);
 
     // Avg review time in hours/minutes
     const avgMs = avgTimeResult?.[0]?.avgMs || 0;
@@ -500,10 +705,28 @@ export const getQCStats = async (req, res, next) => {
       }
     }
 
+    const qcApprovalRatePct =
+      totalQCReviewed > 0 ? Math.round((qcApprovedLifetime / totalQCReviewed) * 100) : 0;
+    const qcReturnRatePct =
+      totalQCReviewed > 0 ? Math.round((returnedCount / totalQCReviewed) * 100) : 0;
+
+    const periodApproved = approvedCurrent || currentSummary.approved;
+    const periodReturned = returnedCurrent || currentSummary.returned;
+    const periodThroughput = periodApproved + periodReturned;
+    const periodApprovalRate = periodThroughput > 0
+      ? Math.round((periodApproved / periodThroughput) * 100)
+      : 0;
+
+    const previousThroughput = approvedPrevious || previousSummary.throughput;
+    const previousApprovalRate = previousThroughput > 0
+      ? Math.round((approvedPrevious / previousThroughput) * 100)
+      : 0;
+
     // AI detections pending — any active order with damage annotations
     const aiPendingCount = await Order.countDocuments({
       status: { $in: QUEUE_STATUSES },
       archived: { $ne: true },
+      ...scopeMatch,
       'damageAnnotations.0': { $exists: true },
     });
 
@@ -520,9 +743,29 @@ export const getQCStats = async (req, res, next) => {
         aiPending: aiPendingCount,
         avgReviewTime: avgDisplay,
         trendData,
+        rangeSummary: {
+          days: safeDays,
+          label: safeDays === 1 ? 'Today' : `Last ${safeDays} Days`,
+          approved: periodApproved,
+          returned: periodReturned,
+          throughput: periodThroughput,
+          reviewedOutcomes: periodThroughput,
+          approvalRate: periodApprovalRate,
+          previous: {
+            approved: approvedPrevious || previousSummary.approved,
+            returned: returnedPrevious || previousSummary.returned,
+            throughput: previousThroughput,
+            reviewedOutcomes: previousThroughput,
+            approvalRate: previousApprovalRate || previousSummary.approvalRate,
+          },
+        },
         serviceDistribution: serviceDistribution.map((s) => ({
           name: s._id || 'Other',
           value: s.count,
+        })),
+        topReturnReasons: topReturnReasonsRaw.map((entry) => ({
+          reason: (entry._id || 'Unspecified').trim(),
+          count: entry.count || 0,
         })),
       },
     });
@@ -615,6 +858,7 @@ export const approveJob = async (req, res, next) => {
       });
     }
     await saveOrderWithSlotTransition(order, occupancyBefore);
+    invalidateQcReadCaches();
 
     // ── Emit real-time update to customer ───────────────────────────
     try {
@@ -729,6 +973,7 @@ export const returnJob = async (req, res, next) => {
     order.qcCompletedAt = undefined;
 
     await saveOrderWithSlotTransition(order, occupancyBefore);
+    invalidateQcReadCaches();
 
     // Emit socket update
     try {
@@ -888,6 +1133,7 @@ export const updateServiceStatus = async (req, res, next) => {
     }
 
     await saveOrderWithSlotTransition(order, occupancyBefore);
+    invalidateQcReadCaches();
 
     // ── Emit real-time updates ──────────────────────────────────
     try {
@@ -983,6 +1229,7 @@ export const assignServiceStaff = async (req, res, next) => {
     }));
 
     await order.save();
+    invalidateQcReadCaches();
 
     const assignedNames = order.serviceStaffAssignments.map((assignment) => assignment.name).filter(Boolean);
     const previousNames = previousAssignments.map((assignment) => assignment.name).filter(Boolean);

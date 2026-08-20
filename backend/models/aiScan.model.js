@@ -15,10 +15,39 @@ const coordinateSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const maskPointSchema = new mongoose.Schema(
+  {
+    x: { type: Number, min: 0, max: 1, required: true },
+    y: { type: Number, min: 0, max: 1, required: true },
+  },
+  { _id: false }
+);
+
+const segmentationSchema = new mongoose.Schema(
+  {
+    format: { type: String, enum: ['polygon', 'rle'], default: 'polygon' },
+    points: [maskPointSchema],
+    pointCount: { type: Number, min: 0, default: 0 },
+    rle: { type: mongoose.Schema.Types.Mixed, default: undefined },
+  },
+  { _id: false }
+);
+
+const detectedAreaSchema = new mongoose.Schema(
+  {
+    pixels: { type: Number, min: 0, default: 0 },
+    percentage: { type: Number, min: 0, max: 100, default: 0 },
+    imageWidth: { type: Number, min: 1, default: 1 },
+    imageHeight: { type: Number, min: 1, default: 1 },
+  },
+  { _id: false }
+);
+
 const damageSchema = new mongoose.Schema(
   {
     id: { type: String, trim: true, required: true },
     type: { type: String, trim: true, required: true },
+    damageClass: { type: String, trim: true, default: '' },
     severity: {
       type: String,
       enum: ['high', 'medium', 'low'],
@@ -26,11 +55,15 @@ const damageSchema = new mongoose.Schema(
       default: 'medium',
     },
     description: { type: String, trim: true, default: '' },
+    severityLabel: { type: String, enum: ['Severe', 'Moderate', 'Minor'], default: 'Moderate' },
     confidence: { type: Number, min: 0, max: 1, default: 0.5 },
     coordinates: { type: coordinateSchema, default: () => ({}) },
     affectedArea: { type: String, trim: true, default: 'Vehicle Body' },
     imageIndex: { type: Number, default: 0 },
     angleHint: { type: String, trim: true, default: 'close_up' },
+    segmentation: { type: segmentationSchema, default: () => ({}) },
+    detectedArea: { type: detectedAreaSchema, default: () => ({}) },
+    recommendation: { type: String, trim: true, default: '' },
     urgency: {
       type: String,
       enum: ['Immediate', 'Can Wait', 'Optional'],
@@ -104,17 +137,38 @@ const estimateSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const imageArchiveSchema = new mongoose.Schema(
+  {
+    provider: { type: String, enum: ['cloudinary'], default: 'cloudinary' },
+    status: {
+      type: String,
+      enum: ['pending', 'not_configured', 'succeeded', 'partial', 'failed'],
+      default: 'not_configured',
+    },
+    uploadMode: { type: String, enum: ['signed', 'unsigned', 'none'], default: 'none' },
+    requestedCount: { type: Number, min: 0, default: 0 },
+    uploadedCount: { type: Number, min: 0, default: 0 },
+    httpStatus: { type: Number, default: null },
+    errorCode: { type: String, trim: true, default: '' },
+    errorMessage: { type: String, trim: true, default: '' },
+    failedField: { type: String, trim: true, default: '' },
+    attemptedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
 const aiScanSchema = new mongoose.Schema(
   {
     customer: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     vehicleId: { type: String, trim: true, default: '' },
     imageUrls: [{ type: String, trim: true }],
+    imageArchive: { type: imageArchiveSchema, default: () => ({}) },
     angles: [{ type: String, trim: true }],
     imageCount: { type: Number, default: 1, min: 1 },
 
     source: {
       type: String,
-      enum: ['mock', 'gpt4_vision', 'fallback'],
+      enum: ['mock', 'gpt4_vision', 'roboflow', 'fallback'],
       default: 'mock',
     },
     model: { type: String, default: 'gpt-4-vision-mock' },
@@ -130,6 +184,7 @@ const aiScanSchema = new mongoose.Schema(
     summary: { type: String, default: '' },
 
     damages: [damageSchema],
+    damageReport: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
     estimate: { type: estimateSchema, default: () => ({}) },
 
     modelTaskId: { type: String, default: '' },
@@ -151,5 +206,7 @@ const aiScanSchema = new mongoose.Schema(
 );
 
 aiScanSchema.index({ customer: 1, createdAt: -1 });
+aiScanSchema.index({ createdAt: -1 });
+aiScanSchema.index({ modelStatus: 1, createdAt: -1 });
 
 export default mongoose.model('AIScan', aiScanSchema);

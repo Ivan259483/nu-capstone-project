@@ -46,6 +46,7 @@ import {
   buildAdminGroupingKey,
   createAdminNotification,
 } from '../services/adminNotification.service.js';
+import { runInBackground, timeOperation } from '../utils/performance.utils.js';
 
 // Roles that require Email OTP 2FA after password verification.
 // 'customer' is intentionally excluded — direct JWT login.
@@ -137,15 +138,13 @@ const compareOtpRecord = async (otpRecord, candidateOtp) => {
   return timingSafeOtpEqual(otpRecord.otp, normalizedOtp);
 };
 
-/** Updates lastSeenAt on successful auth (admin User Management “presence”). */
-async function saveLastSeen(userDoc) {
-  try {
-    if (!userDoc || typeof userDoc.save !== 'function') return;
-    userDoc.lastSeenAt = new Date();
-    await userDoc.save();
-  } catch (err) {
-    console.warn('[saveLastSeen] non-fatal:', err?.message || err);
-  }
+/** Presence is best-effort and must never hold a successful auth response open. */
+function scheduleLastSeen(userDoc, req) {
+  const userId = userDoc?._id || userDoc?.id;
+  if (!userId) return;
+  runInBackground({ req, kind: 'db', name: 'auth.user.lastSeenAt.update' }, () =>
+    User.updateOne({ _id: userId }, { $set: { lastSeenAt: new Date() } })
+  );
 }
 
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
@@ -170,13 +169,13 @@ const buildAuthTokenClaims = (user, additionalClaims = {}) => ({
   ...additionalClaims,
 });
 
-async function issueAuthTokenResponse(user) {
+async function issueAuthTokenResponse(user, req) {
   const token = jwt.sign(
     buildAuthTokenClaims(user),
     config.jwtSecret,
     { expiresIn: '7d' }
   );
-  await saveLastSeen(user);
+  scheduleLastSeen(user, req);
   return { user: serializeUserForAuthResponse(user), token };
 }
 
@@ -890,7 +889,7 @@ export const verifyOtp = async (req, res, next) => {
 
     // Preserve the existing customer activation experience: verified customers
     // receive their normal session immediately after registration verification.
-    const { user: userObject, token } = await issueAuthTokenResponse(user);
+    const { user: userObject, token } = await issueAuthTokenResponse(user, req);
     return res.json({
       success: true,
       message: 'Email verified. You are now signed in.',
@@ -1211,7 +1210,7 @@ export const completePasswordSetup = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    await saveLastSeen(user);
+    scheduleLastSeen(user, req);
     sendWelcomeEmail(user.email, user.name).catch(err => console.warn('⚠️ Welcome email failed:', err.message));
 
     const userObject = user.toObject({ virtuals: true });
@@ -1509,7 +1508,10 @@ export const login = async (req, res, next) => {
     }
 
     // Find user
-    let user = await User.findOne({ email: emailNormalized });
+    let user = await timeOperation(
+      { req, res, kind: 'db', name: 'login.user.findByEmail' },
+      () => User.findOne({ email: emailNormalized })
+    );
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -1652,7 +1654,10 @@ export const login = async (req, res, next) => {
     }
 
     // Verify password using bcrypt
-    const isPasswordValid = await user.comparePassword(password);
+    const isPasswordValid = await timeOperation(
+      { req, res, kind: 'cpu', name: 'login.password.bcryptCompare' },
+      () => user.comparePassword(password)
+    );
 
     if (!isPasswordValid) {
       if (!lockoutExempt) {
@@ -1772,10 +1777,13 @@ export const login = async (req, res, next) => {
     if (requiresStaffTwoFactor(user.role)) {
       // Staff 2FA is mandatory in every environment. The opaque challenge is
       // returned only after the password succeeds and is required for verify/resend.
-      const existingLoginOtp = await OTP.findOne({
-        userId: user._id,
-        purpose: LOGIN_OTP_PURPOSE,
-      }).sort({ createdAt: -1, _id: -1 });
+      const existingLoginOtp = await timeOperation(
+        { req, res, kind: 'db', name: 'login.otp.findLatest' },
+        () => OTP.findOne({
+          userId: user._id,
+          purpose: LOGIN_OTP_PURPOSE,
+        }).sort({ createdAt: -1, _id: -1 })
+      );
       let carriedAttempts = 0;
       if (existingLoginOtp && existingLoginOtp.expiresAt > new Date()) {
         if (existingLoginOtp.attempts >= existingLoginOtp.maxAttempts) {
@@ -1803,36 +1811,47 @@ export const login = async (req, res, next) => {
       }
 
       const otp = generateOTP(6);
-      const otpHash = await bcrypt.hash(otp, 10);
+      const otpHash = await timeOperation(
+        { req, res, kind: 'cpu', name: 'login.otp.bcryptHash' },
+        () => bcrypt.hash(otp, 10)
+      );
       const challengeToken = generateLoginChallengeToken();
-
-      // Remove any previous login OTP for this user, then save fresh one
-      await OTP.deleteMany({ userId: user._id, purpose: LOGIN_OTP_PURPOSE });
 
       const maskedEmail = emailNormalized.replace(/^(.)(.*)(@.*)$/, (_, first, middle, domain) =>
         `${first}${'*'.repeat(Math.min(middle.length, 5))}${domain}`
       );
 
-      const otpRecord = new OTP({
-        email: user.email,
-        otp,              // plain — kept for legacy find queries, never sent to client
-        otpHash,          // bcrypt hash — used for verification
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
-        attempts: carriedAttempts,
-        maxAttempts: 3,
-        verified: false,
-        purpose: LOGIN_OTP_PURPOSE,
-        userId: user._id,
-        lastSentAt: new Date(),
-        loginChallengeHash: hashLoginChallengeToken(challengeToken),
-      });
-      await otpRecord.save();
+      // Replace the current challenge in one database command. The previous
+      // delete + insert sequence added an avoidable Atlas network round trip.
+      const otpRecord = await timeOperation(
+        { req, res, kind: 'db', name: 'login.otp.replaceChallenge' },
+        () => OTP.findOneAndUpdate(
+          { userId: user._id, purpose: LOGIN_OTP_PURPOSE },
+          {
+            $set: {
+              email: user.email,
+              otp,              // plain — kept for legacy queries, never sent to client
+              otpHash,          // bcrypt hash — used for verification
+              expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+              attempts: carriedAttempts,
+              maxAttempts: 3,
+              verified: false,
+              lastSentAt: new Date(),
+              loginChallengeHash: hashLoginChallengeToken(challengeToken),
+            },
+          },
+          { new: true, upsert: true, setDefaultsOnInsert: true, sort: { createdAt: -1, _id: -1 } }
+        )
+      );
 
       // Send OTP email (fire-and-forget — failure is non-fatal here, client can resend)
-      const emailResult = await sendOtpEmail(user.email, otp, {
-        purpose: 'login',
-        otpRecordId: otpRecord._id,
-      });
+      const emailResult = await timeOperation(
+        { req, res, kind: 'external', name: 'login.email.sendOtp' },
+        () => sendOtpEmail(user.email, otp, {
+          purpose: 'login',
+          otpRecordId: otpRecord._id,
+        })
+      );
       if (!emailResult.success) {
         console.error('❌ [Login 2FA] Failed to send OTP email:', emailResult.error);
         await OTP.deleteOne({ _id: otpRecord._id });
@@ -1873,7 +1892,7 @@ export const login = async (req, res, next) => {
       { expiresIn: '7d' }
     );
 
-    await saveLastSeen(user);
+    scheduleLastSeen(user, req);
 
     const userObject = user.toObject({ virtuals: true });
     delete userObject.password;
@@ -2129,7 +2148,7 @@ export const socialLogin = async (req, res, next) => {
       await user.save();
     }
 
-    await saveLastSeen(user);
+    scheduleLastSeen(user, req);
 
     // Generate token
     const token = jwt.sign(
@@ -2356,9 +2375,20 @@ export const verifyLoginOtp = async (req, res) => {
       });
     }
 
-    const otpRecord = await OTP.findOne({ userId, purpose: LOGIN_OTP_PURPOSE })
-      .select('+loginChallengeHash')
-      .sort({ createdAt: -1, _id: -1 });
+    // Both records are required and independent. Fetching them concurrently
+    // removes one full Atlas round trip from every OTP verification.
+    const [otpRecord, user] = await Promise.all([
+      timeOperation(
+        { req, res, kind: 'db', name: 'verifyLoginOtp.otp.findLatest' },
+        () => OTP.findOne({ userId, purpose: LOGIN_OTP_PURPOSE })
+          .select('+loginChallengeHash')
+          .sort({ createdAt: -1, _id: -1 })
+      ),
+      timeOperation(
+        { req, res, kind: 'db', name: 'verifyLoginOtp.user.findById' },
+        () => User.findById(userId)
+      ),
+    ]);
     if (!otpRecord) {
       return res.status(400).json({ success: false, message: 'Login challenge not found. Sign in again.' });
     }
@@ -2371,7 +2401,6 @@ export const verifyLoginOtp = async (req, res) => {
       record: otpRecordLogMeta(otpRecord),
     });
 
-    const user = await User.findById(userId);
     if (
       !user
       || user.isDeleted
@@ -2412,7 +2441,10 @@ export const verifyLoginOtp = async (req, res) => {
     }
 
     // Compare bcrypt hash
-    const isValid = await compareOtpRecord(otpRecord, otp);
+    const isValid = await timeOperation(
+      { req, res, kind: 'cpu', name: 'verifyLoginOtp.otp.bcryptCompare' },
+      () => compareOtpRecord(otpRecord, otp)
+    );
     logOtpDebug('login_verify.compare', {
       userId,
       receivedOtp: formatOtpForLog(otp),
@@ -2479,12 +2511,15 @@ export const verifyLoginOtp = async (req, res) => {
     }
 
     // Atomically consume the OTP. A concurrent replay cannot also receive a JWT.
-    const consumed = await OTP.findOneAndDelete({
-      _id: otpRecord._id,
-      purpose: LOGIN_OTP_PURPOSE,
-      expiresAt: { $gt: new Date() },
-      attempts: { $lt: otpRecord.maxAttempts },
-    });
+    const consumed = await timeOperation(
+      { req, res, kind: 'db', name: 'verifyLoginOtp.otp.consume' },
+      () => OTP.findOneAndDelete({
+        _id: otpRecord._id,
+        purpose: LOGIN_OTP_PURPOSE,
+        expiresAt: { $gt: new Date() },
+        attempts: { $lt: otpRecord.maxAttempts },
+      })
+    );
     if (!consumed) {
       return res.status(409).json({ success: false, message: 'This login code has already been used.' });
     }
@@ -2497,7 +2532,7 @@ export const verifyLoginOtp = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    await saveLastSeen(user);
+    scheduleLastSeen(user, req);
 
     const userObject = user.toObject({ virtuals: true });
     delete userObject.password;

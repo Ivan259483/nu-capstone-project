@@ -15,8 +15,9 @@ import {
 } from '../utils/bookingManagerNotifications.utils.js';
 import { syncMissingCustomerStageNotifications } from '../utils/customerStageNotifications.utils.js';
 import { syncMissingCustomerReceiptNotifications } from '../utils/customerReceiptNotification.utils.js';
+import { runInBackground, timeOperation } from '../utils/performance.utils.js';
 
-const DEFAULT_PAGE_SIZE = 50;
+const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
 const MAX_BULK_SIZE = 200;
 
@@ -510,6 +511,22 @@ async function syncNotificationsForCurrentUser(role, userId) {
   }
 }
 
+const scheduledNotificationSyncs = new Set();
+
+function scheduleNotificationSync(req, role, userId) {
+  const key = `${normalizeToCanonical(role)}:${String(userId)}`;
+  if (scheduledNotificationSyncs.has(key)) return;
+  scheduledNotificationSyncs.add(key);
+
+  runInBackground({ req, kind: 'background', name: 'notifications.backfillSync' }, async () => {
+    try {
+      await syncNotificationsForCurrentUser(role, userId);
+    } finally {
+      scheduledNotificationSyncs.delete(key);
+    }
+  });
+}
+
 /**
  * Searchable, filterable and paginated notifications for the current user.
  * Mutable state is enriched from NotificationUserState before filters run.
@@ -519,55 +536,56 @@ export const getNotifications = async (req, res, next) => {
     const role = req.user.role;
     const userId = getUserObjectId(req);
     const options = parseListOptions(req.query);
-    await syncNotificationsForCurrentUser(role, userId);
-
     const filters = listFilterStages(options);
-    const [result = {}] = await Notification.aggregate([
-      ...commonNotificationPipeline(role, userId),
-      {
-        $facet: {
-          data: [
-            ...filters,
-            { $sort: sortFor(options) },
-            { $skip: (options.page - 1) * options.limit },
-            { $limit: options.limit },
-            { $project: publicProjection },
-          ],
-          total: [...filters, { $count: 'count' }],
-          unread: [
-            { $match: visibleMatch() },
-            { $match: { isRead: false } },
-            { $count: 'count' },
-          ],
-          summary: [
-            { $match: visibleMatch() },
-            {
-              $group: {
-                _id: null,
-                all: { $sum: 1 },
-                unread: { $sum: { $cond: [{ $eq: ['$isRead', false] }, 1, 0] } },
-                actionRequired: {
-                  $sum: { $cond: [{ $eq: ['$actionRequired', true] }, 1, 0] },
-                },
-                system: {
-                  $sum: {
-                    $cond: [{ $in: ['$category', ['system', 'security']] }, 1, 0],
+    const [result = {}] = await timeOperation(
+      { req, res, kind: 'db', name: 'notifications.aggregatePage' },
+      () => Notification.aggregate([
+        ...commonNotificationPipeline(role, userId),
+        {
+          $facet: {
+            data: [
+              ...filters,
+              { $sort: sortFor(options) },
+              { $skip: (options.page - 1) * options.limit },
+              { $limit: options.limit },
+              { $project: publicProjection },
+            ],
+            total: [...filters, { $count: 'count' }],
+            unread: [
+              { $match: visibleMatch() },
+              { $match: { isRead: false } },
+              { $count: 'count' },
+            ],
+            summary: [
+              { $match: visibleMatch() },
+              {
+                $group: {
+                  _id: null,
+                  all: { $sum: 1 },
+                  unread: { $sum: { $cond: [{ $eq: ['$isRead', false] }, 1, 0] } },
+                  actionRequired: {
+                    $sum: { $cond: [{ $eq: ['$actionRequired', true] }, 1, 0] },
+                  },
+                  system: {
+                    $sum: {
+                      $cond: [{ $in: ['$category', ['system', 'security']] }, 1, 0],
+                    },
                   },
                 },
               },
-            },
-          ],
-          categoryCounts: [
-            { $match: visibleMatch() },
-            { $group: { _id: '$category', count: { $sum: 1 } } },
-          ],
-          severityCounts: [
-            { $match: visibleMatch() },
-            { $group: { _id: '$severity', count: { $sum: 1 } } },
-          ],
+            ],
+            categoryCounts: [
+              { $match: visibleMatch() },
+              { $group: { _id: '$category', count: { $sum: 1 } } },
+            ],
+            severityCounts: [
+              { $match: visibleMatch() },
+              { $group: { _id: '$severity', count: { $sum: 1 } } },
+            ],
+          },
         },
-      },
-    ]).allowDiskUse(true);
+      ]).allowDiskUse(true)
+    );
 
     const total = countFromFacet(result.total);
     const unreadCount = countFromFacet(result.unread);
@@ -595,6 +613,11 @@ export const getNotifications = async (req, res, next) => {
         severities: facetMap(result.severityCounts),
       },
     });
+
+    // Backfills repair legacy gaps but are not part of reading the inbox. Queue
+    // them only after the page has been serialized to avoid DB contention with
+    // the response aggregation itself.
+    scheduleNotificationSync(req, role, userId);
   } catch (error) {
     next(error);
   }
@@ -603,7 +626,10 @@ export const getNotifications = async (req, res, next) => {
 export const getUnreadCount = async (req, res, next) => {
   try {
     const userId = getUserObjectId(req);
-    const unreadCount = await unreadCountFor(req.user.role, userId);
+    const unreadCount = await timeOperation(
+      { req, res, kind: 'db', name: 'notifications.aggregateUnreadCount' },
+      () => unreadCountFor(req.user.role, userId)
+    );
     res.json({ success: true, unreadCount });
   } catch (error) {
     next(error);

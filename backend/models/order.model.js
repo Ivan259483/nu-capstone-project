@@ -423,17 +423,23 @@ orderSchema.pre('save', function (next) {
 
 // Decrypt after loading
 orderSchema.post('init', function (doc) {
-  if (doc.vehiclePlate) doc.vehiclePlate = decrypt(doc.vehiclePlate);
-  if (doc.shippingAddress) doc.shippingAddress = decrypt(doc.shippingAddress);
-  if (doc.notes) doc.notes = decrypt(doc.notes);
+  const hydrateDecryptedValue = (path, value) => {
+    if (!value) return;
+    doc.set(path, decrypt(value));
+    doc.unmarkModified(path);
+  };
+
+  hydrateDecryptedValue('vehiclePlate', doc.vehiclePlate);
+  hydrateDecryptedValue('shippingAddress', doc.shippingAddress);
+  hydrateDecryptedValue('notes', doc.notes);
   if (doc.legalCompliance?.waiverSignature) {
-    doc.legalCompliance.waiverSignature = decrypt(doc.legalCompliance.waiverSignature);
+    hydrateDecryptedValue('legalCompliance.waiverSignature', doc.legalCompliance.waiverSignature);
   }
   if (doc.legalCompliance?.damageNotes) {
-    doc.legalCompliance.damageNotes = decrypt(doc.legalCompliance.damageNotes);
+    hydrateDecryptedValue('legalCompliance.damageNotes', doc.legalCompliance.damageNotes);
   }
   if (doc.warrantyAndReceipt?.customerSignature) {
-    doc.warrantyAndReceipt.customerSignature = decrypt(doc.warrantyAndReceipt.customerSignature);
+    hydrateDecryptedValue('warrantyAndReceipt.customerSignature', doc.warrantyAndReceipt.customerSignature);
   }
 });
 
@@ -442,6 +448,8 @@ orderSchema.post('init', function (doc) {
 // eliminate full collection scans on the orders collection.
 orderSchema.index({ customer: 1, archived: 1, createdAt: -1 });       // Customer bookings (getAllOrders for customers)
 orderSchema.index({ customer: 1, createdAt: -1 });                    // Customer booking history
+orderSchema.index({ customer: 1, archived: 1, updatedAt: -1 });       // Customer notification-stage backfill
+orderSchema.index({ customer: 1, paymentStatus: 1, updatedAt: -1 });  // Customer receipt notification backfill
 orderSchema.index({ assignedDetailer: 1, status: 1 });                // Detailer queue & active jobs
 orderSchema.index({ status: 1 });                                     // QC/admin status filters
 orderSchema.index({ createdAt: -1 });                                 // Recent-first queues
@@ -453,6 +461,8 @@ orderSchema.index({ qcCompletedAt: -1 });                             // QC revi
 orderSchema.index({ status: 1, createdAt: -1 });                      // QC jobs by status + recency
 orderSchema.index({ qcCompletedAt: 1, assignedDetailer: 1 });          // QC status + assigned technician lookups
 orderSchema.index({ serviceTrackingStage: 1, status: 1 });             // Live tracker gate + order status lookups
+orderSchema.index({ archived: 1, paymentStatus: 1, status: 1, updatedAt: -1 }); // Sales balance/pickup queue by status
+orderSchema.index({ archived: 1, paymentStatus: 1, serviceTrackingStage: 1, updatedAt: -1 }); // Sales balance/pickup queue by stage
 orderSchema.index({ archived: 1, status: 1, createdAt: -1 });          // Active QC jobs by archive flag + recency
 orderSchema.index({ status: 1, archived: 1, createdAt: -1 });         // Admin status + recency (getAllOrders)
 orderSchema.index({ bookingDate: 1, bookingTime: 1, status: 1 });     // Available slots lookup
@@ -461,6 +471,7 @@ orderSchema.index({ bookingDate: 1, status: 1 });
 orderSchema.index({ archived: 1, createdAt: -1 });                    // Archived orders listing
 orderSchema.index({ archived: 1, createdAt: -1, _id: -1 });            // Active order list by recency + stable pagination
 orderSchema.index({ archived: 1, updatedAt: -1, _id: -1 });            // Active order list by latest update + stable pagination
+orderSchema.index({ assignedDetailer: 1, archived: 1, updatedAt: -1, _id: -1 }); // Scoped QC activity/report reads
 orderSchema.index({ bookingReference: 1 }, { unique: true, sparse: true }); // Booking ref lookup
 
 export default mongoose.model('Order', orderSchema);

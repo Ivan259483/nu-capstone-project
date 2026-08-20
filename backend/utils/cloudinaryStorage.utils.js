@@ -16,6 +16,13 @@ const hasSignedCredentials = (config) =>
 const hasUnsignedPreset = (config) =>
   Boolean(config.cloudName && config.uploadPreset);
 
+export const getCloudinaryUploadMode = () => {
+  const config = getCloudinaryConfig();
+  if (hasSignedCredentials(config)) return 'signed';
+  if (hasUnsignedPreset(config)) return 'unsigned';
+  return 'none';
+};
+
 export const isCloudinaryConfigured = () => {
   const config = getCloudinaryConfig();
   return hasSignedCredentials(config) || hasUnsignedPreset(config);
@@ -51,6 +58,65 @@ const buildCloudinarySignature = (params) => {
 
 const createUploadEndpoint = () =>
   `https://api.cloudinary.com/v1_1/${getCloudinaryConfig().cloudName}/image/upload`;
+
+const redactCloudinarySecrets = (value) => {
+  const config = getCloudinaryConfig();
+  const secrets = [config.apiSecret, config.apiKey, config.uploadPreset]
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+
+  const redactedConfiguredValues = secrets.reduce(
+    (message, secret) => message.split(secret).join('[redacted]'),
+    String(value || '').slice(0, 500)
+  );
+
+  // Cloudinary can include a generated request signature in authentication
+  // errors. It is not the API secret, but it is still credential-like data and
+  // should not be retained in logs or scan documents.
+  return redactedConfiguredValues
+    .replace(/(invalid signature)\s+[a-f0-9]+/gi, '$1 [redacted]')
+    .replace(/([?&]signature=)[^&\s"']+/gi, '$1[redacted]');
+};
+
+const inferFailedField = (error, message) => {
+  const explicitField = error?.response?.data?.error?.field
+    || error?.response?.data?.field;
+  if (explicitField) return String(explicitField).slice(0, 80);
+
+  const normalized = String(message || '').toLowerCase();
+  if (normalized.includes('upload preset')) return 'upload_preset';
+  if (normalized.includes('signature')) return 'signature';
+  if (normalized.includes('api key')) return 'api_key';
+  if (normalized.includes('timestamp')) return 'timestamp';
+  if (normalized.includes('public id')) return 'public_id';
+  if (normalized.includes('folder')) return 'folder';
+  if (normalized.includes('file')) return 'file';
+  if (normalized.includes('cloud name')) return 'cloud_name';
+  return 'unknown';
+};
+
+/** Return only operational Cloudinary error metadata that is safe to log/store. */
+export const getCloudinarySafeErrorDetails = (error) => {
+  const upstreamMessage = error?.response?.data?.error?.message
+    || error?.response?.data?.message
+    || error?.message
+    || 'Cloudinary upload failed.';
+  const message = redactCloudinarySecrets(upstreamMessage);
+  const httpStatus = Number(error?.response?.status) || null;
+  const uploadedCount = Number(error?.cloudinaryUploadContext?.uploadedCount) || 0;
+
+  return {
+    provider: 'cloudinary',
+    uploadMode: getCloudinaryUploadMode(),
+    httpStatus,
+    errorCode: redactCloudinarySecrets(
+      error?.response?.data?.error?.code || error?.code || 'CLOUDINARY_UPLOAD_FAILED'
+    ),
+    message,
+    failedField: inferFailedField(error, message),
+    uploadedCount,
+  };
+};
 
 const randomId = (length = 8) =>
   Math.random()
@@ -98,12 +164,24 @@ export const uploadVehicleScanImages = async (files, options = {}) => {
       formData.append('upload_preset', config.uploadPreset);
     }
 
-    const response = await axios.post(endpoint, formData, {
-      headers: formData.getHeaders(),
-      timeout: 60000,
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
-    });
+    let response;
+    try {
+      response = await axios.post(endpoint, formData, {
+        headers: formData.getHeaders(),
+        timeout: 60000,
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+      });
+    } catch (error) {
+      // Preserve partial success for multi-image scans without attaching request
+      // bodies, credentials, signatures, or other sensitive Axios metadata.
+      error.cloudinaryUploadContext = {
+        failedFileIndex: index,
+        uploadedCount: uploadedUrls.length,
+        uploadedUrls: [...uploadedUrls],
+      };
+      throw error;
+    }
 
     const secureUrl = response.data?.secure_url;
     if (!secureUrl || typeof secureUrl !== 'string') {

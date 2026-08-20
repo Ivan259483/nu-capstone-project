@@ -59,6 +59,7 @@ import {
   buildAdminGroupingKey,
   createAdminNotification,
 } from '../services/adminNotification.service.js';
+import { timeOperation } from '../utils/performance.utils.js';
 
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
@@ -1256,9 +1257,12 @@ function canViewOrderWithRoleConstraints(reqUser, order) {
  */
 export const getOrderTrackerMedia = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id)
-      .select(ORDER_TRACKER_MEDIA_SELECT_FIELDS)
-      .lean();
+    const order = await timeOperation(
+      { req, res, kind: 'db', name: 'trackerMedia.order.findById' },
+      () => Order.findById(req.params.id)
+        .select(ORDER_TRACKER_MEDIA_SELECT_FIELDS)
+        .lean()
+    );
 
     if (!order) {
       return res.status(404).json({

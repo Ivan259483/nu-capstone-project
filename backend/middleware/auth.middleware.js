@@ -9,6 +9,34 @@ import {
 import User from '../models/user.model.js';
 import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
 import { authVersionMatches } from '../utils/authVersion.utils.js';
+import { timeOperation } from '../utils/performance.utils.js';
+
+// Collapse only concurrent reads for the same account. Results are removed as
+// soon as the query settles, so account deactivation/role changes are never
+// served from a stale time-based authentication cache.
+const liveUserLookups = new Map();
+
+const loadLiveAuthUser = (userId, req, res) => {
+  const key = String(userId);
+  const existing = liveUserLookups.get(key);
+  if (existing) {
+    return timeOperation(
+      { req, res, kind: 'db', name: 'auth.user.findById.coalesced' },
+      () => existing
+    );
+  }
+
+  const lookup = timeOperation(
+    { req, res, kind: 'db', name: 'auth.user.findById' },
+    () => User.findById(userId)
+      .select('isActive isDeleted isVerified status lockUntil email role name authVersion')
+      .lean()
+  ).finally(() => {
+    if (liveUserLookups.get(key) === lookup) liveUserLookups.delete(key);
+  });
+  liveUserLookups.set(key, lookup);
+  return lookup;
+};
 
 /**
  * Authentication middleware
@@ -46,9 +74,7 @@ export const authenticate = async (req, res, next) => {
 
       // STRICT VERIFICATION: Ensure user actually still exists and has not been deleted/deactivated.
       // Always use live MongoDB role/name/email — JWT embeds role from login time and goes stale after admin edits.
-      const userDoc = await User.findById(decoded.id).select(
-        'isActive isDeleted isVerified status lockUntil email role name authVersion'
-      );
+      const userDoc = await loadLiveAuthUser(decoded.id, req, res);
       if (!userDoc) {
         return res.status(401).json({ success: false, message: 'User account no longer exists.' });
       }
@@ -167,9 +193,7 @@ export const optionalAuthenticate = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, config.jwtSecret);
     if (decoded?.id) {
-      const userDoc = await User.findById(decoded.id)
-        .select('isActive isDeleted isVerified lockUntil email role name authVersion')
-        .lean();
+      const userDoc = await loadLiveAuthUser(decoded.id, req, res);
       const liveRole = migrateLegacyUserRole(userDoc?.role);
       const liveAccountUsable = Boolean(
         userDoc

@@ -196,8 +196,14 @@ userSchema.pre('save', async function (next) {
 
 // Decrypt PII after loading
 userSchema.post('init', function (doc) {
-  if (doc.phone) doc.phone = decrypt(doc.phone);
-  if (doc.address) doc.address = decrypt(doc.address);
+  const hydrateDecryptedValue = (path, value) => {
+    if (!value) return;
+    doc.set(path, decrypt(value));
+    doc.unmarkModified(path);
+  };
+
+  hydrateDecryptedValue('phone', doc.phone);
+  hydrateDecryptedValue('address', doc.address);
 });
 
 // Method to compare passwords
