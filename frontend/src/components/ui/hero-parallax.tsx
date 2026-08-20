@@ -7,6 +7,9 @@ export type HeroParallaxProduct = {
     title: string;
     link: string;
     thumbnail: string;
+    thumbnailSrcSet?: string;
+    thumbnailSizes?: string;
+    alt?: string;
 };
 
 const DEFAULT_TITLE = (
@@ -44,22 +47,52 @@ export function ProductCard({
     translate: MotionValue<number>;
     reduceMotion?: boolean;
 }) {
+    const cardRef = React.useRef<HTMLDivElement>(null);
+    const [shouldLoadImage, setShouldLoadImage] = React.useState(false);
+
+    React.useEffect(() => {
+        const card = cardRef.current;
+        if (!card || typeof IntersectionObserver === "undefined") {
+            setShouldLoadImage(true);
+            return;
+        }
+
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                if (!entry.isIntersecting) return;
+                setShouldLoadImage(true);
+                observer.disconnect();
+            },
+            { rootMargin: "320px 80px" },
+        );
+
+        observer.observe(card);
+        return () => observer.disconnect();
+    }, []);
+
     return (
         <motion.div
+            ref={cardRef}
             style={{ x: translate }}
             whileHover={reduceMotion ? undefined : { y: -8 }}
             transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
             className="group/product relative h-96 w-[30rem] shrink-0 overflow-hidden rounded-xl shadow-2xl will-change-transform"
         >
             <a href={product.link} className="block h-full w-full" aria-label={product.title || "View AutoSPF transformation gallery"}>
-                <img
-                    src={product.thumbnail}
-                    alt={product.title || "AutoSPF transformation photo"}
-                    height={600}
-                    width={600}
-                    className="absolute inset-0 h-full w-full object-cover object-left-top transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/product:scale-[1.025] motion-reduce:transform-none"
-                    loading="lazy"
-                />
+                {shouldLoadImage ? (
+                    <img
+                        src={product.thumbnail}
+                        srcSet={product.thumbnailSrcSet}
+                        sizes={product.thumbnailSizes}
+                        alt={product.alt || product.title || "AutoSPF transformation photo"}
+                        height={384}
+                        width={480}
+                        className="absolute inset-0 h-full w-full object-cover object-left-top transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/product:scale-[1.025] motion-reduce:transform-none"
+                        loading="lazy"
+                        decoding="async"
+                        fetchPriority="low"
+                    />
+                ) : null}
             </a>
             <div className="pointer-events-none absolute inset-0 h-full w-full bg-gradient-to-t from-black/75 via-black/12 to-black/18 opacity-45 transition-opacity duration-500 group-hover/product:opacity-76" />
             {product.title ? (

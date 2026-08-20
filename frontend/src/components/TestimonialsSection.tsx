@@ -37,7 +37,7 @@ function formatReviewDate(date: string) {
 
 function RatingStars({ rating, size = "h-3.5 w-3.5" }: { rating: DemoReview["rating"]; size?: string }) {
     return (
-        <div className="flex items-center gap-1" aria-label={`${rating} out of 5 stars`}>
+        <div className="flex items-center gap-1" role="img" aria-label={`${rating} out of 5 stars`}>
             {Array.from({ length: 5 }).map((_, index) => {
                 const filled = index < rating;
                 return (
@@ -343,7 +343,7 @@ export default function TestimonialsSection() {
                         <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#F4B63D]/72">
                             More owner feedback
                         </p>
-                        <p className="mt-1 text-sm text-white/44">
+                        <p className="mt-1 text-sm text-white/52">
                             Browse a few recent experiences from booked car care services.
                         </p>
                     </div>

@@ -1,29 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { LayoutGroup, motion } from "motion/react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import {
-    IconBriefcase,
-    IconCheck,
-    IconChevronDown,
-    IconHome,
-    IconInfoCircle,
-    IconMail,
-    IconMenu2,
-    IconX,
-} from "@tabler/icons-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
 import {
     FloatingNav,
-    NAV_ACTIVE_PILL_TRANSITION,
     type FloatingNavItem,
 } from "@/components/ui/floating-navbar";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 
 const LANGUAGES = [
     { code: "en" as const, label: "EN", nameKey: "language.english" as const },
@@ -33,15 +15,14 @@ const LANGUAGES = [
 function LanguageSwitcher({ className }: { className?: string }) {
     const { lang, setLang, t } = useLanguage();
     const current = LANGUAGES.find((l) => l.code === lang) ?? LANGUAGES[0];
+    const detailsRef = useRef<HTMLDetailsElement>(null);
 
     return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <button
-                    type="button"
-                    aria-label={t("language.select")}
+        <details ref={detailsRef} className="group relative">
+                <summary
+                    aria-label={`${current.label} — ${t("language.select")}`}
                     className={cn(
-                        "inline-flex h-9 min-w-[3.75rem] items-center justify-center gap-1 rounded-full border border-white/12 bg-white/[0.045] px-3",
+                        "inline-flex h-9 min-w-[3.75rem] cursor-pointer list-none items-center justify-center gap-1 rounded-full border border-white/12 bg-white/[0.045] px-3 [&::-webkit-details-marker]:hidden",
                         "text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-white/82",
                         "shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:border-[#e0a020]/40 hover:bg-white/[0.08] hover:text-[#f4c96b]",
                         "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/50 focus-visible:ring-offset-0",
@@ -49,30 +30,43 @@ function LanguageSwitcher({ className }: { className?: string }) {
                     )}
                 >
                     <span>{current.label}</span>
-                    <IconChevronDown className="h-3 w-3 shrink-0 opacity-75" stroke={2.5} />
-                </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-                align="end"
-                sideOffset={8}
-                className="z-[5010] flex min-w-[10.5rem] flex-col gap-1 rounded-2xl border-white/12 bg-[#070a12]/88 p-1.5 text-white shadow-[0_18px_42px_rgba(0,0,0,0.24)] backdrop-blur-xl"
-            >
+                    <svg aria-hidden="true" viewBox="0 0 12 12" className="h-3 w-3 shrink-0 fill-none stroke-current opacity-75 transition-transform group-open:rotate-180"><path d="m3 4.5 3 3 3-3" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </summary>
+            <div role="menu" className="absolute right-0 top-[calc(100%+8px)] z-[5010] flex min-w-[10.5rem] flex-col gap-1 rounded-2xl border border-white/12 bg-[#070a12]/95 p-1.5 text-white shadow-[0_18px_42px_rgba(0,0,0,0.24)] backdrop-blur-xl">
                 {LANGUAGES.map((language) => (
-                    <DropdownMenuItem
+                    <button
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={lang === language.code}
                         key={language.code}
-                        onClick={() => setLang(language.code)}
-                        className="cursor-pointer gap-2 rounded-lg border-0 px-3 py-2.5 text-white focus:bg-white/[0.08] focus:text-white data-[highlighted]:bg-white/[0.08] data-[highlighted]:text-white"
+                        onClick={() => {
+                            setLang(language.code);
+                            detailsRef.current?.removeAttribute("open");
+                        }}
+                        className="flex cursor-pointer items-center gap-2 rounded-lg border-0 px-3 py-2.5 text-left text-white hover:bg-white/[0.08] focus:bg-white/[0.08] focus:text-white"
                     >
                         <span className="w-7 font-semibold text-[#f4c96b]">{language.label}</span>
                         <span className="text-white/55">{t(language.nameKey)}</span>
                         {lang === language.code && (
-                            <IconCheck className="ml-auto h-4 w-4 text-[#e0a020]" stroke={2.5} />
+                            <svg aria-hidden="true" viewBox="0 0 16 16" className="ml-auto h-4 w-4 fill-none stroke-[#e0a020]"><path d="m3 8.2 3.1 3.1L13 4.8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                         )}
-                    </DropdownMenuItem>
+                    </button>
                 ))}
-            </DropdownMenuContent>
-        </DropdownMenu>
+            </div>
+        </details>
     );
+}
+
+function NavIcon({ type, className = "h-4 w-4" }: { type: "home" | "briefcase" | "info" | "mail" | "menu" | "close"; className?: string }) {
+    const paths = {
+        home: <><path d="m3 9 9-7 9 7" /><path d="M5 8v12h14V8M9 20v-7h6v7" /></>,
+        briefcase: <><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V4h8v3M3 12h18" /></>,
+        info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7h.01" /></>,
+        mail: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m4 7 8 6 8-6" /></>,
+        menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+        close: <path d="m6 6 12 12M18 6 6 18" />,
+    } as const;
+    return <svg aria-hidden="true" viewBox="0 0 24 24" className={`${className} fill-none stroke-current`} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{paths[type]}</svg>;
 }
 
 export default function Navbar() {
@@ -92,25 +86,25 @@ export default function Navbar() {
         {
             name: t("nav.home"),
             link: "/",
-            icon: <IconHome className="h-4 w-4" />,
+            icon: <NavIcon type="home" />,
             active: isActive("/"),
         },
         {
             name: t("nav.services"),
             link: "/services",
-            icon: <IconBriefcase className="h-4 w-4" />,
+            icon: <NavIcon type="briefcase" />,
             active: isActive("/services"),
         },
         {
             name: t("nav.about"),
             link: "/about",
-            icon: <IconInfoCircle className="h-4 w-4" />,
+            icon: <NavIcon type="info" />,
             active: isActive("/about"),
         },
         {
             name: t("nav.contact"),
             link: "/contact",
-            icon: <IconMail className="h-4 w-4" />,
+            icon: <NavIcon type="mail" />,
             active: isActive("/contact"),
         },
     ];
@@ -135,8 +129,13 @@ export default function Navbar() {
             )}
         >
             <img
-                src="/images/autospf-logo.png"
+                src="/images/optimized/autospf-logo-194.webp"
+                srcSet="/images/optimized/autospf-logo-194.webp 194w, /images/optimized/autospf-logo-388.webp 388w"
+                sizes="100px"
                 alt="AutoSPF+"
+                width={194}
+                height={114}
+                decoding="async"
                 className={cn(
                     "h-auto w-[92px] max-w-none object-contain sm:w-[96px]",
                     isHomePage && "w-[96px] sm:w-[100px]"
@@ -200,7 +199,7 @@ export default function Navbar() {
                 aria-label="Toggle menu"
                 aria-expanded={menuOpen}
             >
-                {menuOpen ? <IconX className="h-5 w-5" /> : <IconMenu2 className="h-5 w-5" />}
+                {menuOpen ? <NavIcon type="close" className="h-5 w-5" /> : <NavIcon type="menu" className="h-5 w-5" />}
             </button>
         </>
     );
@@ -239,7 +238,6 @@ export default function Navbar() {
                         menuOpen ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
                     )}
                 >
-                    <LayoutGroup id="public-nav-mobile">
                         <div className="flex flex-col gap-0.5">
                             {navLinks.map((link) => (
                                 <Link
@@ -253,10 +251,9 @@ export default function Navbar() {
                                     )}
                                 >
                                     {link.active && (
-                                        <motion.span
-                                            layoutId="public-nav-active-pill-mobile"
+                                        <span
+                                            data-layout-id="public-nav-active-pill-mobile"
                                             className="absolute inset-0 rounded-xl border border-white/[0.08] bg-white/[0.085] shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
-                                            transition={NAV_ACTIVE_PILL_TRANSITION}
                                             aria-hidden
                                         />
                                     )}
@@ -267,7 +264,6 @@ export default function Navbar() {
                                 </Link>
                             ))}
                         </div>
-                    </LayoutGroup>
 
                     <div className="mt-4 grid gap-3 border-t border-white/10 pt-4">
                         <Link

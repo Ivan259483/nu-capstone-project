@@ -1,11 +1,6 @@
 "use client";
 
 import React, { type ReactNode } from "react";
-import {
-    AnimatePresence,
-    LayoutGroup,
-    motion,
-} from "motion/react";
 import { cn } from "@/lib/utils";
 
 export type FloatingNavItem = {
@@ -45,14 +40,13 @@ function NavActivePill({
     variant: "glass" | "hero";
 }) {
     return (
-        <motion.span
-            layoutId={layoutId}
+        <span
+            data-layout-id={layoutId}
             className={
                 variant === "hero"
                     ? "absolute -bottom-1 left-3 right-3 h-px rounded-full bg-[#f4c96b] shadow-[0_0_14px_rgba(244,201,107,0.55)]"
                     : "absolute -bottom-1 left-2 right-2 h-px rounded-full bg-[#f4c96b] shadow-[0_0_12px_rgba(244,201,107,0.45)]"
             }
-            transition={NAV_ACTIVE_PILL_TRANSITION}
             aria-hidden
         />
     );
@@ -70,20 +64,8 @@ export const FloatingNav = ({
     const isHero = variant === "hero";
 
     return (
-        <AnimatePresence mode="wait">
-            <motion.nav
+        <nav
                 aria-label="Primary"
-                initial={{
-                    opacity: 1,
-                    y: -100,
-                }}
-                animate={{
-                    y: 0,
-                    opacity: 1,
-                }}
-                transition={{
-                    duration: 0.2,
-                }}
                 className={cn(
                     isHero
                         ? "absolute inset-x-0 top-0 z-[5000] h-[88px] w-full sm:h-24"
@@ -120,7 +102,6 @@ export const FloatingNav = ({
                             !logo && "justify-self-start"
                         )}
                     >
-                        <LayoutGroup id="public-nav-desktop">
                             <div className="pointer-events-auto flex items-center gap-10 xl:gap-12">
                                 {navItems.map((navItem) => {
                                     const itemClassName = cn(
@@ -169,7 +150,6 @@ export const FloatingNav = ({
                                     );
                                 })}
                             </div>
-                        </LayoutGroup>
                     </div>
 
                     <div className="relative z-[2] flex min-w-0 shrink-0 items-center justify-self-end">
@@ -185,7 +165,6 @@ export const FloatingNav = ({
                         )}
                     </div>
                 </div>
-            </motion.nav>
-        </AnimatePresence>
+        </nav>
     );
 };

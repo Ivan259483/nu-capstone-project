@@ -36,6 +36,7 @@ interface ChatWidgetProps {
     currentUserName?: string;
     isAuthenticated?: boolean;
     className?: string;
+    initialOpen?: boolean;
 }
 
 const QUOTE_INTENT_REGEX = /(quote|price|price\s*list|pricelist|cost|how much|pricing|rate|rates|estimate|presyo|magkano)/i;
@@ -403,8 +404,9 @@ export default function ChatWidget({
     currentUserName,
     isAuthenticated,
     className,
+    initialOpen = false,
 }: ChatWidgetProps) {
-    const [isOpen, setIsOpen] = useState(false);
+    const [isOpen, setIsOpen] = useState(initialOpen);
     const [screen, setScreen] = useState<ChatScreen>('home');
     const [chatReturnTo, setChatReturnTo] = useState<'home' | 'messages'>('home');
     const [messages, setMessages] = useState<ChatMessage[]>([]);

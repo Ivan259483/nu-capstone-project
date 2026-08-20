@@ -18,10 +18,10 @@ import FAQSection from '@/components/FAQSection';
 import type { Variants } from 'framer-motion';
 
 /* ── Assets ── */
-const HERO_IMAGE = '/images/login/hero.png';
-const COATING_IMG = '/images/login/coating.png';
-const INTERIOR_IMG = '/images/login/interior.png';
-const CORRECTION_IMG = '/images/login/correction.png';
+const HERO_IMAGE = '/images/optimized/hero-1280.webp';
+const COATING_IMG = '/images/optimized/coating-1280.webp';
+const INTERIOR_IMG = '/images/optimized/interior-1280.webp';
+const CORRECTION_IMG = '/images/optimized/correction-1280.webp';
 
 /* ── Framer variants ── */
 const EASE = [0.16, 1, 0.3, 1] as const;

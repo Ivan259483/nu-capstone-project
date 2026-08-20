@@ -53,7 +53,7 @@ const team = [
     { name: "Ivan Wong", role: "Head Detailer & Founder", years: "4 yrs", src: "/images/ivan-wong.jpg" },
     { name: "Earl Francis Jeremiah", role: "Service Advisor", years: "8 yrs", src: "/images/earl-nabong.jpg" },
     { name: "Natalie Joy Tugade", role: "Ceramic Coating Specialist", years: "9 yrs", src: "/images/natalie-tugade.jpg" },
-    { name: "Ivan Christian", role: "Interior Detail Technician", years: "7 yrs", src: "/images/ivan-christian.jpg" },
+    { name: "Ivan Christian", role: "Interior Detail Technician", years: "7 yrs", src: "/images/optimized/ivan-christian-400.webp", srcSet: "/images/optimized/ivan-christian-400.webp 400w, /images/optimized/ivan-christian-800.webp 800w" },
 ];
 
 const values = [
@@ -256,8 +256,12 @@ export default function About() {
                                     className="mx-auto mb-1 flex items-center justify-center"
                                 >
                                     <img
-                                        src="/images/autospf-logo.png"
+                                        src="/images/optimized/autospf-logo-388.webp"
                                         alt="AutoSPF+"
+                                        width={388}
+                                        height={228}
+                                        loading="lazy"
+                                        decoding="async"
                                         className="h-28 sm:h-32 w-auto max-w-[min(100%,320px)] object-contain drop-shadow-[0_12px_36px_rgba(0,0,0,0.5)]"
                                     />
                                 </motion.div>
@@ -397,8 +401,14 @@ export default function About() {
                                 <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-white/10 mx-auto mb-5 group-hover:border-amber-500/30 transition-colors duration-500 relative">
                                     <img
                                         src={member.src}
+                                        srcSet={member.srcSet}
+                                        sizes="96px"
                                         alt={member.name}
                                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                                        width={192}
+                                        height={192}
+                                        loading="lazy"
+                                        decoding="async"
                                     />
                                 </div>
                                 <h3 className="text-base font-semibold text-white mb-1 group-hover:text-amber-400 transition-colors duration-300">{member.name}</h3>

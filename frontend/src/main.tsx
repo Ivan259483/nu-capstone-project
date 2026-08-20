@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
-import './index.css';
+import './public.css';
 
 // Ensure <html> is clean on initial page load.
 // Public pages define their own dark aesthetic via :root CSS variables in index.css.

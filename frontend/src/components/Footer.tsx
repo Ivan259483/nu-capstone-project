@@ -1,6 +1,15 @@
 import { Link } from "react-router-dom";
-import { Facebook, Instagram, MapPin, Phone } from "lucide-react";
 import { COMPANY_BRANDING } from "@/lib/company-branding";
+
+function FooterIcon({ type, className = "h-4 w-4" }: { type: "facebook" | "instagram" | "map" | "phone"; className?: string }) {
+    const paths = {
+        phone: <path d="M6.6 2.8 9 7l-2 1.7a15 15 0 0 0 8.3 8.3l1.7-2 4.2 2.4-.8 3.5c-.2.7-.8 1.1-1.5 1.1C9.6 22 2 14.4 2 5.1c0-.7.4-1.3 1.1-1.5l3.5-.8Z" />,
+        map: <><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></>,
+        facebook: <path d="M14 8h4V3h-4c-4 0-6 2.5-6 6v3H4v5h4v5h5v-5h4l1-5h-5V9c0-.7.3-1 1-1Z" />,
+        instagram: <><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r=".8" className="fill-current stroke-none" /></>,
+    } as const;
+    return <svg aria-hidden="true" viewBox="0 0 24 24" className={`${className} fill-none stroke-current`} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[type]}</svg>;
+}
 
 type FooterLink =
     | { label: string; to: string; href?: never; external?: never }
@@ -106,8 +115,14 @@ export default function Footer() {
                     <div className="max-w-sm">
                         <Link to="/" aria-label="AutoSPF+ home" className="inline-flex w-fit">
                             <img
-                                src="/images/autospf-logo.png"
+                                src="/images/optimized/autospf-logo-194.webp"
+                                srcSet="/images/optimized/autospf-logo-194.webp 194w, /images/optimized/autospf-logo-276.webp 276w"
+                                sizes="138px"
                                 alt="AutoSPF+"
+                                width={194}
+                                height={114}
+                                loading="lazy"
+                                decoding="async"
                                 className="h-auto w-[138px] object-contain"
                             />
                         </Link>
@@ -121,11 +136,11 @@ export default function Footer() {
                                 href={`tel:${COMPANY_BRANDING.phoneTel}`}
                                 className="flex w-fit items-center gap-3 transition-colors duration-200 hover:text-[#f4b43f]"
                             >
-                                <Phone className="h-4 w-4 shrink-0 text-[#f4b43f]/80" aria-hidden />
+                                <FooterIcon type="phone" className="h-4 w-4 shrink-0 text-[#f4b43f]/80" />
                                 <span>{COMPANY_BRANDING.phone}</span>
                             </a>
                             <div className="flex items-start gap-3">
-                                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#f4b43f]/80" aria-hidden />
+                                <FooterIcon type="map" className="mt-0.5 h-4 w-4 shrink-0 text-[#f4b43f]/80" />
                                 <span>{COMPANY_BRANDING.address}</span>
                             </div>
                             <a
@@ -134,7 +149,7 @@ export default function Footer() {
                                 rel="noopener noreferrer"
                                 className="flex w-fit items-center gap-3 transition-colors duration-200 hover:text-[#f4b43f]"
                             >
-                                <Facebook className="h-4 w-4 shrink-0 text-[#f4b43f]/80" aria-hidden />
+                                <FooterIcon type="facebook" className="h-4 w-4 shrink-0 text-[#f4b43f]/80" />
                                 <span>@AutoSPFmain</span>
                             </a>
                         </div>
@@ -181,7 +196,7 @@ export default function Footer() {
                             aria-label="AutoSPF+ on Facebook"
                             className="flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.04] text-white/62 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#f4b43f]/45 hover:bg-[#f4b43f]/10 hover:text-[#f4b43f] hover:shadow-[0_0_22px_rgba(244,180,63,0.13)]"
                         >
-                            <Facebook className="h-4 w-4" aria-hidden />
+                            <FooterIcon type="facebook" />
                         </a>
                         <a
                             href="https://www.instagram.com/auto.spf/"
@@ -190,7 +205,7 @@ export default function Footer() {
                             aria-label="AutoSPF+ on Instagram"
                             className="flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.04] text-white/62 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#f4b43f]/45 hover:bg-[#f4b43f]/10 hover:text-[#f4b43f] hover:shadow-[0_0_22px_rgba(244,180,63,0.13)]"
                         >
-                            <Instagram className="h-4 w-4" aria-hidden />
+                            <FooterIcon type="instagram" />
                         </a>
                     </div>
                 </div>

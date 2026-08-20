@@ -61,69 +61,6 @@ export default defineConfig(({ mode }) => {
             rollupOptions: {
                 output: {
                     sourcemapExcludeSources: true,
-                    manualChunks(id) {
-                        if (!id.includes('node_modules')) return;
-
-                        // ── React core (always needed, kept lean) ──
-                        if (
-                            id.includes('node_modules/react-dom') ||
-                            id.includes('node_modules/react/') ||
-                            id.includes('node_modules\\react\\') ||
-                            id.includes('node_modules\\react-dom')
-                        ) {
-                            return 'vendor-react';
-                        }
-
-                        // ── Animation (needed on login + public pages) ──
-                        if (id.includes('framer-motion') || id.includes('/motion/')) {
-                            return 'vendor-framer-motion';
-                        }
-
-                        // ── Charts (dashboards only — never on /login) ──
-                        if (id.includes('recharts') || id.includes('d3-')) {
-                            return 'vendor-recharts';
-                        }
-
-                        // ── 3D / AR (feature-specific pages only) ──
-                        if (id.includes('three') || id.includes('@react-three')) {
-                            return 'vendor-three';
-                        }
-
-                        // ── PDF / image export (report pages only — NOT on /login) ──
-                        if (id.includes('jspdf') || id.includes('html2canvas')) {
-                            return 'vendor-pdf';
-                        }
-
-                        // ── Firebase (auth needed early, analytics is deferred) ──
-                        if (id.includes('firebase')) {
-                            return 'vendor-firebase';
-                        }
-
-                        // ── Socket.IO (connected post-auth only) ──
-                        if (id.includes('socket.io')) {
-                            return 'vendor-socket';
-                        }
-
-                        // ── Router ──
-                        if (id.includes('react-router')) {
-                            return 'vendor-router';
-                        }
-
-                        // ── Radix UI components (shared across app) ──
-                        if (id.includes('@radix-ui')) {
-                            return 'vendor-radix';
-                        }
-
-                        // ── Date utils ──
-                        if (id.includes('date-fns')) {
-                            return 'vendor-date';
-                        }
-
-                        // ── Tanstack query ──
-                        if (id.includes('@tanstack')) {
-                            return 'vendor-query';
-                        }
-                    },
                 },
             },
         },

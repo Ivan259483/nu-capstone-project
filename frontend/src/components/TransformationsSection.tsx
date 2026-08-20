@@ -10,8 +10,8 @@ export default function TransformationsSection() {
     const { t } = useLanguage();
     const shouldReduceMotion = useReducedMotion();
 
-    const beforeImage = "https://images.unsplash.com/photo-1601362840469-51e4d8d58785?q=80&w=2000&auto=format&fit=crop"; // Dirty/unpolished car paint (placeholder)
-    const afterImage = "https://images.unsplash.com/photo-1619682817481-e994891cd1f5?q=80&w=2000&auto=format&fit=crop"; // Shiny ceramic coated car (placeholder)
+    const beforeImage = "/images/transformations/before-640.webp";
+    const afterImage = "/images/transformations/after-640.webp";
 
     return (
         <section
@@ -52,6 +52,8 @@ export default function TransformationsSection() {
                     <BeforeAfterSlider 
                         beforeImage={beforeImage}
                         afterImage={afterImage}
+                        beforeImageSrcSet="/images/transformations/before-640.webp 640w, /images/transformations/before-1280.webp 1280w"
+                        afterImageSrcSet="/images/transformations/after-640.webp 640w, /images/transformations/after-1280.webp 1280w"
                         beforeLabel={t("transformations.beforeLabel")}
                         afterLabel={t("transformations.afterLabel")}
                     />

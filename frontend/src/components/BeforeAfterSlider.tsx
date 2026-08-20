@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 interface BeforeAfterSliderProps {
     beforeImage: string;
     afterImage: string;
+    beforeImageSrcSet?: string;
+    afterImageSrcSet?: string;
     beforeLabel?: string;
     afterLabel?: string;
     className?: string;
@@ -13,6 +15,8 @@ interface BeforeAfterSliderProps {
 export default function BeforeAfterSlider({
     beforeImage,
     afterImage,
+    beforeImageSrcSet,
+    afterImageSrcSet,
     beforeLabel = "Before",
     afterLabel = "After",
     className,
@@ -91,9 +95,13 @@ export default function BeforeAfterSlider({
             <div className="absolute inset-0">
                 <img
                     src={afterImage}
+                    srcSet={afterImageSrcSet}
+                    sizes="(min-width: 1024px) 896px, calc(100vw - 48px)"
                     alt={afterLabel}
                     className="w-full h-full object-cover"
                     draggable={false}
+                    loading="lazy"
+                    decoding="async"
                 />
             </div>
 
@@ -107,9 +115,13 @@ export default function BeforeAfterSlider({
             >
                 <img
                     src={beforeImage}
+                    srcSet={beforeImageSrcSet}
+                    sizes="(min-width: 1024px) 896px, calc(100vw - 48px)"
                     alt={beforeLabel}
                     className="absolute inset-0 h-full w-full object-cover max-w-none"
                     draggable={false}
+                    loading="lazy"
+                    decoding="async"
                 />
             </div>
 

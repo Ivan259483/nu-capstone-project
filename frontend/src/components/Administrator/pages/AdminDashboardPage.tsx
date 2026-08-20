@@ -1041,17 +1041,19 @@ export default function AdminDashboardPage({
                 animationDelay: `${index * 0.045}s`,
               } as React.CSSProperties}
             >
-              <div className="ah-analytics-kpi-copy">
-                <div className="ah-analytics-kpi-label">
-                  <span><Icon size={16} aria-hidden /></span>
-                  <p>{kpi.label}</p>
-                  {'alert' in kpi && kpi.alert ? <AlertTriangle size={13} className="ah-analytics-kpi-alert" aria-hidden /> : null}
-                </div>
-                <strong className="ah-analytics-kpi-value tabular-nums">{kpi.value}</strong>
-                <TrendBadge trend={kpi.trend} />
-                <p className="ah-analytics-kpi-detail">{kpi.detail}</p>
+              <div className="ah-analytics-kpi-label">
+                <span><Icon size={16} aria-hidden /></span>
+                <p>{kpi.label}</p>
+                {'alert' in kpi && kpi.alert ? <AlertTriangle size={13} className="ah-analytics-kpi-alert" aria-hidden /> : null}
               </div>
-              <KpiSparkline id={kpi.key} data={kpi.spark} color={kpi.color} visible={chartsVisible} />
+              <div className="ah-analytics-kpi-body">
+                <div className="ah-analytics-kpi-copy">
+                  <strong className="ah-analytics-kpi-value tabular-nums">{kpi.value}</strong>
+                  <TrendBadge trend={kpi.trend} />
+                  <p className="ah-analytics-kpi-detail">{kpi.detail}</p>
+                </div>
+                <KpiSparkline id={kpi.key} data={kpi.spark} color={kpi.color} visible={chartsVisible} />
+              </div>
             </article>
           );
         })}
