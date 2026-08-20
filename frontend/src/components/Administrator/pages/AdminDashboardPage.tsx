@@ -33,6 +33,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import type { PendingPaymentsSummary } from '@/lib/payment-service';
 
 interface Props {
   users: any[];
@@ -41,6 +42,7 @@ interface Props {
   services?: any[];
   inventory?: any[];
   payments?: any[];
+  pendingPaymentsSummary?: PendingPaymentsSummary | null;
   loading: boolean;
   /** When false (dashboard tab hidden), charts are not mounted to avoid Recharts size warnings. */
   chartsVisible?: boolean;
@@ -487,6 +489,7 @@ export default function AdminDashboardPage({
   services = [],
   inventory = [],
   payments = [],
+  pendingPaymentsSummary = null,
   loading,
   chartsVisible = true,
   onRefreshOverview,
@@ -583,9 +586,14 @@ export default function AdminDashboardPage({
     [hasPaymentRecords, safeBookings, successfulPayments, yesterdayKey],
   );
   const pendingPaymentTotal = useMemo(
-    () => pendingBookings.reduce((sum, booking) => sum + getPendingBalance(booking), 0),
-    [pendingBookings],
+    () => pendingPaymentsSummary
+      ? Number(pendingPaymentsSummary.totalOutstanding || 0)
+      : pendingBookings.reduce((sum, booking) => sum + getPendingBalance(booking), 0),
+    [pendingBookings, pendingPaymentsSummary],
   );
+  const pendingPaymentCount = pendingPaymentsSummary
+    ? Number(pendingPaymentsSummary.count || 0)
+    : pendingBookings.length;
 
   const dailyKpiSeries = useMemo(() => {
     const days = Array.from({ length: 7 }, (_, index) => addDays(today, index - 6));
@@ -697,12 +705,12 @@ export default function AdminDashboardPage({
         key: 'pending',
         label: 'Pending Payments',
         value: formatCompactPeso(pendingPaymentTotal),
-        detail: `${pendingBookings.length} booking${pendingBookings.length === 1 ? '' : 's'} awaiting settlement`,
+        detail: `${pendingPaymentCount} booking${pendingPaymentCount === 1 ? '' : 's'} awaiting settlement`,
         icon: CreditCard,
         color: '#F59E0B',
         trend: periodComparisons.pending,
         spark: dailyKpiSeries.pending,
-        alert: pendingBookings.length > 0,
+        alert: pendingPaymentCount > 0,
       },
       {
         key: 'stock',
@@ -721,6 +729,7 @@ export default function AdminDashboardPage({
       hasPaymentRecords,
       lowStockItems,
       pendingBookings.length,
+      pendingPaymentCount,
       pendingPaymentTotal,
       periodComparisons,
       safeBookings.length,

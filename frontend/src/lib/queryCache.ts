@@ -5,7 +5,7 @@
  * - Caches GET responses with a configurable TTL.
  * - Exposes `invalidate()` for real-time sync hooks to bust stale entries.
  */
-import api from './api';
+import api, { getStoredAuthToken } from './api';
 import type { AxiosRequestConfig, AxiosResponse } from 'axios';
 
 // ── Cache store ──────────────────────────────────────────────────────
@@ -23,6 +23,8 @@ export const TTL = {
      *  Real-time updates are handled by WebSocket db_change events;
      *  the cache just prevents duplicate HTTP calls on page mount. */
     SHORT: 30_000,
+    /** Highly dynamic badges/notification feeds — enough to collapse mount bursts. */
+    LIVE: 10_000,
     /** Semi-static data (services, products) — 30 seconds */
     MEDIUM: 30_000,
     /** Rarely changing data (settings, categories) — 60 seconds */
@@ -34,7 +36,9 @@ const buildKey = (url: string, config?: AxiosRequestConfig): string => {
     const params = config?.params
         ? '?' + new URLSearchParams(config.params as Record<string, string>).toString()
         : '';
-    return `${url}${params}`;
+    // Scope every entry to the current JWT. This prevents cached admin/customer
+    // payloads crossing an account switch in the same browser session.
+    return `${getStoredAuthToken()}::${url}${params}`;
 };
 
 // ── Core: Cached & deduplicated GET ─────────────────────────────────
@@ -98,7 +102,9 @@ export async function cachedGet<T = any>(
  */
 export function invalidate(prefix: string): void {
     for (const key of cache.keys()) {
-        if (key.startsWith(prefix)) {
+        const separator = key.indexOf('::');
+        const requestKey = separator >= 0 ? key.slice(separator + 2) : key;
+        if (requestKey.startsWith(prefix)) {
             cache.delete(key);
         }
     }

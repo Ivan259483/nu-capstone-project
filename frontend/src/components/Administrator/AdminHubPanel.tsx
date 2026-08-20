@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import './administrator.css';
 import { UserService } from '@/lib/user-service';
 import { ActivityService } from '@/lib/activity-service-api';
@@ -20,21 +20,11 @@ import {
 } from 'lucide-react';
 import AdminTopBar from './AdminTopBar';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
-import AdminNotificationCenterPage from './notifications/AdminNotificationCenterPage';
 import {
   getNotificationCategory,
   getNotificationId,
   getNotificationLink,
 } from './notifications/notification-utils';
-import AdminUserProfilePage from './pages/AdminUserProfilePage';
-import AdminDashboardPage from './pages/AdminDashboardPage';
-import AdminUserManagement from './pages/AdminUserManagement';
-import AdminActivityLogs from './pages/AdminActivityLogs';
-import AdminRoleManagement from './pages/AdminRoleManagement';
-import AdminAppointmentsPage from './pages/AdminAppointmentsPage';
-import CustomerTrackerPanel from '@/components/ops-manager/CustomerTrackerPanel';
-import { ServicesPricing } from '@/components/admin/ServicesPricing';
-import InventoryPanel from '@/components/inventory/InventoryPanel';
 import {
   Tooltip,
   TooltipContent,
@@ -46,6 +36,20 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getSafeUserRole, isServiceCatalogRole } from '@/lib/roles';
 import { CalendarScheduleDnDProvider, useCalendarScheduleDnD } from '@/components/sales/calendar/CalendarScheduleDnDContext';
+import type { PendingPaymentsSummary } from '@/lib/payment-service';
+
+const AdminNotificationCenterPage = lazy(() => import('./notifications/AdminNotificationCenterPage'));
+const AdminUserProfilePage = lazy(() => import('./pages/AdminUserProfilePage'));
+const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'));
+const AdminUserManagement = lazy(() => import('./pages/AdminUserManagement'));
+const AdminActivityLogs = lazy(() => import('./pages/AdminActivityLogs'));
+const AdminRoleManagement = lazy(() => import('./pages/AdminRoleManagement'));
+const AdminAppointmentsPage = lazy(() => import('./pages/AdminAppointmentsPage'));
+const CustomerTrackerPanel = lazy(() => import('@/components/ops-manager/CustomerTrackerPanel'));
+const ServicesPricing = lazy(() => import('@/components/admin/ServicesPricing').then((module) => ({
+  default: module.ServicesPricing,
+})));
+const InventoryPanel = lazy(() => import('@/components/inventory/InventoryPanel'));
 
 interface Props {
   currentUser?: any;
@@ -56,6 +60,7 @@ interface Props {
   services?: any[];
   bookings?: any[];
   payments?: any[];
+  pendingPaymentsSummary?: PendingPaymentsSummary | null;
   activityLogs?: any[];
   settings?: any;
   setSettings?: (s: any) => void;
@@ -302,7 +307,7 @@ function flattenNavPages(tree: NavEntry[]): Array<{ id: string; label: string; i
 
 function AdminHubPanelInner({
   currentUser, onClose,
-  inventory = [], suppliers = [], services = [], bookings = [], payments = [],
+  inventory = [], suppliers = [], services = [], bookings = [], payments = [], pendingPaymentsSummary = null,
   activityLogs: parentActivityLogs = [], settings, setSettings,
   onLoadData, onAddSupplier, onEditSupplier, onOrderSupplier,
   onSaveSettings, onExportData, onBackupDB, onClearCache, onResetSystem,
@@ -785,7 +790,9 @@ function AdminHubPanelInner({
           className={`ah-tab-panel ${isActive ? 'is-active' : 'is-hidden'}`}
           aria-hidden={!isActive}
         >
-          {children}
+          <Suspense fallback={<div className="ah-page-loading" role="status">Loading workspace…</div>}>
+            {children}
+          </Suspense>
         </section>
       );
     },
@@ -953,6 +960,7 @@ function AdminHubPanelInner({
                 services={services}
                 inventory={inventory}
                 payments={payments}
+                pendingPaymentsSummary={pendingPaymentsSummary}
                 loading={blockingHubLoad}
                 chartsVisible={activePage === 'dashboard'}
                 onRefreshOverview={onLoadData}
@@ -991,7 +999,7 @@ function AdminHubPanelInner({
                 initialOrderId={notificationTargetOrderId}
                 deepLinkActive={activePage === 'live_tracking'}
               />
-            ), { forceMount: true })}
+            ))}
 
             {renderTabPanel('profile', (
               <AdminUserProfilePage

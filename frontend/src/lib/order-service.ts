@@ -296,16 +296,17 @@ export const OrderService = {
 
     async getTrackerMedia(id: string) {
         try {
-            const response = await api.get(`/bookings/${encodeURIComponent(id)}/tracker-media`, {
+            const path = `/bookings/${encodeURIComponent(id)}/tracker-media`;
+            const data = await cachedGet(path, {
                 meta: {
                     suppressErrorToast: true,
                     suppressExpectedErrorLog: true,
                 },
-            } as any);
-            if (response.data.success && response.data.data) {
-                response.data.data = normalizeBooking(response.data.data);
+            } as any, TTL.LIVE);
+            if (data.success && data.data) {
+                data.data = normalizeBooking(data.data);
             }
-            return response.data;
+            return data;
         } catch (error) {
             if (hasHttpStatus(error, 404)) {
                 return this.getOrderById(id);

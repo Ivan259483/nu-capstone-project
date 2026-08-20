@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Zap, CheckCircle2, AlertTriangle, Loader2, TrendingUp, DollarSign, Eye, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
@@ -15,7 +15,6 @@ import {
   stashLiveTrackerDeepLinkJobId,
 } from '@/lib/qc-job-workflow';
 import { useQCData } from '@/hooks/useQCData';
-import { filterQCJobsBySearch } from '@/lib/qc-job-search';
 
 type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker';
 
@@ -48,6 +47,32 @@ interface AiScanDoc {
   modelUrl?: string;
   createdAt: string;
 }
+
+const AI_SCANS_CACHE_TTL_MS = 20_000;
+let aiScansCache: { data?: AiScanDoc[]; updatedAt: number; inFlight?: Promise<AiScanDoc[]> } = {
+  updatedAt: 0,
+};
+
+const fetchQcAiScans = async (force = false): Promise<AiScanDoc[]> => {
+  const now = Date.now();
+  if (!force && aiScansCache.inFlight) return aiScansCache.inFlight;
+  if (!force && aiScansCache.data && now - aiScansCache.updatedAt < AI_SCANS_CACHE_TTL_MS) {
+    return aiScansCache.data;
+  }
+
+  const inFlight = api.get('/ai/scans', {
+    params: { limit: 20, includeTotal: false },
+  }).then((response) => response.data.data || []);
+  aiScansCache = { ...aiScansCache, inFlight };
+  try {
+    const data = await inFlight;
+    aiScansCache = { data, updatedAt: Date.now() };
+    return data;
+  } catch (error) {
+    aiScansCache = { ...aiScansCache, inFlight: undefined };
+    throw error;
+  }
+};
 
 // ─── Car top-view SVG ─────────────────────────────────────────────────────────
 function CarTopViewSvg({ damages }: { damages: ScanDmg[] }) {
@@ -293,17 +318,17 @@ function AIDetectionView({ jobs: _jobs }: { jobs: unknown[] }) {
   const [filter, setFilter]     = useState<'all'|'pending'|'high'|'low'|'ar'>('all');
   const [decisions, setDecisions] = useState<Record<string, 'confirmed'|'rejected'>>({});
 
-  const loadScans = useCallback(() => {
+  const loadScans = useCallback((force = false) => {
     setLoading(true);
     setError(null);
-    api.get('/ai/scans').then((r) => {
-      setScans(r.data.data || []);
+    fetchQcAiScans(force).then((data) => {
+      setScans(data);
     }).catch(() => {
       setError('Failed to load AI scan detections. Check the backend is running.');
     }).finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { loadScans(); }, [loadScans]);
+  useEffect(() => { void loadScans(); }, [loadScans]);
 
   const handleDecide = useCallback((id: string, d: 'confirmed' | 'rejected') => {
     setDecisions(prev => ({ ...prev, [id]: d }));
@@ -340,7 +365,7 @@ function AIDetectionView({ jobs: _jobs }: { jobs: unknown[] }) {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={loadScans}
+            onClick={() => loadScans(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-white border border-slate-200/80 text-slate-500 hover:bg-slate-50 transition-colors"
           >
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
@@ -398,7 +423,7 @@ function AIDetectionView({ jobs: _jobs }: { jobs: unknown[] }) {
       ) : error ? (
         <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-6 text-center space-y-2">
           <p className="text-sm font-semibold text-rose-700">{error}</p>
-          <button onClick={loadScans} className="text-xs text-rose-600 underline">Try again</button>
+          <button onClick={() => loadScans(true)} className="text-xs text-rose-600 underline">Try again</button>
         </div>
       ) : visible.length > 0 ? (
         <div className="space-y-4">
@@ -427,6 +452,8 @@ const VALID_QC_VIEWS: QCView[] = ['dashboard', 'jobs', 'job-detail', 'ai-detecti
 
 export default function QCDashboardPanel() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [statsRangeDays, setStatsRangeDays] = useState<1 | 7 | 30>(7);
+  const [scope, setScope] = useState<'all' | 'mine'>('all');
   const [activeView, setActiveView] = useState<QCView>(() => {
     try {
       const saved = sessionStorage.getItem(QC_VIEW_KEY) as QCView | null;
@@ -437,7 +464,7 @@ export default function QCDashboardPanel() {
   });
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
-  const loadQcSummary = activeView !== 'live-tracker';
+  const loadQcSummary = activeView === 'dashboard';
 
   const {
     jobs,
@@ -455,13 +482,11 @@ export default function QCDashboardPanel() {
     assignServiceStaff,
     saveQCHandoffSheet,
     addStaffNote,
-    refetchAll,
-  } = useQCData({ loadSummary: loadQcSummary });
-
-  const jobsForView = useMemo(
-    () => filterQCJobsBySearch(jobs, globalSearch),
-    [jobs, globalSearch],
-  );
+  } = useQCData({
+    loadSummary: loadQcSummary,
+    statsRangeDays,
+    scope,
+  });
 
   // Persist active view so remounts don't reset to dashboard
   const navigateTo = useCallback((view: QCView) => {
@@ -502,10 +527,14 @@ export default function QCDashboardPanel() {
             onNavigate={navigateTo}
             stats={stats}
             statsLoading={statsLoading}
-            jobs={jobsForView}
+            jobs={jobs}
             activity={activity}
             activityLoading={activityLoading}
             onSelectJob={handleSelectJob}
+            selectedRangeDays={statsRangeDays}
+            selectedScope={scope}
+            onRangeChange={setStatsRangeDays}
+            onScopeChange={setScope}
           />
         );
 

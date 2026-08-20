@@ -21,11 +21,14 @@ import { Badge } from '@/components/ui/badge';
 import { ARCarViewer } from '@/components/ARCarViewer';
 import { useNavigate } from 'react-router-dom';
 import {
-    analyzeDamagePhoto,
     DAMAGE_AREA_OPTIONS,
     getDefaultDamageArea,
     type WebScanAngle,
 } from '@/lib/offlineDamageEngine';
+import {
+    detectVehicleDamage,
+    type AutoGlossDamageIssue,
+} from '@/lib/damage-detection-api';
 
 // ── Props (embedded mode) ──────────────────────────────────────────────────────
 interface AIEstimatorProps {
@@ -36,18 +39,19 @@ interface AIEstimatorProps {
 }
 
 // ── Data ───────────────────────────────────────────────────────────────────────
-const MOCK_DAMAGE_ITEMS = [
-    { label: 'Rear Bumper Paint Scratch', severity: 'High', cost: '₱4,500', dot: 'bg-red-400' },
-    { label: 'Trunk Dent', severity: 'High', cost: '₱6,000', dot: 'bg-red-400' },
-    { label: 'Right Tail Light Crack', severity: 'Medium', cost: '₱2,500', dot: 'bg-yellow-400' },
-    { label: 'Left Fender Paint Chip', severity: 'Low', cost: '₱1,800', dot: 'bg-blue-400' },
-];
+type DamageReportItem = {
+    id: string;
+    label: string;
+    severity: 'High' | 'Medium' | 'Low';
+    cost: string;
+    dot: string;
+    confidence: number;
+    affectedArea: string;
+    areaPercentage: number;
+    recommendation: string;
+};
 
-const SERVICES_RECOMMENDED = [
-    { name: 'Diamond Paint Correction', duration: '8 hrs', price: '₱9,000' },
-    { name: 'Ceramic Shield Pro', duration: '6 hrs', price: '₱12,000' },
-    { name: 'Full Interior Detail', duration: '4 hrs', price: '₱3,500' },
-];
+type RecommendedService = { name: string; duration: string; price: string };
 
 const SEVERITY_COLORS: Record<string, string> = {
     High: 'bg-red-500/15 text-red-300 border-red-500/30',
@@ -55,11 +59,11 @@ const SEVERITY_COLORS: Record<string, string> = {
     Low: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
 };
 
-/** Scanning steps shown sequentially during the 3s mock scan */
+/** Scanning steps shown while the server executes the Roboflow Workflow. */
 const SCAN_STEPS = [
     { icon: Eye, label: 'Detecting damage regions…' },
-    { icon: Layers, label: 'Matching section-safe damage templates…' },
-    { icon: Cpu, label: 'Scoring offline rule confidence…' },
+    { icon: Layers, label: 'Tracing instance segmentation masks…' },
+    { icon: Cpu, label: 'Scoring YOLO11 predictions…' },
     { icon: CheckCircle2, label: 'Generating cost estimate…' },
 ];
 
@@ -83,26 +87,29 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
     const [isDragging, setIsDragging] = useState(false);
     const [scanProgress, setScanProgress] = useState(0);
     const [currentStep, setCurrentStep] = useState(0);
-    const [damageItems, setDamageItems] = useState(MOCK_DAMAGE_ITEMS);
-    const [totalCost, setTotalCost] = useState('₱24,800');
+    const [damageItems, setDamageItems] = useState<DamageReportItem[]>([]);
+    const [detectedDamages, setDetectedDamages] = useState<AutoGlossDamageIssue[]>([]);
+    const [recommendedServices, setRecommendedServices] = useState<RecommendedService[]>([]);
+    const [totalCost, setTotalCost] = useState('Pending shop estimate');
+    const [scanSummary, setScanSummary] = useState('');
+    const [scanError, setScanError] = useState('');
     const [selectedAngle, setSelectedAngle] = useState<WebScanAngle>('rear');
     const [selectedDamageArea, setSelectedDamageArea] = useState(getDefaultDamageArea('rear'));
-    const [imageMeta, setImageMeta] = useState({ width: 0, height: 0 });
 
     // ── File handling ──────────────────────────────────────────────────────────
     const processFile = useCallback((file: File) => {
-        if (!file.type.startsWith('image/')) return;
+        setScanError('');
+        if (!file.type.startsWith('image/')) {
+            setScanError('Choose a valid JPEG, PNG, WebP, HEIC, HEIF, or AVIF vehicle image.');
+            return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+            setScanError('Choose a vehicle image that is 10 MB or smaller.');
+            return;
+        }
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setUploadedFile(file);
         const url = URL.createObjectURL(file);
-        const probe = new Image();
-        probe.onload = () => {
-            setImageMeta({
-                width: probe.naturalWidth || 0,
-                height: probe.naturalHeight || 0,
-            });
-        };
-        probe.src = url;
         setPreviewUrl(url);
     }, [previewUrl]);
 
@@ -129,13 +136,14 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setUploadedFile(null);
         setPreviewUrl(null);
-        setImageMeta({ width: 0, height: 0 });
+        setScanError('');
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
-    // ── Scan animation & offline detection ─────────────────────────────────────
+    // ── Scan animation & Roboflow Workflow detection ───────────────────────────
     const runScan = async () => {
         if (!uploadedFile) return;
+        setScanError('');
         setScanStage('scanning');
         setScanProgress(0);
         setCurrentStep(0);
@@ -153,35 +161,52 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
             setCurrentStep(Math.min(stepIdx, SCAN_STEPS.length - 1));
         }, interval);
 
+        let completed = false;
         try {
-            await new Promise((resolve) => setTimeout(resolve, 220));
-            const parsed = analyzeDamagePhoto({
-                file: uploadedFile,
-                angle: selectedAngle,
-                damageArea: selectedDamageArea,
-                width: imageMeta.width,
-                height: imageMeta.height,
+            const result = await detectVehicleDamage({
+                images: [uploadedFile],
+                angles: [selectedAngle],
+                damageAreas: [selectedDamageArea],
             });
-
-            if (parsed?.issues && parsed?.totalEstimate) {
-                const newItems = parsed.issues.map((i: any) => ({
-                    label: i.name,
-                    severity: i.severity,
-                    cost: `₱${Number(i.cost).toLocaleString()}`,
-                    dot: i.severity === 'High' ? 'bg-red-400' : i.severity === 'Medium' ? 'bg-yellow-400' : 'bg-blue-400'
-                }));
-                setDamageItems(newItems);
-                setTotalCost(`₱${Number(parsed.totalEstimate).toLocaleString()}`);
-            }
+            const lineItems = result.estimate?.lineItems || [];
+            const reportItems = result.damages.map((damage) => {
+                const line = lineItems.find((item) => item.damageId === damage.id);
+                const severity = damage.severity === 'high' ? 'High' : damage.severity === 'low' ? 'Low' : 'Medium';
+                return {
+                    id: damage.id,
+                    label: damage.type,
+                    severity,
+                    cost: line?.formattedSubtotal || 'Assessment required',
+                    dot: severity === 'High' ? 'bg-red-400' : severity === 'Medium' ? 'bg-yellow-400' : 'bg-blue-400',
+                    confidence: damage.confidence,
+                    affectedArea: damage.affectedArea,
+                    areaPercentage: damage.detectedArea?.percentage || 0,
+                    recommendation: damage.recommendation,
+                } satisfies DamageReportItem;
+            });
+            setDetectedDamages(result.damages);
+            setDamageItems(reportItems);
+            setScanSummary(result.summary);
+            setTotalCost(result.estimate?.formattedTotal || result.estimate?.formattedSubtotal || 'Pending shop estimate');
+            setRecommendedServices(lineItems.map((line) => ({
+                name: line.serviceName || 'Repair assessment',
+                duration: line.description || 'Duration confirmed after inspection',
+                price: line.formattedSubtotal || 'Shop assessment required',
+            })));
+            completed = true;
         } catch (error) {
-            console.error("Offline damage scan failed, falling back to mock data:", error);
-            setDamageItems(MOCK_DAMAGE_ITEMS);
-            setTotalCost('₱24,800');
+            console.error('Roboflow damage scan failed:', error);
+            setScanError(error instanceof Error ? error.message : 'The vehicle image could not be analyzed.');
         } finally {
             clearInterval(timer);
-            setScanProgress(100);
-            setCurrentStep(SCAN_STEPS.length - 1);
-            setTimeout(() => setScanStage('done'), 500);
+            if (completed) {
+                setScanProgress(100);
+                setCurrentStep(SCAN_STEPS.length - 1);
+                setTimeout(() => setScanStage('done'), 350);
+            } else {
+                setScanProgress(0);
+                setScanStage('idle');
+            }
         }
     };
 
@@ -196,7 +221,7 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
             ? 'High'
             : damageItems.some((item) => item.severity === 'Medium')
                 ? 'Medium'
-                : 'Low';
+                : damageItems.length ? 'Low' : 'None';
 
     const handleBooking = () => {
         if (embedded && onBookingRequest) {
@@ -219,7 +244,7 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
                             <Badge className="bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-xs uppercase tracking-widest px-3 py-1">
                                 <Sparkles className="w-3 h-3 mr-1.5" />
-                                Offline Rule-Based · WebXR Ready
+                                Roboflow YOLO11 Segmentation · WebXR Ready
                             </Badge>
                         </motion.div>
 
@@ -239,7 +264,7 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
                             transition={{ duration: 0.55, delay: 0.15 }}
                             className="text-zinc-400 text-base max-w-lg leading-relaxed"
                         >
-                            Upload a photo of your vehicle damage. Our offline detector will assess the condition and
+                            Upload a photo of your vehicle damage. Our YOLO11 segmentation workflow will assess the condition and
                             show you the repaired result in{' '}
                             <strong className="text-white">Augmented Reality</strong>.
                         </motion.p>
@@ -439,6 +464,12 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
                                         Please upload a damage photo to enable the scan
                                     </p>
                                 )}
+                                {scanError && (
+                                    <p role="alert" className="flex items-start gap-2 text-xs text-red-300 mt-3 rounded-xl border border-red-500/25 bg-red-500/10 p-3">
+                                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                                        <span>{scanError}</span>
+                                    </p>
+                                )}
                             </motion.div>
                         )}
                     </AnimatePresence>
@@ -503,7 +534,7 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
                                         <div className="absolute inset-0 flex items-center justify-center">
                                             <div className="flex items-center gap-2 bg-black/60 backdrop-blur px-3 py-1.5 rounded-full text-xs text-indigo-300 border border-indigo-500/30">
                                                 <ScanLine className="w-3.5 h-3.5 animate-pulse" />
-                                                Offline Detection Active
+                                                Roboflow Detection Active
                                             </div>
                                         </div>
                                     </div>
@@ -516,7 +547,7 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
                                             <StepIcon className="w-4.5 h-4.5 text-indigo-400 w-5 h-5" />
                                         </div>
                                         <div>
-                                            <p className="text-sm font-semibold text-white">Offline Damage Processing</p>
+                                            <p className="text-sm font-semibold text-white">Secure AI Damage Processing</p>
                                             <p className="text-xs text-indigo-300/80 mt-0.5">
                                                 {SCAN_STEPS[currentStep]?.label}
                                             </p>
@@ -581,7 +612,11 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
                                             </div>
                                             <div>
                                                 <h3 className="font-bold text-white text-sm">Damage Assessment</h3>
-                                                <p className="text-xs text-zinc-500">{damageItems.length} issues detected · Severity: {highestSeverity}</p>
+                                                <p className="text-xs text-zinc-500">
+                                                    {damageItems.length
+                                                        ? `${damageItems.length} issues detected · Severity: ${highestSeverity}`
+                                                        : 'No damage predictions above threshold'}
+                                                </p>
                                             </div>
                                         </div>
                                         <Badge className="bg-red-500/15 text-red-300 border border-red-500/30 text-xs">
@@ -594,6 +629,24 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
                                         <div className="px-6 pt-4">
                                             <div className="relative rounded-xl overflow-hidden h-32 border border-zinc-800">
                                                 <img src={previewUrl} alt="Scanned vehicle" className="w-full h-full object-cover" />
+                                                {detectedDamages.length > 0 && (
+                                                    <svg
+                                                        viewBox="0 0 1 1"
+                                                        preserveAspectRatio="none"
+                                                        className="absolute inset-0 w-full h-full"
+                                                        aria-label="Detected damage segmentation masks"
+                                                    >
+                                                        {detectedDamages.map((damage) => (
+                                                            <polygon
+                                                                key={damage.id}
+                                                                points={damage.segmentation.points.map((point) => `${point.x},${point.y}`).join(' ')}
+                                                                fill="rgba(239,68,68,0.28)"
+                                                                stroke="rgba(248,113,113,0.95)"
+                                                                strokeWidth="0.006"
+                                                            />
+                                                        ))}
+                                                    </svg>
+                                                )}
                                                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                                                 <div className="absolute bottom-2 left-3 flex items-center gap-1.5 text-[10px] text-emerald-300">
                                                     <CheckCircle2 className="w-3 h-3" /> Scan complete
@@ -603,6 +656,11 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
                                     )}
 
                                     <div className="divide-y divide-white/5 mt-2">
+                                        {!damageItems.length && (
+                                            <div className="px-6 py-5 text-sm text-emerald-200 bg-emerald-500/5">
+                                                {scanSummary || 'No visible vehicle damage was detected in this image.'}
+                                            </div>
+                                        )}
                                         {damageItems.map((item, i) => (
                                             <motion.div
                                                 key={item.label + i}
@@ -614,7 +672,13 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
                                             >
                                                 <div className="flex items-center gap-3">
                                                     <div className={`w-2 h-2 rounded-full shrink-0 ${item.dot}`} />
-                                                    <span className="text-sm text-zinc-200 font-medium">{item.label}</span>
+                                                    <div>
+                                                        <span className="text-sm text-zinc-200 font-medium">{item.label}</span>
+                                                        <p className="text-[11px] text-zinc-500 mt-0.5">
+                                                            {item.affectedArea} · {Math.round(item.confidence * 100)}% confidence · {item.areaPercentage}% of image
+                                                        </p>
+                                                        <p className="text-[11px] text-zinc-400 mt-1 max-w-md">{item.recommendation}</p>
+                                                    </div>
                                                 </div>
                                                 <div className="flex items-center gap-3">
                                                     <Badge variant="outline" className={`text-xs border ${SEVERITY_COLORS[item.severity]}`}>
@@ -652,7 +716,12 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
                                         </div>
                                     </div>
                                     <div className="divide-y divide-white/5">
-                                        {SERVICES_RECOMMENDED.map((svc, i) => (
+                                        {!recommendedServices.length && (
+                                            <div className="px-6 py-4 text-sm text-zinc-500">
+                                                No repair service is recommended until damage is detected or a shop inspection is completed.
+                                            </div>
+                                        )}
+                                        {recommendedServices.map((svc, i) => (
                                             <motion.div
                                                 key={svc.name}
                                                 custom={i}

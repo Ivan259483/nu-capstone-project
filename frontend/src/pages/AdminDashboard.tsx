@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { lazy, useState, useEffect, useCallback, useRef, useMemo, type ComponentType } from 'react';
 import { jsPDF } from 'jspdf';
 import './AdminDashboard.css';
 import { useNavigate } from 'react-router-dom';
@@ -44,29 +44,18 @@ import { UserService } from '@/lib/user-service';
 import { SupplierService } from '@/lib/supplier-service';
 import { InventoryService } from '@/lib/inventory-service-api';
 import { DetailService } from '@/lib/detail-service-api';
-import { AIEstimatorEmbed } from '@/pages/AIEstimatorPage';
-import { PaymentService } from '@/lib/payment-service';
+import { PaymentService, type PendingPaymentsSummary } from '@/lib/payment-service';
 import { SystemService } from '@/lib/system-service';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
 import { SettingsService } from '@/lib/settings-service';
-import { AdminSettings } from '@/components/admin/AdminSettings';
-import SalesSmartCalendar from '@/components/sales/calendar/SalesSmartCalendar';
 import { fetchSlotsByDate, type SlotDetail } from '@/components/sales/calendar/calendarService';
 import {
     AVAILABILITY_UPDATED_EVENT,
     ensureAvailabilityRealtimeSync,
     syncAvailabilityCaches,
 } from '@/lib/availabilitySync';
-import LandingPageEditor from '@/components/admin/LandingPageEditor';
 // POSSystem removed — staff now use the dedicated Sales Dashboard
-import { ActivityLogs } from '@/components/admin/ActivityLogs';
-import { ServicesPricing } from '@/components/admin/ServicesPricing';
-import { SupplierManagement } from '@/components/admin/SupplierManagement';
-import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
-import AdminHubPanel from '@/components/Administrator/AdminHubPanel';
 import AdminNotificationBell from '@/components/Administrator/notifications/AdminNotificationBell';
-import { WaiversDocs } from '@/components/admin/WaiversDocs';
-import { CheckInDialog } from '@/components/admin/CheckInDialog';
 import { ActivityService } from '@/lib/activity-service-api';
 import { formatCurrency } from '@/lib/utils';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
@@ -101,6 +90,23 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import type { InventoryItem, User, Supplier, Service, ActivityLog, BusinessSettings, Booking } from '@/types';
+
+const namedLazy = <T extends Record<string, any>, K extends keyof T>(
+    loader: () => Promise<T>,
+    exportName: K,
+) => lazy(() => loader().then((module) => ({ default: module[exportName] as ComponentType<any> })));
+
+const AIEstimatorEmbed = namedLazy(() => import('@/pages/AIEstimatorPage'), 'AIEstimatorEmbed');
+const AdminSettings = namedLazy(() => import('@/components/admin/AdminSettings'), 'AdminSettings');
+const SalesSmartCalendar = lazy(() => import('@/components/sales/calendar/SalesSmartCalendar'));
+const LandingPageEditor = lazy(() => import('@/components/admin/LandingPageEditor'));
+const ActivityLogs = namedLazy(() => import('@/components/admin/ActivityLogs'), 'ActivityLogs');
+const ServicesPricing = namedLazy(() => import('@/components/admin/ServicesPricing'), 'ServicesPricing');
+const SupplierManagement = namedLazy(() => import('@/components/admin/SupplierManagement'), 'SupplierManagement');
+const UserManagementPanel = namedLazy(() => import('@/components/admin/UserManagementPanel'), 'UserManagementPanel');
+const AdminHubPanel = lazy(() => import('@/components/Administrator/AdminHubPanel'));
+const WaiversDocs = namedLazy(() => import('@/components/admin/WaiversDocs'), 'WaiversDocs');
+const CheckInDialog = namedLazy(() => import('@/components/admin/CheckInDialog'), 'CheckInDialog');
 
 function CountUp({ end, duration = 2, prefix = '', suffix = '' }: { end: number, duration?: number, prefix?: string, suffix?: string }) {
     const [count, setCount] = useState(0);
@@ -292,6 +298,7 @@ export default function AdminDashboard() {
     const [settings, setSettings] = useState<BusinessSettings | null>(null);
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [payments, setPayments] = useState<any[]>([]);
+    const [pendingPaymentsSummary, setPendingPaymentsSummary] = useState<PendingPaymentsSummary | null>(null);
     const [totalSales, setTotalSales] = useState(0);
     /** Signals Admin Hub when the parent bulk sync is available as a background refresh source. */
     const [adminShellBulkLoaded, setAdminShellBulkLoaded] = useState(false);
@@ -577,6 +584,7 @@ export default function AdminDashboard() {
                 if (!canAccessReports) setActivityLogs([]);
                 if (!canAccessPOS) {
                     setPayments([]);
+                    setPendingPaymentsSummary(null);
                     setTotalSales(0);
                 }
 
@@ -642,6 +650,7 @@ export default function AdminDashboard() {
                 if (activityRes.success) setActivityLogs(activityRes.data);
                 if (paymentsRes.success) {
                     setPayments(paymentsRes.data || []);
+                    setPendingPaymentsSummary(paymentsRes.pendingPaymentsSummary || null);
                     setTotalSales(Number(paymentsRes.totalRevenue || 0));
                 }
 
@@ -2395,6 +2404,7 @@ export default function AdminDashboard() {
                     services={services}
                     bookings={bookings}
                     payments={payments}
+                    pendingPaymentsSummary={pendingPaymentsSummary}
                     activityLogs={activityLogs}
                     settings={settings}
                     setSettings={setSettings}

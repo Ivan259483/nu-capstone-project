@@ -5,6 +5,13 @@ type PaymentPayload = {
     detailerId?: string | null;
 };
 
+export interface PendingPaymentsSummary {
+    totalOutstanding: number;
+    count: number;
+    statusCounts?: Record<string, number>;
+    statusesIncluded?: string[];
+}
+
 export const PaymentService = {
     createStripePaymentIntent: async (payload: PaymentPayload) => {
         try {
@@ -64,6 +71,7 @@ export const PaymentService = {
                 message: error.response?.data?.message || 'Failed to fetch payments',
                 data: [],
                 totalRevenue: 0,
+                pendingPaymentsSummary: null,
             };
         }
     },

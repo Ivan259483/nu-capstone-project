@@ -1,11 +1,11 @@
 import api from './api';
 import type { BusinessSettings } from '@/types';
+import { cachedGet, invalidate, TTL } from './queryCache';
 
 export const SettingsService = {
     getPublicSettings: async () => {
         try {
-            const response = await api.get('/settings/public');
-            return response.data;
+            return await cachedGet('/settings/public', undefined, TTL.LONG);
         } catch (error: any) {
             return {
                 success: false,
@@ -15,8 +15,7 @@ export const SettingsService = {
     },
     getSettings: async () => {
         try {
-            const response = await api.get('/settings');
-            return response.data;
+            return await cachedGet('/settings', undefined, TTL.LONG);
         } catch (error: any) {
             return {
                 success: false,
@@ -28,6 +27,7 @@ export const SettingsService = {
     updateSettings: async (settings: Partial<BusinessSettings>) => {
         try {
             const response = await api.post('/settings', settings);
+            invalidate('/settings');
             return response.data;
         } catch (error: any) {
             return {

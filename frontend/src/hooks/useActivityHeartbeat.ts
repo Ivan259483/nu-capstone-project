@@ -29,7 +29,21 @@ export function useActivityHeartbeat() {
         });
     };
 
-    ping();
+    // Presence must not compete with the first dashboard data requests after
+    // login. Queue the initial heartbeat for an idle slice (with a short
+    // fallback for browsers that do not implement requestIdleCallback).
+    let initialTimer: number | null = null;
+    let idleHandle: number | null = null;
+    const requestIdle = (window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    }).requestIdleCallback;
+    const cancelIdle = (window as Window & { cancelIdleCallback?: (handle: number) => void }).cancelIdleCallback;
+    if (typeof requestIdle === 'function') {
+      idleHandle = requestIdle(ping, { timeout: 3_000 });
+    } else {
+      initialTimer = window.setTimeout(ping, 1_500);
+    }
     const timer = window.setInterval(ping, INTERVAL_MS);
     const onFocus = () => ping();
     window.addEventListener('focus', onFocus);
@@ -37,6 +51,10 @@ export function useActivityHeartbeat() {
 
     return () => {
       window.clearInterval(timer);
+      if (initialTimer !== null) window.clearTimeout(initialTimer);
+      if (idleHandle !== null && typeof cancelIdle === 'function') {
+        cancelIdle(idleHandle);
+      }
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onFocus);
     };

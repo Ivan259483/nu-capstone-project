@@ -12,6 +12,12 @@ const COLLECTION_CACHE_MAP: Record<string, string[]> = {
   orders: ['/bookings', '/orders'],
   products: ['/products'],
   services: ['/services'],
+  users: ['/users'],
+  suppliers: ['/suppliers'],
+  settings: ['/settings'],
+  notifications: ['/notifications'],
+  notificationuserstates: ['/notifications'],
+  activitylogs: ['/activity'],
   shopavailabilities: ['/orders/available-slots'],
   scheduledclosures: ['/orders/available-slots'],
 };

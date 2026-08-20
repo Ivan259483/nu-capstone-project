@@ -15,7 +15,9 @@ import {
   ShieldCheck,
   Sparkles,
   Timer,
+  TrendingDown,
   TrendingUp,
+  Users,
   Zap,
 } from 'lucide-react';
 import {
@@ -30,6 +32,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
+import { useAuth } from '@/contexts/AuthContext';
 import QCStatusBadge, { type QCStatus } from './QCStatusBadge';
 import type { QCStats, QCJob, QCActivityItem } from '@/hooks/useQCData';
 
@@ -41,7 +44,16 @@ type QCView =
   | 'live-tracker';
 
 const BAR_COLORS = ['#2563eb', '#7c3aed', '#0ea5e9', '#10b981', '#f59e0b', '#64748b'];
-const SLA_RISK_MINUTES = 240;
+const SLA_DUE_WINDOW_MINUTES = 240;
+const DASH_SCOPE_OPTIONS = [
+  { value: 'all' as const, label: 'All Jobs' },
+  { value: 'mine' as const, label: 'My Jobs' },
+];
+const DASH_RANGE_OPTIONS: Array<{ value: 1 | 7 | 30; label: string }> = [
+  { value: 1, label: 'Today' },
+  { value: 7, label: '7 Days' },
+  { value: 30, label: '30 Days' },
+];
 
 const surfaceClass = 'qc-dash-surface rounded-2xl bg-white';
 const dividerClass = 'qc-dash-divider';
@@ -112,16 +124,55 @@ function LoadingRows() {
   );
 }
 
-interface MetricCardProps {
+type MetricTone = 'blue' | 'emerald' | 'rose' | 'amber' | 'violet' | 'slate';
+type MetricDelta = {
+  direction: 'up' | 'down' | 'flat';
+  text: string;
+};
+
+type ComparisonFnOptions = {
+  asPercent?: boolean;
+  emptyLabel?: string;
+};
+
+function compareToPrevious(current: number, previous: number, options: ComparisonFnOptions = {}): MetricDelta | null {
+  const { asPercent = true, emptyLabel = 'No change' } = options;
+  if (previous === 0) {
+    if (current === 0) return null;
+    return { direction: 'up', text: asPercent ? 'New' : 'New' };
+  }
+  if (!Number.isFinite(previous) || !Number.isFinite(current)) return null;
+  if (current === previous) return { direction: 'flat', text: emptyLabel };
+  const diff = ((current - previous) / previous) * 100;
+  return {
+    direction: diff >= 0 ? 'up' : 'down',
+    text: `${diff >= 0 ? '+' : ''}${Math.round(diff)}%`,
+  };
+}
+
+function MetricCard({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  tone,
+  badge,
+  delta,
+  action,
+  actionLabel,
+  period,
+}: {
   label: string;
   value: string;
   sub: string;
   icon: React.ElementType;
-  tone: 'blue' | 'emerald' | 'rose' | 'amber' | 'violet' | 'slate';
+  tone: MetricTone;
   badge?: string;
-}
-
-function MetricCard({ label, value, sub, icon: Icon, tone, badge }: MetricCardProps) {
+  delta?: MetricDelta | null;
+  action?: (() => void) | null;
+  actionLabel?: string;
+  period?: string;
+}) {
   const toneClass = {
     blue: 'bg-blue-50 text-blue-700',
     emerald: 'bg-emerald-50 text-emerald-700',
@@ -131,8 +182,19 @@ function MetricCard({ label, value, sub, icon: Icon, tone, badge }: MetricCardPr
     slate: 'bg-slate-100 text-slate-700',
   }[tone];
 
-  return (
-    <div className={`${surfaceClass} p-5`}>
+  const deltaTone = delta?.direction === 'up'
+    ? 'text-emerald-600'
+    : delta?.direction === 'down'
+      ? 'text-rose-600'
+      : 'text-slate-500';
+  const DeltaIcon = delta?.direction === 'up'
+    ? TrendingUp
+    : delta?.direction === 'down'
+      ? TrendingDown
+      : FileWarning;
+
+  const inner = (
+    <div className="min-h-[132px] space-y-3 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${toneClass}`}>
           <Icon size={17} />
@@ -143,68 +205,38 @@ function MetricCard({ label, value, sub, icon: Icon, tone, badge }: MetricCardPr
           </span>
         )}
       </div>
-      <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">{label}</p>
-      <p className="mt-1 text-3xl font-black tracking-tight text-slate-950 tabular-nums">{value}</p>
-      <p className="mt-1 text-xs font-medium text-slate-500">{sub}</p>
+      <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">{label}</p>
+      <p className="text-3xl font-black tracking-tight text-slate-950 tabular-nums">{value}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium text-slate-600">{sub}</p>
+        {period && <p className="text-xs text-slate-500">{period}</p>}
+      </div>
+      {delta ? (
+        <p className={`inline-flex items-center gap-1 text-[11px] font-semibold ${deltaTone}`}>
+          <DeltaIcon size={12} />
+          {delta.text} vs previous period
+        </p>
+      ) : null}
+      {action ? (
+        <span className="mt-auto inline-flex text-[11px] font-semibold text-blue-700">
+          {actionLabel || 'Open'} →
+        </span>
+      ) : null}
     </div>
   );
-}
 
-function HeroKpi({
-  awaiting,
-  pending,
-  slaRisk,
-  loading,
-}: {
-  awaiting: number;
-  pending: number;
-  slaRisk: number;
-  loading: boolean;
-}) {
-  const value = loading ? '-' : String(awaiting);
-  const status =
-    loading ? 'Syncing queue' : slaRisk > 0 ? `${slaRisk} SLA risk` : awaiting > 0 ? `${awaiting} awaiting` : 'Clear queue';
-  const statusClass =
-    slaRisk > 0
-      ? 'bg-rose-50 text-rose-700 ring-rose-100'
-      : awaiting > 0
-        ? 'bg-amber-50 text-amber-700 ring-amber-100'
-        : 'bg-emerald-50 text-emerald-700 ring-emerald-100';
+  if (!action) {
+    return <div className={`${surfaceClass} overflow-hidden`}>{inner}</div>;
+  }
 
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-700 via-blue-800 to-slate-950 p-6 text-white shadow-[0_20px_56px_-26px_rgba(30,58,138,0.7)] ring-1 ring-blue-500/20">
-      <div className="absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.18),transparent_42%)]" />
-      <div className="relative">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-blue-100 ring-1 ring-white/15">
-              <ClipboardList size={13} />
-              Awaiting Validation
-            </div>
-            <p className="mt-5 text-6xl font-black leading-none tracking-tight tabular-nums">{value}</p>
-            <p className="mt-3 max-w-md text-sm font-medium leading-relaxed text-blue-100">
-              {awaiting > 0 ? 'Jobs waiting for final QC sign-off before customer release.' : 'No blocked sign-offs in the current QC queue.'}
-            </p>
-          </div>
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/20">
-            <ShieldCheck size={22} />
-          </div>
-        </div>
-
-        <div className="mt-6 grid grid-cols-2 gap-3">
-          <div className="rounded-lg bg-white/10 px-4 py-3 ring-1 ring-white/15">
-            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-blue-200">Pending Lane</p>
-            <p className="mt-1 text-2xl font-black tabular-nums">{loading ? '-' : pending}</p>
-          </div>
-          <div className="rounded-lg bg-white/10 px-4 py-3 ring-1 ring-white/15">
-            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-blue-200">Queue Health</p>
-            <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-black ring-1 ${statusClass}`}>
-              {status}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={action}
+      className={`${surfaceClass} overflow-hidden text-left transition hover:translate-y-[-1px] hover:shadow-[0_26px_55px_-34px_rgba(15,23,42,0.45)]`}
+    >
+      {inner}
+    </button>
   );
 }
 
@@ -216,6 +248,10 @@ interface Props {
   jobs: QCJob[];
   activity?: QCActivityItem[];
   activityLoading?: boolean;
+  selectedRangeDays: 1 | 7 | 30;
+  selectedScope: 'all' | 'mine';
+  onRangeChange: (days: 1 | 7 | 30) => void;
+  onScopeChange: (scope: 'all' | 'mine') => void;
 }
 
 const pct = (value: number) => `${Math.max(0, Math.min(100, Math.round(value)))}%`;
@@ -233,20 +269,17 @@ export default function QCDashboardView({
   jobs,
   activity = [],
   activityLoading = false,
+  selectedRangeDays,
+  selectedScope,
+  onRangeChange,
+  onScopeChange,
 }: Props) {
+  const { user } = useAuth();
   const pendingJobs = jobs.filter((job) => job.status === 'pending-review' || job.status === 'in-review');
-  const slaRiskJobs = pendingJobs.filter((job) => (job.elapsedMinutes ?? 0) >= SLA_RISK_MINUTES);
-  const v = (value: number) => (statsLoading ? '-' : String(value));
-  const reviewedTotal =
-    typeof stats.totalQCReviewed === 'number' && stats.totalQCReviewed > 0
-      ? stats.totalQCReviewed
-      : stats.approvedToday + stats.returned;
-  const approvalRate =
-    typeof stats.qcApprovalRatePct === 'number'
-      ? stats.qcApprovalRatePct
-      : reviewedTotal > 0
-        ? (stats.approvedToday / reviewedTotal) * 100
-        : 0;
+  const pendingCount = pendingJobs.length;
+  const rangeLabel = selectedRangeDays === 1 ? 'Today' : `Last ${selectedRangeDays} Days`;
+  const scopeLabel = selectedScope === 'mine' ? 'My Jobs' : 'All Jobs';
+  const scopeAndPeriod = `${scopeLabel} · ${rangeLabel}`;
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -254,9 +287,57 @@ export default function QCDashboardView({
     day: 'numeric',
   });
 
-  const urgentJobs = [...pendingJobs]
-    .sort((a, b) => (b.elapsedMinutes ?? 0) - (a.elapsedMinutes ?? 0))
-    .slice(0, 5);
+  const v = (value: number) => (statsLoading ? '-' : String(value));
+  const sortedByAge = [...pendingJobs].sort((a, b) => (b.elapsedMinutes ?? 0) - (a.elapsedMinutes ?? 0));
+  const oldestPending = sortedByAge[0];
+  const oldestPendingId = oldestPending?.id;
+
+  const dueWithinOneHour = pendingJobs.filter((job) => (job.elapsedMinutes ?? 0) <= 60);
+  const dueToday = pendingJobs.filter((job) => (job.elapsedMinutes ?? 0) > 60 && (job.elapsedMinutes ?? 0) <= SLA_DUE_WINDOW_MINUTES);
+  const overdueJobs = pendingJobs.filter((job) => (job.elapsedMinutes ?? 0) > SLA_DUE_WINDOW_MINUTES);
+  const dueInNext4Hours = dueWithinOneHour.length + dueToday.length;
+  const dueInNext4HoursJobs = [...dueWithinOneHour, ...dueToday];
+  const atRiskCount = dueWithinOneHour.length + dueToday.length + overdueJobs.length;
+
+  const userId = String(user?.id || user?._id || '').trim();
+  const assignedToMeJobs = userId
+    ? pendingJobs.filter((job) => {
+      const assignedId = String(job.technicianId || '').trim();
+      return assignedId && assignedId === userId;
+    })
+    : [];
+
+  const reviewedSummary = stats.rangeSummary
+    ? stats.rangeSummary
+    : {
+        days: selectedRangeDays,
+        label: rangeLabel,
+        approved: 0,
+        returned: 0,
+        throughput: 0,
+        reviewedOutcomes: 0,
+        approvalRate: 0,
+        previous: {
+          approved: 0,
+          returned: 0,
+          throughput: 0,
+          reviewedOutcomes: 0,
+          approvalRate: 0,
+        },
+      };
+  const previous = reviewedSummary.previous || {
+    approved: 0,
+    returned: 0,
+    throughput: 0,
+    reviewedOutcomes: 0,
+    approvalRate: 0,
+  };
+
+  const approvedDelta = compareToPrevious(reviewedSummary.approved, previous.approved);
+  const returnedDelta = compareToPrevious(reviewedSummary.returned, previous.returned);
+  const throughputDelta = compareToPrevious(reviewedSummary.throughput, previous.throughput);
+  const approvalDelta = compareToPrevious(reviewedSummary.approvalRate, previous.approvalRate);
+  const throughputLabel = selectedRangeDays === 1 ? "Today's Throughput" : 'Throughput';
 
   const aiAlerts = jobs
     .filter((job) => job.aiFlag)
@@ -269,6 +350,7 @@ export default function QCDashboardView({
         id: `${job.id}-ai`,
         jobId: job.jobId,
         vehicle: job.vehicle,
+        jobGuid: job.id,
         damage: damage?.type || damage?.label || 'Flagged for inspection',
         severity: String(damage?.severity || 'moderate').toLowerCase(),
         confidence: normalizeConfidence(damage?.confidence),
@@ -284,10 +366,47 @@ export default function QCDashboardView({
   };
 
   const { trendData = [], serviceDistribution = [] } = stats;
-  const hasTrend = trendData.some((item) => item.approved > 0 || item.returned > 0);
+  const topReturnReasons = (stats.topReturnReasons || [])
+    .map((entry) => ({
+      name: entry.reason.trim() || 'Unspecified',
+      value: entry.count || 0,
+    }))
+    .filter((entry) => entry.name)
+    .slice(0, 6);
   const sortedServices = [...serviceDistribution].sort((a, b) => b.value - a.value).slice(0, 6);
   const serviceTotal = sortedServices.reduce((sum, item) => sum + item.value, 0);
+  const hasTrend = trendData.some((item) => item.approved > 0 || item.returned > 0);
   const hasService = sortedServices.length > 0;
+  const hasReturnReasons = topReturnReasons.length > 0;
+
+  const queueAgingBuckets = [
+    {
+      label: 'Due within 1h',
+      value: dueWithinOneHour.length,
+      jobs: dueWithinOneHour,
+      tone: 'rose',
+      color: '#f43f5e',
+    },
+    {
+      label: 'Due today',
+      value: dueToday.length,
+      jobs: dueToday,
+      tone: 'amber',
+      color: '#f59e0b',
+    },
+    {
+      label: 'Overdue',
+      value: overdueJobs.length,
+      jobs: overdueJobs,
+      tone: 'violet',
+      color: '#7c3aed',
+    },
+  ];
+
+  const queueAgingChartData = queueAgingBuckets.map((bucket) => ({
+    name: bucket.label,
+    value: bucket.value,
+  }));
 
   const handleReview = (id: string) => {
     if (onSelectJob) {
@@ -297,19 +416,29 @@ export default function QCDashboardView({
     onNavigate('jobs');
   };
 
+  const openQueueBucket = (bucket: typeof queueAgingBuckets[number]) => {
+    const target = bucket.jobs[0];
+    if (!target) return;
+    handleReview(target.id);
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <section className="qc-dash-surface overflow-hidden rounded-2xl bg-white">
-        <div className="flex flex-col gap-5 bg-gradient-to-br from-white via-slate-50 to-blue-50/70 p-6 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-5 bg-gradient-to-br from-white via-slate-50 to-blue-50/70 p-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-[0.12em] text-blue-700 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.16)]">
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-[0.12em] text-blue-700 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.16)]">
               <Activity size={13} />
               Quality Command Center
             </div>
-            <h1 className="text-3xl font-black tracking-tight text-slate-950">Quality Command Center</h1>
-            <p className="mt-1 text-sm font-medium text-slate-500">{today} - Final inspection operations</p>
+            <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
+              What needs attention right now?
+            </h1>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              {today} — live queue health and risk watchlist.
+            </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <span
               className={`inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-black ring-1 ${
                 statsLoading
@@ -320,85 +449,248 @@ export default function QCDashboardView({
               <span className={`h-2 w-2 rounded-full ${statsLoading ? 'bg-amber-400' : 'bg-emerald-500'} animate-pulse`} />
               {statsLoading ? 'Syncing' : 'Live'}
             </span>
-            <span className="inline-flex h-9 items-center gap-2 rounded-xl bg-white/90 px-3 text-xs font-bold text-slate-600 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.14)]">
-              <Gauge size={14} className="text-blue-600" />
-              {slaRiskJobs.length > 0 ? `${slaRiskJobs.length} SLA risk` : 'SLA stable'}
+            <span className="inline-flex h-9 items-center gap-2 rounded-xl bg-slate-50 px-3 text-xs font-semibold text-slate-600 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.14)]">
+              <ClipboardList size={14} className="text-blue-600" />
+              {pendingCount} pending
             </span>
           </div>
         </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100/80 px-5 py-3 sm:px-6">
+          <div className="flex items-center gap-2">
+            <span className="hidden text-xs font-semibold text-slate-500 sm:inline">Period</span>
+            <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+              {DASH_RANGE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onRangeChange(option.value)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                    selectedRangeDays === option.value
+                      ? 'bg-blue-600 text-white shadow-[0_8px_20px_-14px_rgba(37,99,235,0.55)]'
+                      : 'text-slate-600 hover:text-slate-800'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="hidden text-xs font-semibold text-slate-500 sm:inline">Scope</span>
+            <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+              {DASH_SCOPE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onScopeChange(option.value)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                    selectedScope === option.value
+                      ? 'bg-blue-600 text-white shadow-[0_8px_20px_-14px_rgba(37,99,235,0.55)]'
+                      : 'text-slate-600 hover:text-slate-800'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-        <div className="lg:col-span-2">
-          <HeroKpi
-            awaiting={stats.awaiting}
-            pending={pendingJobs.length}
-            slaRisk={slaRiskJobs.length}
-            loading={statsLoading}
-          />
-        </div>
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
         <MetricCard
-          label="Approved Today"
-          value={v(stats.approvedToday)}
-          sub="Jobs completed by QC"
+          label="Awaiting Validation"
+          value={v(pendingCount)}
+          sub={scopeAndPeriod}
+          icon={ClipboardList}
+          tone="blue"
+          badge={scopeLabel}
+          period={scopeAndPeriod}
+        />
+        <MetricCard
+          label="Approved"
+          value={v(reviewedSummary.approved)}
+          sub="Outcomes completed"
           icon={CheckCircle2}
           tone="emerald"
-          badge="Today"
+          badge={rangeLabel}
+          period={rangeLabel}
+          delta={approvedDelta}
         />
         <MetricCard
           label="Returned"
-          value={v(stats.returned)}
-          sub="Jobs needing correction"
+          value={v(reviewedSummary.returned)}
+          sub="Rework outcomes"
           icon={RotateCcw}
           tone="rose"
-          badge="Rework"
+          badge={rangeLabel}
+          period={rangeLabel}
+          delta={returnedDelta}
         />
         <MetricCard
-          label="AI Pending"
-          value={v(stats.aiPending)}
-          sub="Automated flags to inspect"
-          icon={ScanSearch}
-          tone="amber"
-          badge="AI"
-        />
-        <MetricCard
-          label="Avg Review Time"
-          value={statsLoading ? '-' : stats.avgReviewTime || '-'}
-          sub="Per job in review"
-          icon={Timer}
+          label={throughputLabel}
+          value={v(reviewedSummary.throughput)}
+          sub="Total reviewed"
+          icon={Gauge}
           tone="violet"
+          badge={rangeLabel}
+          period={rangeLabel}
+          delta={throughputDelta}
         />
         <MetricCard
           label="Approval Rate"
-          value={statsLoading ? '-' : pct(approvalRate)}
-          sub={reviewedTotal > 0 ? `${reviewedTotal} QC outcomes` : 'No outcomes yet'}
-          icon={TrendingUp}
+          value={statsLoading ? '-' : pct(reviewedSummary.approvalRate)}
+          sub={`In period: ${rangeLabel}`}
+          icon={Activity}
           tone="blue"
+          badge={rangeLabel}
+          period={rangeLabel}
+          delta={approvalDelta}
+        />
+        <MetricCard
+          label="Overall Approval Rate"
+          value={statsLoading ? '-' : pct(stats.qcApprovalRatePct || 0)}
+          sub="Lifetime outcome quality"
+          icon={ShieldCheck}
+          tone="slate"
+          badge="All time"
+          period="All time"
         />
         <MetricCard
           label="SLA Risk"
-          value={statsLoading ? '-' : String(slaRiskJobs.length)}
-          sub={`${SLA_RISK_MINUTES / 60}h+ pending reviews`}
+          value={v(atRiskCount)}
+          sub={`1h ${dueWithinOneHour.length} · Today ${dueToday.length} · Overdue ${overdueJobs.length}`}
           icon={FileWarning}
-          tone={slaRiskJobs.length > 0 ? 'rose' : 'slate'}
+          tone={atRiskCount > 0 ? 'rose' : 'slate'}
+          badge="Attention"
+          period="Live"
+          action={atRiskCount > 0 ? () => openQueueBucket(queueAgingBuckets[0]) : null}
+          actionLabel="Open queue"
+        />
+        <MetricCard
+          label="Due in Next 4 Hours"
+          value={v(dueInNext4Hours)}
+          sub="Pending jobs approaching SLA"
+          icon={Clock}
+          tone={dueInNext4Hours > 0 ? 'amber' : 'slate'}
+          badge="Live"
+          period={scopeLabel}
+          action={dueInNext4Hours > 0 ? () => openQueueBucket({
+            label: 'Due in Next 4 Hours',
+            value: dueInNext4Hours,
+            jobs: dueInNext4HoursJobs,
+            tone: 'amber',
+            color: '#f59e0b',
+          }) : null}
+          actionLabel="Open jobs"
+        />
+        <MetricCard
+          label="Overdue Jobs"
+          value={v(overdueJobs.length)}
+          sub="Above SLA target"
+          icon={AlertTriangle}
+          tone={overdueJobs.length > 0 ? 'rose' : 'slate'}
+          badge={rangeLabel}
+          period={scopeLabel}
+          action={overdueJobs.length > 0 ? () => openQueueBucket(queueAgingBuckets[2]) : null}
+          actionLabel="Open oldest"
+        />
+        <MetricCard
+          label="Assigned to Me"
+          value={v(assignedToMeJobs.length)}
+          sub="Currently queued for you"
+          icon={Users}
+          tone={assignedToMeJobs.length > 0 ? 'blue' : 'slate'}
+          badge={scopeLabel}
+          period={scopeLabel}
+          action={assignedToMeJobs.length > 0 ? () => openQueueBucket({
+            label: 'Assigned to me',
+            value: assignedToMeJobs.length,
+            jobs: assignedToMeJobs,
+            tone: 'blue',
+            color: '#3b82f6',
+          }) : null}
+          actionLabel="Open first"
+        />
+        <MetricCard
+          label="Oldest Pending Job"
+          value={oldestPending ? oldestPending.elapsed : '-'}
+          sub={oldestPending ? `${oldestPending.jobId} · ${oldestPending.vehicle}` : 'No pending jobs'}
+          icon={Timer}
+          tone="violet"
+          badge="Live"
+          period="Now"
+          action={oldestPendingId ? () => handleReview(oldestPendingId) : null}
+          actionLabel={oldestPendingId ? 'Open job' : undefined}
         />
       </section>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <div className={`${surfaceClass} p-6 xl:col-span-2`}>
-          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-base font-black tracking-tight text-slate-950">Approval / Return Trend</h2>
-              <p className="mt-0.5 text-xs font-medium text-slate-500">Last 14 days of QC decisions</p>
-            </div>
-            <div className="flex items-center gap-3 text-xs font-bold text-slate-500">
-              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Approved</span>
-              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-rose-500" />Returned</span>
-            </div>
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div className={`${surfaceClass} p-6`}>
+          <div className="mb-4 flex flex-col gap-2">
+            <h2 className="text-base font-black tracking-tight text-slate-950">Queue Aging</h2>
+            <p className="text-xs font-medium text-slate-500">Pending job aging split by SLA urgency</p>
           </div>
+          {queueAgingBuckets.some((b) => b.value > 0) ? (
+            <>
+              <ResponsiveContainer width="100%" height={210}>
+                <BarChart data={queueAgingChartData} margin={{ top: 4, right: 10, left: 4, bottom: 0 }}>
+                  <CartesianGrid stroke="rgba(226,232,240,0.55)" strokeDasharray="4 6" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar
+                    dataKey="value"
+                    name="Jobs"
+                    radius={[6, 6, 0, 0]}
+                    onClick={(data: any) => {
+                      const clicked = queueAgingBuckets.find((bucket) => bucket.label === data.name);
+                      if (clicked) openQueueBucket(clicked);
+                    }}
+                  >
+                    {queueAgingBuckets.map((bucket, index) => (
+                      <Cell key={bucket.label} fill={bucket.color || BAR_COLORS[index % BAR_COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {queueAgingBuckets.map((bucket) => {
+                  const deltaTarget = bucket.jobs[0]?.id;
+                  const buttonText = `${bucket.value} job${bucket.value === 1 ? '' : 's'}`;
+                  return (
+                    <button
+                      key={bucket.label}
+                      type="button"
+                      onClick={() => deltaTarget ? handleReview(deltaTarget) : null}
+                      className={`rounded-xl border border-slate-100 p-3 text-left text-xs transition ${
+                        bucket.value > 0
+                          ? 'bg-slate-50 hover:bg-slate-100'
+                          : 'bg-slate-50/40'
+                      }`}
+                    >
+                      <p className={`font-bold ${bucket.tone === 'rose' ? 'text-rose-700' : bucket.tone === 'amber' ? 'text-amber-700' : 'text-violet-700'}`}>
+                        {bucket.label}
+                      </p>
+                      <p className="mt-1 font-black text-slate-900">{buttonText}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <EmptyState icon={Clock} title="No queue aging risk" label="Jobs are not currently waiting in the queue." tone="green" />
+          )}
+        </div>
 
+        <div className={`${surfaceClass} p-6`}>
+          <div className="mb-4 flex flex-col gap-2">
+            <h2 className="text-base font-black tracking-tight text-slate-950">Approval / Return Trend</h2>
+            <p className="text-xs font-medium text-slate-500">Decision trend for {rangeLabel.toLowerCase()}</p>
+          </div>
           {hasTrend ? (
-            <ResponsiveContainer width="100%" height={260}>
+            <ResponsiveContainer width="100%" height={210}>
               <AreaChart data={trendData} margin={{ top: 6, right: 12, left: -16, bottom: 0 }}>
                 <defs>
                   <linearGradient id="qcApprovedGradient" x1="0" y1="0" x2="0" y2="1">
@@ -441,19 +733,36 @@ export default function QCDashboardView({
               </AreaChart>
             </ResponsiveContainer>
           ) : (
-            <EmptyState icon={BarChart3} title="No QC trend yet" label="Approved and returned jobs will build this chart automatically." />
+            <EmptyState icon={BarChart3} title="No trend data yet" label="Trend builds when approvals or returns are recorded." />
           )}
         </div>
+      </section>
 
-        <div className={`${surfaceClass} p-6`}>
-          <div className="mb-5">
-            <h2 className="text-base font-black tracking-tight text-slate-950">Jobs by Service Type</h2>
-            <p className="mt-0.5 text-xs font-medium text-slate-500">Current QC queue mix</p>
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div className={`${surfaceClass} overflow-hidden`}>
+          <div className={`flex items-center justify-between gap-3 px-5 py-4 ${dividerClass}`}>
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                <Sparkles size={16} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-black text-slate-950">Jobs by Service Type</h2>
+                <p className="text-xs font-medium text-slate-500">Current quality-control mix</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('jobs')}
+              className="text-xs font-black text-blue-600 transition hover:text-blue-700"
+            >
+              View all
+              <ArrowRight size={14} className="inline-block" />
+            </button>
           </div>
           {hasService ? (
-            <div className="space-y-5">
-              <ResponsiveContainer width="100%" height={170}>
-                <BarChart data={sortedServices} margin={{ top: 4, right: 4, left: 4, bottom: 0 }} barSize={24}>
+            <div className="space-y-5 p-5">
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={sortedServices} margin={{ top: 4, right: 4, left: 4, bottom: 0 }} barSize={22}>
                   <CartesianGrid stroke="rgba(238,242,247,0.7)" strokeDasharray="4 6" vertical={false} />
                   <XAxis dataKey="name" hide />
                   <YAxis hide allowDecimals={false} />
@@ -486,7 +795,64 @@ export default function QCDashboardView({
               </div>
             </div>
           ) : (
-            <EmptyState icon={Sparkles} title="No service queue yet" label="Service mix appears once jobs enter quality control." tone="violet" />
+            <EmptyState icon={BarChart3} title="No jobs by service yet" label="Service mix appears once QC jobs are active." tone="blue" />
+          )}
+        </div>
+
+        <div className={`${surfaceClass} overflow-hidden`}>
+          <div className={`flex items-center justify-between gap-3 px-5 py-4 ${dividerClass}`}>
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+                <FileWarning size={16} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-black text-slate-950">Top Return Reasons</h2>
+                <p className="text-xs font-medium text-slate-500">Most frequent return triggers</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('jobs')}
+              className="text-xs font-black text-blue-600 transition hover:text-blue-700"
+            >
+              Investigate
+              <ArrowRight size={14} className="inline-block" />
+            </button>
+          </div>
+          {hasReturnReasons ? (
+            <div className="space-y-4 p-5">
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={topReturnReasons} margin={{ top: 4, right: 4, left: 4, bottom: 0 }} barSize={18}>
+                  <CartesianGrid stroke="rgba(238,242,247,0.7)" strokeDasharray="4 6" vertical={false} />
+                  <XAxis dataKey="name" hide />
+                  <YAxis hide allowDecimals={false} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ fill: '#f8fafc' }} />
+                  <Bar dataKey="value" name="Occurrences" radius={[6, 6, 0, 0]} fill={BAR_COLORS[1]}>
+                    {topReturnReasons.map((_, index) => (
+                      <Cell key={index} fill={BAR_COLORS[(index + 2) % BAR_COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="space-y-2">
+                {topReturnReasons.map((item, index) => {
+                  const width = topReturnReasons[0].value > 0 ? (item.value / topReturnReasons[0].value) * 100 : 0;
+                  return (
+                    <div key={`${item.name}-${index}`} className="space-y-1">
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="truncate font-bold text-slate-700">{item.name}</span>
+                        <span className="font-black text-slate-900">{item.value}</span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full rounded-full bg-blue-500/85" style={{ width: `${width}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <EmptyState icon={FileWarning} title="No return reason data" label="Returned jobs with reasons will populate this view." tone="amber" />
           )}
         </div>
       </section>
@@ -496,21 +862,20 @@ export default function QCDashboardView({
           <div className={`flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between ${dividerClass}`}>
             <div>
               <h2 className="text-base font-black tracking-tight text-slate-950">Urgent Review Queue</h2>
-              <p className="mt-0.5 text-xs font-medium text-slate-500">Sorted by elapsed QC wait time</p>
+              <p className="mt-0.5 text-xs font-medium text-slate-500">Sorted by elapsed review time</p>
             </div>
             <button
               type="button"
               onClick={() => onNavigate('jobs')}
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white shadow-sm shadow-blue-600/20 transition hover:bg-blue-700"
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white shadow-[0_8px_20px_-12px_rgba(37,99,235,0.55)] transition hover:bg-blue-700"
             >
               View all
               <ArrowRight size={14} />
             </button>
           </div>
-
           {statsLoading && jobs.length === 0 ? (
             <LoadingRows />
-          ) : urgentJobs.length > 0 ? (
+          ) : sortedByAge.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="qc-dash-table w-full min-w-[720px]">
                 <thead>
@@ -523,10 +888,14 @@ export default function QCDashboardView({
                   </tr>
                 </thead>
                 <tbody>
-                  {urgentJobs.map((job) => {
-                    const isOverdue = (job.elapsedMinutes ?? 0) >= SLA_RISK_MINUTES;
+                  {sortedByAge.slice(0, 5).map((job) => {
+                    const isOverdue = (job.elapsedMinutes ?? 0) > SLA_DUE_WINDOW_MINUTES;
                     return (
-                      <tr key={job.id} className="group transition-colors">
+                      <tr
+                        key={job.id}
+                        className="group cursor-pointer transition-colors"
+                        onClick={() => handleReview(job.id)}
+                      >
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-2">
                             <span className="font-black text-slate-900 tabular-nums">{job.jobId}</span>
@@ -553,7 +922,10 @@ export default function QCDashboardView({
                         <td className="px-5 py-4">
                           <button
                             type="button"
-                            onClick={() => handleReview(job.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleReview(job.id);
+                            }}
                             className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-blue-600 px-3 text-xs font-black text-white shadow-[0_8px_20px_-12px_rgba(37,99,235,0.55)] transition hover:bg-blue-700"
                           >
                             Review
@@ -657,7 +1029,7 @@ export default function QCDashboardView({
                         <p className="mt-0.5 truncate text-xs text-slate-500">{item.vehicle} - {item.customer}</p>
                         {item.note && <p className="mt-0.5 truncate text-xs font-medium italic text-rose-500">"{item.note}"</p>}
                       </div>
-                      <span className="shrink-0 text-[10px] font-bold text-slate-300 tabular-nums">
+                      <span className="shrink-0 text-[10px] font-bold text-slate-400 tabular-nums">
                         {new Date(item.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>

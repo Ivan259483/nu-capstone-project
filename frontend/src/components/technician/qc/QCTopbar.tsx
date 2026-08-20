@@ -32,6 +32,7 @@ export default function QCTopbar({
   const initials = user?.name
     ? user.name.split(' ').map((word: string) => word[0]).join('').slice(0, 2).toUpperCase()
     : 'QC';
+  const roleLabel = (user?.role || 'inspector').replace(/_/g, ' ');
 
   const commandResults = useMemo(
     () => filterQCJobsBySearch(jobs, searchQuery).slice(0, 8),
@@ -216,6 +217,7 @@ export default function QCTopbar({
             <div className="qc-drop-panel absolute right-0 top-12 z-50 w-52 overflow-hidden">
               <div className="qc-drop-panel__head px-4 py-3">
                 <p className="text-sm font-black tracking-tight text-slate-900">{user?.name || 'Quality Inspector'}</p>
+                <p className="mt-0.5 text-xs capitalize text-slate-500">{roleLabel}</p>
                 <p className="mt-0.5 truncate text-xs text-slate-400">{user?.email || ''}</p>
               </div>
               <div className="bg-slate-50/55 p-1.5">

@@ -24,6 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { getPublicApiOrigin, normalizeApiOrigin } from '@/lib/publicApiOrigin';
+import { compressImageForUpload } from '@/lib/compress-image-for-upload';
 
 const MAX_FILE_SIZE_MB = 10;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
@@ -193,11 +194,16 @@ export default function VehicleScanPage() {
     setProgress(4);
     setState('uploading');
 
-    const formData = new FormData();
-    formData.append('images', photo.file);
-    formData.append('angles', JSON.stringify(['close_up']));
-
     try {
+      const compressedPhoto = await compressImageForUpload(photo.file, {
+        maxEdgePx: 1600,
+        targetMaxBytes: 900 * 1024,
+        skipBelowBytes: 180 * 1024,
+        minQuality: 0.55,
+      });
+      const formData = new FormData();
+      formData.append('images', compressedPhoto, compressedPhoto.name);
+      formData.append('angles', JSON.stringify(['close_up']));
       const response = await postScanImage(formData, (uploadProgress) => {
         setProgress(uploadProgress);
         if (uploadProgress >= 35) {

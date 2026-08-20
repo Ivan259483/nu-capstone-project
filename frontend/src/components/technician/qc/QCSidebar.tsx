@@ -1,6 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, ClipboardList, ScanSearch, ChevronLeft, ChevronRight, LogOut, ShieldCheck, Radio } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { LayoutDashboard, ClipboardList, ScanSearch, ChevronLeft, ChevronRight, ShieldCheck, Radio } from 'lucide-react';
 
 type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker';
 
@@ -32,7 +31,6 @@ interface Props {
 }
 
 export default function QCSidebar({ collapsed, onToggle, activeView, onNavigate, pendingCount = 0, aiPendingCount = 0 }: Props) {
-  const { logout } = useAuth();
   return (
     <aside
       className={`qc-dash-sidebar flex flex-shrink-0 flex-col bg-white transition-all duration-300 ease-in-out ${collapsed ? 'w-[68px]' : 'w-[236px]'}`}
@@ -115,14 +113,6 @@ export default function QCSidebar({ collapsed, onToggle, activeView, onNavigate,
 
       {/* Bottom */}
       <div className="qc-dash-divider space-y-0.5 bg-slate-50/75 px-2.5 py-3">
-        <button
-          type="button"
-          onClick={logout}
-          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-bold text-slate-500 transition-all duration-150 hover:bg-rose-50 hover:text-rose-600 ${collapsed ? 'justify-center' : ''}`}
-        >
-          <LogOut size={17} className="flex-shrink-0" />
-          {!collapsed && <span className="text-sm">Sign Out</span>}
-        </button>
         <button
           type="button"
           onClick={onToggle}

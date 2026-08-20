@@ -88,6 +88,23 @@ export interface QCStats {
   avgReviewTime: string;
   trendData: { date: string; approved: number; returned: number }[];
   serviceDistribution: { name: string; value: number }[];
+  topReturnReasons?: { reason: string; count: number }[];
+  rangeSummary?: {
+    days: number;
+    label: string;
+    approved: number;
+    returned: number;
+    throughput: number;
+    reviewedOutcomes: number;
+    approvalRate: number;
+    previous?: {
+      approved: number;
+      returned: number;
+      throughput: number;
+      reviewedOutcomes: number;
+      approvalRate: number;
+    };
+  };
 }
 
 export interface QCActivityItem {
@@ -110,12 +127,14 @@ export interface QCTechnicianStat {
 }
 
 const QC_JOBS_LIMIT = 20;
-const QC_JOBS_REQUEST_KEY = `qc-jobs:page=1&limit=${QC_JOBS_LIMIT}`;
 const QC_JOBS_SNAPSHOT_STORAGE_KEY = 'autospf_qc_jobs_snapshot_v1';
 const QC_JOBS_SNAPSHOT_MAX_AGE_MS = 30 * 60 * 1000;
 const SUMMARY_POLL_INTERVAL_MS = 60_000;
 const SOCKET_JOBS_DEBOUNCE_MS = 350;
 const REQUEST_DEDUPE_MS = 5_000;
+const STATS_CACHE_MAX_AGE_MS = 30_000;
+const ACTIVITY_CACHE_MAX_AGE_MS = 10_000;
+const TECHNICIAN_CACHE_MAX_AGE_MS = 60_000;
 /** After stage-photo upload, skip socket-driven /qc/jobs refetch to avoid modal remount/flicker. */
 let qcSocketJobsRefetchPausedUntil = 0;
 
@@ -138,7 +157,27 @@ const qcRequestCache = new Map<string, CacheEntry<any>>();
 let lastKnownNonEmptyQcJobs: QCJob[] = [];
 
 function invalidateQcJobsRequestCache() {
-  qcRequestCache.delete(QC_JOBS_REQUEST_KEY);
+  for (const key of qcRequestCache.keys()) {
+    if (key.startsWith('qc-jobs:page=1&limit=')) {
+      qcRequestCache.delete(key);
+    }
+  }
+}
+
+function invalidateQcSummaryRequestCache() {
+  for (const key of qcRequestCache.keys()) {
+    if (
+      key.startsWith('qc-stats:')
+      || key.startsWith('qc-activity:')
+      || key.startsWith('qc-technicians:')
+    ) {
+      qcRequestCache.delete(key);
+    }
+  }
+}
+
+function buildQcJobsRequestKey(scope: 'all' | 'mine') {
+  return `qc-jobs:page=1&limit=${QC_JOBS_LIMIT}:scope=${scope}`;
 }
 
 function normalizeQcTrackerMediaEntry(entry: any): QCTrackerStageMedia | null {
@@ -235,8 +274,8 @@ function clearPersistedQcJobsSnapshot() {
   }
 }
 
-function getCachedQcJobs(): QCJob[] {
-  const cached = qcRequestCache.get(QC_JOBS_REQUEST_KEY)?.data;
+function getCachedQcJobs(scope: 'all' | 'mine' = 'all'): QCJob[] {
+  const cached = qcRequestCache.get(buildQcJobsRequestKey(scope))?.data;
   return Array.isArray(cached) ? cached : [];
 }
 
@@ -247,8 +286,8 @@ function rememberNonEmptyQcJobs(jobs: QCJob[]) {
   }
 }
 
-function getInitialQcJobsSnapshot(): QCJob[] {
-  const cached = getCachedQcJobs();
+function getInitialQcJobsSnapshot(scope: 'all' | 'mine' = 'all'): QCJob[] {
+  const cached = getCachedQcJobs(scope);
   if (cached.length > 0) return cached;
   if (lastKnownNonEmptyQcJobs.length > 0) return lastKnownNonEmptyQcJobs;
   const persisted = readPersistedQcJobsSnapshot();
@@ -367,11 +406,15 @@ async function runCoalescedChecklistSave(
   return queue.inFlight;
 }
 
-const dedupedRequest = async <T,>(key: string, request: () => Promise<T>): Promise<T> => {
+const dedupedRequest = async <T,>(
+  key: string,
+  request: () => Promise<T>,
+  maxAgeMs = REQUEST_DEDUPE_MS
+): Promise<T> => {
   const now = Date.now();
   const cached = qcRequestCache.get(key);
   if (cached?.inFlight) return cached.inFlight;
-  if (cached && cached.data !== undefined && now - cached.updatedAt < REQUEST_DEDUPE_MS) {
+  if (cached && cached.data !== undefined && now - cached.updatedAt < maxAgeMs) {
     return cached.data;
   }
 
@@ -393,14 +436,29 @@ const dedupedRequest = async <T,>(key: string, request: () => Promise<T>): Promi
 
 type UseQCDataOptions = {
   loadSummary?: boolean;
+  loadTechnicianReport?: boolean;
+  statsRangeDays?: 1 | 7 | 14 | 30;
+  scope?: 'all' | 'mine';
 };
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
+export function useQCData({
+  loadSummary = true,
+  loadTechnicianReport = false,
+  statsRangeDays = 7,
+  scope = 'all',
+}: UseQCDataOptions = {}) {
+  const requestScope = scope === 'mine' ? 'mine' : 'all';
+  const normalizedRangeDays = [1, 7, 14, 30].includes(statsRangeDays) ? statsRangeDays : 7;
+  const jobsRequestKey = buildQcJobsRequestKey(requestScope);
+  const statsRequestKey = `qc-stats:scope=${requestScope}:days=${normalizedRangeDays}`;
+  const activityRequestKey = `qc-activity:scope=${requestScope}:limit=15`;
+  const technicianRequestKey = `qc-technicians:scope=${requestScope}`;
+
   const initialJobsRef = useRef<QCJob[] | null>(null);
   if (initialJobsRef.current === null) {
-    initialJobsRef.current = getInitialQcJobsSnapshot();
+    initialJobsRef.current = getInitialQcJobsSnapshot(requestScope);
   }
 
   const [jobs, setJobs] = useState<QCJob[]>(() => initialJobsRef.current ?? []);
@@ -417,12 +475,29 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
     avgReviewTime: '—',
     trendData: [],
     serviceDistribution: [],
+    topReturnReasons: [],
+    rangeSummary: {
+      days: normalizedRangeDays,
+      label: normalizedRangeDays === 1 ? 'Today' : `Last ${normalizedRangeDays} Days`,
+      approved: 0,
+      returned: 0,
+      throughput: 0,
+      reviewedOutcomes: 0,
+      approvalRate: 0,
+      previous: {
+        approved: 0,
+        returned: 0,
+        throughput: 0,
+        reviewedOutcomes: 0,
+        approvalRate: 0,
+      },
+    },
   });
   const [statsLoading, setStatsLoading] = useState(true);
   const [activity, setActivity] = useState<QCActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
   const [technicianData, setTechnicianData] = useState<QCTechnicianStat[]>([]);
-  const [techLoading, setTechLoading] = useState(true);
+  const [techLoading, setTechLoading] = useState(loadTechnicianReport);
 
   const summaryPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const jobsRef = useRef<QCJob[]>(jobs);
@@ -465,14 +540,14 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
         if (!changed) return current;
         jobsRef.current = next;
         rememberNonEmptyQcJobs(next);
-        qcRequestCache.set(QC_JOBS_REQUEST_KEY, {
+        qcRequestCache.set(jobsRequestKey, {
           data: next,
           updatedAt: Date.now(),
         });
         return next;
       });
     },
-    []
+    [jobsRequestKey]
   );
 
   // ── Fetchers ────────────────────────────────────────────────────────────────
@@ -483,9 +558,9 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
     if (blockingUi) setJobsLoading(true);
 
     try {
-      const nextJobs = await dedupedRequest<QCJob[]>(QC_JOBS_REQUEST_KEY, async () => {
+      const nextJobs = await dedupedRequest<QCJob[]>(jobsRequestKey, async () => {
         const res = await api.get('/qc/jobs', {
-          params: { page: 1, limit: QC_JOBS_LIMIT },
+          params: { page: 1, limit: QC_JOBS_LIMIT, scope: requestScope },
           meta: { suppressErrorToast: true, suppressCancelLog: true },
         } as any);
         return res.data?.success ? (res.data.jobs ?? res.data.data ?? []) : [];
@@ -513,69 +588,82 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
         setJobsLoading(false);
       }
     }
-  }, []);
+  }, [jobsRequestKey, requestScope]);
 
   const fetchStats = useCallback(async (silent = false) => {
     if (!silent) setStatsLoading(true);
     try {
-      const data = await dedupedRequest<QCStats | undefined>('qc-stats', async () => {
-        const res = await api.get('/qc/dashboard/stats');
+      const data = await dedupedRequest<QCStats | undefined>(statsRequestKey, async () => {
+        const res = await api.get('/qc/dashboard/stats', {
+          params: {
+            rangeDays: normalizedRangeDays,
+            scope: requestScope,
+          },
+        });
         return res.data?.success ? res.data.data : undefined;
-      });
+      }, STATS_CACHE_MAX_AGE_MS);
       if (data) setStats(data);
     } catch (err: any) {
       if (!silent) console.error('[QC] Failed to fetch stats:', err.message);
     } finally {
       if (!silent) setStatsLoading(false);
     }
-  }, []);
+  }, [requestScope, normalizedRangeDays, statsRequestKey]);
 
   const fetchActivity = useCallback(async (silent = false) => {
     if (!silent) setActivityLoading(true);
     try {
-      const data = await dedupedRequest<QCActivityItem[]>('qc-activity:limit=15', async () => {
-        const res = await api.get('/qc/activity?limit=15');
+      const data = await dedupedRequest<QCActivityItem[]>(activityRequestKey, async () => {
+        const res = await api.get('/qc/activity', {
+          params: { limit: 15, scope: requestScope },
+        });
         return res.data?.success ? (res.data.data ?? []) : [];
-      });
+      }, ACTIVITY_CACHE_MAX_AGE_MS);
       setActivity(data);
     } catch (err: any) {
       if (!silent) console.error('[QC] Failed to fetch activity:', err.message);
     } finally {
       if (!silent) setActivityLoading(false);
     }
-  }, []);
+  }, [activityRequestKey, requestScope]);
 
   const fetchTechnicianData = useCallback(async (silent = false) => {
+    if (!loadTechnicianReport) {
+      setTechLoading(false);
+      return;
+    }
     if (!silent) setTechLoading(true);
     try {
-      const data = await dedupedRequest<QCTechnicianStat[]>('qc-technicians', async () => {
-        const res = await api.get('/qc/reports/technicians');
+      const data = await dedupedRequest<QCTechnicianStat[]>(technicianRequestKey, async () => {
+        const res = await api.get('/qc/reports/technicians', {
+          params: { scope: requestScope },
+        });
         return res.data?.success ? (res.data.data ?? []) : [];
-      });
+      }, TECHNICIAN_CACHE_MAX_AGE_MS);
       setTechnicianData(data);
     } catch (err: any) {
       if (!silent) console.error('[QC] Failed to fetch technician report:', err.message);
     } finally {
       if (!silent) setTechLoading(false);
     }
-  }, []);
+  }, [loadTechnicianReport, requestScope, technicianRequestKey]);
 
   const refetchAll = useCallback(async (silent = false) => {
-    await Promise.all([
+    const requests: Promise<void>[] = [
       fetchJobs(silent),
       fetchStats(silent),
       fetchActivity(silent),
-      fetchTechnicianData(silent),
-    ]);
-  }, [fetchJobs, fetchStats, fetchActivity, fetchTechnicianData]);
+    ];
+    if (loadTechnicianReport) requests.push(fetchTechnicianData(silent));
+    await Promise.all(requests);
+  }, [fetchJobs, fetchStats, fetchActivity, fetchTechnicianData, loadTechnicianReport]);
 
   const refetchSummary = useCallback(async (silent = false) => {
     await Promise.all([
       fetchStats(silent),
       fetchActivity(silent),
-      fetchTechnicianData(silent),
     ]);
-  }, [fetchStats, fetchActivity, fetchTechnicianData]);
+  }, [fetchStats, fetchActivity]);
 
   const resetSummaryPoll = useCallback(() => {
     if (summaryPollRef.current) clearInterval(summaryPollRef.current);
@@ -606,6 +694,11 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
       if (summaryPollRef.current) clearInterval(summaryPollRef.current);
     };
   }, [loadSummary, refetchSummary, resetSummaryPoll]);
+
+  useEffect(() => {
+    if (!loadSummary || !loadTechnicianReport) return;
+    fetchTechnicianData(false);
+  }, [fetchTechnicianData, loadSummary, loadTechnicianReport]);
 
   // ── Shared socket listener ───────────────────────────────────────────────────
   // Uses the app-wide singleton socket (getSharedSocket) — no new io() connection.
@@ -673,6 +766,7 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
     try {
       await api.patch(`/qc/jobs/${id}/approve`);
       toast.success('Job approved', { description: 'The job has been marked as completed.' });
+      invalidateQcSummaryRequestCache();
       await Promise.all([fetchJobs(true), fetchStats(true), fetchActivity(true)]);
       return true;
     } catch (err: any) {
@@ -690,6 +784,7 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
     try {
       await api.patch(`/qc/jobs/${id}/return`, { reason });
       toast.success('Job returned', { description: 'The job has been sent back to the technician.' });
+      invalidateQcSummaryRequestCache();
       await Promise.all([fetchJobs(true), fetchStats(true), fetchActivity(true)]);
       return true;
     } catch (err: any) {

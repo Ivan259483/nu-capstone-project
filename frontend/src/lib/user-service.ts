@@ -1,16 +1,17 @@
 import api from './api';
+import { cachedGet, invalidate, TTL } from './queryCache';
 
 export const UserService = {
     async getAllUsers(options?: { suppressErrorToast?: boolean }) {
-        const response = await api.get('/users', { meta: options } as any);
+        const data = await cachedGet('/users', { meta: options } as any, TTL.LIVE);
         // Map _id to id consistently
-        if (response.data.success && Array.isArray(response.data.data)) {
-            response.data.data = response.data.data.map((u: any) => ({
+        if (data.success && Array.isArray(data.data)) {
+            data.data = data.data.map((u: any) => ({
                 ...u,
                 id: u._id || u.id
             }));
         }
-        return response.data;
+        return data;
     },
 
     async getUserById(id: string) {
@@ -23,6 +24,7 @@ export const UserService = {
 
     async createUser(userData: any) {
         const response = await api.post('/users', userData);
+        invalidate('/users');
         return response.data;
     },
 
@@ -33,6 +35,7 @@ export const UserService = {
 
     async updateUser(id: string, userData: any) {
         const response = await api.put(`/users/${id}`, userData, { timeout: 10000 });
+        invalidate('/users');
         return response.data;
     },
 
@@ -60,16 +63,19 @@ export const UserService = {
 
     async deleteUser(id: string) {
         const response = await api.delete(`/users/${id}`);
+        invalidate('/users');
         return response.data;
     },
 
     async archiveUser(id: string) {
         const response = await api.patch(`/users/${id}/archive`);
+        invalidate('/users');
         return response.data;
     },
 
     async activateUser(id: string) {
         const response = await api.patch(`/users/${id}/activate`);
+        invalidate('/users');
         return response.data;
     },
 

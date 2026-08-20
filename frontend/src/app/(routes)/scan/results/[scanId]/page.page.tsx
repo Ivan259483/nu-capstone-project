@@ -102,6 +102,9 @@ type ScanDetails = {
   modelUrl?: string;
   repairedModelUrl?: string;
   imageUrls?: string[];
+  imageArchive?: {
+    status?: 'pending' | 'not_configured' | 'succeeded' | 'partial' | 'failed';
+  };
   createdAt?: string;
 };
 
@@ -260,6 +263,7 @@ function ModelPreviewSection({
   message,
   onGenerateClick,
   generateDisabled,
+  archivePending,
   onModelViewerLoad,
 }: {
   phase: ThreeDPhase;
@@ -271,6 +275,7 @@ function ModelPreviewSection({
   message: string;
   onGenerateClick: () => void;
   generateDisabled: boolean;
+  archivePending: boolean;
   onModelViewerLoad: () => void;
 }) {
   const [viewerReady, setViewerReady] = useState(false);
@@ -371,7 +376,9 @@ function ModelPreviewSection({
                     ? message || 'This usually takes 1–3 minutes. You can keep this screen open.'
                     : phase === 'failed'
                       ? message || 'Try again, or continue with the estimate below.'
-                      : 'Tap the button to build an interactive GLB from your uploaded scan image.'}
+                      : archivePending
+                        ? 'Preparing the uploaded image in the background. 3D generation will unlock automatically.'
+                        : 'Tap the button to build an interactive GLB from your uploaded scan image.'}
                 </p>
                 {!isGenerating ? (
                   <button
@@ -380,7 +387,7 @@ function ModelPreviewSection({
                     disabled={generateDisabled}
                     className="mt-6 inline-flex h-11 items-center justify-center rounded-xl bg-orange-400 px-5 text-sm font-semibold text-slate-950 shadow-lg shadow-orange-950/30 transition active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300 disabled:shadow-none"
                   >
-                    {phase === 'failed' ? 'Retry 3D generation' : 'Generate 3D Model'}
+                    {archivePending ? 'Preparing scan image…' : phase === 'failed' ? 'Retry 3D generation' : 'Generate 3D Model'}
                   </button>
                 ) : null}
               </div>
@@ -468,6 +475,35 @@ export default function ScanResultsPage() {
     initialResumeRef.current = false;
     void refreshData(false);
   }, [refreshData]);
+
+  // Cloudinary archival intentionally finishes after Roboflow responds. Poll
+  // only while that state is pending so image preview/3D generation unlocks
+  // without a manual refresh, using a bounded backoff to avoid request bursts.
+  useEffect(() => {
+    if (!scanId || scan?.imageArchive?.status !== 'pending') return;
+    let cancelled = false;
+
+    void (async () => {
+      const delays = [1_500, 3_000, 5_000, 8_000, 10_000, 10_000, 10_000, 10_000];
+      for (const waitMs of delays) {
+        await delay(waitMs);
+        if (cancelled) return;
+        try {
+          const payload = await fetchJson<ApiEnvelope<ScanDetails>>(`/api/ai/scan/${encodeURIComponent(scanId)}`);
+          if (!payload.data || cancelled) continue;
+          setScan(payload.data);
+          cacheScan(payload.data);
+          if (payload.data.imageArchive?.status !== 'pending') return;
+        } catch {
+          // A later bounded attempt may succeed; the scan result remains usable.
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scan?.imageArchive?.status, scanId]);
 
   const runPollTask = useCallback(
     async (taskId: string) => {
@@ -624,6 +660,7 @@ export default function ScanResultsPage() {
   const displayRepairedModelUrl = session?.repairedModelUrl || scan?.repairedModelUrl || displayModelUrl;
 
   const generateDisabled = !scanId || generating3D || !Array.isArray(scan?.imageUrls) || scan.imageUrls.length === 0;
+  const archivePending = scan?.imageArchive?.status === 'pending';
 
   const canViewAr = Boolean(session) && threeDPhase === 'ready' && modelViewerLoaded && Boolean(meshyViewerUrl);
 
@@ -731,6 +768,7 @@ export default function ScanResultsPage() {
             message={modelMessage}
             onGenerateClick={handleGenerate3D}
             generateDisabled={generateDisabled}
+            archivePending={archivePending}
             onModelViewerLoad={onModelViewerLoad}
           />
 

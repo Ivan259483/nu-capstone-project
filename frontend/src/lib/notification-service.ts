@@ -1,4 +1,5 @@
 import api from './api';
+import { cachedGet, invalidate, TTL } from './queryCache';
 
 export interface SystemNotification {
     id: string;
@@ -85,8 +86,8 @@ function getErrorMessage(error: any, fallback: string): string {
 export const NotificationService = {
     getNotifications: async (query: NotificationQuery = {}): Promise<NotificationsResponse> => {
         try {
-            const response = await api.get('/notifications', { params: query });
-            return response.data as NotificationsResponse;
+            const params = { limit: 20, ...query };
+            return await cachedGet<NotificationsResponse>('/notifications', { params }, TTL.LIVE);
         } catch (error: any) {
             return {
                 success: false,
@@ -97,8 +98,7 @@ export const NotificationService = {
 
     getUnreadCount: async (): Promise<{ success: boolean; unreadCount: number; message?: string }> => {
         try {
-            const response = await api.get('/notifications/unread-count');
-            return response.data;
+            return await cachedGet('/notifications/unread-count', undefined, TTL.LIVE);
         } catch (error: any) {
             return {
                 success: false,
@@ -111,6 +111,7 @@ export const NotificationService = {
     setReadStatus: async (id: string, isRead: boolean): Promise<NotificationMutationResponse> => {
         try {
             const response = await api.patch(`/notifications/${id}/read`, { isRead });
+            invalidate('/notifications');
             return response.data;
         } catch (error: any) {
             return {
@@ -131,6 +132,7 @@ export const NotificationService = {
     markAllAsRead: async (): Promise<NotificationMutationResponse> => {
         try {
             const response = await api.post('/notifications/mark-all-read');
+            invalidate('/notifications');
             return response.data;
         } catch (error: any) {
             return {
@@ -143,6 +145,7 @@ export const NotificationService = {
     bulkSetReadStatus: async (ids: string[], isRead: boolean): Promise<NotificationMutationResponse> => {
         try {
             const response = await api.post('/notifications/bulk-status', { ids, isRead });
+            invalidate('/notifications');
             return response.data;
         } catch (error: any) {
             return {
@@ -155,6 +158,7 @@ export const NotificationService = {
     setArchived: async (ids: string[], archived = true): Promise<NotificationMutationResponse> => {
         try {
             const response = await api.post('/notifications/archive', { ids, archived });
+            invalidate('/notifications');
             return response.data;
         } catch (error: any) {
             return {
@@ -167,6 +171,7 @@ export const NotificationService = {
     clear: async (ids: string[]): Promise<NotificationMutationResponse> => {
         try {
             const response = await api.post('/notifications/clear', { ids });
+            invalidate('/notifications');
             return response.data;
         } catch (error: any) {
             return {
