@@ -147,6 +147,10 @@ export const config = {
   emailProvider: determineEmailProvider(),
   emailFromName: process.env.EMAIL_FROM_NAME || 'AutoSPF+',
   emailFromAddress: process.env.EMAIL_FROM_ADDRESS || 'verify@autospf.shop',
+  emailUser: process.env.EMAIL_USER || '',
+  emailPassword: process.env.EMAIL_PASSWORD || '',
+  emailSendTimeoutMs: Math.max(3000, parseInt(process.env.EMAIL_SEND_TIMEOUT_MS || '8000', 10)),
+  emailRetryDelayMs: Math.max(0, parseInt(process.env.EMAIL_RETRY_DELAY_MS || '250', 10)),
 
   // Resend Configuration
   resendApiKey: process.env.RESEND_API_KEY || '',
@@ -155,6 +159,9 @@ export const config = {
   smtpHost: process.env.SMTP_HOST || 'smtp.gmail.com',
   smtpPort: process.env.SMTP_PORT || 587,
   smtpSecure: process.env.SMTP_SECURE || 'false',
+  smtpConnectionTimeoutMs: Math.max(3000, parseInt(process.env.SMTP_CONNECTION_TIMEOUT_MS || '8000', 10)),
+  smtpGreetingTimeoutMs: Math.max(3000, parseInt(process.env.SMTP_GREETING_TIMEOUT_MS || '8000', 10)),
+  smtpSocketTimeoutMs: Math.max(5000, parseInt(process.env.SMTP_SOCKET_TIMEOUT_MS || '12000', 10)),
 
   // OTP Configuration
   otpExpiry: parseInt(process.env.OTP_EXPIRY || '600', 10), // 10 minutes in seconds

@@ -165,6 +165,75 @@ const LOGIN_OTP_RESEND_COOLDOWN_MS = Math.max(
 ) * 1000;
 const LOGIN_OTP_MAX_ATTEMPTS = Math.max(1, Number(config.loginOtpMaxAttempts) || 3);
 const LOGIN_OTP_MAX_SENDS = Math.max(1, Number(config.loginOtpMaxSends) || 5);
+const LOGIN_OTP_DUPLICATE_WINDOW_MS = 10 * 1000;
+const loginOtpIssuanceTails = new Map();
+const recentLoginOtpChallenges = new Map();
+
+function ensureAuthRequestId(req) {
+  if (req?.id) return String(req.id);
+  const requestId = crypto.randomUUID();
+  if (req) req.id = requestId;
+  return requestId;
+}
+
+function authOtpLog(req, event, metadata = {}, level = 'info') {
+  const entry = {
+    event,
+    requestId: ensureAuthRequestId(req),
+    timestamp: new Date().toISOString(),
+    processUptimeMs: Math.round(process.uptime() * 1000),
+    ...metadata,
+  };
+  const method = level === 'error' ? console.error : level === 'warn' ? console.warn : console.info;
+  method('[AUTH_OTP]', JSON.stringify(entry));
+}
+
+async function acquireLoginOtpIssuanceLock(userId) {
+  const key = String(userId);
+  const waitStartedAt = Date.now();
+  const previous = loginOtpIssuanceTails.get(key);
+  let releaseCurrent;
+  const current = new Promise((resolve) => {
+    releaseCurrent = resolve;
+  });
+  loginOtpIssuanceTails.set(key, current);
+  if (previous) await previous;
+
+  let released = false;
+  return {
+    waitMs: Date.now() - waitStartedAt,
+    joinedQueuedRequest: Boolean(previous),
+    release() {
+      if (released) return;
+      released = true;
+      releaseCurrent();
+      if (loginOtpIssuanceTails.get(key) === current) loginOtpIssuanceTails.delete(key);
+    },
+  };
+}
+
+function rememberRecentLoginOtpChallenge(userId, otpRecord, challengeToken) {
+  recentLoginOtpChallenges.set(String(userId), {
+    otpRecordId: otpRecord?._id?.toString?.() || '',
+    challengeToken,
+    savedAt: Date.now(),
+  });
+}
+
+function getRecentLoginOtpChallenge(userId, otpRecord) {
+  const key = String(userId);
+  const recent = recentLoginOtpChallenges.get(key);
+  const recordId = otpRecord?._id?.toString?.() || '';
+  if (
+    !recent
+    || recent.otpRecordId !== recordId
+    || Date.now() - recent.savedAt > LOGIN_OTP_DUPLICATE_WINDOW_MS
+  ) {
+    if (recent) recentLoginOtpChallenges.delete(key);
+    return null;
+  }
+  return recent.challengeToken;
+}
 
 const getLoginOtpExpiry = (record) => record?.otpExpiresAt || record?.expiresAt;
 
@@ -1523,10 +1592,36 @@ export const register = async (req, res, next) => {
  * POST /api/auth/login
  */
 export const login = async (req, res, next) => {
+  const requestId = ensureAuthRequestId(req);
+  const loginStartedAt = Date.now();
+  let responseFinished = false;
+  res.once('finish', () => {
+    responseFinished = true;
+    authOtpLog(req, 'login_response_finished', {
+      status: res.statusCode,
+      durationMs: Date.now() - loginStartedAt,
+    });
+  });
+  res.once('close', () => {
+    if (!responseFinished) {
+      authOtpLog(req, 'login_client_connection_closed', {
+        status: res.statusCode,
+        durationMs: Date.now() - loginStartedAt,
+        headersSent: res.headersSent,
+      }, 'warn');
+    }
+  });
+
   try {
     const { email, password } = req.body;
     const MAX_LOGIN_ATTEMPTS = 5;
     const LOCK_TIME_MS = 15 * 60 * 1000;
+
+    authOtpLog(req, 'login_request_received', {
+      email: maskEmail(email),
+      coldStartWindow: process.uptime() < 60,
+      requestBodyValid: Boolean(email && password),
+    });
 
     if (!email || !password) {
       return res.status(400).json({
@@ -1552,6 +1647,10 @@ export const login = async (req, res, next) => {
       { req, res, kind: 'db', name: 'login.user.findByEmail' },
       () => User.findOne({ email: emailNormalized })
     );
+    authOtpLog(req, 'user_lookup_completed', {
+      email: maskEmail(emailNormalized),
+      found: Boolean(user),
+    });
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -1620,10 +1719,38 @@ export const login = async (req, res, next) => {
           saved: otpRecordLogMeta(otpRecord),
         });
       }
-      await sendOtpEmail(emailNormalized, otp, {
+      authOtpLog(req, 'unverified_otp_email_starting', {
+        email: maskEmail(emailNormalized),
+        otpRecordId: otpRecord?._id?.toString?.() || null,
+      });
+      const emailResult = await sendOtpEmail(emailNormalized, otp, {
         purpose: 'verification',
         otpRecordId: otpRecord?._id,
-      }).catch(err => console.warn('OTP email failed:', err.message));
+        requestId,
+      });
+      if (!emailResult.success) {
+        authOtpLog(req, 'unverified_otp_email_failed', {
+          email: maskEmail(emailNormalized),
+          otpRecordId: otpRecord?._id?.toString?.() || null,
+          provider: emailResult.provider,
+          attempts: emailResult.attempts,
+          retryCount: emailResult.retryCount,
+          classification: emailResult.classification,
+        }, 'error');
+        return res.status(502).json({
+          success: false,
+          code: 'OTP_DELIVERY_FAILED',
+          message: 'Failed to send verification code. Please try again.',
+          requestId,
+        });
+      }
+      authOtpLog(req, 'unverified_otp_email_accepted', {
+        email: maskEmail(emailNormalized),
+        otpRecordId: otpRecord?._id?.toString?.() || null,
+        messageId: emailResult.messageId || null,
+        attempts: emailResult.attempts,
+        retryCount: emailResult.retryCount,
+      });
       return res.status(200).json({
         success: true,
         message: 'Please verify your email. A verification code has been sent.',
@@ -1698,6 +1825,12 @@ export const login = async (req, res, next) => {
       { req, res, kind: 'cpu', name: 'login.password.bcryptCompare' },
       () => user.comparePassword(password)
     );
+    authOtpLog(req, 'password_verification_completed', {
+      email: maskEmail(emailNormalized),
+      userId: user._id.toString(),
+      valid: isPasswordValid,
+      otpRequired: requiresLoginOtp(user.role),
+    });
 
     if (!isPasswordValid) {
       if (!lockoutExempt) {
@@ -1815,6 +1948,18 @@ export const login = async (req, res, next) => {
       allOtpRoles: LOGIN_OTP_REQUIRED_ROLES,
     });
     if (requiresLoginOtp(user.role)) {
+      authOtpLog(req, 'login_otp_flow_entered', {
+        email: maskEmail(emailNormalized),
+        userId: user._id.toString(),
+        role: user.role,
+      });
+      const issuanceLock = await acquireLoginOtpIssuanceLock(user._id);
+      authOtpLog(req, 'login_otp_issuance_lock_acquired', {
+        userId: user._id.toString(),
+        waitMs: issuanceLock.waitMs,
+        joinedQueuedRequest: issuanceLock.joinedQueuedRequest,
+      });
+      try {
       // Login 2FA is mandatory for configured roles in every environment.
       // The opaque challenge is returned only after the password succeeds
       // and is required for verify/resend.
@@ -1854,12 +1999,45 @@ export const login = async (req, res, next) => {
         ? Date.now() - existingLoginOtp.lastSentAt.getTime()
         : Number.POSITIVE_INFINITY;
 
+      authOtpLog(req, 'login_otp_record_inspected', {
+        userId: user._id.toString(),
+        existingRecord: Boolean(existingLoginOtp),
+        otpRecordId: existingLoginOtp?._id?.toString?.() || null,
+        existingCodeUsable,
+        elapsedSinceSendMs: Number.isFinite(elapsedSinceSend) ? elapsedSinceSend : null,
+        carriedAttempts,
+      });
+
       // A repeated valid password submission during the cooldown must still
       // reach the OTP screen. Rotate only the opaque challenge and keep the
       // already-emailed code; this neither sends mail nor exposes the code.
       if (existingCodeUsable && elapsedSinceSend < LOGIN_OTP_RESEND_COOLDOWN_MS) {
+        const recentChallengeToken = getRecentLoginOtpChallenge(user._id, existingLoginOtp);
+        if (issuanceLock.joinedQueuedRequest && recentChallengeToken) {
+          authOtpLog(req, 'login_otp_duplicate_request_reused', {
+            userId: user._id.toString(),
+            otpRecordId: existingLoginOtp._id.toString(),
+            duplicateWindowMs: LOGIN_OTP_DUPLICATE_WINDOW_MS,
+          });
+          return res.json({
+            success: true,
+            message: 'Enter the verification code already sent to your email.',
+            data: buildLoginOtpResponseData(existingLoginOtp, {
+              requiresOTP: true,
+              userId: user._id.toString(),
+              maskedEmail: maskEmail(user.email),
+              challengeToken: recentChallengeToken,
+            }),
+          });
+        }
+
         existingLoginOtp.loginChallengeHash = hashLoginChallengeToken(challengeToken);
         await existingLoginOtp.save({ validateBeforeSave: false });
+        rememberRecentLoginOtpChallenge(user._id, existingLoginOtp, challengeToken);
+        authOtpLog(req, 'login_otp_existing_code_reused', {
+          userId: user._id.toString(),
+          otpRecordId: existingLoginOtp._id.toString(),
+        });
         return res.json({
           success: true,
           message: 'Enter the verification code already sent to your email.',
@@ -1891,6 +2069,11 @@ export const login = async (req, res, next) => {
         });
       }
 
+      authOtpLog(req, 'login_otp_generation_starting', {
+        userId: user._id.toString(),
+        replacesExistingRecord: Boolean(existingLoginOtp),
+        priorSendCount,
+      });
       const otp = await generateOtpDifferentFromHash(existingLoginOtp?.otpHash, config.otpLength);
       const otpHash = await timeOperation(
         { req, res, kind: 'cpu', name: 'login.otp.bcryptHash' },
@@ -1925,22 +2108,64 @@ export const login = async (req, res, next) => {
         )
       );
 
+      authOtpLog(req, 'login_otp_generated_and_saved', {
+        userId: user._id.toString(),
+        email: maskEmail(user.email),
+        otpRecordId: otpRecord._id.toString(),
+        sendCount: otpRecord.sendCount,
+        otpExpiresAt: otpRecord.otpExpiresAt?.toISOString?.() || null,
+        challengeExpiresAt: otpRecord.expiresAt?.toISOString?.() || null,
+      });
+
       // Do not expose a challenge unless delivery succeeds.
+      authOtpLog(req, 'login_otp_email_starting', {
+        userId: user._id.toString(),
+        email: maskEmail(user.email),
+        otpRecordId: otpRecord._id.toString(),
+      });
       const emailResult = await timeOperation(
         { req, res, kind: 'external', name: 'login.email.sendOtp' },
         () => sendOtpEmail(user.email, otp, {
           purpose: 'login',
           otpRecordId: otpRecord._id,
+          requestId,
         })
       );
       if (!emailResult.success) {
-        console.error('❌ [Login 2FA] Failed to send OTP email:', emailResult.error);
-        await OTP.deleteOne({ _id: otpRecord._id });
-        return res.status(500).json({
+        authOtpLog(req, 'login_otp_email_failed', {
+          userId: user._id.toString(),
+          email: maskEmail(user.email),
+          otpRecordId: otpRecord._id.toString(),
+          provider: emailResult.provider,
+          attempts: emailResult.attempts,
+          retryCount: emailResult.retryCount,
+          classification: emailResult.classification,
+          error: String(emailResult.error || '').slice(0, 300),
+        }, 'error');
+        const cleanupResult = await OTP.deleteOne({ _id: otpRecord._id, otpHash });
+        authOtpLog(req, 'login_otp_failed_record_cleaned', {
+          userId: user._id.toString(),
+          otpRecordId: otpRecord._id.toString(),
+          deletedCount: cleanupResult.deletedCount,
+        }, 'warn');
+        return res.status(502).json({
           success: false,
+          code: 'OTP_DELIVERY_FAILED',
           message: 'Failed to send verification code. Please try again.',
+          requestId,
         });
       }
+
+      rememberRecentLoginOtpChallenge(user._id, otpRecord, challengeToken);
+      authOtpLog(req, 'login_otp_email_accepted', {
+        userId: user._id.toString(),
+        email: maskEmail(user.email),
+        otpRecordId: otpRecord._id.toString(),
+        provider: emailResult.provider,
+        messageId: emailResult.messageId || null,
+        attempts: emailResult.attempts,
+        retryCount: emailResult.retryCount,
+      });
 
       logOtpDebug('login_2fa.generated_saved', {
         email: maskEmail(emailNormalized),
@@ -1966,6 +2191,12 @@ export const login = async (req, res, next) => {
           }),
         },
       });
+      } finally {
+        issuanceLock.release();
+        authOtpLog(req, 'login_otp_issuance_lock_released', {
+          userId: user._id.toString(),
+        });
+      }
     }
 
     // ── Any role not configured for login OTP: direct JWT ───────────────────
@@ -2010,10 +2241,14 @@ export const login = async (req, res, next) => {
 
     res.json(loginPayload);
   } catch (error) {
-    console.error('❌ Login Error:', error);
+    authOtpLog(req, 'login_unhandled_error', {
+      error: String(error?.message || error).slice(0, 500),
+      stack: String(error?.stack || '').split('\n').slice(0, 6).join(' | '),
+    }, 'error');
     res.status(500).json({
       success: false,
       message: 'Login failed',
+      requestId,
     });
   }
 };

@@ -1,15 +1,138 @@
 /**
- * Resend Email Service for AutoSPF+
- * Uses the Resend SDK to send transactional emails.
+ * Transactional email service for AutoSPF+.
+ * Supports Resend plus configured Gmail/SMTP transports.
  */
 import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
+import crypto from 'crypto';
+import { config } from '../config/environment.js';
 
 const FROM_NAME = process.env.EMAIL_FROM_NAME || 'AutoSPF+';
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM_ADDRESS || 'verify@autospf.shop'; // verified domain — do NOT use onboarding@resend.dev
+const FROM_EMAIL = (
+  String(config.emailProvider || '').toLowerCase() === 'resend'
+    ? process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM_ADDRESS
+    : process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER
+) || 'verify@autospf.shop';
 const FROM = `"${FROM_NAME}" <${FROM_EMAIL}>`;
 const DEFAULT_REPLY_TO = process.env.EMAIL_REPLY_TO || process.env.SUPPORT_EMAIL || 'support@autospf.shop';
 
 let resend = null;
+let smtpTransporter = null;
+let mailerInitializationPromise = null;
+
+const EMAIL_PROVIDER = String(config.emailProvider || 'resend').trim().toLowerCase();
+const EMAIL_SEND_TIMEOUT_MS = config.emailSendTimeoutMs;
+const EMAIL_RETRY_DELAY_MS = config.emailRetryDelayMs;
+const MAX_EMAIL_RETRIES = 1;
+const TRANSIENT_NETWORK_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'EPIPE',
+  'ETIMEDOUT',
+  'ESOCKET',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'EAI_AGAIN',
+  'ENOTFOUND',
+]);
+const TRANSIENT_HTTP_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const TRANSIENT_SMTP_RESPONSE_CODES = new Set([421, 450, 451, 452]);
+const SMTP_AUTH_RESPONSE_CODES = new Set([530, 534, 535, 538]);
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function maskRecipient(email) {
+  const normalized = String(email || '').trim().toLowerCase();
+  const [local = '', domain = ''] = normalized.split('@');
+  if (!local || !domain) return '[invalid-email]';
+  return `${local[0]}${'*'.repeat(Math.max(1, local.length - 2))}${local.length > 2 ? local.at(-1) : ''}@${domain}`;
+}
+
+function emailLog(event, metadata = {}, level = 'info') {
+  const entry = {
+    event,
+    provider: EMAIL_PROVIDER,
+    timestamp: new Date().toISOString(),
+    ...metadata,
+  };
+  const method = level === 'error' ? console.error : level === 'warn' ? console.warn : console.info;
+  method('[EMAIL_DELIVERY]', JSON.stringify(entry));
+}
+
+function numericErrorStatus(error) {
+  const raw = error?.statusCode ?? error?.status ?? error?.responseCode;
+  if (raw === null || raw === undefined || raw === '') return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Classify whether one failed provider call is both transient and safe to retry.
+ * SMTP DATA-phase failures have an ambiguous delivery outcome, so they are never
+ * retried. Resend calls are idempotent when an idempotency key is supplied.
+ */
+export function classifyEmailDeliveryError(error, { provider = EMAIL_PROVIDER } = {}) {
+  const statusCode = numericErrorStatus(error);
+  const code = String(error?.code || error?.name || '').toUpperCase();
+  const command = String(error?.command || '').toUpperCase();
+  const message = String(error?.message || error || '').toLowerCase();
+  const authFailure =
+    ['EAUTH', 'AUTHENTICATION_ERROR', 'MISSING_API_KEY'].includes(code)
+    || [401, 403].includes(statusCode)
+    || SMTP_AUTH_RESPONSE_CODES.has(statusCode)
+    || /invalid (api )?key|authentication failed|invalid credentials|bad credentials/.test(message);
+  const transientSmtpFailure = provider !== 'resend' && TRANSIENT_SMTP_RESPONSE_CODES.has(statusCode);
+  const validationFailure =
+    (['EENVELOPE', 'VALIDATION_ERROR'].includes(code) && !transientSmtpFailure)
+    || [400, 404, 409, 422].includes(statusCode);
+  const networkFailure =
+    TRANSIENT_NETWORK_CODES.has(code)
+    || ['ABORTERROR', 'TIMEOUTERROR'].includes(code)
+    || /timed?\s*out|socket hang up|network|unable to fetch data|could not be resolved/.test(message);
+  const transientProviderFailure = TRANSIENT_HTTP_STATUS_CODES.has(statusCode) || transientSmtpFailure;
+  const ambiguousSmtpDelivery = provider !== 'resend' && ['DATA', 'DOT'].includes(command);
+  const transient = !authFailure && !validationFailure && (networkFailure || transientProviderFailure);
+
+  return {
+    statusCode,
+    code: code || null,
+    command: command || null,
+    authFailure,
+    validationFailure,
+    transient,
+    retryable: transient && !ambiguousSmtpDelivery,
+    ambiguousDelivery: ambiguousSmtpDelivery,
+  };
+}
+
+function createSmtpTransporter() {
+  if (!config.emailUser || !config.emailPassword) {
+    const error = new Error(`${EMAIL_PROVIDER.toUpperCase()} credentials are not configured.`);
+    error.code = 'EAUTH';
+    throw error;
+  }
+
+  const sharedOptions = {
+    auth: { user: config.emailUser, pass: config.emailPassword },
+    connectionTimeout: config.smtpConnectionTimeoutMs,
+    greetingTimeout: config.smtpGreetingTimeoutMs,
+    socketTimeout: config.smtpSocketTimeoutMs,
+    pool: true,
+    maxConnections: 3,
+    maxMessages: 100,
+  };
+
+  if (EMAIL_PROVIDER === 'gmail') {
+    return nodemailer.createTransport({ service: 'gmail', ...sharedOptions });
+  }
+
+  return nodemailer.createTransport({
+    host: config.smtpHost,
+    port: Number(config.smtpPort),
+    secure: String(config.smtpSecure) === 'true',
+    ...sharedOptions,
+  });
+}
 
 /** Public site URL for links in emails (never localhost in production if unset). */
 function getAppPublicUrl() {
@@ -53,15 +176,6 @@ function accentTopRow(kind) {
   </tr>`;
 }
 
-function getClient() {
-  if (!resend) {
-    const apiKey = process.env.RESEND_API_KEY;
-    if (!apiKey) throw new Error('RESEND_API_KEY is not set in environment variables.');
-    resend = new Resend(apiKey);
-  }
-  return resend;
-}
-
 function normalizeTagValue(value) {
   return String(value || 'transactional')
     .trim()
@@ -77,27 +191,133 @@ function buildIdempotencyKey(kind, id) {
   return `autospf_${safeKind}_${String(id).slice(0, 160)}`.slice(0, 256);
 }
 
-async function sendEmail({ to, subject, html, text, replyTo = DEFAULT_REPLY_TO, tags = [], idempotencyKey }) {
-  try {
-    const client = getClient();
-    const payload = { from: FROM, to, subject, html, replyTo };
-    if (text) payload.text = text;
-    if (tags.length) payload.tags = tags;
+function smtpMessageId(idempotencyKey) {
+  if (!idempotencyKey) return undefined;
+  const domain = String(FROM_EMAIL).split('@')[1] || 'autospf.shop';
+  const digest = crypto.createHash('sha256').update(idempotencyKey).digest('hex').slice(0, 32);
+  return `<${digest}@${domain}>`;
+}
 
-    const sendOptions = idempotencyKey ? { idempotencyKey } : undefined;
-    const { data, error } = await client.emails.send(payload, sendOptions);
+async function sendEmail({
+  to,
+  subject,
+  html,
+  text,
+  replyTo = DEFAULT_REPLY_TO,
+  tags = [],
+  idempotencyKey,
+  requestId,
+  category = 'transactional',
+}) {
+  const recipient = maskRecipient(to);
+  const deliveryStartedAt = Date.now();
 
-    if (error) {
-      console.error('❌ [Resend] Send error:', error);
-      return { success: false, error: error.message };
+  for (let attempt = 1; attempt <= MAX_EMAIL_RETRIES + 1; attempt += 1) {
+    const attemptStartedAt = Date.now();
+    emailLog('attempt_started', {
+      requestId: requestId || null,
+      category,
+      recipient,
+      attempt,
+      maxAttempts: MAX_EMAIL_RETRIES + 1,
+      timeoutMs: EMAIL_SEND_TIMEOUT_MS,
+      hasIdempotencyKey: Boolean(idempotencyKey),
+    });
+
+    try {
+      await initializeMailer();
+      let messageId;
+
+      if (EMAIL_PROVIDER === 'resend') {
+        const payload = { from: FROM, to, subject, html, replyTo };
+        if (text) payload.text = text;
+        if (tags.length) payload.tags = tags;
+
+        const sendOptions = {
+          ...(idempotencyKey ? { idempotencyKey } : {}),
+          signal: AbortSignal.timeout(EMAIL_SEND_TIMEOUT_MS),
+        };
+        const { data, error } = await resend.emails.send(payload, sendOptions);
+        if (error) {
+          const providerError = Object.assign(new Error(error.message || 'Email provider rejected the request.'), error);
+          throw providerError;
+        }
+        messageId = data?.id;
+      } else if (EMAIL_PROVIDER === 'gmail' || EMAIL_PROVIDER === 'smtp') {
+        const result = await smtpTransporter.sendMail({
+          from: FROM,
+          to,
+          subject,
+          html,
+          text,
+          replyTo,
+          messageId: smtpMessageId(idempotencyKey),
+          headers: idempotencyKey ? { 'X-AutoSPF-Idempotency-Key': idempotencyKey } : undefined,
+        });
+        messageId = result?.messageId;
+      } else {
+        // Explicit console mode is intended for local/test environments only.
+        messageId = `console_${Date.now()}`;
+      }
+
+      emailLog('provider_accepted', {
+        requestId: requestId || null,
+        category,
+        recipient,
+        attempt,
+        durationMs: Date.now() - attemptStartedAt,
+        totalDurationMs: Date.now() - deliveryStartedAt,
+        messageId: messageId || null,
+      });
+      return {
+        success: true,
+        messageId,
+        attempts: attempt,
+        retryCount: attempt - 1,
+        provider: EMAIL_PROVIDER,
+      };
+    } catch (error) {
+      const classification = classifyEmailDeliveryError(error);
+      const resendRetryIsSafe =
+        EMAIL_PROVIDER !== 'resend'
+        || Boolean(idempotencyKey)
+        || classification.statusCode !== null;
+      const canRetry = attempt <= MAX_EMAIL_RETRIES && classification.retryable && resendRetryIsSafe;
+      emailLog('attempt_failed', {
+        requestId: requestId || null,
+        category,
+        recipient,
+        attempt,
+        durationMs: Date.now() - attemptStartedAt,
+        error: String(error?.message || error).slice(0, 300),
+        ...classification,
+        willRetry: canRetry,
+      }, canRetry ? 'warn' : 'error');
+
+      if (canRetry) {
+        emailLog('retry_scheduled', {
+          requestId: requestId || null,
+          category,
+          recipient,
+          retryNumber: attempt,
+          delayMs: EMAIL_RETRY_DELAY_MS,
+        }, 'warn');
+        if (EMAIL_RETRY_DELAY_MS > 0) await sleep(EMAIL_RETRY_DELAY_MS);
+        continue;
+      }
+
+      return {
+        success: false,
+        error: String(error?.message || error),
+        attempts: attempt,
+        retryCount: attempt - 1,
+        provider: EMAIL_PROVIDER,
+        classification,
+      };
     }
-
-    console.log(`✅ [Resend] Email sent → ${to} | id: ${data?.id}`);
-    return { success: true, messageId: data?.id };
-  } catch (err) {
-    console.error('❌ [Resend] Unexpected error:', err.message);
-    return { success: false, error: err.message };
   }
+
+  return { success: false, error: 'Email delivery failed.', attempts: 0, retryCount: 0, provider: EMAIL_PROVIDER };
 }
 
 // ─── Shared base wrapper (premium, international-friendly) ─────────────────
@@ -615,8 +835,7 @@ export async function sendCustomerNotificationEmail({ to, spec, idempotencyKey }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export const sendOtpEmail = async (email, otp, { purpose = 'verification', otpRecordId } = {}) => {
-  console.log(`📨 [Resend] Sending OTP to ${email}...`);
+export const sendOtpEmail = async (email, otp, { purpose = 'verification', otpRecordId, requestId } = {}) => {
   const safePurpose = purpose === 'login' ? 'login' : 'verification';
   return sendEmail({
     to: email,
@@ -628,6 +847,8 @@ export const sendOtpEmail = async (email, otp, { purpose = 'verification', otpRe
       { name: 'purpose', value: safePurpose },
     ],
     idempotencyKey: buildIdempotencyKey(`otp_${safePurpose}`, otpRecordId),
+    requestId,
+    category: `otp_${safePurpose}`,
   });
 };
 
@@ -637,7 +858,7 @@ export const sendStaffVerificationEmail = async (
   verificationUrl,
   { tokenRecordId, expiresInSeconds = 86400 } = {},
 ) => {
-  console.log(`📨 [Resend] Sending staff verification link to ${email}...`);
+  console.log(`📨 [${EMAIL_PROVIDER}] Sending staff verification link to ${maskRecipient(email)}...`);
   const expiresHours = Math.max(1, Math.ceil(Number(expiresInSeconds || 86400) / 3600));
   return sendEmail({
     to: email,
@@ -653,7 +874,7 @@ export const sendStaffVerificationEmail = async (
 };
 
 export const sendWelcomeEmail = async (email, name) => {
-  console.log(`📨 [Resend] Sending welcome email to ${email}...`);
+  console.log(`📨 [${EMAIL_PROVIDER}] Sending welcome email to ${maskRecipient(email)}...`);
   return sendEmail({
     to: email,
     subject: 'Welcome to AutoSPF+',
@@ -663,7 +884,7 @@ export const sendWelcomeEmail = async (email, name) => {
 };
 
 export const sendPasswordResetEmail = async (email, otp, { otpRecordId } = {}) => {
-  console.log(`📨 [Resend] Sending password reset OTP to ${email}...`);
+  console.log(`📨 [${EMAIL_PROVIDER}] Sending password reset OTP to ${maskRecipient(email)}...`);
   return sendEmail({
     to: email,
     subject: 'Your AutoSPF+ password reset code',
@@ -678,7 +899,7 @@ export const sendPasswordResetEmail = async (email, otp, { otpRecordId } = {}) =
 };
 
 export const sendPasswordSetupEmail = async (email, name, setupUrl, { tokenRecordId, expiresInSeconds = 3600 } = {}) => {
-  console.log(`📨 [Resend] Sending password setup link to ${email}...`);
+  console.log(`📨 [${EMAIL_PROVIDER}] Sending password setup link to ${maskRecipient(email)}...`);
   const expiresMinutes = Math.max(1, Math.round(Number(expiresInSeconds || 3600) / 60));
   return sendEmail({
     to: email,
@@ -693,16 +914,60 @@ export const sendPasswordSetupEmail = async (email, name, setupUrl, { tokenRecor
   });
 };
 
-/** Kept for backward compatibility — Resend needs no SMTP initialization */
 export const initializeMailer = async () => {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    console.warn('⚠️ [Resend] RESEND_API_KEY not set — emails will fail.');
-    return;
+  if (EMAIL_PROVIDER === 'resend' && resend) return;
+  if ((EMAIL_PROVIDER === 'gmail' || EMAIL_PROVIDER === 'smtp') && smtpTransporter) return;
+  if (EMAIL_PROVIDER === 'console') return;
+  if (mailerInitializationPromise) return mailerInitializationPromise;
+
+  mailerInitializationPromise = (async () => {
+    const startedAt = Date.now();
+    emailLog('initialization_started', {
+      connectionTimeoutMs: config.smtpConnectionTimeoutMs,
+      greetingTimeoutMs: config.smtpGreetingTimeoutMs,
+      socketTimeoutMs: config.smtpSocketTimeoutMs,
+    });
+
+    try {
+      if (EMAIL_PROVIDER === 'resend') {
+        if (!config.resendApiKey) {
+          const error = new Error('RESEND_API_KEY is not configured.');
+          error.code = 'MISSING_API_KEY';
+          throw error;
+        }
+        resend = new Resend(config.resendApiKey);
+      } else if (EMAIL_PROVIDER === 'gmail' || EMAIL_PROVIDER === 'smtp') {
+        const candidate = createSmtpTransporter();
+        await candidate.verify();
+        smtpTransporter = candidate;
+      } else {
+        const error = new Error(`Unsupported EMAIL_PROVIDER: ${EMAIL_PROVIDER}`);
+        error.code = 'EMAIL_PROVIDER_CONFIG';
+        throw error;
+      }
+
+      emailLog('initialization_succeeded', {
+        durationMs: Date.now() - startedAt,
+        fromDomain: String(FROM_EMAIL).split('@')[1] || null,
+      });
+    } catch (error) {
+      resend = null;
+      smtpTransporter = null;
+      const classification = classifyEmailDeliveryError(error);
+      emailLog('initialization_failed', {
+        durationMs: Date.now() - startedAt,
+        error: String(error?.message || error).slice(0, 300),
+        ...classification,
+      }, 'error');
+      throw error;
+    }
+  })();
+
+  try {
+    return await mailerInitializationPromise;
+  } finally {
+    mailerInitializationPromise = null;
   }
-  resend = new Resend(apiKey);
-  console.log('✅ [Resend] Mailer initialized');
-  console.log(`   From: ${FROM}`);
 };
 
 export default {

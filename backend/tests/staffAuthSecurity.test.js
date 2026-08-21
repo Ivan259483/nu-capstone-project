@@ -571,6 +571,62 @@ test('login OTP sends are capped per account even when resend cooldowns have ela
   assert.equal((await OTP.findOne({ userId: customer._id, purpose: 'login' })).sendCount, 5);
 });
 
+test('ten concurrent correct-password submissions share one OTP email and one challenge', async () => {
+  const customer = await seedUser({ role: 'customer', email: 'otp-concurrent@example.test' });
+  const attempts = await Promise.all(Array.from({ length: 10 }, () => postJson('/api/auth/login', {
+    email: customer.email,
+    password: 'SecurePass1!',
+  })));
+
+  assert.equal(attempts.every(({ response, body }) => (
+    response.status === 200
+    && body.success === true
+    && body.data?.requiresOTP === true
+  )), true);
+  assert.equal(sentEmails.length, 1, 'duplicate login submissions must produce one provider send');
+  assert.equal(
+    new Set(attempts.map(({ body }) => body.data.challengeToken)).size,
+    1,
+    'duplicate login submissions must return the same still-valid challenge',
+  );
+
+  const deliveredCode = latestOtpCode(customer.email);
+  const verified = await postJson('/api/auth/verify-login-otp', {
+    userId: customer._id.toString(),
+    challengeToken: attempts[0].body.data.challengeToken,
+    otp: deliveredCode,
+  });
+  assert.equal(verified.response.status, 200);
+  assert.ok(verified.body.data.token);
+});
+
+test('ten consecutive correct-password login flows send and verify OTP on the first request', async () => {
+  for (let run = 1; run <= 10; run += 1) {
+    const customer = await seedUser({
+      role: 'customer',
+      email: `otp-consecutive-${run}@example.test`,
+    });
+    const emailCountBefore = sentEmails.length;
+    const login = await postJson('/api/auth/login', {
+      email: customer.email,
+      password: 'SecurePass1!',
+    });
+
+    assert.equal(login.response.status, 200, `login run ${run} should succeed on its first request`);
+    assert.equal(login.body.data?.requiresOTP, true);
+    assert.equal(sentEmails.length, emailCountBefore + 1, `login run ${run} should send exactly one OTP`);
+
+    const deliveredCode = latestOtpCode(customer.email);
+    const verified = await postJson('/api/auth/verify-login-otp', {
+      userId: customer._id.toString(),
+      challengeToken: login.body.data.challengeToken,
+      otp: deliveredCode,
+    });
+    assert.equal(verified.response.status, 200, `OTP run ${run} should verify`);
+    assert.ok(verified.body.data.token);
+  }
+});
+
 test('an expired password lock starts a fresh failure window without weakening staff 2FA', async () => {
   const administrator = await seedUser({
     role: 'administrator',

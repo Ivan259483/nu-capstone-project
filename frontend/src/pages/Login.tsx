@@ -61,6 +61,7 @@ const AUTH_MUTED_LINK_CLASS =
 
 const LOGIN_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LOGIN_EMAIL_STEP_LOADER_MS = 650;
+const LOGIN_OTP_REQUEST_TIMEOUT_MS = 30_000;
 const LOGIN_PASSWORD_REQUIRED_MESSAGE = "Enter your password to continue.";
 const LOGIN_INVALID_CREDENTIALS_MESSAGE =
     "Invalid credentials. Please make sure you are using the correct email and password.";
@@ -228,6 +229,9 @@ export default function Login() {
     const [rememberMe, setRememberMe] = useState(false);
     const emailInputRef = useRef<HTMLInputElement | null>(null);
     const passwordInputRef = useRef<HTMLInputElement | null>(null);
+    // React state disables the button visually; this synchronous ref closes the
+    // same-tick gap where a double-click/Enter press could start two requests.
+    const loginSubmissionInFlightRef = useRef(false);
 
     /* ── Login attempt tracking & lock state ── */
     const [loginAttempts, setLoginAttempts] = useState(0);
@@ -435,7 +439,7 @@ export default function Login() {
     };
 
     const handlePasswordLoginAttempt = async () => {
-        if (isLoading || isButtonLoading || isAuthLoading) return;
+        if (loginSubmissionInFlightRef.current || isLoading || isButtonLoading || isAuthLoading) return;
         if (!isLoginEmailValid) {
             showLoginAuthToast(t("validation.emailInvalid"), LOGIN_AUTH_ERROR_TOAST_ID);
             return;
@@ -446,10 +450,12 @@ export default function Login() {
             return;
         }
         setLoginPasswordError("");
+        loginSubmissionInFlightRef.current = true;
         setIsButtonLoading(true);
         try {
             await handleLoginSubmit();
         } finally {
+            loginSubmissionInFlightRef.current = false;
             setIsButtonLoading(false);
         }
     };
@@ -688,7 +694,7 @@ export default function Login() {
                     challengeToken: pendingLoginChallenge,
                     otp: code,
                 }),
-                signal: AbortSignal.timeout(12000),
+                signal: AbortSignal.timeout(LOGIN_OTP_REQUEST_TIMEOUT_MS),
             });
             const json = await resp.json();
 
@@ -780,7 +786,7 @@ export default function Login() {
                     userId: pendingUserId,
                     challengeToken: pendingLoginChallenge,
                 }),
-                signal: AbortSignal.timeout(12000),
+                signal: AbortSignal.timeout(LOGIN_OTP_REQUEST_TIMEOUT_MS),
             });
             const json = await resp.json();
             if (resp.ok && json.success) {
@@ -1049,6 +1055,7 @@ export default function Login() {
                                             }}
                                             className={cn(AUTH_PRIMARY_BUTTON_CLASS, "auth-login-button")}
                                             disabled={isLoginButtonDisabled}
+                                            aria-busy={showLoginButtonDots}
                                         >
                                             {showLoginButtonDots ? (
                                                 <span className="auth-button-dots" aria-label="Loading">

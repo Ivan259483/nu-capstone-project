@@ -12,6 +12,7 @@ import express from 'express';
 import http from 'http';
 import https from 'https';
 import fs from 'fs';
+import crypto from 'crypto';
 import cors from 'cors';
 import compression from 'compression';
 import helmet from 'helmet';
@@ -30,7 +31,7 @@ import { authenticate, authorize } from './middleware/auth.middleware.js';
 import { BOOKING_MANAGER_ROLES } from './constants/roles.js';
 
 // ============================================
-// RESEND EMAIL CONFIGURATION
+// EMAIL CONFIGURATION
 // ============================================
 console.log('\n📧 Email Configuration:');
 console.log('  ✓ EMAIL_PROVIDER:', config.emailProvider);
@@ -62,6 +63,7 @@ import availabilityRouter from './routes/admin/availability.js';
 
 const app = express();
 app.disable('x-powered-by');
+const backendProcessStartedAt = Date.now();
 
 // Trust proxy for rate limiting (Vercel, Render, Heroku, etc.)
 app.set('trust proxy', 1);
@@ -76,6 +78,16 @@ app.use(helmet({
     ? { maxAge: 31536000, includeSubDomains: true, preload: false }
     : false,
 }));
+
+// Correlate frontend, API, database, and email-provider logs without exposing
+// credentials or OTP values. A valid client ID is preserved across Vercel/Render.
+app.use((req, res, next) => {
+  const supplied = String(req.get('x-request-id') || '').trim();
+  req.id = /^[A-Za-z0-9._:-]{8,128}$/.test(supplied) ? supplied : crypto.randomUUID();
+  req.backendProcessStartedAt = backendProcessStartedAt;
+  res.setHeader('X-Request-ID', req.id);
+  next();
+});
 
 const isHealthPath = (req) => req.path === '/api/health' || req.path === '/health';
 app.use((req, res, next) => {
@@ -113,7 +125,8 @@ const corsOptionsDelegate = (req, callback) => {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'ngrok-skip-browser-warning'],
+    exposedHeaders: ['X-Request-ID', 'Server-Timing'],
   });
 };
 
@@ -174,7 +187,7 @@ const redactLogUrl = (rawUrl) => {
 app.use((req, res, next) => {
   const start = process.hrtime.bigint();
   const logPath = redactLogUrl(req.originalUrl || req.url);
-  console.log(`[${new Date().toISOString()}] ${req.method} ${logPath}`);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${logPath} requestId=${req.id}`);
   if (req.method === 'OPTIONS') {
     console.log('  -> Preflight request');
   }
@@ -182,6 +195,17 @@ app.use((req, res, next) => {
   // Track response time for performance monitoring
   res.on('finish', () => {
     const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
+    if (logPath === '/api/auth/login' || durationMs > 1000) {
+      console.info('[HTTP_REQUEST]', JSON.stringify({
+        event: 'request_completed',
+        requestId: req.id,
+        method: req.method,
+        path: logPath,
+        status: res.statusCode,
+        durationMs: Number(durationMs.toFixed(1)),
+        processUptimeMs: Date.now() - backendProcessStartedAt,
+      }));
+    }
     if (durationMs > 1000) {
       const breakdown = (res.locals.performanceTimings || [])
         .map((entry) => `${entry.kind}.${entry.name}=${entry.durationMs.toFixed(1)}ms`)
@@ -270,20 +294,28 @@ app.use(errorHandler);
 // Start server
 const startServer = async () => {
   try {
+    // SMTP verification can take several seconds on a fresh container. Start it
+    // in parallel with MongoDB so cold-start work is not unnecessarily serial.
+    const mailerInitialization = (async () => {
+      console.log(`\n📧 Initializing ${config.emailProvider} mailer...`);
+      try {
+        await initializeMailer();
+        console.log(`✅ ${config.emailProvider} mailer initialized\n`);
+      } catch (mailerError) {
+        console.error('❌ Failed to initialize mailer:', mailerError.message);
+        console.error('   OTP delivery will fail closed until the provider recovers.\n');
+      }
+    })();
+
     // Connect to MongoDB Atlas
     await connectDB();
     console.log('✅ MongoDB connected successfully');
     await migrateLegacyUserRoles();
-
-    // Initialize Resend mailer
-    console.log('\n📧 Initializing Resend mailer...');
-    try {
-      await initializeMailer();
-      console.log('✅ Resend mailer initialized\n');
-    } catch (mailerError) {
-      console.error('❌ Failed to initialize mailer:', mailerError.message);
-      console.error('   OTP emails will not be sent. Please check RESEND_API_KEY.\n');
-    }
+    // Do not hold the HTTP listener behind provider verification. If the first
+    // login arrives while warm-up is still running, initializeMailer() joins
+    // the same single-flight promise and the request-level timeout remains in
+    // control; health checks can succeed as soon as Mongo is ready.
+    void mailerInitialization;
 
     // HTTPS (mkcert / local dev on LAN) — set HTTPS_KEY_PATH + HTTPS_CERT_PATH to PEM files.
     const keyPath = String(process.env.HTTPS_KEY_PATH || '').trim();

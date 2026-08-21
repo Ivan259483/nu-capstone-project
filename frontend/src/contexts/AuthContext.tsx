@@ -32,33 +32,16 @@ import {
 
 /** Resolved per call so Vite env / port changes apply after restart without stale module constant. */
 const apiUrl = () => getBaseApiUrl();
-const apiHealthUrl = () => `${apiUrl().replace(/\/$/, '')}/health`;
-const BACKEND_HEALTH_TIMEOUT_MS = 15_000;
-const BACKEND_LOGIN_TIMEOUT_MS = 30_000;
+// Render/Railway-style cold starts can exceed 30 seconds before Express receives
+// the first request. Keep one bounded login request alive; do not issue a parallel
+// health-check request that competes with it during container startup.
+const BACKEND_LOGIN_TIMEOUT_MS = 60_000;
 
-async function isBackendReachable(): Promise<boolean> {
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
-    let timeoutId: number | undefined;
-
-    try {
-        const healthCheck = fetch(apiHealthUrl(), {
-            method: 'GET',
-            signal: controller?.signal,
-        })
-            .then((resp) => resp.status > 0 && resp.status < 500)
-            .catch(() => false);
-
-        const timeout = new Promise<boolean>((resolve) => {
-            timeoutId = window.setTimeout(() => {
-                controller?.abort();
-                resolve(false);
-            }, BACKEND_HEALTH_TIMEOUT_MS);
-        });
-
-        return await Promise.race([healthCheck, timeout]);
-    } finally {
-        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+function createLoginRequestId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
     }
+    return `login_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 // NOTE: Firestore is intentionally NOT used for role lookup.
@@ -878,20 +861,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(null);
             await signOut(auth).catch(() => {});
 
-            void isBackendReachable().then((backendReachable) => {
-                if (!backendReachable) {
-                    console.warn('⚠️ [DEBUG-login] Backend health check timed out/failed; continuing with /auth/login.');
-                }
-            });
-
             // ── Backend first: password is verified server-side (Mongo + bcrypt). ──
             // Finishing here when possible avoids requiring a matching Firebase Auth user
             // (common when accounts exist in Mongo but were never synced to Firebase).
             let backendPayload: { status: number; ok: boolean; body: any } | null = null;
+            const loginRequestId = createLoginRequestId();
+            const backendLoginStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
             try {
+                console.info('[AUTH_LOGIN_CLIENT]', {
+                    event: 'request_started',
+                    requestId: loginRequestId,
+                    apiBase: apiUrl(),
+                    timeoutMs: BACKEND_LOGIN_TIMEOUT_MS,
+                });
                 const resp = await fetch(`${apiUrl()}/auth/login`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Request-ID': loginRequestId,
+                    },
                     body: JSON.stringify({ email, password }),
                     signal: AbortSignal.timeout(BACKEND_LOGIN_TIMEOUT_MS),
                 });
@@ -903,8 +891,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     body = {};
                 }
                 backendPayload = { status: resp.status, ok: resp.ok, body };
+                const endedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+                console.info('[AUTH_LOGIN_CLIENT]', {
+                    event: 'response_received',
+                    requestId: resp.headers.get('x-request-id') || loginRequestId,
+                    status: resp.status,
+                    durationMs: Math.round(endedAt - backendLoginStartedAt),
+                    serverTiming: resp.headers.get('server-timing'),
+                });
             } catch (be) {
-                console.warn('📡 [DEBUG-login] Backend login request failed:', be);
+                const endedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+                console.warn('[AUTH_LOGIN_CLIENT]', {
+                    event: 'request_failed',
+                    requestId: loginRequestId,
+                    durationMs: Math.round(endedAt - backendLoginStartedAt),
+                    errorName: be instanceof Error ? be.name : 'UnknownError',
+                    error: be instanceof Error ? be.message : String(be),
+                });
                 backendPayload = null;
             }
 
