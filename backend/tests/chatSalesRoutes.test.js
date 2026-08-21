@@ -43,6 +43,7 @@ const tokenFor = (user) =>
       email: user.email,
       name: user.name,
       ...(requiresStaffTwoFactor(user.role) ? { authLevel: STAFF_2FA_AUTH_LEVEL } : {}),
+      ...(user.role === 'customer' ? { otpVerified: true } : {}),
     },
     config.jwtSecret,
     { expiresIn: '1h' }
@@ -307,6 +308,7 @@ test('logged-in customer handoff uses account identity without contact capture',
     name: 'Account Customer',
     email: 'account-customer@example.com',
     role: 'customer',
+    isVerified: true,
     status: 'active',
     isActive: true,
   });
@@ -365,6 +367,7 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
     name: 'Customer One',
     email: 'customer-one@example.com',
     role: 'customer',
+    isVerified: true,
     status: 'active',
     isActive: true,
   });
@@ -619,6 +622,7 @@ test('logged-in customers cannot read another customer conversation', async () =
     name: 'Owner',
     email: 'owner@example.com',
     role: 'customer',
+    isVerified: true,
     status: 'active',
     isActive: true,
   });
@@ -626,6 +630,7 @@ test('logged-in customers cannot read another customer conversation', async () =
     name: 'Other',
     email: 'other@example.com',
     role: 'customer',
+    isVerified: true,
     status: 'active',
     isActive: true,
   });
@@ -657,6 +662,7 @@ test('unauthenticated guest can hydrate a conversation later linked to a custome
     name: 'Owner Guest',
     email: 'owner-guest@example.com',
     role: 'customer',
+    isVerified: true,
     status: 'active',
     isActive: true,
   });

@@ -17,6 +17,7 @@ import { apiClient, getApiErrorMessage } from '@/services/api/client';
 import type { ApiEnvelope, BackendUser, UserRole } from '@/services/api/types';
 import { CUSTOMER_ROLE, getSafeUserRole } from '@/services/api/roles';
 import { authStorage } from '@/services/storage/authStorage';
+import type { PendingLoginOtp } from '@/services/storage/authStorage';
 
 const DEFAULT_ROLE: UserRole = CUSTOMER_ROLE;
 
@@ -59,6 +60,10 @@ const safeNameFromEmail = (email: string): string => {
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase();
 const normalizeOtp = (otp: string): string => otp.replace(/\D/g, '').slice(0, 6);
+const parseServerTime = (value: unknown, fallback: number): number => {
+  const parsed = typeof value === 'number' ? value : Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
 
 const normalizeBackendUser = (raw: any, firebaseUid?: string): BackendUser => {
   const mongoId = raw?._id || raw?.id || '';
@@ -241,6 +246,19 @@ const loginEmailDirect = async (
     err.userId = d?.data?.userId;
     err.maskedEmail = d?.data?.maskedEmail;
     err.challengeToken = d?.data?.challengeToken;
+    const now = Date.now();
+    (err as any).codeExpiresAt = parseServerTime(
+      d?.data?.codeExpiresAt,
+      now + Number(d?.data?.expiresIn || 300) * 1000,
+    );
+    (err as any).challengeExpiresAt = parseServerTime(
+      d?.data?.challengeExpiresAt,
+      now + 15 * 60 * 1000,
+    );
+    (err as any).resendAvailableAt = parseServerTime(
+      d?.data?.resendAvailableAt,
+      now + Number(d?.data?.resendAfter || 60) * 1000,
+    );
     throw err;
   }
 
@@ -339,8 +357,21 @@ export const authService = {
     return { token, backendUser: user };
   },
 
-  async resendLoginOtp(userId: string, challengeToken: string): Promise<void> {
-    await apiClient.post('/auth/resend-login-otp', { userId, challengeToken });
+  async resendLoginOtp(
+    userId: string,
+    challengeToken: string
+  ): Promise<Pick<PendingLoginOtp, 'codeExpiresAt' | 'challengeExpiresAt' | 'resendAvailableAt'>> {
+    const response = await apiClient.post('/auth/resend-login-otp', { userId, challengeToken });
+    const data = response.data?.data || {};
+    const now = Date.now();
+    return {
+      codeExpiresAt: parseServerTime(data.codeExpiresAt, now + Number(data.expiresIn || 300) * 1000),
+      challengeExpiresAt: parseServerTime(data.challengeExpiresAt, now + 15 * 60 * 1000),
+      resendAvailableAt: parseServerTime(
+        data.resendAvailableAt,
+        now + Number(data.resendAfter || 60) * 1000,
+      ),
+    };
   },
 
   /**

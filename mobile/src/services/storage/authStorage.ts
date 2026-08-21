@@ -22,6 +22,15 @@ import { Platform } from 'react-native';
 import { APP_STORAGE_KEYS } from '@/config/env';
 import type { BackendUser } from '@/services/api/types';
 
+export type PendingLoginOtp = {
+  userId: string;
+  challengeToken: string;
+  maskedEmail: string;
+  codeExpiresAt: number;
+  challengeExpiresAt: number;
+  resendAvailableAt: number;
+};
+
 // ── Helpers ────────────────────────────────────────────────────────────
 // SecureStore is unavailable on web — fall back to AsyncStorage there.
 const isSecureStoreAvailable = Platform.OS === 'ios' || Platform.OS === 'android';
@@ -33,6 +42,26 @@ const parseUser = (raw: string | null): BackendUser | null => {
   if (!raw) return null;
   try {
     return JSON.parse(raw) as BackendUser;
+  } catch {
+    return null;
+  }
+};
+
+const parsePendingLoginOtp = (raw: string | null): PendingLoginOtp | null => {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<PendingLoginOtp>;
+    if (
+      typeof value.userId !== 'string'
+      || typeof value.challengeToken !== 'string'
+      || typeof value.maskedEmail !== 'string'
+      || typeof value.codeExpiresAt !== 'number'
+      || typeof value.challengeExpiresAt !== 'number'
+      || typeof value.resendAvailableAt !== 'number'
+    ) {
+      return null;
+    }
+    return value as PendingLoginOtp;
   } catch {
     return null;
   }
@@ -97,11 +126,40 @@ export const authStorage = {
     await secureDelete(APP_STORAGE_KEYS.backendUser);
   },
 
+  // ── Password-validated login OTP challenge ──
+  // The opaque challenge is stored only in Keychain/EncryptedSharedPreferences
+  // on mobile. The actual six-digit OTP is never persisted by the app.
+  async getPendingLoginOtp(): Promise<PendingLoginOtp | null> {
+    return parsePendingLoginOtp(await secureGet(APP_STORAGE_KEYS.pendingLoginOtp));
+  },
+
+  async setPendingLoginOtp(challenge: PendingLoginOtp): Promise<void> {
+    await secureSet(APP_STORAGE_KEYS.pendingLoginOtp, JSON.stringify(challenge));
+  },
+
+  async clearPendingLoginOtp(): Promise<void> {
+    await secureDelete(APP_STORAGE_KEYS.pendingLoginOtp);
+  },
+
+  async isLoginOtpVerified(): Promise<boolean> {
+    return (await secureGet(APP_STORAGE_KEYS.loginOtpVerified)) === 'true';
+  },
+
+  async setLoginOtpVerified(verified: boolean): Promise<void> {
+    if (verified) {
+      await secureSet(APP_STORAGE_KEYS.loginOtpVerified, 'true');
+    } else {
+      await secureDelete(APP_STORAGE_KEYS.loginOtpVerified);
+    }
+  },
+
   // ── Bulk clear (used during sign-out) ──
   async clearAll(): Promise<void> {
     await Promise.all([
       secureDelete(APP_STORAGE_KEYS.token),
       secureDelete(APP_STORAGE_KEYS.backendUser),
+      secureDelete(APP_STORAGE_KEYS.pendingLoginOtp),
+      secureDelete(APP_STORAGE_KEYS.loginOtpVerified),
     ]);
   },
 };

@@ -100,6 +100,16 @@ const generateOTP = (length = 6) => {
   return crypto.randomInt(0, max).toString().padStart(length, '0');
 };
 
+const generateOtpDifferentFromHash = async (priorHash, length = 6) => {
+  const candidate = generateOTP(length);
+  if (!priorHash || !(await bcrypt.compare(candidate, priorHash))) return candidate;
+
+  // A one-in-10^length collision would leave the previous emailed value valid.
+  // Deterministically step once only in that collision case, preserving length.
+  const modulus = 10 ** length;
+  return ((Number(candidate) + 1) % modulus).toString().padStart(length, '0');
+};
+
 const buildOtpHash = (otp) => bcrypt.hash(normalizeOtpInput(otp), 10);
 
 const findLatestOtp = (email, purpose, extraQuery = {}) =>
@@ -144,6 +154,37 @@ function scheduleLastSeen(userDoc, req) {
 }
 
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+const LOGIN_OTP_EXPIRY_MS = Math.max(60, Number(config.loginOtpExpiry) || 300) * 1000;
+const LOGIN_OTP_CHALLENGE_EXPIRY_MS = Math.max(
+  Math.ceil(LOGIN_OTP_EXPIRY_MS / 1000),
+  Number(config.loginOtpChallengeExpiry) || 900,
+) * 1000;
+const LOGIN_OTP_RESEND_COOLDOWN_MS = Math.max(
+  1,
+  Number(config.loginOtpResendCooldown) || 60,
+) * 1000;
+const LOGIN_OTP_MAX_ATTEMPTS = Math.max(1, Number(config.loginOtpMaxAttempts) || 3);
+const LOGIN_OTP_MAX_SENDS = Math.max(1, Number(config.loginOtpMaxSends) || 5);
+
+const getLoginOtpExpiry = (record) => record?.otpExpiresAt || record?.expiresAt;
+
+const buildLoginOtpResponseData = (record, extra = {}) => {
+  const now = Date.now();
+  const codeExpiresAt = getLoginOtpExpiry(record);
+  const challengeExpiresAt = record?.expiresAt;
+  const resendAvailableAt = record?.lastSentAt
+    ? new Date(record.lastSentAt.getTime() + LOGIN_OTP_RESEND_COOLDOWN_MS)
+    : new Date(now);
+
+  return {
+    ...extra,
+    expiresIn: Math.max(0, Math.ceil((codeExpiresAt.getTime() - now) / 1000)),
+    codeExpiresAt: codeExpiresAt.toISOString(),
+    challengeExpiresAt: challengeExpiresAt.toISOString(),
+    resendAfter: Math.max(0, Math.ceil((resendAvailableAt.getTime() - now) / 1000)),
+    resendAvailableAt: resendAvailableAt.toISOString(),
+  };
+};
 
 function serializeUserForAuthResponse(user) {
   const userObject = user.toObject({ virtuals: true });
@@ -165,9 +206,9 @@ const buildAuthTokenClaims = (user, additionalClaims = {}) => ({
   ...additionalClaims,
 });
 
-async function issueAuthTokenResponse(user, req) {
+async function issueAuthTokenResponse(user, req, additionalClaims = {}) {
   const token = jwt.sign(
-    buildAuthTokenClaims(user),
+    buildAuthTokenClaims(user, additionalClaims),
     config.jwtSecret,
     { expiresIn: '7d' }
   );
@@ -885,7 +926,10 @@ export const verifyOtp = async (req, res, next) => {
 
     // Preserve the existing customer activation experience: verified customers
     // receive their normal session immediately after registration verification.
-    const { user: userObject, token } = await issueAuthTokenResponse(user, req);
+    const { user: userObject, token } = await issueAuthTokenResponse(user, req, {
+      otpVerified: true,
+      otpVerifiedAt: Math.floor(Date.now() / 1000),
+    });
     return res.json({
       success: true,
       message: 'Email verified. You are now signed in.',
@@ -1201,7 +1245,7 @@ export const completePasswordSetup = async (req, res) => {
     );
 
     const authToken = jwt.sign(
-      buildAuthTokenClaims(user),
+      buildAuthTokenClaims(user, { emailLinkVerified: true }),
       config.jwtSecret,
       { expiresIn: '7d' }
     );
@@ -1733,11 +1777,11 @@ export const login = async (req, res, next) => {
       });
     }
 
-    if (!user.isVerified && requiresStaffTwoFactor(user.role)) {
+    if (!user.isVerified && requiresLoginOtp(user.role)) {
       return res.status(403).json({
         success: false,
         code: 'ACCOUNT_PENDING_VERIFICATION',
-        message: 'Verify your staff account email before signing in.',
+        message: 'Verify your account email before signing in.',
         data: {
           requiresEmailVerification: true,
           email: emailNormalized,
@@ -1779,10 +1823,11 @@ export const login = async (req, res, next) => {
         () => OTP.findOne({
           userId: user._id,
           purpose: LOGIN_OTP_PURPOSE,
-        }).sort({ createdAt: -1, _id: -1 })
+        }).select('+loginChallengeHash').sort({ createdAt: -1, _id: -1 })
       );
+      const now = new Date();
       let carriedAttempts = 0;
-      if (existingLoginOtp && existingLoginOtp.expiresAt > new Date()) {
+      if (existingLoginOtp && existingLoginOtp.expiresAt > now) {
         if (existingLoginOtp.attempts >= existingLoginOtp.maxAttempts) {
           const lockUntil = new Date(Date.now() + LOCK_TIME_MS);
           await User.updateOne({ _id: user._id }, { $set: { lockUntil } });
@@ -1793,30 +1838,66 @@ export const login = async (req, res, next) => {
           });
         }
 
-        if (existingLoginOtp.lastSentAt) {
-          const elapsed = Date.now() - existingLoginOtp.lastSentAt.getTime();
-          if (elapsed < OTP_RESEND_COOLDOWN_MS) {
-            const waitSeconds = Math.ceil((OTP_RESEND_COOLDOWN_MS - elapsed) / 1000);
-            return res.status(429).json({
-              success: false,
-              message: `Please wait ${waitSeconds} second(s) before requesting another login code.`,
-              data: { waitSeconds },
-            });
-          }
-        }
         carriedAttempts = existingLoginOtp.attempts;
       }
 
-      const otp = generateOTP(6);
+      const challengeToken = generateLoginChallengeToken();
+      const existingCodeExpiresAt = getLoginOtpExpiry(existingLoginOtp);
+      const existingCodeUsable = Boolean(
+        existingLoginOtp
+        && existingLoginOtp.expiresAt > now
+        && existingCodeExpiresAt > now
+        && existingLoginOtp.otpHash
+        && existingLoginOtp.attempts < existingLoginOtp.maxAttempts
+      );
+      const elapsedSinceSend = existingLoginOtp?.lastSentAt
+        ? Date.now() - existingLoginOtp.lastSentAt.getTime()
+        : Number.POSITIVE_INFINITY;
+
+      // A repeated valid password submission during the cooldown must still
+      // reach the OTP screen. Rotate only the opaque challenge and keep the
+      // already-emailed code; this neither sends mail nor exposes the code.
+      if (existingCodeUsable && elapsedSinceSend < LOGIN_OTP_RESEND_COOLDOWN_MS) {
+        existingLoginOtp.loginChallengeHash = hashLoginChallengeToken(challengeToken);
+        await existingLoginOtp.save({ validateBeforeSave: false });
+        return res.json({
+          success: true,
+          message: 'Enter the verification code already sent to your email.',
+          data: buildLoginOtpResponseData(existingLoginOtp, {
+            requiresOTP: true,
+            userId: user._id.toString(),
+            maskedEmail: maskEmail(user.email),
+            challengeToken,
+          }),
+        });
+      }
+
+      const sendWindowMs = LOGIN_OTP_CHALLENGE_EXPIRY_MS;
+      const priorWindowStart = existingLoginOtp?.sendWindowStartedAt || existingLoginOtp?.createdAt;
+      const inCurrentSendWindow = Boolean(
+        priorWindowStart && Date.now() - priorWindowStart.getTime() < sendWindowMs
+      );
+      const priorSendCount = inCurrentSendWindow ? Number(existingLoginOtp?.sendCount || 1) : 0;
+      if (priorSendCount >= LOGIN_OTP_MAX_SENDS) {
+        const retryAfterSeconds = Math.max(
+          1,
+          Math.ceil((sendWindowMs - (Date.now() - priorWindowStart.getTime())) / 1000),
+        );
+        return res.status(429).json({
+          success: false,
+          code: 'OTP_SEND_LIMIT_REACHED',
+          message: 'Too many verification codes were requested. Please try again later.',
+          data: { retryAfterSeconds },
+        });
+      }
+
+      const otp = await generateOtpDifferentFromHash(existingLoginOtp?.otpHash, config.otpLength);
       const otpHash = await timeOperation(
         { req, res, kind: 'cpu', name: 'login.otp.bcryptHash' },
         () => bcrypt.hash(otp, 10)
       );
-      const challengeToken = generateLoginChallengeToken();
-
-      const maskedEmail = emailNormalized.replace(/^(.)(.*)(@.*)$/, (_, first, middle, domain) =>
-        `${first}${'*'.repeat(Math.min(middle.length, 5))}${domain}`
-      );
+      const codeExpiresAt = new Date(Date.now() + LOGIN_OTP_EXPIRY_MS);
+      const challengeExpiresAt = new Date(Date.now() + LOGIN_OTP_CHALLENGE_EXPIRY_MS);
 
       // Replace the current challenge in one database command. The previous
       // delete + insert sequence added an avoidable Atlas network round trip.
@@ -1827,21 +1908,24 @@ export const login = async (req, res, next) => {
           {
             $set: {
               email: user.email,
-              otp,              // plain — kept for legacy queries, never sent to client
-              otpHash,          // bcrypt hash — used for verification
-              expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+              otpHash,
+              otpExpiresAt: codeExpiresAt,
+              expiresAt: challengeExpiresAt,
               attempts: carriedAttempts,
-              maxAttempts: 3,
+              maxAttempts: LOGIN_OTP_MAX_ATTEMPTS,
               verified: false,
               lastSentAt: new Date(),
               loginChallengeHash: hashLoginChallengeToken(challengeToken),
+              sendCount: priorSendCount + 1,
+              sendWindowStartedAt: inCurrentSendWindow ? priorWindowStart : new Date(),
             },
+            $unset: { otp: 1 },
           },
           { new: true, upsert: true, setDefaultsOnInsert: true, sort: { createdAt: -1, _id: -1 } }
         )
       );
 
-      // Send OTP email (fire-and-forget — failure is non-fatal here, client can resend)
+      // Do not expose a challenge unless delivery succeeds.
       const emailResult = await timeOperation(
         { req, res, kind: 'external', name: 'login.email.sendOtp' },
         () => sendOtpEmail(user.email, otp, {
@@ -1874,10 +1958,12 @@ export const login = async (req, res, next) => {
         success: true,
         message: 'OTP sent to your email. Please verify to complete login.',
         data: {
-          requiresOTP: true,
-          userId: user._id.toString(),
-          maskedEmail,
-          challengeToken,
+          ...buildLoginOtpResponseData(otpRecord, {
+            requiresOTP: true,
+            userId: user._id.toString(),
+            maskedEmail: maskEmail(user.email),
+            challengeToken,
+          }),
         },
       });
     }
@@ -1919,7 +2005,6 @@ export const login = async (req, res, next) => {
       return res.status(500).json({
         success: false,
         message: 'Login failed',
-        error: serErr?.message || String(serErr),
       });
     }
 
@@ -1929,7 +2014,6 @@ export const login = async (req, res, next) => {
     res.status(500).json({
       success: false,
       message: 'Login failed',
-      error: error.message,
     });
   }
 };
@@ -2149,7 +2233,7 @@ export const socialLogin = async (req, res, next) => {
 
     // Generate token
     const token = jwt.sign(
-      buildAuthTokenClaims(user),
+      buildAuthTokenClaims(user, { federatedVerified: true }),
       config.jwtSecret,
       { expiresIn: '7d' }
     );
@@ -2392,6 +2476,14 @@ export const verifyLoginOtp = async (req, res) => {
     if (!loginChallengeMatches(otpRecord, challengeToken)) {
       return res.status(401).json({ success: false, message: 'Invalid login challenge. Sign in again.' });
     }
+    if (otpRecord.expiresAt <= new Date()) {
+      await OTP.deleteOne({ _id: otpRecord._id });
+      return res.status(401).json({
+        success: false,
+        code: 'LOGIN_CHALLENGE_EXPIRED',
+        message: 'Your verification session expired. Please sign in again.',
+      });
+    }
     logOtpDebug('login_verify.loaded', {
       userId,
       receivedOtp: formatOtpForLog(otp),
@@ -2431,10 +2523,16 @@ export const verifyLoginOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: 'OTP expired. Please request a new code.' });
     }
 
-    // Check expiry
-    if (otpRecord.expiresAt < new Date()) {
-      await OTP.deleteOne({ _id: otpRecord._id });
-      return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new code.' });
+    // The code expires before the opaque challenge. Keep the challenge so the
+    // customer can request a fresh code without re-entering their password.
+    const codeExpiresAt = getLoginOtpExpiry(otpRecord);
+    if (codeExpiresAt <= new Date()) {
+      return res.status(400).json({
+        success: false,
+        code: 'OTP_EXPIRED',
+        message: 'Verification code expired. Request a new code.',
+        data: buildLoginOtpResponseData(otpRecord, { canResend: true }),
+      });
     }
 
     // Compare bcrypt hash
@@ -2453,7 +2551,11 @@ export const verifyLoginOtp = async (req, res) => {
     });
     if (!isValid) {
       const updatedRecord = await OTP.findOneAndUpdate(
-        { _id: otpRecord._id, attempts: { $lt: otpRecord.maxAttempts } },
+        {
+          _id: otpRecord._id,
+          otpHash: otpRecord.otpHash,
+          attempts: { $lt: otpRecord.maxAttempts },
+        },
         { $inc: { attempts: 1 } },
         { new: true },
       );
@@ -2475,7 +2577,7 @@ export const verifyLoginOtp = async (req, res) => {
 
         await notifyAuthSecurityEvent({
           event: 'account_locked',
-          title: 'Staff account locked during 2FA',
+          title: 'Account locked during email verification',
           message: `${user.name || user.email} exhausted the allowed login OTP attempts.`,
           severity: 'critical',
           targetUser: user,
@@ -2513,7 +2615,12 @@ export const verifyLoginOtp = async (req, res) => {
       () => OTP.findOneAndDelete({
         _id: otpRecord._id,
         purpose: LOGIN_OTP_PURPOSE,
+        otpHash: otpRecord.otpHash,
         expiresAt: { $gt: new Date() },
+        $or: [
+          { otpExpiresAt: { $gt: new Date() } },
+          { otpExpiresAt: null },
+        ],
         attempts: { $lt: otpRecord.maxAttempts },
       })
     );
@@ -2524,6 +2631,8 @@ export const verifyLoginOtp = async (req, res) => {
     const token = jwt.sign(
       buildAuthTokenClaims(user, {
         authLevel: STAFF_2FA_AUTH_LEVEL,
+        otpVerified: true,
+        otpVerifiedAt: Math.floor(Date.now() / 1000),
       }),
       config.jwtSecret,
       { expiresIn: '7d' }
@@ -2564,7 +2673,6 @@ export const verifyLoginOtp = async (req, res) => {
  * - Regenerates OTP, re-hashes, resends email.
  */
 export const resendLoginOtp = async (req, res) => {
-  const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
   try {
     const { userId, challengeToken } = req.body;
 
@@ -2578,9 +2686,13 @@ export const resendLoginOtp = async (req, res) => {
     if (!existing || !loginChallengeMatches(existing, challengeToken)) {
       return res.status(401).json({ success: false, message: 'Invalid login challenge. Sign in again.' });
     }
-    if (existing.expiresAt < new Date()) {
+    if (existing.expiresAt <= new Date()) {
       await OTP.deleteOne({ _id: existing._id });
-      return res.status(400).json({ success: false, message: 'Login challenge expired. Sign in again.' });
+      return res.status(401).json({
+        success: false,
+        code: 'LOGIN_CHALLENGE_EXPIRED',
+        message: 'Your verification session expired. Please sign in again.',
+      });
     }
 
     const user = await User.findById(userId);
@@ -2607,43 +2719,89 @@ export const resendLoginOtp = async (req, res) => {
 
     if (existing.lastSentAt) {
       const elapsed = Date.now() - existing.lastSentAt.getTime();
-      if (elapsed < RESEND_COOLDOWN_MS) {
-        const waitSeconds = Math.ceil((RESEND_COOLDOWN_MS - elapsed) / 1000);
+      if (elapsed < LOGIN_OTP_RESEND_COOLDOWN_MS) {
+        const waitSeconds = Math.ceil((LOGIN_OTP_RESEND_COOLDOWN_MS - elapsed) / 1000);
         return res.status(429).json({
           success: false,
+          code: 'OTP_RESEND_COOLDOWN',
           message: `Please wait ${waitSeconds} second(s) before requesting a new code.`,
-          data: { waitSeconds },
+          data: { waitSeconds, retryAfterSeconds: waitSeconds },
         });
       }
     }
 
-    // Generate fresh OTP
-    const otp = generateOTP(6);
-    const otpHash = await bcrypt.hash(otp, 10);
+    const sendWindowMs = LOGIN_OTP_CHALLENGE_EXPIRY_MS;
+    const windowStartedAt = existing.sendWindowStartedAt || existing.createdAt || new Date();
+    const inCurrentSendWindow = Date.now() - windowStartedAt.getTime() < sendWindowMs;
+    const priorSendCount = inCurrentSendWindow ? Number(existing.sendCount || 1) : 0;
+    if (priorSendCount >= LOGIN_OTP_MAX_SENDS) {
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil((sendWindowMs - (Date.now() - windowStartedAt.getTime())) / 1000),
+      );
+      return res.status(429).json({
+        success: false,
+        code: 'OTP_SEND_LIMIT_REACHED',
+        message: 'Too many verification codes were requested. Please try again later.',
+        data: { retryAfterSeconds },
+      });
+    }
 
-    // Replace only the authenticated challenge with a fresh single-use code.
-    await OTP.deleteOne({ _id: existing._id });
-    const otpRecord = new OTP({
-      email: user.email,
-      otp,
-      otpHash,
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-      attempts: existing.attempts,
-      maxAttempts: 3,
-      verified: false,
-      purpose: LOGIN_OTP_PURPOSE,
-      userId: user._id,
-      lastSentAt: new Date(),
-      loginChallengeHash: existing.loginChallengeHash,
-    });
-    await otpRecord.save();
+    // Generate fresh OTP
+    const otp = await generateOtpDifferentFromHash(existing.otpHash, config.otpLength);
+    const otpHash = await bcrypt.hash(otp, 10);
+    const previousState = {
+      otpHash: existing.otpHash,
+      otpExpiresAt: existing.otpExpiresAt || null,
+      lastSentAt: existing.lastSentAt,
+      sendCount: Number(existing.sendCount || 1),
+      sendWindowStartedAt: existing.sendWindowStartedAt || existing.createdAt,
+    };
+
+    // Replace the code atomically while preserving the password-authenticated
+    // challenge and accumulated guess count. The plaintext code is never saved.
+    const otpRecord = await OTP.findOneAndUpdate(
+      {
+        _id: existing._id,
+        loginChallengeHash: existing.loginChallengeHash,
+        otpHash: existing.otpHash,
+      },
+      {
+        $set: {
+          otpHash,
+          otpExpiresAt: new Date(Date.now() + LOGIN_OTP_EXPIRY_MS),
+          lastSentAt: new Date(),
+          sendCount: priorSendCount + 1,
+          sendWindowStartedAt: inCurrentSendWindow ? windowStartedAt : new Date(),
+        },
+        $unset: { otp: 1 },
+      },
+      { new: true },
+    ).select('+loginChallengeHash');
+    if (!otpRecord) {
+      return res.status(409).json({
+        success: false,
+        message: 'The verification session changed. Please sign in again.',
+      });
+    }
 
     const emailResult = await sendOtpEmail(user.email, otp, {
       purpose: 'login',
       otpRecordId: otpRecord._id,
     });
     if (!emailResult.success) {
-      await OTP.deleteOne({ _id: otpRecord._id });
+      await OTP.updateOne(
+        { _id: otpRecord._id, otpHash },
+        {
+          $set: {
+            otpHash: previousState.otpHash,
+            otpExpiresAt: previousState.otpExpiresAt,
+            lastSentAt: previousState.lastSentAt,
+            sendCount: previousState.sendCount,
+            sendWindowStartedAt: previousState.sendWindowStartedAt,
+          },
+        },
+      );
       return res.status(500).json({ success: false, message: 'Failed to send code. Please try again.' });
     }
 
@@ -2656,7 +2814,7 @@ export const resendLoginOtp = async (req, res) => {
     return res.json({
       success: true,
       message: 'A new verification code has been sent to your email.',
-      data: { expiresIn: 300 }, // 5 minutes in seconds
+      data: buildLoginOtpResponseData(otpRecord),
     });
   } catch (error) {
     console.error('❌ [resendLoginOtp] Error:', error);

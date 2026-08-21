@@ -5,6 +5,7 @@ import { getApiErrorMessage, apiClient, setAuthInvalidHandler } from '@/services
 import { CUSTOMER_ROLE, getSafeUserRole } from '@/services/api/roles';
 import { authService } from '@/services/api/authService';
 import { authStorage } from '@/services/storage/authStorage';
+import type { PendingLoginOtp } from '@/services/storage/authStorage';
 import type { BackendUser, MobileProfile } from '@/services/api/types';
 import { clearQueue } from '@/services/offlineQueue';
 
@@ -20,6 +21,9 @@ type AuthResult = {
   userId?: string;
   challengeToken?: string;
   maskedEmail?: string;
+  codeExpiresAt?: number;
+  challengeExpiresAt?: number;
+  resendAvailableAt?: number;
   /** Backend requires password reset before login. */
   requiresPasswordChange?: boolean;
   /** Structured data from the backend (e.g., remaining login attempts, lock info) */
@@ -40,9 +44,12 @@ type AuthContextType = {
   profile: MobileProfile | null;
   token: string | null;
   initialized: boolean;
+  pendingLoginOtp: PendingLoginOtp | null;
+  loginOtpVerified: boolean;
   signIn: (email: string, password: string) => Promise<AuthResult>;
   completeLoginOtp: (userId: string, challengeToken: string, otp: string) => Promise<AuthResult>;
   resendLoginOtp: (userId: string, challengeToken: string) => Promise<AuthResult>;
+  clearPendingLoginOtp: () => Promise<void>;
   signInWithGoogle: (idToken: string) => Promise<AuthResult>;
   signUp: (fullName: string, email: string, password: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
@@ -57,9 +64,12 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   token: null,
   initialized: false,
+  pendingLoginOtp: null,
+  loginOtpVerified: false,
   signIn: async () => ({ success: false }),
   completeLoginOtp: async () => ({ success: false }),
   resendLoginOtp: async () => ({ success: false }),
+  clearPendingLoginOtp: async () => {},
   signInWithGoogle: async () => ({ success: false }),
   signUp: async () => ({ success: false }),
   signOut: async () => {},
@@ -103,6 +113,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<MobileProfile | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [pendingLoginOtp, setPendingLoginOtp] = useState<PendingLoginOtp | null>(null);
+  const [loginOtpVerified, setLoginOtpVerified] = useState(false);
 
   useEffect(() => {
     setAuthInvalidHandler(async ({ path, message }) => {
@@ -120,6 +132,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setToken(null);
         setBackendUser(null);
         setProfile(null);
+        setPendingLoginOtp(null);
+        setLoginOtpVerified(false);
       }
     });
 
@@ -147,13 +161,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Email-registered users never have a Firebase account; their session
         // lives only in SecureStore (token + backendUser).
         try {
-          const cachedToken = await authStorage.getToken();
-          const cachedUser  = await authStorage.getUser();
-          if (cachedToken && cachedUser) {
+          const [cachedToken, cachedUser, cachedChallenge, cachedOtpVerified] = await Promise.all([
+            authStorage.getToken(),
+            authStorage.getUser(),
+            authStorage.getPendingLoginOtp(),
+            authStorage.isLoginOtpVerified(),
+          ]);
+          if (cachedToken && cachedUser && cachedOtpVerified) {
             if (__DEV__) console.log('[AuthContext] No Firebase session, restoring email user from cache');
+            setPendingLoginOtp(null);
+            setLoginOtpVerified(true);
+            await authStorage.clearPendingLoginOtp();
             applyState(null, cachedToken, cachedUser);
           } else {
+            if (cachedToken || cachedUser) {
+              await Promise.all([authStorage.clearToken(), authStorage.clearUser()]);
+            }
             applyState(null, null, null);
+            setLoginOtpVerified(false);
+            if (cachedChallenge && cachedChallenge.challengeExpiresAt > Date.now()) {
+              setPendingLoginOtp(cachedChallenge);
+            } else {
+              setPendingLoginOtp(null);
+              if (cachedChallenge) await authStorage.clearPendingLoginOtp();
+            }
           }
         } catch {
           applyState(null, null, null);
@@ -163,6 +194,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
+        setPendingLoginOtp(null);
+        setLoginOtpVerified(false);
+        await authStorage.clearPendingLoginOtp();
         const bootstrapped = await authService.bootstrapFromFirebaseUser(firebaseUser);
         applyState(firebaseUser, bootstrapped.token, bootstrapped.backendUser);
       } catch (error) {
@@ -201,11 +235,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string): Promise<AuthResult> => {
     try {
+      setPendingLoginOtp(null);
+      await authStorage.clearPendingLoginOtp();
       // Direct backend login — does NOT involve Firebase.
       // This correctly handles users registered via OTP (no Firebase account)
       // as well as existing web-registered users.
       // Google/Apple sign-in goes through signInWithGoogle instead.
       const { token, backendUser } = await authService.loginWithEmailPassword(email.trim(), password);
+      await authStorage.setLoginOtpVerified(false);
+      setLoginOtpVerified(false);
       applyState(null, token, backendUser);
       void import('@/hooks/useRealtimeSync')
         .then(({ refreshRealtimeSocketAuth }) => refreshRealtimeSocketAuth())
@@ -221,6 +259,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
       }
       if (error?.code === 'REQUIRES_LOGIN_OTP') {
+        if (!error.userId || !error.challengeToken || !error.maskedEmail) {
+          return {
+            success: false,
+            message: 'The verification session could not be started. Please try again.',
+          };
+        }
+        const challenge: PendingLoginOtp = {
+          userId: error.userId,
+          challengeToken: error.challengeToken,
+          maskedEmail: error.maskedEmail,
+          codeExpiresAt: Number(error.codeExpiresAt) || Date.now() + 5 * 60 * 1000,
+          challengeExpiresAt: Number(error.challengeExpiresAt) || Date.now() + 15 * 60 * 1000,
+          resendAvailableAt: Number(error.resendAvailableAt) || Date.now() + 60 * 1000,
+        };
+        await authStorage.setPendingLoginOtp(challenge);
+        setPendingLoginOtp(challenge);
         return {
           success: false,
           message: error.message,
@@ -228,6 +282,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           userId: error.userId,
           challengeToken: error.challengeToken,
           maskedEmail: error.maskedEmail,
+          codeExpiresAt: challenge.codeExpiresAt,
+          challengeExpiresAt: challenge.challengeExpiresAt,
+          resendAvailableAt: challenge.resendAvailableAt,
         };
       }
       if (error?.code === 'REQUIRES_PASSWORD_CHANGE') {
@@ -241,7 +298,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const responseData = error?.response?.data?.data ?? error?.response?.data ?? undefined;
       return {
         success: false,
-        message: error.message || getApiErrorMessage(error, 'Sign-in failed.'),
+        message: getApiErrorMessage(error, 'Sign-in failed.'),
         data: responseData,
       };
     }
@@ -254,6 +311,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   ): Promise<AuthResult> => {
     try {
       const { token, backendUser } = await authService.verifyLoginOtp(userId, challengeToken, otp);
+      await authStorage.setLoginOtpVerified(true);
+      setLoginOtpVerified(true);
+      await authStorage.clearPendingLoginOtp();
+      setPendingLoginOtp(null);
       applyState(null, token, backendUser);
       void import('@/hooks/useRealtimeSync')
         .then(({ refreshRealtimeSocketAuth }) => refreshRealtimeSocketAuth())
@@ -273,7 +334,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     challengeToken: string
   ): Promise<AuthResult> => {
     try {
-      await authService.resendLoginOtp(userId, challengeToken);
+      const timing = await authService.resendLoginOtp(userId, challengeToken);
+      const current = pendingLoginOtp;
+      if (current && current.userId === userId && current.challengeToken === challengeToken) {
+        const updated = { ...current, ...timing };
+        await authStorage.setPendingLoginOtp(updated);
+        setPendingLoginOtp(updated);
+      }
       return { success: true };
     } catch (error: any) {
       return {
@@ -282,6 +349,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         data: error?.response?.data?.data,
       };
     }
+  };
+
+  const clearPendingLoginOtp = async (): Promise<void> => {
+    setPendingLoginOtp(null);
+    await authStorage.clearPendingLoginOtp();
   };
 
   const signInWithGoogle = async (idToken: string): Promise<AuthResult> => {
@@ -347,6 +419,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.warn('Sign-out warning:', getApiErrorMessage(error));
     } finally {
       applyState(null, null, null);
+      setLoginOtpVerified(false);
     }
   };
 
@@ -380,9 +453,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profile,
         token,
         initialized,
+        pendingLoginOtp,
+        loginOtpVerified,
         signIn,
         completeLoginOtp,
         resendLoginOtp,
+        clearPendingLoginOtp,
         signInWithGoogle,
         signUp,
         signOut,

@@ -63,6 +63,26 @@ const latestEmailPayload = () => {
   return JSON.parse(String(sentEmails.at(-1).body || '{}'));
 };
 
+const latestOtpCode = (expectedEmail) => {
+  const normalized = String(expectedEmail || '').trim().toLowerCase();
+  const payload = [...sentEmails].reverse().map((entry) => {
+    try {
+      return JSON.parse(String(entry.body || '{}'));
+    } catch {
+      return null;
+    }
+  }).find((entry) => {
+    if (!entry) return false;
+    const recipients = Array.isArray(entry.to) ? entry.to : [entry.to];
+    return recipients.some((recipient) => String(recipient || '').toLowerCase() === normalized)
+      && /\b\d{6}\b/.test(String(entry.text || ''));
+  });
+  assert.ok(payload, `expected an OTP email for ${expectedEmail}`);
+  const match = String(payload.text || '').match(/\b(\d{6})\b/);
+  assert.ok(match?.[1], 'OTP email must contain a six-digit code');
+  return match[1];
+};
+
 const latestStaffVerificationToken = () => {
   const payload = latestEmailPayload();
   const content = `${payload.html || ''}\n${payload.text || ''}`;
@@ -121,18 +141,22 @@ async function completeOtpLogin(user, password = 'SecurePass1!') {
 
   const otpRecord = await OTP.findOne({ userId: user._id, purpose: 'login' });
   assert.ok(otpRecord);
+  assert.equal(otpRecord.otp, null, 'login OTP must not be stored in plaintext');
+  const deliveredOtp = latestOtpCode(user.email);
   const emailPayload = latestEmailPayload();
   const recipients = Array.isArray(emailPayload.to) ? emailPayload.to : [emailPayload.to];
   assert.ok(recipients.includes(user.email));
   const verified = await postJson('/api/auth/verify-login-otp', {
     userId: user._id.toString(),
     challengeToken: login.body.data.challengeToken,
-    otp: otpRecord.otp,
+    otp: deliveredOtp,
   });
   assert.equal(verified.response.status, 200);
   assert.ok(verified.body.data.token);
-  assert.equal(jwt.verify(verified.body.data.token, config.jwtSecret).authLevel, STAFF_2FA_AUTH_LEVEL);
-  return { login, verified, token: verified.body.data.token, otp: otpRecord.otp };
+  const verifiedClaims = jwt.verify(verified.body.data.token, config.jwtSecret);
+  assert.equal(verifiedClaims.authLevel, STAFF_2FA_AUTH_LEVEL);
+  assert.equal(verifiedClaims.otpVerified, true);
+  return { login, verified, token: verified.body.data.token, otp: deliveredOtp };
 }
 
 before(async () => {
@@ -277,6 +301,11 @@ test('Customer, Sales, Quality Checker, Office Admin, and Administrator all requ
   for (const role of otpRoles) {
     assert.equal(requiresLoginOtp(role), true);
     const user = await seedUser({ role });
+    if (role === 'customer') {
+      const preOtpCustomerApi = await requestJson('/api/auth/me', { token: plainToken(user) });
+      assert.equal(preOtpCustomerApi.response.status, 401);
+      assert.equal(preOtpCustomerApi.body.code, 'CUSTOMER_OTP_REQUIRED');
+    }
     const completed = await completeOtpLogin(user);
     assert.equal(completed.verified.body.data.user.role, role);
 
@@ -412,23 +441,29 @@ test('activation and login resends require authorization/challenges and preserve
   });
   assert.equal(login.response.status, 200);
   const firstLoginOtp = await OTP.findOne({ userId: staff._id, purpose: 'login' });
+  const firstLoginCode = latestOtpCode(staff.email);
+  const emailCountBeforeRepeatedLogin = sentEmails.length;
 
   const repeatedPasswordLogin = await postJson('/api/auth/login', {
     email: staff.email,
     password: 'SecurePass1!',
   });
-  assert.equal(repeatedPasswordLogin.response.status, 429);
+  assert.equal(repeatedPasswordLogin.response.status, 200);
+  assert.equal(repeatedPasswordLogin.body.data.requiresOTP, true);
+  assert.notEqual(repeatedPasswordLogin.body.data.challengeToken, login.body.data.challengeToken);
+  assert.equal(sentEmails.length, emailCountBeforeRepeatedLogin);
+  const activeChallengeToken = repeatedPasswordLogin.body.data.challengeToken;
 
   const immediateLoginResend = await postJson('/api/auth/resend-login-otp', {
     userId: staff._id.toString(),
-    challengeToken: login.body.data.challengeToken,
+    challengeToken: activeChallengeToken,
   });
   assert.equal(immediateLoginResend.response.status, 429);
 
-  const wrongCode = firstLoginOtp.otp === '000000' ? '000001' : '000000';
+  const wrongCode = firstLoginCode === '000000' ? '000001' : '000000';
   const wrong = await postJson('/api/auth/verify-login-otp', {
     userId: staff._id.toString(),
-    challengeToken: login.body.data.challengeToken,
+    challengeToken: activeChallengeToken,
     otp: wrongCode,
   });
   assert.equal(wrong.response.status, 401);
@@ -439,16 +474,25 @@ test('activation and login resends require authorization/challenges and preserve
 
   const resent = await postJson('/api/auth/resend-login-otp', {
     userId: staff._id.toString(),
-    challengeToken: login.body.data.challengeToken,
+    challengeToken: activeChallengeToken,
   });
   assert.equal(resent.response.status, 200);
   const replacementLoginOtp = await OTP.findOne({ userId: staff._id, purpose: 'login' });
   assert.equal(replacementLoginOtp.attempts, 1);
+  assert.equal(replacementLoginOtp.otp, null);
+  const replacementLoginCode = latestOtpCode(staff.email);
+
+  const previousCodeRejected = await postJson('/api/auth/verify-login-otp', {
+    userId: staff._id.toString(),
+    challengeToken: activeChallengeToken,
+    otp: firstLoginCode,
+  });
+  assert.equal(previousCodeRejected.response.status, 401);
 
   const verified = await postJson('/api/auth/verify-login-otp', {
     userId: staff._id.toString(),
-    challengeToken: login.body.data.challengeToken,
-    otp: replacementLoginOtp.otp,
+    challengeToken: activeChallengeToken,
+    otp: replacementLoginCode,
   });
   assert.equal(verified.response.status, 200);
   assert.ok(verified.body.data.token);
@@ -461,7 +505,8 @@ test('three wrong login codes lock the live account and public unlock is unavail
     password: 'SecurePass1!',
   });
   const record = await OTP.findOne({ userId: sales._id, purpose: 'login' });
-  const wrongCode = record.otp === '000000' ? '000001' : '000000';
+  const deliveredCode = latestOtpCode(sales.email);
+  const wrongCode = deliveredCode === '000000' ? '000001' : '000000';
 
   for (const expectedStatus of [401, 401, 429]) {
     const attempt = await postJson('/api/auth/verify-login-otp', {
@@ -478,7 +523,7 @@ test('three wrong login codes lock the live account and public unlock is unavail
   const correctWhileLocked = await postJson('/api/auth/verify-login-otp', {
     userId: sales._id.toString(),
     challengeToken: login.body.data.challengeToken,
-    otp: record.otp,
+    otp: deliveredCode,
   });
   assert.equal(correctWhileLocked.response.status, 423);
 
@@ -490,6 +535,40 @@ test('three wrong login codes lock the live account and public unlock is unavail
 
   const publicUnlock = await postJson('/api/auth/unlock', { email: sales.email });
   assert.equal(publicUnlock.response.status, 401);
+});
+
+test('login OTP sends are capped per account even when resend cooldowns have elapsed', async () => {
+  const customer = await seedUser({ role: 'customer', email: 'otp-send-cap@example.test' });
+  const login = await postJson('/api/auth/login', {
+    email: customer.email,
+    password: 'SecurePass1!',
+  });
+  assert.equal(login.response.status, 200);
+  const challengeToken = login.body.data.challengeToken;
+
+  for (let resendNumber = 1; resendNumber <= 4; resendNumber += 1) {
+    await OTP.updateOne(
+      { userId: customer._id, purpose: 'login' },
+      { $set: { lastSentAt: new Date(Date.now() - 61_000) } },
+    );
+    const resent = await postJson('/api/auth/resend-login-otp', {
+      userId: customer._id.toString(),
+      challengeToken,
+    });
+    assert.equal(resent.response.status, 200);
+  }
+
+  await OTP.updateOne(
+    { userId: customer._id, purpose: 'login' },
+    { $set: { lastSentAt: new Date(Date.now() - 61_000) } },
+  );
+  const capped = await postJson('/api/auth/resend-login-otp', {
+    userId: customer._id.toString(),
+    challengeToken,
+  });
+  assert.equal(capped.response.status, 429);
+  assert.equal(capped.body.code, 'OTP_SEND_LIMIT_REACHED');
+  assert.equal((await OTP.findOne({ userId: customer._id, purpose: 'login' })).sendCount, 5);
 });
 
 test('an expired password lock starts a fresh failure window without weakening staff 2FA', async () => {
@@ -564,10 +643,11 @@ test('an expired password lock starts a fresh failure window without weakening s
 
   const loginOtp = await OTP.findOne({ userId: administrator._id, purpose: 'login' });
   assert.ok(loginOtp);
+  const loginCode = latestOtpCode(administrator.email);
   const verified = await postJson('/api/auth/verify-login-otp', {
     userId: administrator._id.toString(),
     challengeToken: passwordAccepted.body.data.challengeToken,
-    otp: loginOtp.otp,
+    otp: loginCode,
   });
   assert.equal(verified.response.status, 200);
   assert.ok(verified.body.data.token);
@@ -733,6 +813,7 @@ test('invalid, wrong, expired, replayed, and unauthenticated customer login chal
     password: 'SecurePass1!',
   });
   const record = await OTP.findOne({ userId: customer._id, purpose: 'login' });
+  const deliveredCode = latestOtpCode(customer.email);
 
   const noChallengeResend = await postJson('/api/auth/resend-login-otp', { userId: customer._id.toString() });
   assert.equal(noChallengeResend.response.status, 400);
@@ -740,22 +821,22 @@ test('invalid, wrong, expired, replayed, and unauthenticated customer login chal
   const fakeChallenge = await postJson('/api/auth/verify-login-otp', {
     userId: customer._id.toString(),
     challengeToken: 'a'.repeat(43),
-    otp: record.otp,
+    otp: deliveredCode,
   });
   assert.equal(fakeChallenge.response.status, 401);
 
   const wrongOtp = await postJson('/api/auth/verify-login-otp', {
     userId: customer._id.toString(),
     challengeToken: login.body.data.challengeToken,
-    otp: record.otp === '000000' ? '000001' : '000000',
+    otp: deliveredCode === '000000' ? '000001' : '000000',
   });
   assert.equal(wrongOtp.response.status, 401);
 
-  await OTP.updateOne({ _id: record._id }, { expiresAt: new Date(Date.now() - 1000) });
+  await OTP.updateOne({ _id: record._id }, { otpExpiresAt: new Date(Date.now() - 1000) });
   const expired = await postJson('/api/auth/verify-login-otp', {
     userId: customer._id.toString(),
     challengeToken: login.body.data.challengeToken,
-    otp: record.otp,
+    otp: deliveredCode,
   });
   assert.equal(expired.response.status, 400);
 
@@ -805,12 +886,13 @@ test('disabled account remains blocked after a valid password creates a challeng
   const qc = await seedUser({ role: 'staff_quality_checker', email: 'disabled-qc@example.test' });
   const login = await postJson('/api/auth/login', { email: qc.email, password: 'SecurePass1!' });
   const otp = await OTP.findOne({ userId: qc._id, purpose: 'login' });
+  const deliveredCode = latestOtpCode(qc.email);
   await User.updateOne({ _id: qc._id }, { isActive: false, status: 'suspended' });
 
   const verify = await postJson('/api/auth/verify-login-otp', {
     userId: qc._id.toString(),
     challengeToken: login.body.data.challengeToken,
-    otp: otp.otp,
+    otp: deliveredCode,
   });
   assert.equal(verify.response.status, 403);
   assert.equal(verify.body.data?.token, undefined);

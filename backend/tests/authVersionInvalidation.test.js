@@ -85,6 +85,17 @@ const latestVerificationToken = (expectedEmail) => {
   return decodeURIComponent(match[1]);
 };
 
+const latestOtpCode = (expectedEmail) => {
+  const normalized = String(expectedEmail || '').trim().toLowerCase();
+  const payload = [...deliveredEmails].reverse().find((entry) => {
+    const recipients = Array.isArray(entry.to) ? entry.to : [entry.to];
+    return recipients.some((recipient) => String(recipient || '').toLowerCase() === normalized)
+      && /\b\d{6}\b/.test(String(entry.text || ''));
+  });
+  assert.ok(payload, `expected an OTP email for ${expectedEmail}`);
+  return String(payload.text).match(/\b(\d{6})\b/)[1];
+};
+
 const connectSocketByPolling = async (token) => {
   const stamp = `${Date.now()}_${Math.random()}`;
   const opened = await nativeFetch(`${baseUrl}/socket.io/?EIO=4&transport=polling&t=${stamp}`);
@@ -243,7 +254,7 @@ test('Administrator email migration permanently revokes old HTTP and socket JWTs
   const verified = await postJson('/api/auth/verify-login-otp', {
     userId: administrator._id.toString(),
     challengeToken: login.body.data.challengeToken,
-    otp: otpRecord.otp,
+    otp: latestOtpCode(TARGET_EMAIL),
   });
   assert.equal(verified.response.status, 200);
 
@@ -346,7 +357,7 @@ test('staff email, archive/restore, and restricted-state transitions revoke old 
     const verified = await postJson('/api/auth/verify-login-otp', {
       userId: staff._id.toString(),
       challengeToken: login.body.data.challengeToken,
-      otp: otpRecord.otp,
+      otp: latestOtpCode(changedEmail),
     });
     assert.equal(verified.response.status, 200);
     assert.equal(jwt.verify(verified.body.data.token, config.jwtSecret).authVersion, expectedVersion);
@@ -434,6 +445,7 @@ test('staff email, archive/restore, and restricted-state transitions revoke old 
     id: customer._id.toString(),
     email: customer.email,
     role: 'customer',
+    federatedVerified: true,
   }, config.jwtSecret, { expiresIn: '1h' });
   const customerChange = await requestJson(`/api/users/${customer._id}`, {
     method: 'PUT',
@@ -475,7 +487,7 @@ test('staff email, archive/restore, and restricted-state transitions revoke old 
   const promotedVerification = await postJson('/api/auth/verify-login-otp', {
     userId: customer._id.toString(),
     challengeToken: promotedLogin.body.data.challengeToken,
-    otp: promotedOtp.otp,
+    otp: latestOtpCode(changedCustomer.email),
   });
   assert.equal(promotedVerification.response.status, 200);
   const promotedOptional = await requestJson('/api/optional', {

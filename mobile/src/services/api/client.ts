@@ -39,6 +39,7 @@ const AUTH_INVALID_MESSAGE_HINTS = [
   'jwt expired',
   'jwt malformed',
   'invalid signature',
+  'email verification is required to complete sign-in',
 ];
 
 const shouldInvalidateAuthSession = (
@@ -83,6 +84,10 @@ apiClient.interceptors.response.use(
     const status = error.response?.status;
     const path = config?.url || '';
     const message = (error.response?.data as any)?.message || error.message || 'Unknown API error';
+    // Authentication bodies can contain passwords, OTPs, or opaque challenges.
+    // They must never be retried into a second challenge or persisted in the
+    // plaintext offline mutation queue.
+    const isSensitiveAuthRequest = path.includes('/auth/');
     const invalidatesAuthSession = shouldInvalidateAuthSession(status, path, message);
     const suppressExpectedErrorLog =
       Boolean((config as any)?.meta?.suppressExpectedErrorLog) && status === 404;
@@ -175,6 +180,7 @@ apiClient.interceptors.response.use(
     // \u2500\u2500 Auto-retry on network errors (max 1 retry) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     if (
       !error.response &&
+      !isSensitiveAuthRequest &&
       config &&
       (config._retryCount || 0) < 1
     ) {
@@ -188,7 +194,7 @@ apiClient.interceptors.response.use(
       // ── Offline Queue Integration ────────────────────────────────
       const isMutation = ['post', 'put', 'patch', 'delete'].includes(config.method?.toLowerCase() || '');
       // Make sure we aren't enqueuing a replay of a queue operation itself
-      if (isMutation && !(config as any)._isRetry) {
+      if (isMutation && !isSensitiveAuthRequest && !(config as any)._isRetry) {
         await enqueueRequest(config);
         Toast.show('You are offline. Request saved and will sync later.', 'warning');
         // Return a mocked success for optimistic UI offline

@@ -64,6 +64,9 @@ export const otpRecordLogMeta = (record) => {
   if (!record) return null;
   const now = Date.now();
   const expiresAt = record.expiresAt instanceof Date ? record.expiresAt : new Date(record.expiresAt);
+  const otpExpiresAt = record.otpExpiresAt
+    ? (record.otpExpiresAt instanceof Date ? record.otpExpiresAt : new Date(record.otpExpiresAt))
+    : expiresAt;
   return {
     id: record._id?.toString?.() || String(record._id || ''),
     email: maskEmail(record.email),
@@ -73,6 +76,8 @@ export const otpRecordLogMeta = (record) => {
     maxAttempts: record.maxAttempts,
     expiresAt: expiresAt.toISOString(),
     secondsRemaining: Math.max(0, Math.ceil((expiresAt.getTime() - now) / 1000)),
+    otpExpiresAt: otpExpiresAt.toISOString(),
+    otpSecondsRemaining: Math.max(0, Math.ceil((otpExpiresAt.getTime() - now) / 1000)),
     storedOtp: formatOtpForLog(record.otp),
     hasHash: Boolean(record.otpHash),
     createdAt: record.createdAt?.toISOString?.(),

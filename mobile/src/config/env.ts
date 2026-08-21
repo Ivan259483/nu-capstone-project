@@ -123,6 +123,8 @@ if (__DEV__) {
 export const APP_STORAGE_KEYS = {
   token: 'autospf_token',
   backendUser: 'autospf_backend_user',
+  pendingLoginOtp: 'autospf_pending_login_otp',
+  loginOtpVerified: 'autospf_login_otp_verified',
 } as const;
 
 export const FIREBASE_CONFIG = {

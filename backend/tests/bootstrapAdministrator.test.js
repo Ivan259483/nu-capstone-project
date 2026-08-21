@@ -137,6 +137,17 @@ const latestEmailPayload = () => {
   return deliveredEmails.at(-1);
 };
 
+const latestOtpCode = (expectedEmail) => {
+  const normalized = String(expectedEmail || '').trim().toLowerCase();
+  const payload = [...deliveredEmails].reverse().find((entry) => {
+    const recipients = Array.isArray(entry.to) ? entry.to : [entry.to];
+    return recipients.some((recipient) => String(recipient || '').toLowerCase() === normalized)
+      && /\b\d{6}\b/.test(String(entry.text || ''));
+  });
+  assert.ok(payload, `expected an OTP email for ${expectedEmail}`);
+  return String(payload.text).match(/\b(\d{6})\b/)[1];
+};
+
 const emailRecipient = (payload) => Array.isArray(payload?.to) ? payload.to[0] : payload?.to;
 
 const latestStaffVerificationToken = () => {
@@ -692,11 +703,12 @@ test('provisioned Administrator receives no JWT before login OTP and final OTP J
 
   const otpRecord = await OTP.findOne({ userId: administrator._id, purpose: 'login' });
   assert.ok(otpRecord);
-  assert.match(otpRecord.otp, /^\d{6}$/);
+  assert.equal(otpRecord.otp, null);
+  const deliveredOtp = latestOtpCode(administrator.email);
   const verified = await postJson('/api/auth/verify-login-otp', {
     userId: administrator._id.toString(),
     challengeToken: login.body.data.challengeToken,
-    otp: otpRecord.otp,
+    otp: deliveredOtp,
   });
   assert.equal(verified.response.status, 200);
   assert.ok(verified.body.data.token);
@@ -711,7 +723,7 @@ test('provisioned Administrator receives no JWT before login OTP and final OTP J
   const replay = await postJson('/api/auth/verify-login-otp', {
     userId: administrator._id.toString(),
     challengeToken: login.body.data.challengeToken,
-    otp: otpRecord.otp,
+    otp: deliveredOtp,
   });
   assert.notEqual(replay.response.status, 200);
   assert.equal(replay.body.data?.token, undefined);

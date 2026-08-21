@@ -159,6 +159,11 @@ export const config = {
   // OTP Configuration
   otpExpiry: parseInt(process.env.OTP_EXPIRY || '600', 10), // 10 minutes in seconds
   otpLength: parseInt(process.env.OTP_LENGTH || '6', 10), // 6 digit OTP
+  loginOtpExpiry: parseInt(process.env.LOGIN_OTP_EXPIRY || '300', 10), // 5 minutes in seconds
+  loginOtpChallengeExpiry: parseInt(process.env.LOGIN_OTP_CHALLENGE_EXPIRY || '900', 10), // 15 minutes in seconds
+  loginOtpResendCooldown: parseInt(process.env.LOGIN_OTP_RESEND_COOLDOWN || '60', 10),
+  loginOtpMaxAttempts: parseInt(process.env.LOGIN_OTP_MAX_ATTEMPTS || '3', 10),
+  loginOtpMaxSends: parseInt(process.env.LOGIN_OTP_MAX_SENDS || '5', 10),
   staffVerificationTokenExpiry: parseInt(process.env.STAFF_VERIFICATION_TOKEN_EXPIRY || '86400', 10), // 24 hours in seconds
   passwordSetupTokenExpiry: parseInt(process.env.PASSWORD_SETUP_TOKEN_EXPIRY || '3600', 10), // 1 hour in seconds
 };

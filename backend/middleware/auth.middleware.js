@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/environment.js';
 import {
   isValidUserRole,
+  isCustomerRole,
   migrateLegacyUserRole,
   requiresStaffTwoFactor,
   STAFF_2FA_AUTH_LEVEL,
@@ -101,6 +102,27 @@ export const authenticate = async (req, res, next) => {
           success: false,
           message: 'Verify your staff account email before continuing.',
           code: 'ACCOUNT_PENDING_VERIFICATION',
+        });
+      }
+      if (isCustomerRole(liveRole) && !userDoc.isVerified) {
+        return res.status(403).json({
+          success: false,
+          message: 'Verify your account email before continuing.',
+          code: 'ACCOUNT_PENDING_VERIFICATION',
+        });
+      }
+      // Customer JWTs minted before the mandatory second-factor rollout (or
+      // outside a verified identity flow) cannot authorize protected APIs.
+      // Password sessions receive otpVerified only after atomic OTP consume.
+      const customerIdentityVerified =
+        decoded.otpVerified === true
+        || decoded.federatedVerified === true
+        || decoded.emailLinkVerified === true;
+      if (isCustomerRole(liveRole) && !customerIdentityVerified) {
+        return res.status(401).json({
+          success: false,
+          message: 'Email verification is required to complete sign-in.',
+          code: 'CUSTOMER_OTP_REQUIRED',
         });
       }
       if (
@@ -213,8 +235,17 @@ export const optionalAuthenticate = async (req, res, next) => {
           && decoded.authLevel === STAFF_2FA_AUTH_LEVEL
           && authVersionMatches(decoded.authVersion, userDoc.authVersion)
         );
+      const liveCustomerSessionValid = !isCustomerRole(liveRole)
+        || (
+          userDoc.isVerified
+          && (
+            decoded.otpVerified === true
+            || decoded.federatedVerified === true
+            || decoded.emailLinkVerified === true
+          )
+        );
 
-      if (liveAccountUsable && liveStaffSessionValid) {
+      if (liveAccountUsable && liveStaffSessionValid && liveCustomerSessionValid) {
         req.user = {
           ...decoded,
           role: liveRole,

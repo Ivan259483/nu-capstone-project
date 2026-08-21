@@ -8,6 +8,7 @@ import {
   isPosManagerRole,
   migrateLegacyUserRole,
   requiresStaffTwoFactor,
+  isCustomerRole,
   STAFF_2FA_AUTH_LEVEL,
 } from '../constants/roles.js';
 import User from '../models/user.model.js';
@@ -214,6 +215,19 @@ export const initSocket = (httpServer) => {
         )
       ) {
         return next(new Error('Staff two-factor authentication required'));
+      }
+      if (
+        isCustomerRole(liveRole)
+        && (
+          !user.isVerified
+          || !(
+            decoded.otpVerified === true
+            || decoded.federatedVerified === true
+            || decoded.emailLinkVerified === true
+          )
+        )
+      ) {
+        return next(new Error('Customer email verification required'));
       }
 
       socket.user = {

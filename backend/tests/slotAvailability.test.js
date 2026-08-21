@@ -172,7 +172,9 @@ const tokenFor = (user) => jwt.sign(
     email: user.email,
     name: user.name,
     authVersion: user.authVersion || 0,
-    ...(user.role === 'customer' ? {} : { authLevel: STAFF_2FA_AUTH_LEVEL }),
+    ...(user.role === 'customer'
+      ? { otpVerified: true }
+      : { authLevel: STAFF_2FA_AUTH_LEVEL }),
   },
   config.jwtSecret,
   { expiresIn: '1h' }
@@ -195,6 +197,7 @@ const seedBookingActors = async () => {
     name: 'Booking Customer',
     email: `customer-${sequence += 1}@example.test`,
     role: 'customer',
+    isVerified: true,
     status: 'active',
     isActive: true,
   });

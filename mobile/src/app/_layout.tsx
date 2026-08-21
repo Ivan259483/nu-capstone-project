@@ -37,12 +37,14 @@ SplashScreen.preventAutoHideAsync();
 // ── Inner Layout (consumes AuthContext) ────────────────────────────────
 function InnerLayout() {
   const { isDark, colors } = useTheme();
-  const { session, token, profile, initialized } = useAuth();
+  const { session, token, profile, initialized, pendingLoginOtp, loginOtpVerified } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
   // isAuthed: Firebase session (Google/Apple) OR a stored JWT (email/password users)
-  const isAuthed = !!(session || token);
+  const isAuthed = Boolean(session || (token && loginOtpVerified));
+  const inAuthGroup = segments[0] === '(auth)';
+  const inLoginOtpScreen = inAuthGroup && segments[1] === 'verify';
 
   useEffect(() => {
     if (!initialized) return;
@@ -52,13 +54,12 @@ function InnerLayout() {
 
   useEffect(() => {
     if (!initialized) return;
-    const inAuthGroup = segments[0] === '(auth)';
     if (isAuthed && inAuthGroup) {
       // Authenticated but still on auth screens → route by role
       const target = resolveRouteForRole(profile?.role);
       router.replace(target);
     }
-  }, [isAuthed, initialized, segments, router, profile?.role]);
+  }, [inAuthGroup, isAuthed, initialized, segments, router, profile?.role]);
 
   // ── Block ALL rendering until Firebase auth is confirmed ──────────────
   if (!initialized) {
@@ -69,16 +70,23 @@ function InnerLayout() {
     );
   }
 
-  // ── Not authenticated: force login immediately via <Redirect> (sync) ──
-  // Using <Redirect> instead of router.replace() fires on the same render
-  // cycle, guaranteeing zero flash of protected screens.
+  // ── Unauthenticated route gate ──────────────────────────────────────────
+  // A password-validated OTP challenge may render only the verification
+  // screen. It is not a session and cannot render any protected route.
   if (!isAuthed) {
+    const challengeUsable = Boolean(
+      pendingLoginOtp && pendingLoginOtp.challengeExpiresAt > Date.now()
+    );
+    const redirectTarget = challengeUsable
+      ? (inLoginOtpScreen ? null : '/(auth)/verify')
+      : (inAuthGroup ? null : '/(auth)/login');
+
     return (
       <>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(auth)" />
         </Stack>
-        <Redirect href="/(auth)/login" />
+        {redirectTarget ? <Redirect href={redirectTarget} /> : null}
       </>
     );
   }
