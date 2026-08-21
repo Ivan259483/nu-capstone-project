@@ -26,7 +26,11 @@ globalThis.fetch = async (input, init) => {
 };
 
 const { config } = await import('../config/environment.js');
-const { STAFF_2FA_AUTH_LEVEL } = await import('../constants/roles.js');
+const {
+  LOGIN_OTP_REQUIRED_ROLES,
+  STAFF_2FA_AUTH_LEVEL,
+  requiresLoginOtp,
+} = await import('../constants/roles.js');
 const { default: OTP } = await import('../models/oTP.model.js');
 const { default: StaffVerificationToken } = await import('../models/staffVerificationToken.model.js');
 const { default: User } = await import('../models/user.model.js');
@@ -102,7 +106,7 @@ const plainToken = (user) => jwt.sign(
   { expiresIn: '1h' },
 );
 
-async function completeStaffLogin(user, password = 'SecurePass1!') {
+async function completeOtpLogin(user, password = 'SecurePass1!') {
   const login = await postJson('/api/auth/login', {
     email: user.email,
     password,
@@ -117,6 +121,9 @@ async function completeStaffLogin(user, password = 'SecurePass1!') {
 
   const otpRecord = await OTP.findOne({ userId: user._id, purpose: 'login' });
   assert.ok(otpRecord);
+  const emailPayload = latestEmailPayload();
+  const recipients = Array.isArray(emailPayload.to) ? emailPayload.to : [emailPayload.to];
+  assert.ok(recipients.includes(user.email));
   const verified = await postJson('/api/auth/verify-login-otp', {
     userId: user._id.toString(),
     challengeToken: login.body.data.challengeToken,
@@ -249,7 +256,7 @@ test('Sales, Quality Checker, Office Admin, and Administrator activate by link, 
     assert.equal(preOtpApi.response.status, 401);
     assert.equal(preOtpApi.body.code, 'STAFF_2FA_REQUIRED');
 
-    const completed = await completeStaffLogin(activeStaff);
+    const completed = await completeOtpLogin(activeStaff);
     const me = await requestJson('/api/auth/me', { token: completed.token });
     assert.equal(me.response.status, 200);
     assert.equal(me.body.data.role, role);
@@ -263,10 +270,14 @@ test('Sales, Quality Checker, Office Admin, and Administrator activate by link, 
   }
 });
 
-test('Sales, Quality Checker, Office Admin, and Administrator all require OTP; customer flow stays direct', async () => {
-  for (const role of ['sales', 'staff_quality_checker', 'office_admin', 'administrator']) {
+test('Customer, Sales, Quality Checker, Office Admin, and Administrator all require login OTP', async () => {
+  const otpRoles = ['administrator', 'office_admin', 'sales', 'staff_quality_checker', 'customer'];
+  assert.deepEqual([...LOGIN_OTP_REQUIRED_ROLES].sort(), [...otpRoles].sort());
+
+  for (const role of otpRoles) {
+    assert.equal(requiresLoginOtp(role), true);
     const user = await seedUser({ role });
-    const completed = await completeStaffLogin(user);
+    const completed = await completeOtpLogin(user);
     assert.equal(completed.verified.body.data.user.role, role);
 
     if (role === 'sales' || role === 'staff_quality_checker') {
@@ -279,24 +290,6 @@ test('Sales, Quality Checker, Office Admin, and Administrator all require OTP; c
       assert.equal(forbidden.response.status, 403);
     }
   }
-
-  const customer = await seedUser({ role: 'customer', email: 'customer-flow@example.test' });
-  const customerLogin = await postJson('/api/auth/login', {
-    email: customer.email,
-    password: 'SecurePass1!',
-    require2FA: true,
-    role: 'administrator',
-  });
-  assert.equal(customerLogin.response.status, 200);
-  assert.ok(customerLogin.body.data.token);
-  assert.equal(customerLogin.body.data.requiresOTP, undefined);
-  assert.equal(await OTP.countDocuments({ userId: customer._id, purpose: 'login' }), 0);
-  const customerClaims = jwt.verify(customerLogin.body.data.token, config.jwtSecret);
-  assert.equal(customerClaims.role, 'customer');
-  assert.equal(customerClaims.authLevel, undefined);
-  const customerMe = await requestJson('/api/auth/me', { token: customerLogin.body.data.token });
-  assert.equal(customerMe.response.status, 200);
-  assert.equal(customerMe.body.data.role, 'customer');
 });
 
 test('customer mobile API contract supports registration, login, and password reset', async () => {
@@ -322,12 +315,12 @@ test('customer mobile API contract supports registration, login, and password re
   });
   assert.equal(registered.response.status, 201);
   assert.equal(registered.body.data.requiresOtp, false);
+  const registeredUser = await User.findOne({ email });
+  assert.ok(registeredUser);
 
-  const login = await postJson('/api/auth/login', { email, password: initialPassword });
-  assert.equal(login.response.status, 200);
-  assert.equal(login.body.data.user.role, 'customer');
-  assert.ok(login.body.data.token);
-  assert.equal(login.body.data.requiresOTP, undefined);
+  const login = await completeOtpLogin(registeredUser, initialPassword);
+  assert.equal(login.verified.body.data.user.role, 'customer');
+  assert.ok(login.verified.body.data.token);
 
   const forgot = await postJson('/api/auth/forgot-password', { email });
   assert.equal(forgot.response.status, 200);
@@ -347,10 +340,9 @@ test('customer mobile API contract supports registration, login, and password re
 
   const oldPasswordLogin = await postJson('/api/auth/login', { email, password: initialPassword });
   assert.equal(oldPasswordLogin.response.status, 401);
-  const newPasswordLogin = await postJson('/api/auth/login', { email, password: updatedPassword });
-  assert.equal(newPasswordLogin.response.status, 200);
-  assert.ok(newPasswordLogin.body.data.token);
-  assert.equal(newPasswordLogin.body.data.user.role, 'customer');
+  const newPasswordLogin = await completeOtpLogin(registeredUser, updatedPassword);
+  assert.ok(newPasswordLogin.verified.body.data.token);
+  assert.equal(newPasswordLogin.verified.body.data.user.role, 'customer');
 });
 
 test('activation and login resends require authorization/challenges and preserve cooldown plus attempts', async () => {
@@ -726,34 +718,34 @@ test('staff email changes cannot be used to take over a stronger staff account',
   assert.equal((await User.findById(sales._id)).email, 'self-email-sales@example.test');
 });
 
-test('invalid, wrong, expired, replayed, and unauthenticated login challenges are rejected', async () => {
-  const sales = await seedUser({ role: 'sales', email: 'sales.challenge@example.test' });
+test('invalid, wrong, expired, replayed, and unauthenticated customer login challenges are rejected', async () => {
+  const customer = await seedUser({ role: 'customer', email: 'customer.challenge@example.test' });
 
   const wrongPassword = await postJson('/api/auth/login', {
-    email: sales.email,
+    email: customer.email,
     password: 'WrongPassword1!',
   });
   assert.equal(wrongPassword.response.status, 401);
-  assert.equal(await OTP.countDocuments({ userId: sales._id, purpose: 'login' }), 0);
+  assert.equal(await OTP.countDocuments({ userId: customer._id, purpose: 'login' }), 0);
 
   const login = await postJson('/api/auth/login', {
-    email: sales.email,
+    email: customer.email,
     password: 'SecurePass1!',
   });
-  const record = await OTP.findOne({ userId: sales._id, purpose: 'login' });
+  const record = await OTP.findOne({ userId: customer._id, purpose: 'login' });
 
-  const noChallengeResend = await postJson('/api/auth/resend-login-otp', { userId: sales._id.toString() });
+  const noChallengeResend = await postJson('/api/auth/resend-login-otp', { userId: customer._id.toString() });
   assert.equal(noChallengeResend.response.status, 400);
 
   const fakeChallenge = await postJson('/api/auth/verify-login-otp', {
-    userId: sales._id.toString(),
+    userId: customer._id.toString(),
     challengeToken: 'a'.repeat(43),
     otp: record.otp,
   });
   assert.equal(fakeChallenge.response.status, 401);
 
   const wrongOtp = await postJson('/api/auth/verify-login-otp', {
-    userId: sales._id.toString(),
+    userId: customer._id.toString(),
     challengeToken: login.body.data.challengeToken,
     otp: record.otp === '000000' ? '000001' : '000000',
   });
@@ -761,7 +753,7 @@ test('invalid, wrong, expired, replayed, and unauthenticated login challenges ar
 
   await OTP.updateOne({ _id: record._id }, { expiresAt: new Date(Date.now() - 1000) });
   const expired = await postJson('/api/auth/verify-login-otp', {
-    userId: sales._id.toString(),
+    userId: customer._id.toString(),
     challengeToken: login.body.data.challengeToken,
     otp: record.otp,
   });

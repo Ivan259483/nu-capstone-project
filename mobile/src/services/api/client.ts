@@ -22,6 +22,8 @@ const AUTH_EXEMPT_PATHS = [
   '/auth/send-otp',
   '/auth/resend-otp',
   '/auth/verify-otp',
+  '/auth/verify-login-otp',
+  '/auth/resend-login-otp',
   '/auth/verify-reset-otp',
   '/auth/social-login',
   '/auth/recover-firebase',
@@ -110,6 +112,7 @@ apiClient.interceptors.response.use(
         method === 'post' &&
         (
           path.includes('/auth/verify-otp')
+          || path.includes('/auth/verify-login-otp')
           || path.includes('/auth/verify-reset-otp')
         ) &&
         (status === 400 || status === 401 || status === 429);

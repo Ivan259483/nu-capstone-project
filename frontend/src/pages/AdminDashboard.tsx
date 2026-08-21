@@ -284,8 +284,9 @@ export default function AdminDashboard() {
     });
 
     useEffect(() => {
+        if (isAdminHubRole) return;
         window.location.hash = activeTab;
-    }, [activeTab]);
+    }, [activeTab, isAdminHubRole]);
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);

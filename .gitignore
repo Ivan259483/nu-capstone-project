@@ -29,3 +29,9 @@ out/
 # Local tooling/cache
 backend/.mongodb-binaries/
 .vercel/
+
+# Roboflow generated artifacts
+artifacts/roboflow-*/
+**/__pycache__/
+*.pyc
+*.zip

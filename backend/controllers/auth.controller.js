@@ -10,9 +10,10 @@ import { sendOtpEmail, sendWelcomeEmail, sendPasswordResetEmail, sendPasswordSet
 import {
   getInvalidUserRoleMessage,
   isValidUserRole,
+  LOGIN_OTP_REQUIRED_ROLES,
   STAFF_ASSIGNABLE_ROLES,
   STAFF_2FA_AUTH_LEVEL,
-  STAFF_2FA_ROLES,
+  requiresLoginOtp,
   requiresStaffTwoFactor,
 } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
@@ -47,11 +48,6 @@ import {
   createAdminNotification,
 } from '../services/adminNotification.service.js';
 import { runInBackground, timeOperation } from '../utils/performance.utils.js';
-
-// Roles that require Email OTP 2FA after password verification.
-// 'customer' is intentionally excluded — direct JWT login.
-// ⚠️  Must mirror every non-customer value from constants/roles.js → USER_ROLES.
-const NON_CUSTOMER_ROLES = STAFF_2FA_ROLES;
 
 const PASSWORD_SETUP_PURPOSE = 'password_setup';
 const PASSWORD_SETUP_RESEND_COOLDOWN_MS = 60 * 1000;
@@ -1767,16 +1763,17 @@ export const login = async (req, res, next) => {
     }
 
     // ── 2FA Branch ─────────────────────────────────────────────────────────
-    // Non-customer roles must verify an OTP before receiving a JWT.
+    // Every configured login role must verify an OTP before receiving a JWT.
     console.log('🔐 [Login 2FA] ROLE CHECK:', {
       userRole: user.role,
       typeofRole: typeof user.role,
-      otpRequired: requiresStaffTwoFactor(user.role),
-      allOtpRoles: NON_CUSTOMER_ROLES,
+      otpRequired: requiresLoginOtp(user.role),
+      allOtpRoles: LOGIN_OTP_REQUIRED_ROLES,
     });
-    if (requiresStaffTwoFactor(user.role)) {
-      // Staff 2FA is mandatory in every environment. The opaque challenge is
-      // returned only after the password succeeds and is required for verify/resend.
+    if (requiresLoginOtp(user.role)) {
+      // Login 2FA is mandatory for configured roles in every environment.
+      // The opaque challenge is returned only after the password succeeds
+      // and is required for verify/resend.
       const existingLoginOtp = await timeOperation(
         { req, res, kind: 'db', name: 'login.otp.findLatest' },
         () => OTP.findOne({
@@ -1885,7 +1882,7 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // ── Customer (or any unlisted role): direct JWT ─────────────────────────
+    // ── Any role not configured for login OTP: direct JWT ───────────────────
     const token = jwt.sign(
       buildAuthTokenClaims(user),
       config.jwtSecret,
@@ -2406,7 +2403,7 @@ export const verifyLoginOtp = async (req, res) => {
       || user.isDeleted
       || !user.isActive
       || !user.isVerified
-      || !requiresStaffTwoFactor(user.role)
+      || !requiresLoginOtp(user.role)
       || normalizeEmailForOtp(user.email) !== normalizeEmailForOtp(otpRecord.email)
     ) {
       await OTP.deleteOne({ _id: otpRecord._id });
@@ -2592,7 +2589,7 @@ export const resendLoginOtp = async (req, res) => {
       || user.isDeleted
       || !user.isActive
       || !user.isVerified
-      || !requiresStaffTwoFactor(user.role)
+      || !requiresLoginOtp(user.role)
       || normalizeEmailForOtp(user.email) !== normalizeEmailForOtp(existing.email)
     ) {
       await OTP.deleteOne({ _id: existing._id });

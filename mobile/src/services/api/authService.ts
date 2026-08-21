@@ -231,10 +231,16 @@ const loginEmailDirect = async (
   if (d?.success && d?.data?.requiresOTP) {
     const err = new Error(
       d?.message || 'Enter the verification code sent to your email to finish signing in.'
-    ) as Error & { code: string; userId?: string; maskedEmail?: string };
-    err.code = 'REQUIRES_STAFF_OTP';
+    ) as Error & {
+      code: string;
+      userId?: string;
+      maskedEmail?: string;
+      challengeToken?: string;
+    };
+    err.code = 'REQUIRES_LOGIN_OTP';
     err.userId = d?.data?.userId;
     err.maskedEmail = d?.data?.maskedEmail;
+    err.challengeToken = d?.data?.challengeToken;
     throw err;
   }
 
@@ -316,6 +322,25 @@ export const authService = {
     const { token, user } = await loginEmailDirect(email, password);
     await persistSession(token, user);
     return { token, backendUser: user };
+  },
+
+  async verifyLoginOtp(
+    userId: string,
+    challengeToken: string,
+    otp: string
+  ): Promise<{ token: string; backendUser: BackendUser }> {
+    const response = await apiClient.post('/auth/verify-login-otp', {
+      userId,
+      challengeToken,
+      otp: normalizeOtp(otp),
+    });
+    const { token, user } = getAuthPayload(response);
+    await persistSession(token, user);
+    return { token, backendUser: user };
+  },
+
+  async resendLoginOtp(userId: string, challengeToken: string): Promise<void> {
+    await apiClient.post('/auth/resend-login-otp', { userId, challengeToken });
   },
 
   /**

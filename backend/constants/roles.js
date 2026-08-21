@@ -18,13 +18,19 @@ export const STAFF_ASSIGNABLE_ROLES = Object.freeze([
   'staff_quality_checker',
 ]);
 
-/** Every role that must complete password + email OTP before a session is valid. */
+/** Staff roles that use staff-only verification, session, and recovery rules. */
 export const STAFF_2FA_ROLES = Object.freeze([
   'administrator',
   ...STAFF_ASSIGNABLE_ROLES,
 ]);
 
-/** Purpose claim embedded only in JWTs issued after successful staff login OTP. */
+/** Every role that must complete an email OTP challenge after password login. */
+export const LOGIN_OTP_REQUIRED_ROLES = Object.freeze([
+  ...STAFF_2FA_ROLES,
+  'customer',
+]);
+
+/** Purpose claim embedded in JWTs issued after a successful login OTP. */
 export const STAFF_2FA_AUTH_LEVEL = 'staff_password_otp';
 
 export const LEGACY_USER_ROLE_MAP = Object.freeze({
@@ -127,6 +133,9 @@ export const isValidUserRole = (role) =>
 
 export const requiresStaffTwoFactor = (role) =>
   typeof role === 'string' && STAFF_2FA_ROLES.includes(normalizeToCanonical(role));
+
+export const requiresLoginOtp = (role) =>
+  typeof role === 'string' && LOGIN_OTP_REQUIRED_ROLES.includes(normalizeToCanonical(role));
 
 export const isAdminDashboardRole = (role) =>
   typeof role === 'string' && ADMIN_DASHBOARD_ROLE_SET.has(normalizeToCanonical(role));

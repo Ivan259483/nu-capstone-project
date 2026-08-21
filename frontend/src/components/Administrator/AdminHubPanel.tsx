@@ -37,6 +37,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { getSafeUserRole, isServiceCatalogRole } from '@/lib/roles';
 import { CalendarScheduleDnDProvider, useCalendarScheduleDnD } from '@/components/sales/calendar/CalendarScheduleDnDContext';
 import type { PendingPaymentsSummary } from '@/lib/payment-service';
+import {
+  ADMIN_HUB_ROUTABLE_TAB_IDS,
+  createAdminHubLocation,
+  resolveAdminHubPage,
+} from './adminHubNavigation';
 
 const AdminNotificationCenterPage = lazy(() => import('./notifications/AdminNotificationCenterPage'));
 const AdminUserProfilePage = lazy(() => import('./pages/AdminUserProfilePage'));
@@ -84,19 +89,6 @@ interface Props {
   onSetNotificationRead?: (id: string, isRead: boolean) => Promise<unknown> | unknown;
   onMarkAllNotificationsRead?: () => Promise<unknown> | unknown;
 }
-
-const ROUTABLE_TAB_IDS = new Set([
-  'dashboard',
-  'notifications',
-  'scheduling',
-  'live_tracking',
-  'pricing',
-  'inventory',
-  'users',
-  'roles',
-  'logs',
-  'profile',
-]);
 
 const SIDEBAR_WIDTH_EXPANDED = 260;
 const SIDEBAR_WIDTH_COLLAPSED = 64;
@@ -263,7 +255,7 @@ function getNotificationHubPage(notification: SystemNotification): string | null
   try {
     const parsed = new URL(link, window.location.origin);
     const linkedTab = parsed.searchParams.get('tab');
-    if (linkedTab && ROUTABLE_TAB_IDS.has(linkedTab)) return linkedTab;
+    if (linkedTab && ADMIN_HUB_ROUTABLE_TAB_IDS.has(linkedTab)) return linkedTab;
   } catch {
     /* Fall through to legacy-link and category mapping. */
   }
@@ -325,18 +317,7 @@ function AdminHubPanelInner({
   const currentRole = getSafeUserRole(currentUser?.role);
   const isQualityChecker = currentRole === 'staff_quality_checker';
 
-  const [activePage, setActivePage] = useState(() => {
-    if (getSafeUserRole(currentUser?.role) === 'staff_quality_checker') return 'live_tracking';
-    try {
-      if (typeof window !== 'undefined') {
-        const tab = new URLSearchParams(location.search).get('tab');
-        if (tab && ROUTABLE_TAB_IDS.has(tab)) return tab;
-      }
-    } catch {
-      /* ignore */
-    }
-    return 'dashboard';
-  });
+  const activePage = resolveAdminHubPage(location.search, isQualityChecker);
   const [visitedPages, setVisitedPages] = useState<Set<string>>(() => new Set([activePage]));
   const [isNarrowViewport, setIsNarrowViewport] = useState(isAdminHubNarrowViewport);
   const [sidebarCollapsedPreference, setSidebarCollapsedPreference] = useState(
@@ -522,54 +503,42 @@ function AdminHubPanelInner({
     });
   }, [activePage]);
 
-  const syncTabSearchParam = useCallback((tabId: string, clearNotificationContext = false) => {
-    if (typeof window === 'undefined') return;
-
-    const nextParams = new URLSearchParams(window.location.search);
-    if (clearNotificationContext) {
-      ['orderId', 'paymentId', 'productId', 'bookingReference', 'panel'].forEach((key) => {
-        nextParams.delete(key);
-      });
-    }
-    if (ROUTABLE_TAB_IDS.has(tabId)) {
-      nextParams.set('tab', tabId);
-    } else {
-      nextParams.delete('tab');
-    }
-
-    const currentQuery = window.location.search.startsWith('?')
-      ? window.location.search.slice(1)
-      : window.location.search;
-    const nextQuery = nextParams.toString();
-    if (nextQuery === currentQuery) return;
-
-    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`;
-    window.history.replaceState(window.history.state, '', nextUrl);
-  }, []);
-
-  useEffect(() => {
-    if (isQualityChecker) {
-      if (activePage !== 'live_tracking') setActivePage('live_tracking');
-      syncTabSearchParam('live_tracking');
+  const navigateToHubPage = useCallback((
+    tabId: string,
+    clearNotificationContext = false,
+    replace = false,
+  ) => {
+    const nextLocation = createAdminHubLocation({
+      pathname: location.pathname,
+      search: location.search,
+      tabId,
+      clearNotificationContext,
+    });
+    if (
+      nextLocation.pathname === location.pathname
+      && nextLocation.search === location.search
+      && !location.hash
+    ) {
       return;
     }
+    navigate(nextLocation, { replace });
+  }, [location.hash, location.pathname, location.search, navigate]);
 
-    const tab = new URLSearchParams(location.search).get('tab');
-    if (tab && ROUTABLE_TAB_IDS.has(tab) && tab !== activePage) {
-      setActivePage(tab);
-    }
-  }, [activePage, isQualityChecker, location.search, syncTabSearchParam]);
+  useEffect(() => {
+    const requestedTab = new URLSearchParams(location.search).get('tab');
+    const qualityCheckerRouteMismatch = isQualityChecker && requestedTab !== activePage;
+    if (!location.hash && !qualityCheckerRouteMismatch) return;
+
+    navigateToHubPage(activePage, false, true);
+  }, [activePage, isQualityChecker, location.hash, location.search, navigateToHubPage]);
 
   const selectNavPage = useCallback(
     (requestedId: string) => {
       const id =
         isQualityChecker && requestedId !== 'profile' ? 'live_tracking' : requestedId;
-      if (id !== activePage) {
-        setActivePage(id);
-      }
-      syncTabSearchParam(id, true);
+      navigateToHubPage(id, true);
     },
-    [activePage, isQualityChecker, syncTabSearchParam],
+    [isQualityChecker, navigateToHubPage],
   );
 
   const navTree = useMemo(() => buildNavTree(currentRole), [currentRole]);
@@ -663,11 +632,10 @@ function AdminHubPanelInner({
               else nextParams.set('orderId', recordId);
             }
             nextParams.set('tab', hubPage);
-            setActivePage(hubPage);
             navigate({
               pathname: location.pathname,
               search: `?${nextParams.toString()}`,
-              hash: parsed.hash,
+              hash: '',
             });
             return;
           } catch {
@@ -716,14 +684,8 @@ function AdminHubPanelInner({
   const navSearchQuery = navSearch.trim().toLowerCase();
 
   const openUserProfile = useCallback(() => {
-    setActivePage('profile');
-    setVisitedPages((current) => {
-      if (current.has('profile')) return current;
-      const next = new Set(current);
-      next.add('profile');
-      return next;
-    });
-  }, []);
+    selectNavPage('profile');
+  }, [selectNavPage]);
 
   const handleSignOut = useCallback(async () => {
     await logout();

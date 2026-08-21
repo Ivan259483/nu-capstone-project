@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useTheme } from '@/hooks/useThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { apiClient, getApiErrorMessage, getApiStatusCode } from '@/services/api/client';
 import { Palette } from '@/constants/theme';
 import GlassCard from '@/components/ui/GlassCard';
@@ -23,20 +24,39 @@ const normalizeOtp = (value: string) => value.replace(/[^0-9]/g, '').slice(0, OT
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const isAlreadyVerifiedResendError = (error: unknown): boolean =>
   getApiStatusCode(error) === 400 && /already verified/i.test(getApiErrorMessage(error, ''));
+const firstParam = (value?: string | string[]): string =>
+  Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
 
 export default function VerifyScreen() {
   const { colors } = useTheme();
-  const { email: emailParam } = useLocalSearchParams<{ email?: string | string[] }>();
+  const { completeLoginOtp, resendLoginOtp } = useAuth();
+  const params = useLocalSearchParams<{
+    email?: string | string[];
+    mode?: string | string[];
+    maskedEmail?: string | string[];
+    userId?: string | string[];
+    challengeToken?: string | string[];
+  }>();
+  const isLoginOtp = firstParam(params.mode) === 'login';
+  const userId = firstParam(params.userId);
+  const challengeToken = firstParam(params.challengeToken);
+  const maskedEmail = firstParam(params.maskedEmail);
   const email = useMemo(() => {
-    if (emailParam == null) return '';
-    return normalizeEmail(Array.isArray(emailParam) ? (emailParam[0] ?? '') : emailParam);
-  }, [emailParam]);
+    return normalizeEmail(firstParam(params.email));
+  }, [params.email]);
+  const displayedEmail = isLoginOtp ? (maskedEmail || email) : email;
 
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
-  const [countdown, setCountdown] = useState(0);
+  const [countdown, setCountdown] = useState(isLoginOtp ? 60 : 0);
 
   const otpRefs = useRef<(TextInput | null)[]>([]);
+
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timer = setTimeout(() => setCountdown((current) => Math.max(0, current - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
 
   // ── Verify OTP ─────────────────────────────────────────────
   async function handleVerifyOtp() {
@@ -45,13 +65,29 @@ export default function VerifyScreen() {
       Alert.alert('Invalid Code', 'Please enter the full 6-digit code.');
       return;
     }
-    if (!email) {
+    if (isLoginOtp && (!userId || !challengeToken)) {
+      Alert.alert('Error', 'Login verification session is missing. Please sign in again.');
+      router.replace('/(auth)/login');
+      return;
+    }
+    if (!isLoginOtp && !email) {
       Alert.alert('Error', 'Email address is missing.');
       return;
     }
 
     setLoading(true);
     try {
+      if (isLoginOtp) {
+        const result = await completeLoginOtp(userId, challengeToken, token);
+        if (!result.success) {
+          throw new Error(result.message || 'Verification failed. Please try again.');
+        }
+        Alert.alert('Success', 'Login verified successfully!', [
+          { text: 'Continue', onPress: () => router.replace('/') },
+        ]);
+        return;
+      }
+
       const response = await apiClient.post('/auth/verify-otp', {
         email,
         otp: token,
@@ -106,23 +142,27 @@ export default function VerifyScreen() {
     }
   }
 
-  function startCountdown() {
-    setCountdown(60);
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }
-
   async function handleResend() {
-    if (countdown > 0 || !email) return;
+    if (countdown > 0) return;
+    if (isLoginOtp && (!userId || !challengeToken)) {
+      Alert.alert('Error', 'Login verification session expired. Please sign in again.');
+      router.replace('/(auth)/login');
+      return;
+    }
+    if (!isLoginOtp && !email) return;
     setLoading(true);
     try {
+      if (isLoginOtp) {
+        const result = await resendLoginOtp(userId, challengeToken);
+        if (!result.success) {
+          throw new Error(result.message || 'Unable to resend code.');
+        }
+        Alert.alert('Code Sent', 'A new login verification code has been sent.');
+        setCountdown(60);
+        setOtp(['', '', '', '', '', '']);
+        return;
+      }
+
       const response = await apiClient.post('/auth/resend-otp', {
         email,
       });
@@ -130,7 +170,7 @@ export default function VerifyScreen() {
         throw new Error(response.data?.message || 'Unable to resend code.');
       }
       Alert.alert('Code Sent', 'A new verification code has been sent.');
-      startCountdown();
+      setCountdown(60);
       setOtp(['', '', '', '', '', '']);
     } catch (error) {
       if (isAlreadyVerifiedResendError(error)) {
@@ -161,12 +201,12 @@ export default function VerifyScreen() {
         <Animated.View entering={FadeInDown.duration(200)}>
           <View style={styles.headerContainer}>
             <Text style={[styles.welcomeText, { color: colors.text }]}>
-              Verify Email
+              {isLoginOtp ? 'Verify Login' : 'Verify Email'}
             </Text>
             <Text style={[styles.welcomeSubtext, { color: colors.textSecondary }]}>
               Enter the 6-digit code sent to{'\n'}
               <Text style={{ fontWeight: '700', color: colors.text }}>
-                {email.trim().toLowerCase()}
+                {displayedEmail}
               </Text>
             </Text>
             <View style={styles.mailNotice}>
@@ -211,7 +251,7 @@ export default function VerifyScreen() {
 
             <View style={{ marginTop: 24 }}>
               <PremiumButton
-                title={loading ? 'Verifying...' : 'Verify Email'}
+                title={loading ? 'Verifying...' : isLoginOtp ? 'Verify & Sign In' : 'Verify Email'}
                 icon={loading ? undefined : 'checkmark-circle-outline'}
                 onPress={handleVerifyOtp}
                 disabled={loading || normalizeOtp(otp.join('')).length !== OTP_LENGTH}

@@ -15,8 +15,11 @@ type AuthResult = {
   /** Email not verified — navigate to verify screen with `verifyEmail`. */
   requiresEmailOtp?: boolean;
   verifyEmail?: string;
-  /** Staff 2FA — mobile has no dedicated flow yet; message explains next step. */
-  requiresStaffOtp?: boolean;
+  /** Password login requires the email OTP challenge before a session is created. */
+  requiresLoginOtp?: boolean;
+  userId?: string;
+  challengeToken?: string;
+  maskedEmail?: string;
   /** Backend requires password reset before login. */
   requiresPasswordChange?: boolean;
   /** Structured data from the backend (e.g., remaining login attempts, lock info) */
@@ -38,6 +41,8 @@ type AuthContextType = {
   token: string | null;
   initialized: boolean;
   signIn: (email: string, password: string) => Promise<AuthResult>;
+  completeLoginOtp: (userId: string, challengeToken: string, otp: string) => Promise<AuthResult>;
+  resendLoginOtp: (userId: string, challengeToken: string) => Promise<AuthResult>;
   signInWithGoogle: (idToken: string) => Promise<AuthResult>;
   signUp: (fullName: string, email: string, password: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
@@ -53,6 +58,8 @@ const AuthContext = createContext<AuthContextType>({
   token: null,
   initialized: false,
   signIn: async () => ({ success: false }),
+  completeLoginOtp: async () => ({ success: false }),
+  resendLoginOtp: async () => ({ success: false }),
   signInWithGoogle: async () => ({ success: false }),
   signUp: async () => ({ success: false }),
   signOut: async () => {},
@@ -213,11 +220,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           verifyEmail: error.verifyEmail,
         };
       }
-      if (error?.code === 'REQUIRES_STAFF_OTP') {
+      if (error?.code === 'REQUIRES_LOGIN_OTP') {
         return {
           success: false,
           message: error.message,
-          requiresStaffOtp: true,
+          requiresLoginOtp: true,
+          userId: error.userId,
+          challengeToken: error.challengeToken,
+          maskedEmail: error.maskedEmail,
         };
       }
       if (error?.code === 'REQUIRES_PASSWORD_CHANGE') {
@@ -233,6 +243,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         success: false,
         message: error.message || getApiErrorMessage(error, 'Sign-in failed.'),
         data: responseData,
+      };
+    }
+  };
+
+  const completeLoginOtp = async (
+    userId: string,
+    challengeToken: string,
+    otp: string
+  ): Promise<AuthResult> => {
+    try {
+      const { token, backendUser } = await authService.verifyLoginOtp(userId, challengeToken, otp);
+      applyState(null, token, backendUser);
+      void import('@/hooks/useRealtimeSync')
+        .then(({ refreshRealtimeSocketAuth }) => refreshRealtimeSocketAuth())
+        .catch(() => {});
+      return { success: true };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: getApiErrorMessage(error, 'Verification failed. Please try again.'),
+        data: error?.response?.data?.data,
+      };
+    }
+  };
+
+  const resendLoginOtp = async (
+    userId: string,
+    challengeToken: string
+  ): Promise<AuthResult> => {
+    try {
+      await authService.resendLoginOtp(userId, challengeToken);
+      return { success: true };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: getApiErrorMessage(error, 'Unable to resend code.'),
+        data: error?.response?.data?.data,
       };
     }
   };
@@ -334,6 +381,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token,
         initialized,
         signIn,
+        completeLoginOtp,
+        resendLoginOtp,
         signInWithGoogle,
         signUp,
         signOut,

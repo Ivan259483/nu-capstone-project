@@ -79,6 +79,19 @@ export default function LoginScreen() {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       Toast.show(result.message || 'Verify your email first.', 'warning');
       router.push(`/(auth)/verify?email=${encodeURIComponent(result.verifyEmail)}`);
+    } else if (result.requiresLoginOtp && result.userId && result.challengeToken) {
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Toast.show(result.message || 'Enter the code sent to your email.', 'success');
+      router.push({
+        pathname: '/(auth)/verify',
+        params: {
+          mode: 'login',
+          email: email.trim().toLowerCase(),
+          maskedEmail: result.maskedEmail || email.trim().toLowerCase(),
+          userId: result.userId,
+          challengeToken: result.challengeToken,
+        },
+      });
     } else {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       if (result.data?.locked || result.data?.lockUntilMs) {
