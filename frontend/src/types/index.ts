@@ -114,6 +114,7 @@ export interface Booking {
     totalPrice?: number;
     totalAmount?: number;
     downPaymentAmount?: number;
+    finalPaymentAmount?: number;
     invoiceId?: string;
     paymentStatus?: 'unpaid' | 'paid' | 'failed' | 'refunded';
     paymentMethod?: string;

@@ -22,9 +22,11 @@ import {
   getSalesConversationDetail,
   getSalesConversations,
   handoffConversation,
+  linkSalesBooking,
   patchSalesConversationStatus,
   postCustomerMessage,
   postSalesMessage,
+  postSalesNote,
   readCustomerConversation,
   readSalesConversation,
 } from '../controllers/chatSales.controller.js';
@@ -44,31 +46,45 @@ const requireSalesChatAccess = [
   authorize(...BOOKING_MANAGER_ROLES),
 ];
 
-router.get('/sales/conversations', ...requireSalesChatAccess, getSalesConversations);
+router.get(
+  '/sales/conversations',
+  ...requireSalesChatAccess,
+  getSalesConversations,
+);
 router.get(
   '/sales/conversations/:conversationId',
   ...requireSalesChatAccess,
-  getSalesConversationDetail
+  getSalesConversationDetail,
 );
 router.post(
   '/sales/conversations/:conversationId/messages',
   ...requireSalesChatAccess,
-  postSalesMessage
+  postSalesMessage,
 );
 router.patch(
   '/sales/conversations/:conversationId/status',
   ...requireSalesChatAccess,
-  patchSalesConversationStatus
+  patchSalesConversationStatus,
 );
 router.patch(
   '/sales/conversations/:conversationId/assign',
   ...requireSalesChatAccess,
-  assignSalesConversationToCurrentUser
+  assignSalesConversationToCurrentUser,
 );
 router.patch(
   '/sales/conversations/:conversationId/read',
   ...requireSalesChatAccess,
-  readSalesConversation
+  readSalesConversation,
+);
+router.post(
+  '/sales/conversations/:conversationId/booking',
+  ...requireSalesChatAccess,
+  linkSalesBooking,
+);
+router.post(
+  '/sales/conversations/:conversationId/notes',
+  ...requireSalesChatAccess,
+  postSalesNote,
 );
 
 router.get('/conversations', authenticateIfTokenPresent, listConversations);
@@ -76,19 +92,23 @@ router.post('/conversations', authenticateIfTokenPresent, createConversation);
 router.get(
   '/conversations/:conversationId/messages',
   authenticateIfTokenPresent,
-  getCustomerMessages
+  getCustomerMessages,
 );
 router.post(
   '/conversations/:conversationId/messages',
   authenticateIfTokenPresent,
-  postCustomerMessage
+  postCustomerMessage,
 );
 router.patch(
   '/conversations/:conversationId/read',
   authenticateIfTokenPresent,
-  readCustomerConversation
+  readCustomerConversation,
 );
-router.get('/conversations/:conversationId', authenticateIfTokenPresent, getConversation);
+router.get(
+  '/conversations/:conversationId',
+  authenticateIfTokenPresent,
+  getConversation,
+);
 router.post('/session', startSession);
 router.post('/lead', saveLead);
 router.post('/tracker/verify', verifyPublicTracker);

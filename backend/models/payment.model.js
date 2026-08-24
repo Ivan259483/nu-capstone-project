@@ -30,6 +30,8 @@ const paymentSchema = new mongoose.Schema(
     },
     provider: { type: String, default: 'stripe' },
     providerReference: String,
+    /** Customer-facing reference supplied by an external tender such as GCash. */
+    paymentReference: { type: String, default: null },
     checkoutReference: { type: String, default: null },
     metadata: mongoose.Schema.Types.Mixed,
 
@@ -44,6 +46,7 @@ const paymentSchema = new mongoose.Schema(
       default: null,
     },
     cashReceived: { type: Number, default: null },
+    amountReceived: { type: Number, default: null },
     changeGiven: { type: Number, default: null },
     items: {
       type: [
@@ -79,6 +82,10 @@ paymentSchema.index({ order: 1, status: 1 });
 // Stripe & Maya webhook handlers look up by provider reference
 paymentSchema.index({ providerReference: 1 }, { sparse: true });
 paymentSchema.index({ checkoutReference: 1 }, { unique: true, sparse: true });
+paymentSchema.index(
+  { paymentReference: 1 },
+  { unique: true, partialFilterExpression: { paymentReference: { $type: 'string' } } }
+);
 // Customer payment history page
 paymentSchema.index({ customer: 1, createdAt: -1 });
 

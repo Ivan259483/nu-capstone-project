@@ -8,6 +8,8 @@ export const CANONICAL_CHAT_STATUSES = Object.freeze([
   'ai_handling',
   'needs_sales',
   'in_conversation',
+  'waiting_customer',
+  'booking_created',
   'resolved',
   'converted',
 ]);
@@ -68,20 +70,28 @@ export const createConversationId = () => {
 };
 
 export const buildConversationPreview = (message = '') => {
-  const text = String(message || '').trim().replace(/\s+/g, ' ');
+  const text = String(message || '')
+    .trim()
+    .replace(/\s+/g, ' ');
   if (!text) return '';
   if (text.length <= 120) return text;
   return `${text.slice(0, 117)}...`;
 };
 
 export const buildConversationTitleFromMessage = (message = '') => {
-  const text = String(message || '').trim().replace(/\s+/g, ' ');
+  const text = String(message || '')
+    .trim()
+    .replace(/\s+/g, ' ');
   if (!text) return 'AutoSPF+ Concierge';
   if (text.length <= 48) return text;
   return `${text.slice(0, 45)}...`;
 };
 
-export const findConversationForAccess = async ({ conversationId, userId, guestKey }) => {
+export const findConversationForAccess = async ({
+  conversationId,
+  userId,
+  guestKey,
+}) => {
   const id = String(conversationId || '').trim();
   if (!id) return null;
 
@@ -91,10 +101,12 @@ export const findConversationForAccess = async ({ conversationId, userId, guestK
       $or: [
         { userId },
         ...(guestKey
-          ? [{
-              guestKey,
-              $or: [{ userId: { $exists: false } }, { userId: null }],
-            }]
+          ? [
+              {
+                guestKey,
+                $or: [{ userId: { $exists: false } }, { userId: null }],
+              },
+            ]
           : []),
       ],
     }).lean();
@@ -120,10 +132,12 @@ export const listConversationsForCustomer = async ({
         $or: [
           { userId },
           ...(guestKey
-            ? [{
-                guestKey,
-                $or: [{ userId: { $exists: false } }, { userId: null }],
-              }]
+            ? [
+                {
+                  guestKey,
+                  $or: [{ userId: { $exists: false } }, { userId: null }],
+                },
+              ]
             : []),
         ],
       }
@@ -148,7 +162,9 @@ export const adoptLegacySessionAsConversation = async ({
   const sessionId = String(legacySessionId || '').trim();
   if (!sessionId) return null;
 
-  const existing = await ChatConversation.findOne({ conversationId: sessionId }).lean();
+  const existing = await ChatConversation.findOne({
+    conversationId: sessionId,
+  }).lean();
   if (existing) return existing;
 
   const hasMessages = await ChatMessage.exists({ sessionId });
@@ -160,7 +176,9 @@ export const adoptLegacySessionAsConversation = async ({
     .select('message createdAt sender')
     .lean();
 
-  const preview = buildConversationPreview(lastMessage?.message || 'Previous conversation');
+  const preview = buildConversationPreview(
+    lastMessage?.message || 'Previous conversation',
+  );
   const conversation = await ChatConversation.create({
     conversationId: sessionId,
     userId: userId || undefined,
@@ -175,7 +193,7 @@ export const adoptLegacySessionAsConversation = async ({
 
   await ChatMessage.updateMany(
     { sessionId, conversationId: { $exists: false } },
-    { $set: { conversationId: sessionId } }
+    { $set: { conversationId: sessionId } },
   );
 
   return conversation.toObject();
@@ -193,7 +211,11 @@ export const seedWelcomeMessage = async ({
     userId: userId || undefined,
     sender: 'assistant',
     message: welcomeText,
-    metadata: { type: 'concierge_welcome', intent: 'greeting', route: 'new_thread' },
+    metadata: {
+      type: 'concierge_welcome',
+      intent: 'greeting',
+      route: 'new_thread',
+    },
   });
 
   return message;
@@ -231,7 +253,7 @@ export const createFreshConversation = async ({
           source,
         },
       },
-      { upsert: true, new: true }
+      { upsert: true, new: true },
     ),
     ChatMessage.create({
       sessionId: conversationId,
@@ -239,7 +261,11 @@ export const createFreshConversation = async ({
       userId: userId || undefined,
       sender: 'assistant',
       message: welcomeText,
-      metadata: { type: 'concierge_welcome', intent: 'greeting', route: 'new_thread' },
+      metadata: {
+        type: 'concierge_welcome',
+        intent: 'greeting',
+        route: 'new_thread',
+      },
     }),
   ]);
 
@@ -251,7 +277,7 @@ export const createFreshConversation = async ({
 
 export const touchConversationActivity = async (
   conversationId,
-  { preview, at, title } = {}
+  { preview, at, title } = {},
 ) => {
   const update = {
     lastMessageAt: at || new Date(),
@@ -267,23 +293,25 @@ export const touchConversationActivity = async (
   return ChatConversation.findOneAndUpdate(
     { conversationId },
     { $set: update },
-    { new: true }
+    { new: true },
   ).lean();
 };
 
 export const maybeTitleConversationFromFirstUserMessage = async (
   conversationId,
-  message = ''
+  message = '',
 ) => {
   const text = String(message || '').trim();
   if (!text) return;
 
-  const conversation = await ChatConversation.findOne({ conversationId }).select('title').lean();
+  const conversation = await ChatConversation.findOne({ conversationId })
+    .select('title')
+    .lean();
   if (!conversation || conversation.title !== 'AutoSPF+ Concierge') return;
 
   await ChatConversation.updateOne(
     { conversationId },
-    { $set: { title: buildConversationTitleFromMessage(text) } }
+    { $set: { title: buildConversationTitleFromMessage(text) } },
   );
 };
 

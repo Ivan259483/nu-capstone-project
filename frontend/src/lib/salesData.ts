@@ -1,6 +1,6 @@
 // Backend integration point: replace all mock data with API calls
 export type TransactionStatus = 'completed' | 'pending' | 'processing' | 'voided';
-export type PaymentMethod = 'cash' | 'card' | 'gcash' | 'maya' | 'bank_transfer';
+export type PaymentMethod = 'cash' | 'card' | 'gcash' | 'maya' | 'bank_transfer' | 'unknown';
 
 export interface ServiceItem {
   id: string;
@@ -23,6 +23,33 @@ export interface Vehicle {
   year: number;
   color: string;
   type: string;
+}
+
+const VEHICLE_TYPE_LABELS: Record<string, string> = {
+  hatchback: 'Hatchback',
+  sedan: 'Sedan',
+  midsized: 'Midsize',
+  'mid-sized': 'Midsize',
+  midsize: 'Midsize',
+  suv: 'SUV',
+  pickup: 'Pickup',
+  'pick-up': 'Pickup',
+  'pick up': 'Pickup',
+  largesuv: 'Large SUV / Van',
+  'large suv': 'Large SUV / Van',
+  'large suv/van': 'Large SUV / Van',
+  van: 'Large SUV / Van',
+  highend: 'High-end Sedan',
+  'high-end': 'High-end Sedan',
+  'highend sedan': 'High-end Sedan',
+  'high-end sedan': 'High-end Sedan',
+};
+
+/** Keep backend vehicle enum values intact while presenting consistent cashier-facing labels. */
+export function formatVehicleTypeLabel(value?: string | null): string {
+  const raw = String(value || '').trim();
+  if (!raw) return 'Vehicle class not set';
+  return VEHICLE_TYPE_LABELS[raw.toLowerCase()] || raw.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 export interface Customer {
@@ -117,10 +144,85 @@ export const formatPeso = (amount: number) =>
 export const getPaymentMethodLabel = (method: PaymentMethod): string => {
   const map: Record<PaymentMethod, string> = {
     cash: 'Cash', card: 'Credit/Debit Card', gcash: 'GCash',
-    maya: 'Maya', bank_transfer: 'Bank Transfer',
+    maya: 'Maya', bank_transfer: 'Bank Transfer', unknown: 'Unknown',
   };
   return map[method];
 };
+
+/** Never infer Cash when the API has no recognized persisted method. */
+export function normalizePaymentMethod(value: unknown): PaymentMethod {
+  const normalized = typeof value === 'string'
+    ? value.trim().toLowerCase().replace(/[\s-]+/g, '_')
+    : '';
+  if (['cash', 'card', 'gcash', 'maya', 'bank_transfer'].includes(normalized)) {
+    return normalized as PaymentMethod;
+  }
+  return 'unknown';
+}
+
+export type TransactionPaymentFilter = 'all' | 'cash' | 'gcash';
+export const DEFAULT_TRANSACTION_PAYMENT_FILTER: TransactionPaymentFilter = 'all';
+
+export interface TransactionFilters {
+  search?: string;
+  status?: TransactionStatus | 'all';
+  paymentMethod?: TransactionPaymentFilter;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+/** Apply all Transactions-page filters to the same dataset before pagination/export. */
+export function filterTransactions(
+  transactions: Transaction[],
+  filters: TransactionFilters
+): Transaction[] {
+  const query = String(filters.search || '').trim().toLowerCase();
+  const from = filters.dateFrom ? new Date(`${filters.dateFrom}T00:00:00`).getTime() : null;
+  const to = filters.dateTo ? new Date(`${filters.dateTo}T23:59:59.999`).getTime() : null;
+
+  return transactions.filter((transaction) => {
+    const transactionTime = new Date(transaction.dateTime).getTime();
+    if (from !== null && (!Number.isFinite(transactionTime) || transactionTime < from)) return false;
+    if (to !== null && (!Number.isFinite(transactionTime) || transactionTime > to)) return false;
+    if (filters.status && filters.status !== 'all' && transaction.status !== filters.status) return false;
+    if (
+      filters.paymentMethod
+      && filters.paymentMethod !== 'all'
+      && transaction.paymentMethod !== filters.paymentMethod
+    ) return false;
+    if (!query) return true;
+
+    return (
+      transaction.id.toLowerCase().includes(query)
+      || transaction.customerName.toLowerCase().includes(query)
+      || transaction.vehiclePlate.toLowerCase().includes(query)
+      || transaction.services.some((service) => service.name.toLowerCase().includes(query))
+    );
+  });
+}
+
+const csvCell = (value: unknown): string =>
+  `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+/** Build the exact filtered CSV payload shown by the Transactions page. */
+export function transactionsToCsv(transactions: Transaction[]): string {
+  const headers = [
+    'Transaction ID', 'Customer', 'Vehicle Plate', 'Services', 'Amount',
+    'Payment Method', 'Status', 'Date', 'Staff',
+  ];
+  const rows = transactions.map((transaction) => [
+    transaction.id,
+    transaction.customerName,
+    transaction.vehiclePlate,
+    transaction.services.map((service) => service.name).join('; '),
+    transaction.total.toFixed(2),
+    getPaymentMethodLabel(transaction.paymentMethod),
+    formatTransactionStatusLabel(transaction.status, transaction.statusRaw),
+    new Date(transaction.dateTime).toLocaleString('en-PH'),
+    transaction.staffName,
+  ].map(csvCell).join(','));
+  return [headers.map(csvCell).join(','), ...rows].join('\n');
+}
 
 export const getStatusBadge = (status: TransactionStatus): string => {
   const map: Record<TransactionStatus, string> = {

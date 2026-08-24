@@ -59,18 +59,27 @@ export default function LoginScreen() {
     return () => clearInterval(timer);
   }, [isLocked, lockUntilMs]);
 
+  function clearAttemptState() {
+    setLoginAttempts(0);
+    setRemainingAttempts(null);
+    setIsLocked(false);
+    setLockUntilMs(null);
+    setLockCountdown('');
+  }
+
   async function handleLogin() {
     if (isLocked) { Toast.show(`Locked. Try again in ${lockCountdown}.`, 'error'); return; }
     setEmailError(''); setPasswordError(''); setAuthError('');
+    const normalizedEmail = email.trim().toLowerCase();
     let hasError = false;
-    if (!email) { setEmailError('Email is required'); hasError = true; }
-    else if (!Validation.isValidEmail(email)) { setEmailError('Please enter a valid email'); hasError = true; }
+    if (!normalizedEmail) { setEmailError('Email is required'); hasError = true; }
+    else if (!Validation.isValidEmail(normalizedEmail)) { setEmailError('Please enter a valid email'); hasError = true; }
     if (!password) { setPasswordError('Password is required'); hasError = true; }
     if (hasError) return;
 
     setLoading(true);
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const result = await signIn(email.trim().toLowerCase(), password);
+    const result = await signIn(normalizedEmail, password);
     if (result.success) {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setIsLocked(false); setLockUntilMs(null);
@@ -93,12 +102,11 @@ export default function LoginScreen() {
         setRemainingAttempts(0);
         Toast.show(result.message || 'Account locked for 15 minutes.', 'error');
       } else if (result.data?.remainingAttempts !== undefined) {
-        setLoginAttempts(result.data.loginAttempts ?? loginAttempts + 1);
+        setLoginAttempts(previous => result.data?.loginAttempts ?? previous + 1);
         setRemainingAttempts(result.data.remainingAttempts);
-        setAuthError('Invalid email or password.');
-        Toast.show(result.message || 'Invalid credentials.', 'error');
+        setPasswordError('Invalid email or password.');
       } else {
-        setAuthError('Invalid email or password.');
+        setAuthError(result.message || 'Invalid email or password.');
         Toast.show(result.message || 'Invalid credentials. Please try again.', 'error');
       }
     }
@@ -163,7 +171,13 @@ export default function LoginScreen() {
                   placeholder="Email address"
                   placeholderTextColor="rgba(255,255,255,0.28)"
                   value={email}
-                  onChangeText={t => { setEmail(t); setEmailError(''); setAuthError(''); }}
+                  onChangeText={t => {
+                    setEmail(t);
+                    setEmailError('');
+                    setPasswordError('');
+                    setAuthError('');
+                    clearAttemptState();
+                  }}
                   onFocus={() => setEmailFocused(true)}
                   onBlur={() => setEmailFocused(false)}
                   autoCapitalize="none"

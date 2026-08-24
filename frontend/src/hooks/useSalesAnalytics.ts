@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import api from '@/lib/api';
 import { getSharedSocket } from './useRealtimeSync';
 import type { Transaction, TransactionStatus, PaymentMethod } from '@/lib/salesData';
-import { isEncryptedPlateToken } from '@/lib/salesData';
+import { isEncryptedPlateToken, normalizePaymentMethod } from '@/lib/salesData';
 import {
   DASHBOARD_TIMEZONE,
   addCalendarDaysYmd,
@@ -21,14 +21,6 @@ function mapOrderStatusToCanonical(raw: string | undefined): TransactionStatus {
   if (['rejected', 'cancelled'].includes(x)) return 'voided';
   if (['pending_confirmation', 'pending'].includes(x)) return 'pending';
   return 'processing';
-}
-
-function normalizePaymentMethod(raw: string | undefined): PaymentMethod {
-  const x = String(raw || 'cash').toLowerCase().replace(/\s+/g, '_');
-  if (x === 'cash' || x === 'card' || x === 'gcash' || x === 'maya' || x === 'bank_transfer') {
-    return x as PaymentMethod;
-  }
-  return 'cash';
 }
 
 const asRecord = (value: unknown): Record<string, any> =>
@@ -279,9 +271,7 @@ export function useSalesAnalytics() {
             amountCollected,
             balanceRemaining,
             total: serviceTotal,
-            paymentMethod: normalizePaymentMethod(
-              payment.method || latestPayment.method || o.paymentMethod
-            ),
+            paymentMethod: normalizePaymentMethod(o.paymentMethod),
             status: mapOrderStatusToCanonical(rawStatus),
             statusRaw: rawStatus || undefined,
             dateTime: created,

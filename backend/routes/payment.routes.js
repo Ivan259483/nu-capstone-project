@@ -8,6 +8,7 @@ import {
   getSalesToday,
   getAllPayments,
   getMyPayments,
+  getCustomerPaymentSummary,
   createPOSTransaction,
   getReceiptData,
 } from '../controllers/payment.controller.js';
@@ -26,6 +27,7 @@ router.post('/stripe/confirm', confirmStripePayment);
 router.post('/local', createLocalPaymentPlaceholder);
 router.post('/pos', authorize(...POS_MANAGER_ROLES), createPOSTransaction);
 router.get('/sales/today', authorize(...POS_MANAGER_ROLES), getSalesToday);
+router.get('/customer/:customerId/summary', authorize(...POS_MANAGER_ROLES), getCustomerPaymentSummary);
 router.get('/:id/receipt', authorize(...POS_MANAGER_ROLES), getReceiptData);
 router.get('/', authorize(...POS_MANAGER_ROLES), getAllPayments);
 

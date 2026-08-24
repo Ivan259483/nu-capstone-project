@@ -6,6 +6,7 @@ import {
   ChevronDown, Filter,
 } from 'lucide-react';
 import { useSalesContext } from '@/contexts/SalesAnalyticsContext';
+import { getPaymentMethodLabel } from '@/lib/salesData';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatCurrency(n: number) {
@@ -163,7 +164,7 @@ export default function SalesReportsView() {
   const paymentBreakdown = useMemo(() => {
     const map: Record<string, { count: number; total: number }> = {};
     rangeFiltered.filter(t => t.status !== 'voided').forEach(t => {
-      const method = t.paymentMethod || 'cash';
+      const method = t.paymentMethod;
       if (!map[method]) map[method] = { count: 0, total: 0 };
       map[method].count += 1;
       map[method].total += t.total;
@@ -224,7 +225,7 @@ export default function SalesReportsView() {
       new Date(t.dateTime).toLocaleDateString('en-PH'),
       t.customerName,
       t.services.map(s => s.name).join('; '),
-      t.paymentMethod,
+      getPaymentMethodLabel(t.paymentMethod),
       t.status,
       t.total.toFixed(2),
     ]);

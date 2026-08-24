@@ -4,6 +4,9 @@ import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { apiClient } from '@/services/api/client';
 import { authStorage } from '@/services/storage/authStorage';
+import { useRouter } from 'expo-router';
+import { getNotificationRoute } from '@/utils/notificationNavigation';
+import { requestPushNotificationRefresh } from '@/utils/notificationEvents';
 
 // SDK 53+: remote push was removed from Expo Go on Android — importing the module throws.
 // Load only when push is actually available (dev build / standalone / iOS Expo Go).
@@ -11,6 +14,7 @@ const isExpoGoAndroid = Constants.appOwnership === 'expo' && Platform.OS === 'an
 
 type NotificationsModule = typeof import('expo-notifications');
 let Notifications: NotificationsModule | null = null;
+let registeredExpoPushToken: string | undefined;
 
 if (!isExpoGoAndroid) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -73,12 +77,28 @@ async function registerForPushNotificationsAsync() {
   return token;
 }
 
-export const usePushNotifications = (session?: unknown) => {
-  const [expoPushToken, setExpoPushToken] = useState<string | undefined>('');
+/** Detach only this installation before local credentials are cleared. */
+export async function unregisterCurrentPushToken(): Promise<void> {
+  const token = registeredExpoPushToken;
+  if (!token) return;
+  try {
+    await apiClient.delete('/users/push-token', { data: { token } });
+  } catch (error) {
+    if (__DEV__) console.warn('[PUSH] Device token could not be unregistered.', error);
+  } finally {
+    registeredExpoPushToken = undefined;
+  }
+}
+
+export const usePushNotifications = (authenticated = false) => {
+  const router = useRouter();
+  const [expoPushToken, setExpoPushToken] = useState<string | undefined>();
+  const notificationListener = useRef<{ remove: () => void } | null>(null);
   const responseListener = useRef<{ remove: () => void } | null>(null);
+  const lastHandledResponseId = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!session) return;
+    if (!authenticated) return;
     if (!Notifications) {
       if (isExpoGoAndroid) {
         console.warn(
@@ -88,8 +108,20 @@ export const usePushNotifications = (session?: unknown) => {
       return;
     }
 
+    let cancelled = false;
+
+    const openPushDestination = (response: any) => {
+      const request = response?.notification?.request;
+      const responseId = String(request?.identifier || '');
+      if (responseId && lastHandledResponseId.current === responseId) return;
+      if (responseId) lastHandledResponseId.current = responseId;
+      const data = request?.content?.data || {};
+      requestPushNotificationRefresh();
+      router.push(getNotificationRoute(data) as any);
+    };
+
     const setupToken = async () => {
-      await new Promise((r) => setTimeout(r, 500));
+      if (cancelled) return;
 
       const jwtUserToken = await authStorage.getToken();
       if (!jwtUserToken) {
@@ -98,12 +130,14 @@ export const usePushNotifications = (session?: unknown) => {
       }
 
       const token = await registerForPushNotificationsAsync();
+      if (cancelled) return;
       setExpoPushToken(token);
 
       if (token) {
         try {
           await apiClient.post('/users/push-token', { token });
-          console.log(`[PUSH] Token registered securely with AutoSPF+ Backend: ${token}`);
+          registeredExpoPushToken = token;
+          if (__DEV__) console.log('[PUSH] Device token registered with AutoSPF+ backend.');
         } catch (error: any) {
           const status = error?.response?.status;
           if (status === 401) {
@@ -117,14 +151,21 @@ export const usePushNotifications = (session?: unknown) => {
 
     setupToken();
 
-    responseListener.current = Notifications.addNotificationResponseReceivedListener((response: unknown) => {
-      console.log('User tapped push notification:', response);
+    notificationListener.current = Notifications.addNotificationReceivedListener(() => {
+      requestPushNotificationRefresh();
+    });
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(openPushDestination);
+
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!cancelled && response) openPushDestination(response);
     });
 
     return () => {
+      cancelled = true;
+      notificationListener.current?.remove();
       responseListener.current?.remove();
     };
-  }, [session]);
+  }, [authenticated, router]);
 
   return { expoPushToken };
 };

@@ -14,13 +14,16 @@
  */
 
 import { getIO } from './socket.utils.js';
-import { sendExpoPushNotification } from './push.utils.js';
 import { reserveInventory, commitReservation, releaseReservation } from './inventory.utils.js';
 import User from '../models/user.model.js';
-import Notification from '../models/notification.model.js';
 import { logActivity } from './logActivity.utils.js';
-import { createCustomerStageNotification } from './customerStageNotifications.utils.js';
+import {
+  createCustomerBookingCancelledNotification,
+  createCustomerPaymentConfirmedNotification,
+  createCustomerStageNotification,
+} from './customerStageNotifications.utils.js';
 import { notifyCustomerReceiptReady } from './customerReceiptNotification.utils.js';
+import { createCustomerNotification } from '../services/customerNotification.service.js';
 import {
   buildAdminDeepLink,
   buildAdminGroupingKey,
@@ -49,33 +52,6 @@ const getCustomerId = (order) => {
   return typeof order.customer === 'object'
     ? order.customer._id?.toString() || order.customer.toString()
     : order.customer.toString();
-};
-
-const pushToCustomer = async (order, title, body, data = {}) => {
-  try {
-    const customerId = getCustomerId(order);
-    if (!customerId) return;
-
-    const customer = await User.findById(customerId);
-    if (customer?.expoPushTokens?.length) {
-      await sendExpoPushNotification(customer.expoPushTokens, title, body, {
-        orderId: order._id?.toString(),
-        ...data,
-      });
-    }
-  } catch (err) {
-    console.warn('[WORKFLOW] Push notification failed:', err.message);
-  }
-};
-
-const createNotification = async ({ title, message, type = 'booking', recipientRole = 'admin_family', recipientUserId = null, link, metadata }) => {
-  try {
-    const notification = await Notification.create({ title, message, type, recipientRole, recipientUserId, link, metadata });
-    return notification;
-  } catch (err) {
-    console.error('[WORKFLOW] Notification creation failed:', err.message);
-    return null;
-  }
 };
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -206,10 +182,7 @@ async function onConfirmed(order, orderRef, customerId, rooms, actor) {
     console.error('[WORKFLOW] Admin queue notification failed:', err.message);
   }
 
-  // 6. Customer push notification
-  await pushToCustomer(order, 'Booking Confirmed ✓', `Your AutoSPF+ appointment (${orderRef}) is confirmed! We'll notify you when your vehicle check-in begins.`);
-
-  // 7. Customer in-app/email notification, idempotent with controller-created records
+  // 6. Customer database/socket/push/email notification (idempotent).
   if (customerId) {
     await createCustomerStageNotification(order, 'confirmed');
   }
@@ -235,7 +208,6 @@ async function onCheckedIn(order, orderRef, customerId, rooms) {
     timestamp: new Date().toISOString(),
   }, rooms);
 
-  await pushToCustomer(order, 'Vehicle Received', `Your vehicle has been checked in at AutoSPF+. Our team is preparing your service.`);
   if (customerId) {
     await createCustomerStageNotification(order, 'received');
   }
@@ -294,7 +266,6 @@ async function onServiceStarted(order, orderRef, customerId, rooms) {
     console.error('[WORKFLOW] Service-start notification failed:', err.message);
   }
 
-  await pushToCustomer(order, 'Service Started 🔧', `Our team has started working on your vehicle!`);
   if (customerId) {
     await createCustomerStageNotification(order, 'in_progress');
   }
@@ -339,7 +310,12 @@ async function onQCComplete(order, orderRef, customerId, rooms) {
     console.error('[WORKFLOW] Completion notification failed:', err.message);
   }
 
-  await pushToCustomer(order, 'Quality Check Complete ✅', `Your vehicle has passed our quality inspection! Final settlement is being prepared.`);
+  if (customerId) {
+    await createCustomerStageNotification(
+      order,
+      order.serviceTrackingStage === 'ready_pickup' ? 'ready_pickup' : 'quality_check'
+    );
+  }
 
   console.log(`[WORKFLOW] ✅ ${orderRef}: QC complete → customerStatus=finishing`);
 }
@@ -383,7 +359,12 @@ async function onPaid(order, orderRef, customerId, rooms) {
     timestamp: new Date().toISOString(),
   }, rooms);
 
-  await pushToCustomer(order, 'Payment Confirmed 💳', `Payment received for your booking ${orderRef}. Your vehicle is ready for release!`);
+  if (customerId) {
+    await createCustomerPaymentConfirmedNotification(order, {
+      invoiceId: order.invoiceId,
+      amount: order.totalPrice || order.totalAmount,
+    });
+  }
 
   // 5. Auto-send digital receipt email
   try {
@@ -417,8 +398,6 @@ async function onReleased(order, orderRef, customerId, rooms) {
   if (customerId) {
     await createCustomerStageNotification(order, 'released');
   }
-
-  await pushToCustomer(order, 'Vehicle Released! 🚗', `Your vehicle is ready for pickup. Thank you for choosing AutoSPF+!`);
 
   console.log(`[WORKFLOW] ✅ ${orderRef}: Released → customerStatus=completed, customer notified`);
 }
@@ -460,7 +439,9 @@ async function onCancelled(order, orderRef, customerId, rooms) {
     console.error('[WORKFLOW] Cancellation notification failed:', err.message);
   }
 
-  await pushToCustomer(order, 'Booking Cancelled', `Your booking ${orderRef} has been cancelled. Contact us if you have questions.`);
+  if (customerId) {
+    await createCustomerBookingCancelledNotification(order);
+  }
 
   console.log(`[WORKFLOW] ✅ ${orderRef}: Cancelled → Inventory released`);
 }
@@ -497,27 +478,19 @@ async function awardLoyaltyPoints(order) {
 
   // Notify customer about points
   try {
-    const notif = await createNotification({
+    await createCustomerNotification({
+      userId: customerId,
       title: `+${pointsEarned} Loyalty Points`,
       message: `You earned ${pointsEarned} loyalty points from your booking!${previousTier !== newTier ? ` You've been upgraded to ${newTier} tier! 🎉` : ''}`,
-      type: 'success',
-      recipientRole: 'customer',
-      recipientUserId: customerId,
+      type: 'system',
+      event: 'loyalty_points_earned',
+      category: 'system',
       link: '/customer/dashboard?tab=loyalty',
-      metadata: { customerId, pointsEarned, totalPoints: currentPoints, tier: newTier },
+      actionType: 'profile',
+      actionLabel: 'View profile',
+      eventKey: `customer:${customerId}:order:${order._id}:event:loyalty_points_earned`,
+      metadata: { orderId: order._id, pointsEarned, totalPoints: currentPoints, tier: newTier },
     });
-    if (notif) {
-      try {
-        getIO().to(`user:${customerId}`).emit('notification:customer', {
-          id: notif._id,
-          title: notif.title,
-          message: notif.message,
-          type: notif.type,
-          isRead: false,
-          createdAt: notif.createdAt,
-        });
-      } catch (_) { /* socket may not be connected */ }
-    }
   } catch (_) { /* non-fatal */ }
 }
 
@@ -528,7 +501,7 @@ async function awardLoyaltyPoints(order) {
 async function sendReceiptEmail(order, orderRef) {
   const customerId = getCustomerId(order);
   if (!customerId) return;
-  if (order.invoiceId) return;
+  if (!order.invoiceId) return;
 
   const notification = await notifyCustomerReceiptReady({
     customerId,

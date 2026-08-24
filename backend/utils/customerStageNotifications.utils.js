@@ -2,10 +2,10 @@ import Notification from '../models/notification.model.js';
 import Order from '../models/order.model.js';
 import User from '../models/user.model.js';
 import Customer from '../models/customer.model.js';
-import { getIO } from './socket.utils.js';
 import { countGatePhotos, REQUIRED_GATE_PHOTOS } from './trackerGatePhotos.utils.js';
 import { computeOrderBalanceDue } from './readyPickupPaymentFlow.utils.js';
 import { sendCustomerNotificationEmail } from './mail.utils.js';
+import { createCustomerNotification } from '../services/customerNotification.service.js';
 
 const EMAIL_STATUSES = {
   PENDING: 'pending',
@@ -29,17 +29,17 @@ const MEDIA_EMAIL_STAGES = new Set(['received', 'in_progress', 'quality_check', 
 
 export const CUSTOMER_STAGE_MESSAGES = {
   confirmed: {
-    title: 'Appointment Confirmed',
+    title: 'Booking Confirmed',
     subject: 'Your AutoSPF+ appointment is confirmed',
     stageLabel: 'Appointment confirmed',
   },
   received: {
-    title: 'Vehicle Arrived',
+    title: 'Vehicle Received',
     subject: 'Your vehicle has arrived at the shop',
     stageLabel: 'Vehicle arrived',
   },
   in_progress: {
-    title: 'Service In Progress',
+    title: 'Service Started',
     subject: 'Service has started on your vehicle',
     stageLabel: 'Service in progress',
   },
@@ -123,6 +123,23 @@ function receiptLink(orderId) {
   return `/customer/dashboard?section=payments&receiptOrderId=${encodeURIComponent(idOf(orderId))}`;
 }
 
+function formatAppointmentSchedule(order) {
+  const date = String(order?.bookingDate || '').trim();
+  const time = String(order?.bookingTime || '').trim();
+  if (!date) return '';
+  const normalizedTime = /^\d{2}:\d{2}$/.test(time) ? `${time}:00` : (time || '09:00:00');
+  const scheduledAt = new Date(`${date}T${normalizedTime}+08:00`);
+  if (Number.isNaN(scheduledAt.getTime())) return [date, time].filter(Boolean).join(' at ');
+  return new Intl.DateTimeFormat('en-PH', {
+    timeZone: 'Asia/Manila',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(scheduledAt);
+}
+
 function buildIdempotencyKey({ customerId, orderId, kind, stage }) {
   return `customer:${idOf(customerId)}:order:${idOf(orderId)}:kind:${kind}:stage:${stage || 'none'}`;
 }
@@ -174,27 +191,6 @@ async function resolveCustomerContact(order, spec) {
     email: String(user?.email || '').trim(),
     disabled,
   };
-}
-
-function emitCustomerNotification(customerId, notification) {
-  try {
-    if (!customerId || !notification) return;
-    const io = getIO();
-    io.to(`user:${idOf(customerId)}`).emit('notification:customer', {
-      id: notification._id,
-      title: notification.title,
-      message: notification.message,
-      type: notification.type,
-      priority: notification.priority,
-      isRead: notification.isRead === false ? false : Boolean(notification.isRead),
-      createdAt: notification.createdAt,
-      updatedAt: notification.updatedAt,
-      link: notification.link,
-      metadata: notification.metadata,
-    });
-  } catch (_) {
-    /* socket optional */
-  }
 }
 
 async function markEmailSkipped(notificationId, reason, subject) {
@@ -256,16 +252,21 @@ async function maybeSendEmail({ notification, order, spec }) {
 
   if (!claimed) return notification;
 
-  const result = await customerNotificationEmailSender({
-    to: contact.email,
-    spec: {
-      ...spec,
-      subject,
-      emailSubject: subject,
-      link: spec.link,
-    },
-    idempotencyKey: spec.idempotencyKey,
-  });
+  let result;
+  try {
+    result = await customerNotificationEmailSender({
+      to: contact.email,
+      spec: {
+        ...spec,
+        subject,
+        emailSubject: subject,
+        link: spec.link,
+      },
+      idempotencyKey: spec.idempotencyKey,
+    });
+  } catch (error) {
+    result = { success: false, error: error.message || 'Email send failed' };
+  }
 
   if (result?.success) {
     return Notification.findByIdAndUpdate(
@@ -299,85 +300,56 @@ async function maybeSendEmail({ notification, order, spec }) {
   );
 }
 
-async function upsertNotificationFromSpec(spec, { reactivateUnread = false } = {}) {
-  const now = new Date();
-  const update = {
-    $setOnInsert: {
+async function persistAndNotify(order, spec, options = {}) {
+  return createCustomerNotification(
+    {
+      userId: spec.customerId,
       title: spec.title,
       message: spec.message,
-      type: spec.type || 'booking',
-      priority: spec.priority || 'normal',
-      recipientRole: 'customer',
-      recipientUserId: spec.customerId,
+      type: spec.type,
+      event: spec.event || spec.type,
+      category: spec.category,
+      priority: spec.priority,
       link: spec.link,
-      'metadata.customerId': idOf(spec.customerId),
-      'metadata.orderId': idOf(spec.orderId),
-      'metadata.kind': spec.kind,
-      'metadata.stage': spec.stage || null,
-      'metadata.idempotencyKey': spec.idempotencyKey,
-      'metadata.serviceName': spec.serviceName,
-      'metadata.vehicle': spec.vehicle,
-      'metadata.bookingReference': spec.bookingReference,
-      'metadata.orderNumber': spec.orderNumber || null,
-      'metadata.amount': spec.amount || null,
-      'metadata.emailStatus': spec.emailWorthy ? EMAIL_STATUSES.PENDING : EMAIL_STATUSES.SKIPPED,
-      'metadata.emailSent': false,
-      'metadata.emailSubject': spec.emailSubject || null,
-      'metadata.emailSkippedReason': spec.emailWorthy ? null : (spec.emailSkippedReason || 'not_email_worthy'),
-    },
-    $set: {
-      updatedAt: now,
-      'metadata.mediaCount': spec.mediaCount || 0,
-      'metadata.latestStatus': spec.status || null,
-      'metadata.latestStage': spec.stage || null,
-      'metadata.paymentStatus': spec.paymentStatus || null,
-      'metadata.balanceDue': spec.balanceDue ?? null,
-      'metadata.emailCategory': spec.emailCategory,
-      'metadata.emailWorthy': Boolean(spec.emailWorthy),
-      ...Object.fromEntries(
-        Object.entries(spec.metadata || {}).map(([key, value]) => [`metadata.${key}`, value])
-      ),
-    },
-  };
-
-  if (reactivateUnread) {
-    update.$set.isRead = false;
-  } else {
-    update.$setOnInsert.isRead = false;
-  }
-
-  try {
-    return await Notification.findOneAndUpdate(
-      {
-        recipientUserId: spec.customerId,
-        'metadata.idempotencyKey': spec.idempotencyKey,
+      actionType: spec.actionType,
+      actionId: spec.actionId || spec.orderId,
+      actionLabel: spec.ctaLabel,
+      eventKey: spec.idempotencyKey,
+      insertMetadata: {
+        orderId: idOf(spec.orderId),
+        kind: spec.kind,
+        stage: spec.stage || null,
+        serviceName: spec.serviceName,
+        vehicle: spec.vehicle,
+        bookingReference: spec.bookingReference,
+        orderNumber: spec.orderNumber || null,
+        amount: spec.amount || null,
+        emailStatus: spec.emailWorthy ? EMAIL_STATUSES.PENDING : EMAIL_STATUSES.SKIPPED,
+        emailSent: false,
+        emailSubject: spec.emailSubject || null,
+        emailSkippedReason: spec.emailWorthy ? null : (spec.emailSkippedReason || 'not_email_worthy'),
       },
-      update,
-      {
-        upsert: true,
-        new: true,
-        setDefaultsOnInsert: true,
-      }
-    );
-  } catch (error) {
-    if (error?.code !== 11000) throw error;
-    return Notification.findOneAndUpdate(
-      {
-        recipientUserId: spec.customerId,
-        'metadata.idempotencyKey': spec.idempotencyKey,
+      metadata: {
+        orderId: idOf(spec.orderId),
+        kind: spec.kind,
+        stage: spec.stage || null,
+        mediaCount: spec.mediaCount || 0,
+        latestStatus: spec.status || null,
+        latestStage: spec.stage || null,
+        paymentStatus: spec.paymentStatus || null,
+        balanceDue: spec.balanceDue ?? null,
+        emailCategory: spec.emailCategory,
+        emailWorthy: Boolean(spec.emailWorthy),
+        ctaLabel: spec.ctaLabel,
+        ctaPath: spec.ctaPath,
+        ...(spec.metadata || {}),
       },
-      { $set: update.$set },
-      { new: true }
-    );
-  }
-}
-
-async function persistAndNotify(order, spec, options = {}) {
-  const notification = await upsertNotificationFromSpec(spec, options);
-  const withEmailMetadata = await maybeSendEmail({ notification, order, spec });
-  const finalNotification = withEmailMetadata || notification;
-  emitCustomerNotification(spec.customerId, finalNotification);
-  return finalNotification;
+    },
+    {
+      reactivateUnread: options.reactivateUnread,
+      afterPersist: (notification) => maybeSendEmail({ notification, order, spec }),
+    }
+  );
 }
 
 async function readyPickupEligibility(order, explicitBalanceDue) {
@@ -410,7 +382,8 @@ function stageMessage(order, stage, mediaCount) {
   const vehicle = vehicleLabel(order);
   const ref = bookingRef(order);
   if (stage === 'confirmed') {
-    return `Your ${service} appointment for ${vehicle} is confirmed. Reference ${ref}. View your booking details.`;
+    const schedule = formatAppointmentSchedule(order);
+    return `Your ${service} appointment for ${vehicle} is confirmed${schedule ? ` for ${schedule}` : ''}. Reference ${ref}.`;
   }
   if (stage === 'received') {
     return mediaCount > 0
@@ -445,6 +418,15 @@ function buildStageSpec(order, stage, { emailWorthy = EMAIL_WORTHY_KINDS.has(sta
   const mediaCount = stageMediaCount(order, stage);
   const kind = stage;
   const idempotencyKey = buildIdempotencyKey({ customerId, orderId, kind, stage });
+  const eventByStage = {
+    confirmed: 'booking_confirmed',
+    received: 'vehicle_received',
+    in_progress: 'service_started',
+    quality_check: 'service_progress',
+    ready_pickup: 'service_completed',
+    released: 'service_completed',
+  };
+  const event = eventByStage[stage] || 'service_progress';
 
   return {
     customerId,
@@ -454,11 +436,15 @@ function buildStageSpec(order, stage, { emailWorthy = EMAIL_WORTHY_KINDS.has(sta
     idempotencyKey,
     title: def.title,
     message: stageMessage(order, stage, mediaCount),
-    type: stage === 'released' ? 'success' : 'booking',
+    type: event,
+    event,
+    category: stage === 'confirmed' ? 'important' : 'service',
     priority: stage === 'ready_pickup' ? 'high' : 'normal',
     link: trackerLink(orderId, stage),
     ctaPath: trackerLink(orderId, stage),
     ctaLabel: stage === 'confirmed' ? 'View booking' : 'Open live tracker',
+    actionType: stage === 'confirmed' ? 'booking' : 'tracking',
+    actionId: idOf(orderId),
     emailSubject: def.subject,
     emailCategory: kind,
     emailWorthy,
@@ -494,11 +480,15 @@ async function buildPaymentDueSpec(order, { balanceDue, emailWorthy = true, emai
     message: amountLabel
       ? `Your vehicle passed inspection and is ready for final payment/pickup. Remaining balance: ${amountLabel}.`
       : `Your vehicle passed inspection and is ready for final payment/pickup.`,
-    type: 'warning',
+    type: 'payment_required',
+    event: 'payment_required',
+    category: 'important',
     priority: 'high',
     link: paymentLink(orderId),
     ctaPath: paymentLink(orderId),
     ctaLabel: 'View payment update',
+    actionType: 'payment',
+    actionId: idOf(orderId),
     emailSubject: 'Payment update for your AutoSPF+ booking',
     emailCategory: kind,
     emailWorthy,
@@ -538,11 +528,15 @@ function buildReceiptSpec(order, data = {}) {
     message: amountLabel
       ? `Payment recorded. Your receipt is ready for ${ref} (${amountLabel}).${invoiceLabel}`
       : `Payment recorded. Your receipt is ready for ${ref}.${invoiceLabel}`,
-    type: 'success',
+    type: 'receipt_available',
+    event: 'receipt_available',
+    category: 'important',
     priority: 'normal',
     link: receiptLink(orderId),
     ctaPath: receiptLink(orderId),
     ctaLabel: 'View receipt',
+    actionType: 'receipt',
+    actionId: idOf(orderId),
     emailSubject: 'Your AutoSPF+ receipt is ready',
     emailCategory: kind,
     emailWorthy: data.emailWorthy !== false,
@@ -600,11 +594,15 @@ async function buildMediaSpec(order, stage) {
     idempotencyKey,
     title: `${def?.title || 'Tracker'} Evidence Available`,
     message: evidenceCopy[stage],
-    type: 'booking',
+    type: 'service_progress',
+    event: 'service_progress',
+    category: 'service',
     priority: stage === 'ready_pickup' ? 'high' : 'normal',
     link: trackerLink(orderId, stage),
     ctaPath: trackerLink(orderId, stage),
     ctaLabel: 'View evidence',
+    actionType: 'tracking',
+    actionId: idOf(orderId),
     emailSubject: def?.subject || 'New AutoSPF+ tracker evidence is available',
     emailCategory: kind,
     emailWorthy: !transitionAlreadyMentionedEvidence,
@@ -618,6 +616,170 @@ async function buildMediaSpec(order, stage) {
     paymentStatus: order.paymentStatus || null,
     mediaCount,
   };
+}
+
+async function createOrderEventNotification(orderOrId, {
+  event,
+  category = 'important',
+  title,
+  message,
+  actionType = 'booking',
+  actionLabel = 'View booking',
+  eventSuffix = event,
+  metadata = {},
+  priority = 'normal',
+}) {
+  const order = await getLatestOrder(orderOrId);
+  if (!order) return null;
+  const customerId = getOrderCustomerId(order);
+  if (!customerId) return null;
+  const orderId = idOf(order._id);
+  const eventKey = `customer:${idOf(customerId)}:order:${orderId}:event:${eventSuffix}`;
+  const link = actionType === 'payment' || actionType === 'receipt'
+    ? paymentLink(orderId)
+    : trackerLink(orderId, event);
+
+  return createCustomerNotification({
+    userId: customerId,
+    title,
+    message,
+    type: event,
+    event,
+    category,
+    priority,
+    link,
+    actionType,
+    actionId: orderId,
+    actionLabel,
+    eventKey,
+    metadata: {
+      orderId,
+      bookingReference: bookingRef(order),
+      serviceName: serviceLabel(order),
+      vehicle: vehicleLabel(order),
+      kind: event,
+      ...metadata,
+    },
+  });
+}
+
+export async function createCustomerBookingCancelledNotification(orderOrId, reason = '') {
+  const order = await getLatestOrder(orderOrId);
+  if (!order) return null;
+  const ref = bookingRef(order);
+  const cleanReason = String(reason || '').trim();
+  return createOrderEventNotification(order, {
+    event: 'booking_cancelled',
+    title: 'Booking Cancelled',
+    message: `Your booking ${ref} has been cancelled.${cleanReason ? ` Reason: ${cleanReason}.` : ''}`,
+    eventSuffix: 'booking_cancelled',
+    metadata: { cancellationReason: cleanReason || null },
+  });
+}
+
+export async function createCustomerBookingRescheduledNotification(orderOrId, previous = {}) {
+  const order = await getLatestOrder(orderOrId);
+  if (!order) return null;
+  const schedule = formatAppointmentSchedule(order);
+  const slotKey = `${order.bookingDate || ''}:${order.bookingTime || ''}`;
+  return createOrderEventNotification(order, {
+    event: 'booking_rescheduled',
+    title: 'Booking Rescheduled',
+    message: `Your ${serviceLabel(order)} appointment has been rescheduled${schedule ? ` to ${schedule}` : ''}.`,
+    eventSuffix: `booking_rescheduled:${slotKey}`,
+    metadata: {
+      oldDate: previous.date || previous.oldDate || null,
+      oldTime: previous.time || previous.oldTime || null,
+      newDate: order.bookingDate || null,
+      newTime: order.bookingTime || null,
+    },
+  });
+}
+
+export async function createCustomerBookingRejectedNotification(orderOrId, reason = '') {
+  const order = await getLatestOrder(orderOrId);
+  if (!order) return null;
+  const cleanReason = String(reason || '').trim();
+  return createOrderEventNotification(order, {
+    event: 'booking_cancelled',
+    title: 'Appointment Not Approved',
+    message: `Your booking ${bookingRef(order)} was not approved.${cleanReason ? ` Reason: ${cleanReason}.` : ''}`,
+    eventSuffix: 'booking_rejected',
+    metadata: { rejectionReason: cleanReason || null, status: 'rejected' },
+  });
+}
+
+export async function createCustomerServiceProgressNotification(orderOrId, progress) {
+  const order = await getLatestOrder(orderOrId);
+  if (!order) return null;
+  const normalized = Math.max(0, Math.min(100, Math.round(Number(progress))));
+  if (!Number.isFinite(normalized)) return null;
+  return createOrderEventNotification(order, {
+    event: normalized >= 100 ? 'service_completed' : 'service_progress',
+    category: 'service',
+    title: normalized >= 100 ? 'Service Completed' : 'Service Update',
+    message: normalized >= 100
+      ? `Your ${serviceLabel(order)} service has been completed.`
+      : `Your ${serviceLabel(order)} service is now ${normalized}% complete.`,
+    actionType: 'tracking',
+    actionLabel: 'Track service',
+    eventSuffix: `service_progress:${normalized}`,
+    metadata: { progress: normalized },
+  });
+}
+
+export async function createCustomerDamageReportNotification(orderOrId) {
+  const order = await getLatestOrder(orderOrId);
+  if (!order) return null;
+  return createOrderEventNotification(order, {
+    event: 'damage_report_ready',
+    category: 'service',
+    title: 'Damage Report Ready',
+    message: `The pre-service condition report for ${vehicleLabel(order)} is ready to review.`,
+    actionType: 'damage_report',
+    actionLabel: 'View damage report',
+    eventSuffix: 'damage_report_ready',
+  });
+}
+
+export async function createCustomerPaymentConfirmedNotification(orderOrId, payment = {}) {
+  const order = await getLatestOrder(orderOrId);
+  if (!order) return null;
+  const paymentId = idOf(payment._id || payment.paymentId);
+  const invoiceId = String(payment.invoiceId || order.invoiceId || '').trim();
+  const amount = Number(payment.amount ?? order.totalPrice ?? order.totalAmount ?? 0);
+  const amountLabel = formatCurrency(amount);
+  return createOrderEventNotification(order, {
+    event: 'payment_confirmed',
+    title: 'Payment Confirmed',
+    message: `Your payment${amountLabel ? ` of ${amountLabel}` : ''} was confirmed${invoiceId ? ` for ${invoiceId}` : ''}.`,
+    actionType: 'receipt',
+    actionLabel: 'View receipt',
+    // Controllers and workflow hooks may observe the same settlement through
+    // different records. The invoice/order key keeps that one transaction to
+    // one customer notification while retaining paymentId as metadata.
+    eventSuffix: `payment_confirmed:${invoiceId || 'order'}`,
+    metadata: { paymentId: paymentId || null, invoiceId: invoiceId || null, amount },
+  });
+}
+
+export async function createCustomerTechnicianAssignedNotification(orderOrId) {
+  const order = await getLatestOrder(orderOrId);
+  if (!order) return null;
+  const assignedId = idOf(order.assignedDetailer?._id || order.assignedDetailer) || 'assigned';
+  return createOrderEventNotification(order, {
+    event: 'service_progress',
+    category: 'service',
+    title: 'Technician Assigned',
+    message: 'A technician has been assigned to your vehicle. You can follow service updates in Live Tracking.',
+    actionType: 'tracking',
+    actionLabel: 'Track service',
+    eventSuffix: `technician_assigned:${assignedId}`,
+    metadata: {
+      assignedDetailerId: assignedId,
+      paymentStatus: order.paymentStatus || null,
+    },
+  });
 }
 
 export async function createCustomerPaymentDueNotification(orderOrId, options = {}) {

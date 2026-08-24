@@ -117,6 +117,8 @@ export const normalizeBooking = (raw: any): Booking => {
         additionalFees: raw?.additionalFees,
         serviceTotal: raw?.serviceTotal,
         amountCollected: raw?.amountCollected,
+        downPaymentAmount: raw?.downPaymentAmount,
+        finalPaymentAmount: raw?.finalPaymentAmount,
         totalPrice: raw?.totalPrice,
         totalAmount: raw?.totalAmount,
         invoiceId: raw?.invoiceId,

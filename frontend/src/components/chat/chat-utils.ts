@@ -21,7 +21,6 @@ export interface PublicTrackerSummary {
         role?: string;
     }>;
 }
-
 export type ChatAgentImageValue =
     | string
     | {
@@ -39,6 +38,13 @@ export interface ChatMessage {
     senderAvatarUrl?: string;
     message: string;
     createdAt?: string;
+    delivery?: {
+        status: 'sending' | 'sent' | 'failed';
+        code?: string;
+        message?: string;
+        retryable?: boolean;
+        requestId?: string;
+    };
     meta?: {
         type?: string;
         senderAvatarUrl?: ChatAgentImageValue;

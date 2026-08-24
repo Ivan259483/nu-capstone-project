@@ -5,19 +5,22 @@ import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
   BadgeCheck,
-  Banknote,
   Calendar,
   Car,
+  Check,
   CheckCircle2,
   ClipboardCheck,
   Clock,
   Eye,
+  Filter,
   Hash,
   Image as ImageIcon,
+  Maximize2,
+  Minimize2,
   Phone,
   ReceiptText,
   RefreshCw,
-  Search,
+  RotateCw,
   ShieldCheck,
   Smartphone,
   TrendingUp,
@@ -25,6 +28,8 @@ import {
   WalletCards,
   X,
   XCircle,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { OrderService, normalizeBooking } from '@/lib/order-service';
@@ -56,6 +61,16 @@ async function apiPatch(url: string, body?: object) {
 
 const formatMoney = (amount: number) => moneyFormatter.format(Number.isFinite(amount) ? amount : 0);
 
+const formatDateTime = (value: unknown, options?: Intl.DateTimeFormatOptions) => {
+  if (!value) return '';
+  const date = new Date(value as string);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-PH', {
+    timeZone: 'Asia/Manila',
+    ...options,
+  }).format(date);
+};
+
 const toTitleCase = (str: string) =>
   str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase());
 
@@ -73,6 +88,35 @@ const formatPlate = (value: unknown, fallback = '—') => {
 };
 
 const getProofUrl = (booking: any) => booking.paymentProofUrl || booking.downpaymentProof || '';
+
+const getReservationPayment = (booking: any) => {
+  const stored = Number(booking?.downPaymentAmount);
+  return Number.isFinite(stored) && stored > 0 ? stored : DOWNPAYMENT;
+};
+
+const getReference = (booking: any) =>
+  booking.bookingReference || booking.orderNumber || String(booking._id || booking.id || '').slice(-8) || '—';
+
+function isPastAppointmentDate(booking: any): boolean {
+  const raw = String(booking.bookingDate || booking.date || '').trim();
+  if (!raw) return false;
+
+  const todayParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const getPart = (type: Intl.DateTimeFormatPartTypes) =>
+    todayParts.find((part) => part.type === type)?.value || '';
+  const today = `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw < today;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const parsedDate = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+  return parsedDate < today;
+}
 
 /** Stable Mongo ObjectId string for API paths (avoids `[object Object]` from EJSON `$oid` shapes). */
 function mongoOrderIdString(booking: { _id?: unknown; id?: unknown }): string {
@@ -118,6 +162,7 @@ async function loadBookingWithProof(
 
   const res = s0.value;
   const pr = s1.status === 'fulfilled' ? s1.value : { success: false as const, data: undefined };
+  const proofLoadFailed = s1.status === 'rejected' || !pr?.success;
   const d = res?.data as Record<string, unknown> | undefined;
   const pd = (pr?.success && pr?.data ? pr.data : {}) as {
     downpaymentProof?: string;
@@ -139,7 +184,7 @@ async function loadBookingWithProof(
         d?.paymentProofUrl
     ),
   };
-  return { merged };
+  return { merged, error: proofLoadFailed ? 'Unable to load payment proof.' : undefined };
 }
 const APPROVAL_PENDING_STATUSES = ['pending_confirmation'];
 const APPROVAL_APPROVED_STATUSES = ['approved', 'confirmed'];
@@ -208,52 +253,74 @@ function sortPendingApprovalsFifo(list: any[]): any[] {
   });
 }
 
+type PendingSort = 'oldest' | 'newest' | 'appointment' | 'amount' | 'method';
+
+function sortPendingApprovals(list: any[], sort: PendingSort): any[] {
+  const fifo = sortPendingApprovalsFifo(list);
+  if (sort === 'oldest') return fifo;
+
+  return [...fifo].sort((a, b) => {
+    if (sort === 'newest') return approvalFifoTimestamp(b) - approvalFifoTimestamp(a);
+    if (sort === 'appointment') {
+      const aValue = `${a.bookingDate || a.date || '9999-12-31'} ${a.bookingTime || a.time || ''}`;
+      const bValue = `${b.bookingDate || b.date || '9999-12-31'} ${b.bookingTime || b.time || ''}`;
+      return aValue.localeCompare(bValue) || approvalFifoTimestamp(a) - approvalFifoTimestamp(b);
+    }
+    if (sort === 'amount') {
+      return getReservationPayment(b) - getReservationPayment(a) || approvalFifoTimestamp(a) - approvalFifoTimestamp(b);
+    }
+    const aMethod = String(a.paymentMethod || a.paymentProvider || 'GCash');
+    const bMethod = String(b.paymentMethod || b.paymentProvider || 'GCash');
+    return aMethod.localeCompare(bMethod) || approvalFifoTimestamp(a) - approvalFifoTimestamp(b);
+  });
+}
+
 // ─── Status badge ───────────────────────────────────────────────────────────
 function PendingBadge() {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border-0 bg-amber-50 px-3 py-1.5 shadow-sm shadow-amber-600/12">
+    <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5">
       <span className="relative flex h-2 w-2">
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
         <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
       </span>
-      <span className="text-[10px] font-black text-amber-700 uppercase tracking-[0.16em]">Payment Review</span>
+      <span className="text-[10px] font-black uppercase tracking-[0.14em] text-amber-700">Awaiting verification</span>
     </span>
   );
 }
 
 // ─── Payment breakdown ───────────────────────────────────────────────────────
-function PayBreakdown({ total }: { total: number }) {
-  const balance = Math.max(0, total - DOWNPAYMENT);
+function PayBreakdown({ total, paid = DOWNPAYMENT }: { total: number; paid?: number }) {
+  const balance = Math.max(0, total - paid);
   return (
-    <div className="booking-payment-ledger overflow-hidden rounded-2xl border-0 bg-white shadow-[0_2px_10px_rgba(15,23,42,0.05),0_12px_32px_-12px_rgba(15,23,42,0.08)]">
-      <div className="flex items-center justify-between bg-slate-50/90 px-4 py-3 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.06)]">
+    <div className="booking-payment-ledger overflow-hidden rounded-2xl bg-white ring-1 ring-slate-100">
+      <div className="flex items-center justify-between bg-slate-50/80 px-4 py-2.5">
         <div className="flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-600 shadow-sm shadow-blue-600/12">
             <WalletCards size={16} strokeWidth={2.4} />
           </span>
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Payment Ledger</p>
-            <p className="text-xs font-bold text-slate-800">GCash reservation fee</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Payment</p>
+            <p className="text-xs font-bold text-slate-800">Reservation fee</p>
           </div>
         </div>
-        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-blue-700 shadow-sm shadow-blue-600/12">
+        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-blue-700">
           GCash
         </span>
       </div>
 
-      <div className="space-y-2.5 px-4 py-3.5 text-sm">
+      <div className="space-y-2 px-4 py-3 text-sm">
         <div className="flex items-center justify-between gap-4">
           <span className="font-semibold text-slate-500">Service total</span>
           <span className="font-black tabular-nums text-slate-950">{formatMoney(total)}</span>
         </div>
         <div className="flex items-center justify-between gap-4">
-          <span className="font-semibold text-emerald-700">Paid now</span>
-          <span className="font-black tabular-nums text-emerald-600">− {formatMoney(DOWNPAYMENT)}</span>
+          <span className="font-semibold text-emerald-700">Amount paid</span>
+          <span className="font-black tabular-nums text-emerald-600">{formatMoney(paid)}</span>
         </div>
         <div className="h-px bg-slate-100" />
-        <div className="flex items-center justify-between gap-4 rounded-xl bg-rose-50 px-3 py-2 shadow-sm shadow-rose-500/10">
-          <span className="font-black text-rose-700">Balance on arrival</span>
-          <span className="font-black tabular-nums text-rose-700">{formatMoney(balance)}</span>
+        <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-950 px-3 py-2 text-white">
+          <span className="font-black">Remaining balance</span>
+          <span className="font-black tabular-nums">{formatMoney(balance)}</span>
         </div>
       </div>
     </div>
@@ -262,128 +329,322 @@ function PayBreakdown({ total }: { total: number }) {
 
 function DetailTile({ label, value, icon: Icon }: { label: string; value: React.ReactNode; icon?: any }) {
   return (
-    <div className="booking-approval-detail rounded-2xl border-0 bg-white px-3.5 py-3 shadow-[0_2px_8px_rgba(15,23,42,0.04),0_10px_28px_-10px_rgba(15,23,42,0.08)]">
-      <div className="mb-1.5 flex items-center gap-1.5">
+    <div className="booking-approval-detail min-w-0 rounded-xl bg-slate-50/80 px-3 py-2.5 ring-1 ring-slate-100">
+      <div className="mb-1 flex items-center gap-1.5">
         {Icon ? <Icon size={12} strokeWidth={2.4} className="text-slate-400" /> : null}
         <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</div>
       </div>
-      <div className="min-w-0 truncate text-sm font-black text-slate-800">{value}</div>
+      <div className="min-w-0 truncate text-[13px] font-extrabold text-slate-800">{value}</div>
     </div>
   );
 }
 
-function ProofPreview({
-  proofUrl,
-  onOpen,
-  compact = false,
-  interactive = true,
-}: {
-  proofUrl: string;
-  onOpen?: () => void;
-  compact?: boolean;
-  interactive?: boolean;
+type ProofLoadState = 'idle' | 'loading' | 'loaded' | 'error';
+
+function ViewerControl({ label, onClick, disabled, children }: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
 }) {
-  if (!proofUrl) {
-    return (
-      <div className={`${compact ? 'h-[220px]' : 'h-[360px]'} flex flex-col items-center justify-center rounded-[22px] border-0 bg-slate-100/50 text-slate-400 shadow-inner`}>
-        <ImageIcon size={32} className="mb-2 opacity-50" />
-        <span className="text-xs font-black uppercase tracking-[0.16em]">No proof uploaded</span>
-      </div>
-    );
-  }
-
-  const frameClass = `${compact ? 'h-[240px]' : 'h-[calc(100vh-220px)] max-h-[680px] min-h-[420px]'} group/proof relative w-full overflow-hidden rounded-[24px] border-0 bg-slate-950 text-left shadow-[0_24px_60px_rgba(15,23,42,0.22),0_12px_40px_-16px_rgba(0,0,0,0.35)] transition-all duration-300 ${
-    interactive ? 'hover:-translate-y-0.5 hover:shadow-[0_30px_80px_rgba(15,23,42,0.24)]' : 'cursor-default'
-  }`;
-
-  const content = (
-    <>
-      <img src={proofUrl} alt="GCash proof" className="h-full w-full object-contain bg-slate-950" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-slate-950/80 to-transparent px-4 py-3">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/12 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-white ring-1 ring-white/15 backdrop-blur-md">
-          <Smartphone size={12} />
-          GCash proof
-        </span>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-800 shadow-sm">
-          {interactive ? <Eye size={12} /> : <ImageIcon size={12} />}
-          {interactive ? 'Open' : 'Full proof'}
-        </span>
-      </div>
-      {interactive && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/80 to-transparent px-4 py-4 opacity-0 transition-opacity duration-300 group-hover/proof:opacity-100">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/14 px-3 py-1.5 text-xs font-bold text-white ring-1 ring-white/15 backdrop-blur-md">
-            <Search size={13} />
-            Click to inspect receipt
-          </span>
-        </div>
-      )}
-    </>
-  );
-
-  if (!interactive) {
-    return <div className={frameClass}>{content}</div>;
-  }
-
   return (
-    <button type="button" onClick={onOpen} className={frameClass}>
-      {content}
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white ring-1 ring-white/15 backdrop-blur transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35"
+    >
+      {children}
     </button>
   );
 }
 
+function ProofViewer({ proofUrl, loading, error, onRetry, onReadyChange }: {
+  proofUrl: string;
+  loading?: boolean;
+  error?: string;
+  onRetry: () => void;
+  onReadyChange?: (ready: boolean) => void;
+}) {
+  const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const [imageState, setImageState] = useState<ProofLoadState>(proofUrl ? 'loading' : 'idle');
+  const [retryKey, setRetryKey] = useState(0);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+
+  useEffect(() => {
+    setZoom(1);
+    setRotation(0);
+    setImageState(proofUrl ? 'loading' : 'idle');
+    onReadyChange?.(false);
+  }, [proofUrl, onReadyChange]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setExpanded(false);
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [expanded]);
+
+  const fit = () => {
+    setZoom(1);
+    setRotation(0);
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 0, left: 0 }));
+  };
+
+  const retry = () => {
+    onReadyChange?.(false);
+    setImageState(proofUrl ? 'loading' : 'idle');
+    setRetryKey((value) => value + 1);
+    onRetry();
+  };
+
+  const failed = Boolean(error) || imageState === 'error';
+  const isLoading = Boolean(loading) || (Boolean(proofUrl) && imageState === 'loading');
+
+  const viewer = (isExpanded: boolean) => (
+    <div className={isExpanded
+      ? 'fixed inset-0 z-[10050] flex flex-col bg-slate-950 p-3 sm:p-5'
+      : 'relative h-full min-h-[260px] overflow-hidden rounded-2xl bg-slate-950'}>
+      <div className="absolute right-3 top-3 z-20 flex flex-wrap justify-end gap-1.5">
+        <ViewerControl label="Zoom out" onClick={() => setZoom((value) => Math.max(0.75, value - 0.25))} disabled={zoom <= 0.75 || !proofUrl}>
+          <ZoomOut size={16} />
+        </ViewerControl>
+        <span className="flex h-9 min-w-12 items-center justify-center rounded-xl bg-white/10 px-2 text-[10px] font-black text-white ring-1 ring-white/15 backdrop-blur">
+          {Math.round(zoom * 100)}%
+        </span>
+        <ViewerControl label="Zoom in" onClick={() => setZoom((value) => Math.min(3, value + 0.25))} disabled={zoom >= 3 || !proofUrl}>
+          <ZoomIn size={16} />
+        </ViewerControl>
+        <ViewerControl label="Fit to screen" onClick={fit} disabled={!proofUrl}>
+          <ImageIcon size={16} />
+        </ViewerControl>
+        <ViewerControl label="Rotate clockwise" onClick={() => setRotation((value) => (value + 90) % 360)} disabled={!proofUrl}>
+          <RotateCw size={16} />
+        </ViewerControl>
+        <ViewerControl label={isExpanded ? 'Exit full-screen proof view' : 'Full-screen proof view'} onClick={() => setExpanded(!isExpanded)} disabled={!proofUrl}>
+          {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+        </ViewerControl>
+      </div>
+
+      <div
+        ref={scrollRef}
+        className={`h-full min-h-0 flex-1 overflow-auto overscroll-contain ${zoom > 1 ? 'cursor-grab active:cursor-grabbing' : ''}`}
+        onPointerDown={(event) => {
+          if (zoom <= 1 || !scrollRef.current) return;
+          dragRef.current = {
+            x: event.clientX,
+            y: event.clientY,
+            left: scrollRef.current.scrollLeft,
+            top: scrollRef.current.scrollTop,
+          };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const drag = dragRef.current;
+          if (!drag || !scrollRef.current) return;
+          scrollRef.current.scrollLeft = drag.left - (event.clientX - drag.x);
+          scrollRef.current.scrollTop = drag.top - (event.clientY - drag.y);
+        }}
+        onPointerUp={(event) => {
+          dragRef.current = null;
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={() => { dragRef.current = null; }}
+      >
+        {failed && !isLoading ? (
+          <div className="flex h-full min-h-[260px] flex-col items-center justify-center px-6 text-center text-white">
+            <AlertTriangle size={30} className="mb-3 text-amber-400" />
+            <p className="text-sm font-black">Unable to load payment proof</p>
+            <p className="mt-1 max-w-sm text-xs leading-5 text-white/55">Check the connection or retry the receipt request.</p>
+            <button type="button" onClick={retry} className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-xs font-black text-slate-950">
+              <RefreshCw size={14} /> Retry
+            </button>
+          </div>
+        ) : !proofUrl && !isLoading ? (
+          <div className="flex h-full min-h-[260px] flex-col items-center justify-center px-6 text-center text-white/60">
+            <ImageIcon size={30} className="mb-3 opacity-60" />
+            <p className="text-sm font-black text-white">No proof available</p>
+            <p className="mt-1 text-xs">This reservation has no receipt image to inspect.</p>
+          </div>
+        ) : (
+          <div
+            className="relative flex min-h-full min-w-full items-center justify-center p-4 pt-16 sm:p-6 sm:pt-16"
+            style={{ width: `${Math.max(1, zoom) * 100}%`, height: `${Math.max(1, zoom) * 100}%` }}
+          >
+            {proofUrl ? (
+              <img
+                key={`${proofUrl.slice(-32)}-${retryKey}`}
+                src={proofUrl}
+                alt="Uploaded GCash payment proof"
+                draggable={false}
+                onLoad={() => {
+                  setImageState('loaded');
+                  onReadyChange?.(true);
+                }}
+                onError={() => {
+                  setImageState('error');
+                  onReadyChange?.(false);
+                }}
+                className={`h-full w-full select-none object-contain transition-opacity duration-200 ${imageState === 'loaded' && !loading ? 'opacity-100' : 'opacity-0'}`}
+                style={{ transform: `rotate(${rotation}deg) scale(${zoom < 1 ? zoom : 1})` }}
+              />
+            ) : null}
+            {isLoading ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950 text-white">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-white/75">Loading proof</p>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      {proofUrl && !failed ? (
+        <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-slate-950/75 px-2.5 py-1.5 text-[10px] font-semibold text-white/65 backdrop-blur">
+          {zoom > 1 ? 'Drag or scroll to pan' : 'Use controls to inspect small receipt text'}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  return expanded ? createPortal(viewer(true), document.body) : viewer(false);
+}
+
+const VERIFICATION_CHECKS = [
+  { id: 'amount', label: 'Amount paid matches reservation' },
+  { id: 'identity', label: 'Customer / sender identity checked' },
+  { id: 'timestamp', label: 'Payment date and time checked' },
+  { id: 'reference', label: 'GCash reference number checked' },
+] as const;
+
+const REJECTION_REASONS = [
+  'Incorrect payment amount',
+  'Invalid payment proof',
+  'Screenshot is unclear',
+  'Sender information does not match',
+  'Duplicate payment',
+  'Wrong transaction',
+  'Other',
+] as const;
+
+function getPaymentMetadata(booking: any): Array<{ label: string; value: string }> {
+  const entries: Array<{ label: string; value: string }> = [];
+  const method = booking.paymentMethod || booking.paymentProvider || (booking.hasPaymentProof || getProofUrl(booking) ? 'GCash' : '');
+  if (method) {
+    const methodLabel = String(method).trim().toLowerCase() === 'gcash' ? 'GCash' : formatTitle(method);
+    entries.push({ label: 'Payment method', value: methodLabel });
+  }
+
+  const submittedAmount = Number(booking.downPaymentAmount);
+  if (Number.isFinite(submittedAmount) && submittedAmount > 0) {
+    entries.push({ label: 'Amount submitted', value: formatMoney(submittedAmount) });
+  }
+
+  const paymentReference = booking.gcashReferenceNumber || booking.paymentReference || booking.transactionReference || booking.referenceNumber;
+  if (paymentReference) entries.push({ label: 'GCash reference number', value: String(paymentReference) });
+
+  const paymentAt = booking.paymentDateTime || booking.paymentSubmittedAt || booking.paidAt;
+  if (paymentAt) {
+    const date = formatDateTime(paymentAt, { year: 'numeric', month: 'short', day: 'numeric' });
+    const time = formatDateTime(paymentAt, { hour: 'numeric', minute: '2-digit' });
+    if (date) entries.push({ label: 'Payment date', value: date });
+    if (time) entries.push({ label: 'Payment time', value: time });
+  }
+
+  const proofUploadedAt = booking.proofUploadedAt || booking.paymentProofUploadedAt;
+  if (proofUploadedAt) {
+    const value = formatDateTime(proofUploadedAt, {
+      year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    });
+    if (value) entries.push({ label: 'Proof uploaded', value });
+  }
+  return entries;
+}
+
 // ─── GCash Proof Modal ───────────────────────────────────────────────────────
-function ProofModal({ booking, loading, error, onClose, onApprove, onReject, acting }: {
+function ProofModal({ booking, loading, error, onRetry, onClose, onApprove, onReject, acting }: {
   booking: any;
   loading?: boolean;
   error?: string;
+  onRetry: () => void;
   onClose: () => void;
-  onApprove: () => void; onReject: () => void; acting: boolean;
+  onApprove: () => Promise<boolean>;
+  onReject: (reason: string) => Promise<boolean>;
+  acting: boolean;
 }) {
   const total = getTotal(booking);
-  const balance = Math.max(0, total - DOWNPAYMENT);
+  const paid = getReservationPayment(booking);
+  const balance = Math.max(0, total - paid);
   const proofUrl = getProofUrl(booking);
-  const ref = booking.bookingReference || booking.orderNumber || (booking._id || booking.id || '').slice(-8) || '—';
+  const ref = getReference(booking);
+  const metadata = getPaymentMetadata(booking);
+  const [checks, setChecks] = useState<Record<string, boolean>>({});
+  const [proofReady, setProofReady] = useState(false);
+  const [decision, setDecision] = useState<'approve' | 'reject' | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [rejectionNote, setRejectionNote] = useState('');
+  const allVerified = VERIFICATION_CHECKS.every((check) => checks[check.id]);
+  const canApprove = allVerified && proofReady && Boolean(proofUrl) && !loading && !error && !acting;
+  const canReject = Boolean(rejectionReason) && (rejectionReason !== 'Other' || Boolean(rejectionNote.trim())) && !acting;
+  const handleProofReadyChange = useCallback((ready: boolean) => setProofReady(ready), []);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || acting) return;
+      if (decision) setDecision(null);
+      else onClose();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [acting, decision, onClose]);
+
+  const rejectText = rejectionReason === 'Other'
+    ? rejectionNote.trim()
+    : rejectionNote.trim()
+      ? `${rejectionReason}: ${rejectionNote.trim()}`
+      : rejectionReason;
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6"
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md transition-opacity" onClick={onClose} />
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="proof-review-title">
+      <div className="absolute inset-0 bg-slate-950/65 backdrop-blur-sm" onClick={() => { if (!acting && !decision) onClose(); }} />
 
-      <div className="relative grid max-h-[92vh] w-full max-w-6xl grid-cols-1 overflow-hidden rounded-[28px] bg-white shadow-[0_34px_100px_rgba(15,23,42,0.34)] animate-in fade-in zoom-in-95 duration-200 lg:grid-cols-[minmax(0,1fr)_390px]">
-        <div className="min-h-0 bg-slate-950 p-3 sm:p-4">
-          {loading ? (
-            <div className="flex h-[calc(100vh-220px)] max-h-[680px] min-h-[420px] w-full flex-col items-center justify-center gap-3 rounded-[24px] bg-slate-950 text-white">
-              <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-white animate-spin" />
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-white/80">Loading proof</p>
-            </div>
-          ) : (
-            <ProofPreview proofUrl={proofUrl} interactive={false} />
-          )}
+      <div className="relative grid h-[min(94dvh,900px)] w-full max-w-[1380px] grid-rows-[minmax(260px,40dvh)_minmax(0,1fr)] overflow-hidden rounded-[24px] bg-white shadow-[0_34px_100px_rgba(15,23,42,0.38)] animate-in fade-in zoom-in-95 duration-200 lg:grid-cols-[minmax(0,1.65fr)_minmax(360px,1fr)] lg:grid-rows-1">
+        <div className="min-h-0 bg-slate-950 p-2.5 sm:p-3">
+          <ProofViewer proofUrl={proofUrl} loading={loading} error={error} onRetry={onRetry} onReadyChange={handleProofReadyChange} />
         </div>
 
-        <aside className="flex min-h-0 flex-col bg-white shadow-[inset_16px_0_32px_-28px_rgba(15,23,42,0.08)]">
-          <div className="flex items-start justify-between gap-4 px-5 py-5 shadow-[0_12px_24px_-24px_rgba(15,23,42,0.08)]">
+        <aside className="flex min-h-0 flex-col bg-white shadow-[inset_16px_0_32px_-28px_rgba(15,23,42,0.12)]">
+          <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-4 py-3.5 sm:px-5 sm:py-4">
             <div className="min-w-0">
-              <span className="inline-flex items-center gap-2 rounded-full border-0 bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-blue-700 shadow-sm shadow-blue-600/14">
-                <ShieldCheck size={12} />
-                Payment verification
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-blue-700">
+                <ShieldCheck size={12} /> Payment verification
               </span>
-              <h2 className="mt-3 text-xl font-black tracking-tight text-slate-950">GCash proof review</h2>
-              <p className="mt-1 text-xs font-semibold text-slate-500">Reference #{ref}</p>
+              <h2 id="proof-review-title" className="mt-2 text-lg font-black tracking-tight text-slate-950">GCash proof review</h2>
+              <p className="mt-0.5 truncate text-xs font-semibold text-slate-500">Reference #{ref}</p>
             </div>
-            <button
-              onClick={onClose}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border-0 bg-white text-slate-500 shadow-sm shadow-slate-900/8 transition-all hover:bg-slate-50 hover:text-slate-900 hover:shadow-md"
-              aria-label="Close proof modal"
-            >
-              <X size={18} strokeWidth={2.5} />
+            <button type="button" onClick={onClose} disabled={acting} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-900 disabled:opacity-50" aria-label="Close proof review">
+              <X size={18} />
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-            <div className="mb-4 grid grid-cols-2 gap-3">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+            <div className="grid grid-cols-2 gap-2">
               <DetailTile label="Customer" value={booking.customerName || '—'} icon={UserRound} />
               <DetailTile label="Phone" value={booking.customerPhone || '—'} icon={Phone} />
               <DetailTile label="Vehicle" value={getVehicleLabel(booking)} icon={Car} />
@@ -392,52 +653,124 @@ function ProofModal({ booking, loading, error, onClose, onApprove, onReject, act
               <DetailTile label="Schedule" value={getScheduleLabel(booking)} icon={Calendar} />
             </div>
 
-            <PayBreakdown total={total} />
-
-            {error ? (
-              <div className="mt-4 rounded-2xl border-0 bg-rose-50 px-4 py-3 text-xs font-semibold leading-relaxed text-rose-800 shadow-sm shadow-rose-500/12">
-                Failed to load the latest GCash proof. You can retry by closing and reopening this review.
+            <section className="mt-4 rounded-2xl bg-slate-50/80 p-3.5 ring-1 ring-slate-100" aria-labelledby="payment-details-title">
+              <div className="flex items-center justify-between gap-3">
+                <h3 id="payment-details-title" className="text-[11px] font-black uppercase tracking-[0.15em] text-slate-500">Payment details</h3>
+                <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-blue-700">GCash</span>
               </div>
-            ) : null}
+              {metadata.length > 0 ? (
+                <dl className="mt-3 grid gap-2 text-xs">
+                  {metadata.map((entry) => (
+                    <div key={entry.label} className="flex items-start justify-between gap-4">
+                      <dt className="font-semibold text-slate-500">{entry.label}</dt>
+                      <dd className="max-w-[58%] break-words text-right font-extrabold text-slate-800">{entry.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="mt-2 text-xs leading-5 text-slate-500">No additional transaction metadata was submitted with this proof.</p>
+              )}
+            </section>
 
-            <div className="mt-4 rounded-2xl border-0 bg-amber-50 px-4 py-3 text-xs font-semibold leading-relaxed text-amber-900 shadow-sm shadow-amber-600/12">
-              <div className="mb-2 flex items-center gap-2 font-black">
-                <AlertTriangle size={16} className="text-amber-600" />
-                Before approving
+            <section className="mt-4" aria-labelledby="verification-checklist-title">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 id="verification-checklist-title" className="text-[11px] font-black uppercase tracking-[0.15em] text-slate-500">Verification checklist</h3>
+                  <p className="mt-0.5 text-[11px] text-slate-400">Complete all checks before approval.</p>
+                </div>
+                <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${allVerified ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                  {VERIFICATION_CHECKS.filter((check) => checks[check.id]).length}/{VERIFICATION_CHECKS.length}
+                </span>
               </div>
-              Confirm the receipt amount, timestamp, and sender details match this reservation. Approving enables live tracking for the customer and leaves <strong>{formatMoney(balance)}</strong> for onsite collection.
-            </div>
+              <div className="mt-2 grid gap-1.5">
+                {VERIFICATION_CHECKS.map((check) => {
+                  const verified = Boolean(checks[check.id]);
+                  return (
+                    <label key={check.id} className={`flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-bold transition ${verified ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}>
+                      <input
+                        type="checkbox"
+                        checked={verified}
+                        onChange={() => setChecks((current) => ({ ...current, [check.id]: !verified }))}
+                        className="sr-only"
+                      />
+                      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ring-1 ${verified ? 'bg-emerald-600 text-white ring-emerald-600' : 'bg-white text-transparent ring-slate-300'}`}>
+                        <Check size={13} strokeWidth={3} />
+                      </span>
+                      {check.label}
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
           </div>
 
-          <div className="grid gap-3 bg-slate-50/85 p-5 shadow-[inset_0_8px_16px_-12px_rgba(15,23,42,0.06)]">
-            <button
-              onClick={onApprove}
-              disabled={acting || loading}
-              className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20 transition-all hover:-translate-y-0.5 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {acting ? (
-                <>
-                  <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  Processing approval…
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 size={18} strokeWidth={2.6} />
-                  Approve reservation
-                </>
-              )}
+          <div className="sticky bottom-0 z-10 grid shrink-0 grid-cols-2 gap-2.5 border-t border-slate-100 bg-white/95 p-3.5 backdrop-blur sm:p-4">
+            <button type="button" onClick={() => setDecision('reject')} disabled={acting || loading} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-rose-50 px-3 text-xs font-black text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50">
+              <XCircle size={16} /> Reject proof
             </button>
-            <button
-              onClick={onReject}
-              disabled={acting || loading}
-              className="flex h-11 items-center justify-center gap-2 rounded-2xl border-0 bg-white px-4 text-sm font-black text-rose-600 shadow-sm shadow-rose-500/12 transition-all hover:bg-rose-50/90 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <XCircle size={17} strokeWidth={2.5} />
-              Reject proof
+            <button type="button" onClick={() => setDecision('approve')} disabled={!canApprove} title={!allVerified ? 'Complete all four verification checks first' : undefined} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">
+              <CheckCircle2 size={16} /> Approve reservation
             </button>
+            {!allVerified ? <p className="col-span-2 text-center text-[10px] font-semibold text-slate-400">Approval unlocks after all verification checks are complete.</p> : null}
           </div>
         </aside>
       </div>
+
+      {decision === 'approve' ? (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" role="alertdialog" aria-modal="true" aria-labelledby="approve-confirm-title">
+          <div className="w-full max-w-md rounded-[24px] bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600"><CheckCircle2 size={22} /></div>
+            <h3 id="approve-confirm-title" className="mt-4 text-xl font-black text-slate-950">Approve this reservation?</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600"><strong>{formatMoney(paid)}</strong> will be recorded as the reservation payment and the booking will become active.</p>
+            <div className="mt-4 flex items-center justify-between rounded-xl bg-slate-50 px-3.5 py-3 text-sm">
+              <span className="font-semibold text-slate-500">Remaining balance</span>
+              <strong className="tabular-nums text-slate-950">{formatMoney(balance)}</strong>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-2.5">
+              <button type="button" onClick={() => setDecision(null)} disabled={acting} className="h-11 rounded-xl bg-slate-100 text-sm font-black text-slate-600 disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={async () => { const ok = await onApprove(); if (!ok) setDecision(null); }} disabled={acting} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-black text-white disabled:opacity-60">
+                {acting ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> Processing…</> : 'Confirm approval'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {decision === 'reject' ? (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" role="alertdialog" aria-modal="true" aria-labelledby="reject-confirm-title">
+          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-[24px] bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-rose-600">Destructive action</p>
+                <h3 id="reject-confirm-title" className="mt-1 text-xl font-black text-slate-950">Why is this proof being rejected?</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-500">The reason is saved with the booking and shown in its rejection record.</p>
+              </div>
+              <button type="button" onClick={() => setDecision(null)} disabled={acting} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500" aria-label="Cancel rejection"><X size={17} /></button>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {REJECTION_REASONS.map((reason) => (
+                <button key={reason} type="button" onClick={() => setRejectionReason(reason)} disabled={acting} className={`min-h-10 rounded-xl px-3 py-2 text-left text-xs font-bold ring-1 transition ${rejectionReason === reason ? 'bg-rose-50 text-rose-700 ring-rose-300' : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50'}`}>
+                  {reason}
+                </button>
+              ))}
+            </div>
+            {rejectionReason ? (
+              <div className="mt-4">
+                <label htmlFor="rejection-note" className="text-xs font-black text-slate-700">
+                  {rejectionReason === 'Other' ? 'Explanation (required)' : 'Additional note (optional)'}
+                </label>
+                <textarea id="rejection-note" value={rejectionNote} onChange={(event) => setRejectionNote(event.target.value)} rows={3} disabled={acting} placeholder={rejectionReason === 'Other' ? 'Explain why the payment proof cannot be accepted.' : 'Add any helpful detail for the customer or audit record.'} className="mt-2 w-full resize-none rounded-xl bg-slate-50 px-3.5 py-3 text-sm text-slate-800 ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-300" />
+              </div>
+            ) : null}
+            <div className="mt-5 grid grid-cols-2 gap-2.5">
+              <button type="button" onClick={() => setDecision(null)} disabled={acting} className="h-11 rounded-xl bg-slate-100 text-sm font-black text-slate-600 disabled:opacity-50">Back to proof</button>
+              <button type="button" onClick={async () => { const ok = await onReject(rejectText); if (!ok) setDecision(null); }} disabled={!canReject} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-rose-600 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-45">
+                {acting ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> Rejecting…</> : <><XCircle size={16} /> Confirm rejection</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>,
     document.body
   );
@@ -446,14 +779,11 @@ function ProofModal({ booking, loading, error, onClose, onApprove, onReject, act
 // ─── Single booking card ─────────────────────────────────────────────────────
 function BookingCard({ booking, onApprove, onReject, idx }: {
   booking: any; idx: number;
-  onApprove: (id: string, name: string) => Promise<void>;
-  onReject: (id: string, name: string, reason: string) => Promise<void>;
+  onApprove: (id: string, name: string, total: number) => Promise<boolean>;
+  onReject: (id: string, name: string, reason: string) => Promise<boolean>;
 }) {
-  const [leaving, setLeaving] = useState(false);
   const [acting, setActing] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [rejectMode, setRejectMode] = useState(false);
-  const [reason, setReason] = useState('');
   const [detailBooking, setDetailBooking] = useState<any | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
@@ -463,11 +793,12 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
   const mongoId = mongoOrderIdString(booking);
   const id = mongoId || String(booking._id ?? booking.id ?? '').trim();
   const total = getTotal(booking);
-  const balance = Math.max(0, total - DOWNPAYMENT);
-  const ref = booking.bookingReference || booking.orderNumber || id?.slice(-8) || '—';
+  const paid = getReservationPayment(booking);
+  const ref = getReference(booking);
   const customerName = booking.customerName || 'Customer';
   const serviceLabel = booking.serviceType || booking.serviceName || '—';
   const modalBooking = detailBooking || booking;
+  const pastAppointment = isPastAppointmentDate(booking);
 
   const loadBookingDetail = useCallback(async () => {
     if (!id) return;
@@ -496,23 +827,37 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
 
   const openProofReview = useCallback(() => {
     setShowModal(true);
+    if (getProofUrl(booking)) {
+      setDetailBooking(booking);
+      setDetailLoading(false);
+      setDetailError('');
+      return;
+    }
     void loadBookingDetail();
-  }, [loadBookingDetail]);
+  }, [booking, loadBookingDetail]);
 
-  const doApprove = async () => {
+  const doApprove = async (): Promise<boolean> => {
+    if (acting) return false;
     setActing(true);
-    await onApprove(id, customerName);
-    setLeaving(true);
-    setActing(false);
-    setShowModal(false);
+    try {
+      const ok = await onApprove(id, customerName, total);
+      if (ok) setShowModal(false);
+      return ok;
+    } finally {
+      setActing(false);
+    }
   };
 
-  const doReject = async () => {
+  const doReject = async (reason: string): Promise<boolean> => {
+    if (acting) return false;
     setActing(true);
-    await onReject(id, customerName, reason || 'Payment proof could not be verified.');
-    setLeaving(true);
-    setActing(false);
-    setShowModal(false);
+    try {
+      const ok = await onReject(id, customerName, reason);
+      if (ok) setShowModal(false);
+      return ok;
+    } finally {
+      setActing(false);
+    }
   };
 
   return (
@@ -522,7 +867,9 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
           booking={modalBooking}
           loading={detailLoading}
           error={detailError}
+          onRetry={() => { void loadBookingDetail(); }}
           onClose={() => {
+            if (acting) return;
             proofFetchAbortRef.current?.abort();
             detailLoadGenRef.current += 1;
             setShowModal(false);
@@ -530,179 +877,71 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
             setDetailError('');
           }}
           onApprove={doApprove}
-          onReject={() => {
-            proofFetchAbortRef.current?.abort();
-            detailLoadGenRef.current += 1;
-            setShowModal(false);
-            setRejectMode(true);
-          }}
+          onReject={doReject}
           acting={acting}
         />
       )}
-      <div className={`booking-approval-card overflow-hidden rounded-[28px] border-0 bg-white shadow-[0_4px_20px_rgba(15,23,42,0.06),0_20px_48px_-20px_rgba(15,23,42,0.1)] transition-all duration-300 relative group
-          ${leaving ? 'opacity-0 translate-x-12 scale-95 pointer-events-none' : 'opacity-100 translate-x-0 scale-100'}
-        `}
-        style={{ animationDelay: `${idx * 0.05}s` }}
-      >
-        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-400 via-blue-500 to-emerald-500" />
-
-        <div className="p-4 sm:p-5 lg:p-6">
-          <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex min-w-0 items-center gap-4">
-              <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-xl shadow-slate-950/30">
-                <span className="text-lg font-black uppercase tracking-tight">{getInitials(customerName)}</span>
-                <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white ring-2 ring-white">
-                  <Smartphone size={11} strokeWidth={3} />
-                </span>
+      <article className="booking-approval-card relative overflow-hidden rounded-[22px] bg-white ring-1 ring-slate-200/70 shadow-[0_10px_30px_rgba(15,23,42,0.055)]" style={{ animationDelay: `${idx * 0.04}s` }}>
+        <div className="absolute inset-y-0 left-0 w-1 bg-amber-400" />
+        <div className="p-4 pl-5 sm:p-5 sm:pl-6">
+          <header className="flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white">
+                <span className="text-sm font-black uppercase">{getInitials(customerName)}</span>
+                <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-white ring-2 ring-white"><Smartphone size={9} strokeWidth={3} /></span>
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="truncate text-lg font-black tracking-tight text-slate-950">{customerName}</h2>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
-                    Queue {idx + 1}
-                  </span>
+                  <h2 className="truncate text-base font-black tracking-tight text-slate-950">{customerName}</h2>
+                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">Queue {idx + 1}</span>
                 </div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-500">
-                  <span className="inline-flex items-center gap-1">
-                    <Clock size={12} className="opacity-70" />
-                    {booking.createdAt ? new Date(booking.createdAt).toLocaleString('en-PH', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '—'}
-                  </span>
-                  <span className="text-slate-300">/</span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 font-mono text-slate-600 shadow-sm shadow-slate-900/6">
-                    <Hash size={11} />
-                    {ref}
-                  </span>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-semibold text-slate-500">
+                  <span className="inline-flex items-center gap-1"><Hash size={11} />{ref}</span>
+                  <span className="text-slate-300">•</span>
+                  <span>{booking.createdAt ? formatDateTime(booking.createdAt, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Submission time unavailable'}</span>
                 </div>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <PendingBadge />
-              <span className="inline-flex items-center gap-1.5 rounded-full border-0 bg-blue-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-blue-700 shadow-sm shadow-blue-600/14">
-                <ReceiptText size={12} />
-                Proof attached
-              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-blue-700"><Smartphone size={11} /> GCash</span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-slate-600"><ReceiptText size={11} /> Proof attached</span>
+              {pastAppointment ? <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-amber-700"><AlertTriangle size={11} /> Past appointment date</span> : null}
             </div>
-          </div>
+          </header>
 
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-            <div className="min-w-0 space-y-5">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-                <DetailTile label="Plate" value={formatPlate(booking.vehiclePlate)} icon={Car} />
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,.7fr)]">
+            <section aria-label="Booking information">
+              <p className="mb-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Booking information</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <DetailTile label="Plate number" value={formatPlate(booking.vehiclePlate)} icon={Car} />
                 <DetailTile label="Vehicle" value={getVehicleLabel(booking)} icon={Car} />
                 <DetailTile label="Service" value={serviceLabel} icon={ClipboardCheck} />
-                <DetailTile label="Date" value={booking.bookingDate || booking.date || '—'} icon={Calendar} />
-                <DetailTile label="Time" value={booking.bookingTime || booking.time || '—'} icon={Clock} />
-                <DetailTile label="Phone" value={booking.customerPhone || '—'} icon={Phone} />
+                <DetailTile label="Appointment date" value={booking.bookingDate || booking.date || '—'} icon={Calendar} />
+                <DetailTile label="Appointment time" value={booking.bookingTime || booking.time || '—'} icon={Clock} />
+                <DetailTile label="Phone number" value={booking.customerPhone || '—'} icon={Phone} />
               </div>
-
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,420px)_minmax(280px,1fr)]">
-                <PayBreakdown total={total} />
-
-                <div className="rounded-2xl border-0 bg-slate-50/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_4px_16px_-8px_rgba(15,23,42,0.06)]">
-                  <div className="mb-3 flex items-center gap-2">
-                    <BadgeCheck size={17} className="text-blue-600" />
-                    <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Review checklist</p>
-                  </div>
-                  <div className="grid gap-2 text-xs font-semibold text-slate-600">
-                    <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-emerald-500" /> Confirm amount paid: {formatMoney(DOWNPAYMENT)}</div>
-                    <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-emerald-500" /> Check customer name or GCash sender match</div>
-                    <div className="flex items-center gap-2"><Banknote size={14} className="text-rose-500" /> Collect balance: {formatMoney(balance)}</div>
-                  </div>
-                </div>
-              </div>
-
-              {!rejectMode ? (
-                <div className="booking-approval-action-bar flex flex-col gap-3 rounded-[22px] border-0 bg-white p-3 shadow-[0_2px_10px_rgba(15,23,42,0.05),0_14px_36px_-14px_rgba(15,23,42,0.1)] sm:flex-row">
-                  <button
-                    onClick={openProofReview}
-                    className="flex h-12 flex-[2] items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white shadow-lg shadow-emerald-600/20 transition-all hover:-translate-y-0.5 hover:bg-emerald-700 active:scale-[0.99]"
-                  >
-                    <CheckCircle2 size={18} strokeWidth={2.6} />
-                    Approve reservation
-                  </button>
-                  <button
-                    onClick={() => setRejectMode(true)}
-                    className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl border-0 bg-rose-50 px-5 text-sm font-black text-rose-700 shadow-sm shadow-rose-500/12 transition-all hover:bg-rose-100/90 hover:shadow-md active:scale-[0.99]"
-                  >
-                    <XCircle size={17} strokeWidth={2.5} />
-                    Reject
-                  </button>
-                </div>
-              ) : (
-                <div className="rounded-[22px] border-0 bg-rose-50 p-4 shadow-sm shadow-rose-500/12 animate-in fade-in zoom-in-95 duration-200">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-rose-700">
-                    <AlertTriangle size={15} />
-                    Reason for rejection
-                  </div>
-                  <textarea
-                    value={reason}
-                    onChange={e => setReason(e.target.value)}
-                    rows={3}
-                    placeholder="Example: screenshot is unclear, amount does not match, or sender reference cannot be verified."
-                    className="mb-3 w-full resize-none rounded-2xl border-0 bg-white px-3.5 py-3 text-sm text-slate-800 shadow-[0_2px_8px_rgba(15,23,42,0.05)] transition-all placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-rose-500/12"
-                  />
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <button
-                      onClick={doReject}
-                      disabled={acting}
-                      className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 text-sm font-black text-white shadow-sm shadow-rose-600/20 transition-all hover:bg-rose-700 disabled:opacity-70"
-                    >
-                      {acting ? (
-                        <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                      ) : (
-                        <XCircle size={16} strokeWidth={2.5} />
-                      )}
-                      {acting ? 'Rejecting…' : 'Confirm rejection'}
-                    </button>
-                    <button
-                      onClick={() => setRejectMode(false)}
-                      className="h-11 rounded-2xl border-0 bg-white px-5 text-sm font-black text-slate-600 shadow-sm shadow-slate-900/8 transition-all hover:bg-slate-50 hover:shadow-md"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="booking-proof-rail rounded-[26px] border-0 bg-slate-50/75 p-4 shadow-inner">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">GCash proof</p>
-                  <p className="mt-0.5 text-xs font-bold text-slate-700">Receipt loads on demand</p>
-                </div>
-                <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.13em] text-slate-500 shadow-sm shadow-slate-900/8">
-                  Fast queue
-                </span>
-              </div>
-              <div className="mt-4 flex h-[240px] flex-col items-center justify-center rounded-[24px] bg-white text-center shadow-[0_8px_24px_-12px_rgba(15,23,42,0.12)]">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg shadow-slate-950/15">
-                  {detailLoading ? (
-                    <div className="h-5 w-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  ) : (
-                    <ImageIcon size={22} />
-                  )}
-                </div>
-                <p className="mt-4 text-sm font-black text-slate-900">
-                  {detailLoading ? 'Loading proof…' : 'Open proof review'}
-                </p>
-                <p className="mt-1 max-w-[220px] text-xs font-semibold leading-relaxed text-slate-500">
-                  We load the full GCash screenshot only when someone inspects this reservation.
-                </p>
-                <button
-                  type="button"
-                  onClick={openProofReview}
-                  disabled={detailLoading}
-                  className="mt-4 inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-xs font-black uppercase tracking-[0.1em] text-white transition hover:bg-slate-800 disabled:opacity-60"
-                >
-                  <Eye size={14} />
-                  View proof
-                </button>
-              </div>
-            </div>
+            </section>
+            <section aria-label="Payment summary">
+              <p className="mb-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Payment summary</p>
+              <PayBreakdown total={total} paid={paid} />
+            </section>
           </div>
+
+          <footer className="mt-4 flex flex-col gap-3 rounded-2xl bg-slate-50/80 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 ring-1 ring-slate-100"><BadgeCheck size={17} /></span>
+              <div className="min-w-0">
+                <p className="text-xs font-black text-slate-800">Four verification checks required</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">Inspect the receipt before approving or rejecting this payment.</p>
+              </div>
+            </div>
+            <button type="button" onClick={openProofReview} disabled={acting} className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-xs font-black text-white transition hover:bg-slate-800 disabled:opacity-60">
+              <Eye size={15} /> Review payment proof
+            </button>
+          </footer>
         </div>
-      </div>
+      </article>
     </>
   );
 }
@@ -730,6 +969,9 @@ function HistoryRow({ b, type }: { b: any; type: 'approved' | 'rejected' }) {
           <span className="text-slate-300">•</span>
           <span>{b.bookingDate || b.date || '—'}</span>
         </div>
+        {!isApproved && b.rejectionReason ? (
+          <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-4 text-rose-600">{b.rejectionReason}</p>
+        ) : null}
       </div>
       <div className="text-right shrink-0">
         <div className={`font-black text-xs uppercase tracking-wider ${isApproved ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -747,8 +989,6 @@ type ForcedProofReviewState = {
   loading: boolean;
   error: string;
   acting: boolean;
-  rejectMode: boolean;
-  reason: string;
 };
 
 type BookingApprovalsPageProps = {
@@ -765,11 +1005,16 @@ export default function BookingApprovalsPage({
   const [tab, setTab] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [pendingSort, setPendingSort] = useState<PendingSort>('oldest');
   const [forcedReview, setForcedReview] = useState<ForcedProofReviewState | null>(null);
   const forcedProofAbortRef = useRef<AbortController | null>(null);
 
   const fetchAll = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
-    if (!silent) setLoading(true);
+    if (!silent) {
+      setLoading(true);
+      setLoadError('');
+    }
     try {
       const res = await OrderService.getAllOrders({
         suppressErrorToast: true,
@@ -781,8 +1026,13 @@ export default function BookingApprovalsPage({
       });
       if (res.success && Array.isArray(res.data)) {
         setAllBookings(applyApprovalScope(res.data));
+        setLoadError('');
+      } else if (!silent) {
+        setLoadError(res.message || 'Unable to load booking approvals.');
       }
-    } catch { /* silent */ }
+    } catch {
+      if (!silent) setLoadError('Unable to load booking approvals. Check the connection and try again.');
+    }
     finally {
       if (!silent) setLoading(false);
     }
@@ -900,26 +1150,53 @@ export default function BookingApprovalsPage({
     () => sortPendingApprovalsFifo(allBookings.filter((b) => isPendingApprovalStatus(b.status))),
     [allBookings]
   );
+  const visiblePending = useMemo(() => sortPendingApprovals(pending, pendingSort), [pending, pendingSort]);
   const approved = useMemo(() => allBookings.filter((b) => isApprovedApprovalStatus(b.status)), [allBookings]);
   const rejected = useMemo(() => allBookings.filter((b) => isRejectedApprovalStatus(b.status)), [allBookings]);
 
-  const handleApprove = async (id: string, name: string) => {
-    const data = await apiPatch(`/api/orders/${id}/approve`);
-    if (data.success) {
-      toast.success(`${name} — reservation APPROVED. Live tracking enabled.`);
-      await fetchAll();
-    } else {
-      toast.error('Approval failed', { description: data.message });
+  const patchBookingDecision = useCallback((id: string, responseBooking: any, fallback: Record<string, unknown>) => {
+    const normalizedResponse = responseBooking ? toApprovalListBooking(responseBooking) : null;
+    setAllBookings((current) => current.map((booking) => {
+      const bookingId = mongoOrderIdString(booking) || String(booking._id || booking.id || '');
+      if (bookingId !== id) return booking;
+      return normalizedResponse ? { ...booking, ...normalizedResponse } : { ...booking, ...fallback };
+    }));
+  }, []);
+
+  const handleApprove = async (id: string, _name: string, total: number): Promise<boolean> => {
+    try {
+      const data = await apiPatch(`/api/orders/${id}/approve`);
+      if (!data.success) {
+        toast.error('Approval failed', { description: data.message });
+        return false;
+      }
+      patchBookingDecision(id, data.data, { status: 'approved', approvedAt: new Date().toISOString() });
+      const balance = Math.max(0, total - DOWNPAYMENT);
+      toast.success(`Reservation approved — ${formatMoney(DOWNPAYMENT)} recorded. ${formatMoney(balance)} remains due on arrival.`);
+      return true;
+    } catch {
+      toast.error('Approval failed', { description: 'The request could not be completed. Please try again.' });
+      return false;
     }
   };
 
-  const handleReject = async (id: string, name: string, reason: string) => {
-    const data = await apiPatch(`/api/orders/${id}/reject`, { reason });
-    if (data.success) {
-      toast.error(`${name} — booking REJECTED.`);
-      await fetchAll();
-    } else {
-      toast.error('Rejection failed', { description: data.message });
+  const handleReject = async (id: string, _name: string, reason: string): Promise<boolean> => {
+    try {
+      const data = await apiPatch(`/api/orders/${id}/reject`, { reason });
+      if (!data.success) {
+        toast.error('Rejection failed', { description: data.message });
+        return false;
+      }
+      patchBookingDecision(id, data.data, {
+        status: 'rejected',
+        rejectedAt: new Date().toISOString(),
+        rejectionReason: reason,
+      });
+      toast.success('Payment proof rejected successfully.');
+      return true;
+    } catch {
+      toast.error('Rejection failed', { description: 'The request could not be completed. Please try again.' });
+      return false;
     }
   };
 
@@ -965,8 +1242,6 @@ export default function BookingApprovalsPage({
         loading: true,
         error: '',
         acting: false,
-        rejectMode: false,
-        reason: '',
       });
 
       try {
@@ -1002,6 +1277,28 @@ export default function BookingApprovalsPage({
   const forcedOrderId = forcedReview ? mongoOrderIdString(forcedModalBooking || forcedReview.stub) : '';
   const forcedCustomerName = forcedModalBooking?.customerName || 'Customer';
 
+  const retryForcedProof = useCallback(() => {
+    if (!forcedOrderId) return;
+    forcedProofAbortRef.current?.abort();
+    forcedProofAbortRef.current = new AbortController();
+    const signal = forcedProofAbortRef.current.signal;
+    setForcedReview((current) => current ? { ...current, loading: true, error: '' } : null);
+    void loadBookingWithProof(forcedOrderId, { signal })
+      .then(({ merged, error }) => {
+        if (signal.aborted) return;
+        setForcedReview((current) => current ? {
+          ...current,
+          detail: merged || current.detail || current.stub,
+          loading: false,
+          error: error || '',
+        } : null);
+      })
+      .catch((requestError) => {
+        if (axios.isCancel(requestError) || signal.aborted) return;
+        setForcedReview((current) => current ? { ...current, loading: false, error: 'Failed to load booking proof.' } : null);
+      });
+  }, [forcedOrderId]);
+
   const TABS = [
     { key: 'pending', label: 'Pending', count: pending.length, pulse: true },
     { key: 'approved', label: 'Approved', count: approved.length },
@@ -1010,84 +1307,32 @@ export default function BookingApprovalsPage({
 
   return (
     <div className="booking-approvals-shell flex min-h-0 flex-col space-y-5 page-enter pb-6">
-      {forcedReview && !forcedReview.rejectMode && forcedModalBooking && (
+      {forcedReview && forcedModalBooking && (
         <ProofModal
           booking={forcedModalBooking}
           loading={forcedReview.loading}
           error={forcedReview.error}
+          onRetry={retryForcedProof}
           onClose={closeForcedReview}
           onApprove={async () => {
-            if (!forcedOrderId) return;
+            if (!forcedOrderId || forcedReview.acting) return false;
             setForcedReview((fr) => (fr ? { ...fr, acting: true } : null));
-            await handleApprove(forcedOrderId, forcedCustomerName);
-            closeForcedReview();
+            const ok = await handleApprove(forcedOrderId, forcedCustomerName, getTotal(forcedModalBooking));
+            if (ok) closeForcedReview();
+            else setForcedReview((fr) => (fr ? { ...fr, acting: false } : null));
+            return ok;
           }}
-          onReject={() => {
-            setForcedReview((fr) => (fr ? { ...fr, rejectMode: true } : null));
+          onReject={async (reason) => {
+            if (!forcedOrderId || forcedReview.acting) return false;
+            setForcedReview((fr) => (fr ? { ...fr, acting: true } : null));
+            const ok = await handleReject(forcedOrderId, forcedCustomerName, reason);
+            if (ok) closeForcedReview();
+            else setForcedReview((fr) => (fr ? { ...fr, acting: false } : null));
+            return ok;
           }}
           acting={forcedReview.acting}
         />
       )}
-      {forcedReview?.rejectMode &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) closeForcedReview();
-            }}
-          >
-            <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" onClick={closeForcedReview} />
-            <div className="relative w-full max-w-md rounded-[24px] bg-white p-5 shadow-[0_24px_60px_rgba(15,23,42,0.25)]">
-              <div className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-rose-700">
-                <AlertTriangle size={15} />
-                Reason for rejection
-              </div>
-              <textarea
-                value={forcedReview.reason}
-                onChange={(e) =>
-                  setForcedReview((fr) => (fr ? { ...fr, reason: e.target.value } : null))
-                }
-                rows={4}
-                placeholder="Example: screenshot unclear, amount does not match ₱500, or sender cannot be verified."
-                className="mb-4 w-full resize-none rounded-2xl border-0 bg-slate-50 px-3.5 py-3 text-sm text-slate-800 shadow-inner focus:outline-none focus:ring-4 focus:ring-rose-500/12"
-              />
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <button
-                  type="button"
-                  disabled={forcedReview.acting}
-                  onClick={async () => {
-                    if (!forcedOrderId) return;
-                    setForcedReview((fr) => (fr ? { ...fr, acting: true } : null));
-                    await handleReject(
-                      forcedOrderId,
-                      forcedCustomerName,
-                      forcedReview.reason || 'Payment proof could not be verified.'
-                    );
-                    closeForcedReview();
-                  }}
-                  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-rose-600 text-sm font-black text-white disabled:opacity-70"
-                >
-                  {forcedReview.acting ? (
-                    <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  ) : (
-                    <XCircle size={16} />
-                  )}
-                  Confirm rejection
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setForcedReview((fr) => (fr ? { ...fr, rejectMode: false } : null))
-                  }
-                  className="h-11 rounded-2xl bg-slate-100 px-5 text-sm font-black text-slate-600"
-                >
-                  Back to proof
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
 
       {/* Header */}
       <div className="booking-approvals-header shrink-0 overflow-hidden rounded-[28px] border-0 bg-white px-5 py-5 shadow-[0_4px_24px_-10px_rgba(15,23,42,0.08),0_18px_48px_-18px_rgba(15,23,42,0.09)] sm:px-6">
@@ -1112,36 +1357,36 @@ export default function BookingApprovalsPage({
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="mt-5 grid grid-cols-3 gap-2 sm:gap-3">
           <SalesStatCard
-            title="Pending Review"
+            title="Pending"
             metric={String(pending.length)}
             label="Awaiting payment proof review"
-            icon={<Clock size={17} className="text-amber-600" />}
+            icon={<Clock size={17} className="hidden text-amber-600 sm:block" />}
             accent={SALES_ACCENTS.amber}
-            className="booking-approval-stat bg-amber-50/80 ring-amber-100/90"
+            className="booking-approval-stat bg-amber-50/80 px-3 py-4 ring-amber-100/90 [&>div:nth-child(2)]:mb-3 sm:px-5 sm:py-5 sm:[&>div:nth-child(2)]:mb-5"
             metricClassName="text-amber-700"
-            labelClassName="text-amber-700/70"
+            labelClassName="hidden text-amber-700/70 sm:block"
           />
           <SalesStatCard
             title="Approved"
             metric={String(approved.length)}
             label="Reservations cleared"
-            icon={<TrendingUp size={17} className="text-green-600" />}
+            icon={<TrendingUp size={17} className="hidden text-green-600 sm:block" />}
             accent={SALES_ACCENTS.green}
-            className="booking-approval-stat bg-green-50/80 ring-green-100/90"
+            className="booking-approval-stat bg-green-50/80 px-3 py-4 ring-green-100/90 [&>div:nth-child(2)]:mb-3 sm:px-5 sm:py-5 sm:[&>div:nth-child(2)]:mb-5"
             metricClassName="text-green-700"
-            labelClassName="text-green-700/70"
+            labelClassName="hidden text-green-700/70 sm:block"
           />
           <SalesStatCard
             title="Rejected"
             metric={String(rejected.length)}
             label="Proofs declined"
-            icon={<XCircle size={17} className="text-red-600" />}
+            icon={<XCircle size={17} className="hidden text-red-600 sm:block" />}
             accent={SALES_ACCENTS.red}
-            className="booking-approval-stat bg-red-50/80 ring-red-100/90"
+            className="booking-approval-stat bg-red-50/80 px-3 py-4 ring-red-100/90 [&>div:nth-child(2)]:mb-3 sm:px-5 sm:py-5 sm:[&>div:nth-child(2)]:mb-5"
             metricClassName="text-red-700"
-            labelClassName="text-red-700/70"
+            labelClassName="hidden text-red-700/70 sm:block"
           />
         </div>
       </div>
@@ -1154,7 +1399,7 @@ export default function BookingApprovalsPage({
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-full px-4 text-sm transition-all duration-200 ${
+              className={`flex h-10 min-w-[116px] items-center justify-center gap-2 rounded-full px-3 text-sm transition-all duration-200 sm:min-w-[150px] sm:px-4 ${
                 active
                   ? 'bg-gray-900 text-white font-bold shadow-[0_10px_22px_rgba(15,23,42,0.15)]'
                   : 'text-slate-500 font-semibold hover:bg-white hover:text-slate-800'
@@ -1179,9 +1424,18 @@ export default function BookingApprovalsPage({
       {/* Content */}
       <div className="booking-approvals-content rounded-[22px] border-0 bg-white p-4 shadow-[0_4px_20px_rgba(15,23,42,0.06),0_16px_44px_-16px_rgba(15,23,42,0.09)]">
         {loading ? (
-          <div className="flex flex-col items-center justify-center h-64 gap-4 rounded-2xl bg-slate-50/70">
-            <div className="w-10 h-10 border-4 border-amber-100 border-t-amber-500 rounded-full animate-spin" />
-            <p className="text-sm font-medium text-slate-400">Loading bookings…</p>
+          <div className="flex h-64 flex-col items-center justify-center gap-4 rounded-2xl bg-slate-50/70">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600" />
+            <p className="text-sm font-semibold text-slate-500">Loading booking approvals…</p>
+          </div>
+        ) : loadError ? (
+          <div className="booking-approvals-empty flex min-h-[320px] flex-col items-center justify-center rounded-[20px] bg-slate-50/75 px-6 text-center">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 text-rose-600"><AlertTriangle size={26} /></div>
+            <p className="text-lg font-black text-slate-900">Booking approvals could not be loaded</p>
+            <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">{loadError}</p>
+            <button type="button" onClick={() => { void fetchAll(); }} className="mt-5 inline-flex h-11 items-center gap-2 rounded-xl bg-slate-950 px-5 text-xs font-black text-white">
+              <RefreshCw size={14} /> Retry
+            </button>
           </div>
         ) : tab === 'pending' ? (
           pending.length === 0 ? (
@@ -1193,11 +1447,34 @@ export default function BookingApprovalsPage({
               <p className="max-w-md text-sm text-slate-500">No GCash payment proofs are waiting for confirmation right now.</p>
             </div>
           ) : (
-            <div className="flex flex-col gap-5 pb-6">
-              {pending.map((b, i) => (
-                <BookingCard key={b._id || b.id} booking={b} idx={i}
-                  onApprove={handleApprove} onReject={handleReject} />
-              ))}
+            <div className="pb-2">
+              {pending.length > 1 ? (
+                <div className="mb-3 flex flex-col gap-2 rounded-2xl bg-slate-50/80 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                    <Filter size={14} className="text-blue-600" />
+                    {pending.length} reservations awaiting review
+                  </div>
+                  <label className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
+                    Sort by
+                    <select value={pendingSort} onChange={(event) => setPendingSort(event.target.value as PendingSort)} className="h-9 rounded-xl bg-white px-3 pr-8 text-xs font-bold text-slate-700 ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300">
+                      <option value="oldest">Oldest submitted</option>
+                      <option value="newest">Newest submitted</option>
+                      <option value="appointment">Appointment date</option>
+                      <option value="amount">Payment amount</option>
+                      <option value="method">Payment method</option>
+                    </select>
+                  </label>
+                </div>
+              ) : null}
+              <div className="flex flex-col gap-3">
+                {visiblePending.map((b) => {
+                  const bookingId = mongoOrderIdString(b) || String(b._id || b.id || '');
+                  const queueIndex = pending.findIndex((queued) => (mongoOrderIdString(queued) || String(queued._id || queued.id || '')) === bookingId);
+                  return (
+                    <BookingCard key={b._id || b.id} booking={b} idx={Math.max(0, queueIndex)} onApprove={handleApprove} onReject={handleReject} />
+                  );
+                })}
+              </div>
             </div>
           )
         ) : tab === 'approved' ? (

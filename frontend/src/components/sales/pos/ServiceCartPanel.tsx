@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, Tag, Loader2,
-  Shield, Clock, Star, BadgeCheck, ChevronDown, ChevronUp,
+  Shield, Clock, BadgeCheck, ChevronDown, ChevronUp, Car,
 } from 'lucide-react';
-import { CartItem, formatPeso } from '@/lib/salesData';
+import { CartItem, Vehicle, formatPeso, formatVehicleTypeLabel } from '@/lib/salesData';
 import { BackendService, VehicleType, getEffectivePrice } from '@/hooks/useServices';
 import { DEFAULT_SPF_ADDON_PRICES } from '@/lib/service-pricing';
 
@@ -13,11 +13,11 @@ type VehicleTab = { key: VehicleType; label: string };
 const VEHICLE_TABS: VehicleTab[] = [
   { key: 'hatchback', label: 'Hatchback' },
   { key: 'sedan',     label: 'Sedan' },
-  { key: 'midsized',  label: 'Midsized' },
+  { key: 'midsized',  label: 'Midsize' },
   { key: 'suv',       label: 'SUV' },
-  { key: 'pickup',    label: 'Pick Up' },
+  { key: 'pickup',    label: 'Pickup' },
   { key: 'largesuv',  label: 'Large SUV / Van' },
-  { key: 'highend',   label: 'Highend Sedan' },
+  { key: 'highend',   label: 'High-end Sedan' },
 ];
 
 // ── SPF Package metadata (badge, tagline, warranty, tint prices) ──────────────
@@ -78,25 +78,11 @@ function getSPFMeta(name: string): SPFMeta | null {
   return found ? found.meta : null;
 }
 
-// ── Category badge colors ─────────────────────────────────────────────────────
-const CATEGORY_COLORS: Record<string, string> = {
-  Exterior:           'bg-blue-100 text-blue-700',
-  Interior:           'bg-pink-100 text-pink-700',
-  Complete:           'bg-purple-100 text-purple-700',
-  Engine:             'bg-amber-100 text-amber-700',
-  Premium:            'bg-emerald-100 text-emerald-700',
-  Detailing:          'bg-blue-100 text-blue-700',
-  PPF:                'bg-purple-100 text-purple-700',
-  Ceramic:            'bg-amber-100 text-amber-700',
-  Tinting:            'bg-teal-100 text-teal-700',
-  'Paint Correction': 'bg-red-100 text-red-700',
-  Restoration:        'bg-orange-100 text-orange-700',
-};
-
 interface Props {
   services: BackendService[];
   servicesLoading: boolean;
   selectedVehicleType: VehicleType;
+  selectedVehicle: Vehicle | null;
   onVehicleTypeChange: (vt: VehicleType) => void;
   isVehicleFromCustomer: boolean;    // true = type was auto-set from selected vehicle
   cartItems: CartItem[];
@@ -116,6 +102,7 @@ export default function ServiceCartPanel({
   services,
   servicesLoading,
   selectedVehicleType,
+  selectedVehicle,
   onVehicleTypeChange,
   isVehicleFromCustomer,
   cartItems,
@@ -134,6 +121,10 @@ export default function ServiceCartPanel({
 
   const inCart = (id: string) => cartItems.some((c) => c.id === id);
   const activeVehicleLabel = VEHICLE_TABS.find((t) => t.key === selectedVehicleType)?.label ?? '';
+  const hasVehicle = Boolean(selectedVehicle);
+  const selectedVehicleName = selectedVehicle
+    ? [selectedVehicle.year, selectedVehicle.make, selectedVehicle.model].filter(Boolean).join(' ')
+    : '';
 
   return (
     <div className="pos-service-cart-panel flex flex-1 flex-col overflow-hidden rounded-[22px] border-0 bg-white shadow-[0_4px_28px_-10px_rgba(15,23,42,0.1),0_16px_48px_-20px_rgba(15,23,42,0.07)]">
@@ -155,6 +146,26 @@ export default function ServiceCartPanel({
             </span>
           )}
         </div>
+
+        {selectedVehicle ? (
+          <div className="mb-3 flex items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-blue-700 shadow-sm">
+              <Car size={15} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Services for</p>
+              <p className="truncate text-xs font-bold text-slate-950">
+                {selectedVehicleName || 'Selected vehicle'}{selectedVehicle.plate ? ` · ${selectedVehicle.plate}` : ''}
+              </p>
+              <p className="text-[10px] text-slate-500">{activeVehicleLabel} pricing · based on selected vehicle</p>
+            </div>
+          </div>
+        ) : (
+          <div className="mb-3 rounded-xl border border-dashed border-amber-200 bg-amber-50 px-3 py-2.5">
+            <p className="text-xs font-bold text-amber-900">No vehicle selected</p>
+            <p className="mt-0.5 text-[10px] leading-relaxed text-amber-700">Add or select a vehicle before choosing vehicle-priced services.</p>
+          </div>
+        )}
 
         {/* Search */}
         <div className="relative mb-3">
@@ -184,8 +195,11 @@ export default function ServiceCartPanel({
             return (
               <button
                 key={tab.key}
+                type="button"
+                disabled={!hasVehicle || (isVehicleFromCustomer && !active)}
+                title={isVehicleFromCustomer && !active ? 'Edit or change the selected vehicle to use this pricing class.' : undefined}
                 onClick={() => onVehicleTypeChange(tab.key)}
-                className={`flex shrink-0 items-center justify-center rounded-xl px-3.5 py-2 text-[11px] font-bold transition-all duration-200 border-0 ${
+                className={`flex shrink-0 items-center justify-center rounded-xl px-3.5 py-2 text-[11px] font-bold transition-all duration-200 border-0 disabled:cursor-not-allowed disabled:opacity-45 ${
                   active
                     ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-[0_6px_18px_rgba(37,99,235,0.32)]'
                     : 'bg-transparent text-slate-600 hover:bg-white/95 hover:text-slate-800 hover:shadow-[0_2px_10px_rgba(15,23,42,0.08)]'
@@ -224,28 +238,16 @@ export default function ServiceCartPanel({
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-slate-900 truncate">{item.name}</p>
                     <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${CATEGORY_COLORS[item.category] || 'bg-slate-100 text-slate-600'}`}>
-                        {item.category}
+                      <span className="text-[10px] text-slate-500">
+                        {item.category}{meta.vehicleType ? ` · ${formatVehicleTypeLabel(meta.vehicleType)}` : ''}
                       </span>
-                      <span className="text-[11px] text-slate-400">{formatPeso(item.price)}</span>
                       {fromQueue && (
                         <>
                           <span className="text-[9px] font-black uppercase tracking-wide text-blue-700 bg-white px-1.5 py-0.5 rounded-full shadow-sm shadow-blue-600/10">
                             From queue
                           </span>
-                          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full">
-                            Order-linked
-                          </span>
-                          <span className="text-[9px] font-semibold text-slate-500 bg-white/80 px-1.5 py-0.5 rounded-full">
-                            {meta.queueLabel || 'Included in original booking'}
-                          </span>
+                          <span className="text-[9px] font-semibold text-slate-500">{meta.queueLabel || 'Included in original booking'}</span>
                         </>
-                      )}
-                      {/* Locked vehicle type badge */}
-                      {meta.vehicleType && (
-                        <span className="text-[9px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full shadow-sm shadow-blue-600/10">
-                          {VEHICLE_TABS.find(t => t.key === meta.vehicleType)?.label ?? meta.vehicleType}
-                        </span>
                       )}
                     </div>
                   </div>
@@ -253,6 +255,8 @@ export default function ServiceCartPanel({
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => onUpdateQty(item.id, item.quantity - 1)}
+                        type="button"
+                        aria-label={`Decrease ${item.name} quantity`}
                         className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-colors duration-100 hover:bg-slate-200"
                       >
                         <Minus size={11} />
@@ -260,6 +264,8 @@ export default function ServiceCartPanel({
                       <span className="w-5 text-center text-xs font-bold text-slate-900">{item.quantity}</span>
                       <button
                         onClick={() => onUpdateQty(item.id, item.quantity + 1)}
+                        type="button"
+                        aria-label={`Increase ${item.name} quantity`}
                         className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-colors duration-100 hover:bg-slate-200"
                       >
                         <Plus size={11} />
@@ -272,6 +278,8 @@ export default function ServiceCartPanel({
                   {/* Remove */}
                     <button
                       onClick={() => onRemoveFromCart(item.id)}
+                      type="button"
+                      aria-label={`Remove ${item.name}`}
                       className="rounded-lg p-1.5 text-slate-300 transition-all duration-150 hover:bg-red-50 hover:text-red-500"
                     >
                       <Trash2 size={13} />
@@ -297,7 +305,7 @@ export default function ServiceCartPanel({
                   "{svcQuery}"
                 </span>
               )}
-              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700 shadow-sm shadow-blue-600/12">
+              <span className="text-[10px] font-semibold text-blue-700">
                 {activeVehicleLabel}
               </span>
             </div>
@@ -327,11 +335,12 @@ export default function ServiceCartPanel({
                 const spfMeta = getSPFMeta(svc.name);
                 const tintPrice = spfMeta?.tintPrices[selectedVehicleType];
                 const isExpanded = expandedId === svc._id;
+                const tintAdded = inCart(`${svc._id}-tint`);
 
                 return (
                     <div
                       key={`catalog-${svc._id}`}
-                      className={`pos-service-row rounded-2xl border-0 px-4 py-3.5 transition-all duration-150 ${
+                      className={`pos-service-row rounded-2xl border-0 px-4 py-3 transition-all duration-150 ${
                         added ? 'bg-blue-50/85 shadow-[0_6px_20px_rgba(37,99,235,0.12),0_2px_8px_rgba(37,99,235,0.08)]' : 'bg-white shadow-[0_2px_8px_rgba(15,23,42,0.04),0_10px_28px_-12px_rgba(15,23,42,0.08)] hover:bg-white hover:shadow-[0_8px_28px_-8px_rgba(37,99,235,0.1),0_2px_10px_rgba(15,23,42,0.05)]'
                       }`}
                     >
@@ -362,20 +371,17 @@ export default function ServiceCartPanel({
                         )}
 
                         {/* Category + duration + base price notice */}
-                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${CATEGORY_COLORS[svc.category] || 'bg-slate-100 text-slate-600'}`}>
-                              {svc.category}
-                            </span>
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap text-[10px] text-slate-500">
+                            <span>{svc.category}</span>
+                            {svc.duration ? <span aria-hidden="true">·</span> : null}
                           {svc.duration && (
-                            <span className="flex items-center gap-0.5 text-[10px] text-slate-400">
+                            <span className="flex items-center gap-0.5 text-slate-400">
                               <Clock size={9} />
                               {svc.duration}
                             </span>
                           )}
                           {!hasVehiclePrice && price > 0 && (
-                              <span className="rounded-md bg-slate-100/90 px-1 py-0.5 text-[9px] font-semibold text-slate-500 shadow-sm">
-                                base price
-                              </span>
+                              <span className="text-[9px] font-semibold text-slate-400">· base price</span>
                           )}
                         </div>
 
@@ -392,26 +398,29 @@ export default function ServiceCartPanel({
                           </p>
                           <button
                             onClick={() => onAddToCart(svc._id)}
-                            disabled={price === 0}
+                            type="button"
+                            disabled={price === 0 || added || !hasVehicle}
                             className={`mt-1.5 flex w-full items-center justify-center gap-1 rounded-xl px-2 py-1.5 text-[11px] font-bold transition-all duration-150 ${
-                              price === 0
+                              price === 0 || !hasVehicle
                                 ? 'cursor-not-allowed bg-slate-100 text-slate-400'
                                 : added
-                                ? 'bg-blue-100 text-blue-700 shadow-sm shadow-blue-100/60 hover:bg-blue-200'
-                                : 'bg-gradient-to-r from-blue-700 to-blue-600 text-white shadow-[0_8px_18px_rgba(37,99,235,0.22)] hover:from-blue-800 hover:to-blue-700 active:scale-95'
+                                ? 'cursor-default bg-blue-100 text-blue-700'
+                                : 'bg-blue-700 text-white shadow-sm hover:bg-blue-800 active:scale-95'
                             }`}
                           >
-                          <Plus size={10} />
-                          {price === 0 ? 'No price' : added ? 'Add again' : 'Add'}
+                          {added ? null : <Plus size={10} />}
+                          {!hasVehicle ? 'Select vehicle' : price === 0 ? 'No price' : added ? '✓ In cart' : 'Add'}
                         </button>
 
                         {/* Tint add-on toggle */}
                             {spfMeta && tintPrice && (
                             <button
+                              type="button"
+                              disabled={!hasVehicle || tintAdded}
                               onClick={() => setExpandedId(isExpanded ? null : svc._id)}
                               className="mt-1 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold text-teal-600 transition-colors hover:bg-teal-50 hover:text-teal-700"
                             >
-                            + Tint
+                            {tintAdded ? '✓ Tint in cart' : '+ Tint'}
                             {isExpanded ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
                           </button>
                         )}
@@ -429,6 +438,7 @@ export default function ServiceCartPanel({
                           <p className="text-[12px] font-bold text-teal-700">{formatPeso(tintPrice)}</p>
                           <button
                             onClick={() => { onAddToCart(svc._id, true); setExpandedId(null); }}
+                            type="button"
                             className="text-[10px] font-bold px-2 py-1 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors active:scale-95"
                           >
                             Add Bundle

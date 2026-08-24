@@ -26,7 +26,7 @@ import * as Haptics from 'expo-haptics';
 import PremiumButton from '@/components/ui/PremiumButton';
 import PremiumInput from '@/components/ui/PremiumInput';
 import { Toast } from '@/components/ui/PremiumToast';
-import { RegisterPhoneField } from '@/components/auth/RegisterPhoneField';
+import RegisterCountryCodePicker from '@/components/auth/RegisterCountryCodePicker';
 import { authService } from '@/services/api/authService';
 import { REGISTER_COUNTRY_DIALS } from '@/lib/countries-dial-data';
 import { validateRegisterNationalDigits, buildRegisterE164 } from '@/lib/phoneRegister';
@@ -157,6 +157,22 @@ export default function SignUpScreen() {
 
   const dial =
     REGISTER_COUNTRY_DIALS.find((c) => c.iso === registerPhoneCountryIso)?.dial ?? '63';
+
+  const handleRegisterPhoneChange = useCallback(
+    (raw: string) => {
+      let digits = raw.replace(/\D/g, '');
+      if (dial === '63') {
+        if (digits.startsWith('0')) digits = digits.slice(1);
+        digits = digits.slice(0, 10);
+      } else {
+        digits = digits.slice(0, 15);
+      }
+      setRegisterPhoneNational(digits);
+      setPhoneError('');
+      setApiError('');
+    },
+    [dial]
+  );
 
   const handleBlur = (field: FieldKey) => {
     setTouched((p) => ({ ...p, [field]: true }));
@@ -454,20 +470,22 @@ export default function SignUpScreen() {
                       premiumFocus
                     />
 
-                    <RegisterPhoneField
-                      countryIso={registerPhoneCountryIso}
-                      onCountryIsoChange={(iso) => {
-                        setRegisterPhoneCountryIso(iso);
-                        setPhoneError('');
-                        if (apiError) setApiError('');
-                      }}
-                      nationalDigits={registerPhoneNational}
-                      onNationalDigitsChange={(v) => {
-                        setRegisterPhoneNational(v);
-                        setPhoneError('');
-                        if (apiError) setApiError('');
-                      }}
-                      hasError={registerPhoneTouched && !!phoneError}
+                    <PremiumInput
+                      label="PHONE NUMBER *"
+                      leftAccessory={
+                        <RegisterCountryCodePicker
+                          countryIso={registerPhoneCountryIso}
+                          onCountryIsoChange={(iso) => {
+                            setRegisterPhoneCountryIso(iso);
+                            setPhoneError('');
+                            if (apiError) setApiError('');
+                          }}
+                        />
+                      }
+                      placeholder={dial === '63' ? '9XXXXXXXXX' : 'Phone number'}
+                      value={registerPhoneNational}
+                      onChangeText={handleRegisterPhoneChange}
+                      keyboardType="phone-pad"
                       error={registerPhoneTouched ? phoneError : undefined}
                       premiumFocus
                     />

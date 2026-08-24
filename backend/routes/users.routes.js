@@ -73,6 +73,10 @@ router.patch('/profile', authenticate, handleProfilePhotoUpload, userController.
  */
 router.patch('/me/activity', authenticate, userController.touchMyActivity);
 
+/** Register or remove this device's Expo push token. */
+router.post('/push-token', authenticate, userController.registerPushToken);
+router.delete('/push-token', authenticate, userController.unregisterPushToken);
+
 /**
  * @route GET /api/users/:id
  * @desc Get user by ID
@@ -129,12 +133,5 @@ router.patch('/:id/activate', authenticate, authorizeStaffManagers, userControll
  * @access Private
  */
 router.patch('/change-password', authenticate, userController.changePassword);
-
-/**
- * @route POST /api/users/push-token
- * @desc Register Expo Push Notification Token
- * @access Private
- */
-router.post('/push-token', authenticate, userController.registerPushToken);
 
 export default router;

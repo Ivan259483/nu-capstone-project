@@ -4,12 +4,13 @@ import {
   ChevronsUpDown, Calendar, X, Receipt,
 } from 'lucide-react';
 import {
-  Transaction, TransactionStatus, PaymentMethod,
+  Transaction, TransactionStatus,
+  TransactionPaymentFilter, DEFAULT_TRANSACTION_PAYMENT_FILTER,
+  filterTransactions, transactionsToCsv,
   formatPeso, getPaymentMethodLabel, formatTransactionStatusLabel,
 } from '@/lib/salesData';
 import TransactionReceiptModal from './TransactionReceiptModal';
 import { useSalesContext } from '@/contexts/SalesAnalyticsContext';
-import { getPrimaryKpiDayTransactions } from '@/lib/dashboard-time';
 import { printDetailedReceipt, receiptFromTransaction } from '@/lib/receipt-document';
 import SalesStatCard from '@/components/sales/ui/SalesStatCard';
 import { SALES_ACCENTS, hashToSalesAccent } from '@/components/sales/ui/salesTheme';
@@ -25,7 +26,8 @@ const STATUS_OPTIONS: { key: string; value: TransactionStatus | 'all'; label: st
   { key: 'sf-voided', value: 'voided', label: 'Voided' },
 ];
 
-const PM_OPTIONS: { key: string; value: Extract<PaymentMethod, 'cash' | 'gcash'>; label: string }[] = [
+const PM_OPTIONS: { key: string; value: TransactionPaymentFilter; label: string }[] = [
+  { key: 'pm-all', value: 'all', label: 'All Payment Methods' },
   { key: 'pm-cash', value: 'cash', label: 'Cash' },
   { key: 'pm-gcash', value: 'gcash', label: 'GCash' },
 ];
@@ -33,9 +35,10 @@ const PM_OPTIONS: { key: string; value: Extract<PaymentMethod, 'cash' | 'gcash'>
 const PM_BADGE_COLORS: Record<string, string> = {
   cash:          'text-emerald-900 bg-gradient-to-b from-emerald-50/95 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_0_0_1px_rgba(167,243,208,0.75),0_1px_2px_rgba(5,95,70,0.05)]',
   card:          'text-indigo-900 bg-gradient-to-b from-indigo-50/95 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_0_0_1px_rgba(199,210,254,0.8),0_1px_2px_rgba(49,46,129,0.06)]',
-  gcash:         'text-teal-900 bg-gradient-to-b from-teal-50/95 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_0_0_1px_rgba(153,246,228,0.75),0_1px_2px_rgba(15,118,110,0.05)]',
+  gcash:         'text-blue-800 bg-gradient-to-b from-blue-50/95 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_0_0_1px_rgba(191,219,254,0.85),0_1px_2px_rgba(37,99,235,0.07)]',
   maya:          'text-violet-900 bg-gradient-to-b from-violet-50/95 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_0_0_1px_rgba(221,214,254,0.8),0_1px_2px_rgba(76,29,149,0.05)]',
   bank_transfer: 'text-slate-800 bg-gradient-to-b from-slate-50 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(226,232,240,0.95),0_1px_2px_rgba(15,23,42,0.04)]',
+  unknown:       'text-slate-700 bg-gradient-to-b from-slate-100 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(203,213,225,0.9),0_1px_2px_rgba(15,23,42,0.04)]',
 };
 
 const statusKey = (status: TransactionStatus, raw?: string) =>
@@ -102,10 +105,28 @@ const getStatusBadge = (txn: Transaction) => {
 
 const ITEMS_PER_PAGE_OPTIONS = [5, 10, 20, 50];
 
+const localDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const defaultDateRange = () => {
+  const today = new Date();
+  return {
+    from: localDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)),
+    to: localDateInputValue(today),
+  };
+};
+
 export default function TransactionsTable() {
+  const initialDateRange = useMemo(defaultDateRange, []);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<TransactionStatus | 'all'>('all');
-  const [pmFilter, setPmFilter] = useState<Extract<PaymentMethod, 'cash' | 'gcash'>>('cash');
+  const [pmFilter, setPmFilter] = useState<TransactionPaymentFilter>(DEFAULT_TRANSACTION_PAYMENT_FILTER);
+  const [dateFrom, setDateFrom] = useState(initialDateRange.from);
+  const [dateTo, setDateTo] = useState(initialDateRange.to);
   const [sortKey, setSortKey] = useState<SortKey>('dateTime');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState(1);
@@ -115,22 +136,19 @@ export default function TransactionsTable() {
 
   const { transactions: TRANSACTIONS, isLoading } = useSalesContext();
 
-  const kpiPrimary = useMemo(() => getPrimaryKpiDayTransactions(TRANSACTIONS), [TRANSACTIONS]);
-  const { kpiDayTxns, useLast24hFallback } = kpiPrimary;
+  const dateRangeTransactions = useMemo(
+    () => filterTransactions(TRANSACTIONS, { dateFrom, dateTo }),
+    [TRANSACTIONS, dateFrom, dateTo]
+  );
 
   const filtered = useMemo(() => {
-    let data = [...TRANSACTIONS];
-    if (search) {
-      const q = search.toLowerCase();
-      data = data.filter((t) =>
-        t.id.toLowerCase().includes(q) ||
-        t.customerName.toLowerCase().includes(q) ||
-        t.vehiclePlate.toLowerCase().includes(q) ||
-        t.services.some((s) => s.name.toLowerCase().includes(q))
-      );
-    }
-    if (statusFilter !== 'all') data = data.filter((t) => t.status === statusFilter);
-    data = data.filter((t) => t.paymentMethod === pmFilter);
+    const data = filterTransactions(TRANSACTIONS, {
+      search,
+      status: statusFilter,
+      paymentMethod: pmFilter,
+      dateFrom,
+      dateTo,
+    });
     if (sortKey) {
       data.sort((a, b) => {
         const aVal = a[sortKey as keyof Transaction];
@@ -145,7 +163,7 @@ export default function TransactionsTable() {
       });
     }
     return data;
-  }, [TRANSACTIONS, search, statusFilter, pmFilter, sortKey, sortDir]);
+  }, [TRANSACTIONS, search, statusFilter, pmFilter, dateFrom, dateTo, sortKey, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
@@ -167,14 +185,7 @@ export default function TransactionsTable() {
   };
 
   const exportTransactionsCSV = (txns: Transaction[]) => {
-    const headers = ['Transaction ID', 'Customer', 'Vehicle Plate', 'Services', 'Amount', 'Payment Method', 'Status', 'Date', 'Staff'];
-    const rows = txns.map(t => [
-      `"${t.id}"`, `"${t.customerName}"`, `"${t.vehiclePlate}"`,
-      `"${t.services.map(s => s.name).join('; ')}"`,
-      t.total.toFixed(2), t.paymentMethod, formatTransactionStatusLabel(t.status, t.statusRaw),
-      new Date(t.dateTime).toLocaleString('en-PH'), `"${t.staffName}"`
-    ].join(','));
-    const csv = [headers.join(','), ...rows].join('\n');
+    const csv = transactionsToCsv(txns);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -198,14 +209,29 @@ export default function TransactionsTable() {
   };
 
   const clearFilters = () => {
-    setSearch(''); setStatusFilter('all'); setPmFilter('cash'); setPage(1);
+    setSearch('');
+    setStatusFilter('all');
+    setPmFilter(DEFAULT_TRANSACTION_PAYMENT_FILTER);
+    setDateFrom(initialDateRange.from);
+    setDateTo(initialDateRange.to);
+    setPage(1);
   };
 
-  const hasActiveFilters = search || statusFilter !== 'all' || pmFilter !== 'cash';
+  const hasActiveFilters = Boolean(
+    search
+    || statusFilter !== 'all'
+    || pmFilter !== DEFAULT_TRANSACTION_PAYMENT_FILTER
+    || dateFrom !== initialDateRange.from
+    || dateTo !== initialDateRange.to
+  );
 
-  const todayTotal = kpiDayTxns.reduce((s, t) => s + t.total, 0);
-  const pendingTotal = TRANSACTIONS.filter((t) => t.status === 'pending').reduce((s, t) => s + t.total, 0);
-  const pendingCount = TRANSACTIONS.filter((t) => t.status === 'pending').length;
+  // KPI cards intentionally represent the entire selected date range; search,
+  // status, and payment-method filters only affect the table and Filtered card.
+  const rangeRevenue = dateRangeTransactions
+    .filter((t) => t.status !== 'voided')
+    .reduce((sum, transaction) => sum + transaction.total, 0);
+  const pendingTotal = dateRangeTransactions.filter((t) => t.status === 'pending').reduce((s, t) => s + t.total, 0);
+  const pendingCount = dateRangeTransactions.filter((t) => t.status === 'pending').length;
 
   return (
     <>
@@ -214,14 +240,14 @@ export default function TransactionsTable() {
         {[
           {
             key: 'ts-today',
-            title: 'Revenue 24h',
-            value: formatPeso(todayTotal),
-            sub: `${kpiDayTxns.length} transaction${kpiDayTxns.length !== 1 ? 's' : ''}${useLast24hFallback ? ' · rolling' : ''}`,
+            title: 'Revenue in Range',
+            value: formatPeso(rangeRevenue),
+            sub: `${dateRangeTransactions.length} transaction${dateRangeTransactions.length !== 1 ? 's' : ''}`,
             accent: SALES_ACCENTS.orange,
             icon: <Receipt size={17} className="text-slate-500" />,
           },
           { key: 'ts-pending',  title: 'Pending',       value: formatPeso(pendingTotal),      sub: `${pendingCount} awaiting payment`, accent: SALES_ACCENTS.orange, icon: <Calendar size={17} className="text-slate-500" /> },
-          { key: 'ts-total',    title: 'Total Records', value: String(TRANSACTIONS.length),   sub: 'All time',                  accent: SALES_ACCENTS.purple, icon: <Receipt size={17} className="text-slate-500" /> },
+          { key: 'ts-total',    title: 'Total Records', value: String(dateRangeTransactions.length), sub: 'Selected date range', accent: SALES_ACCENTS.purple, icon: <Receipt size={17} className="text-slate-500" /> },
           { key: 'ts-filtered', title: 'Filtered',      value: String(filtered.length),        sub: 'Current view',              accent: SALES_ACCENTS.teal, icon: <Filter size={17} className="text-slate-500" /> },
         ].map((s) => (
           <SalesStatCard
@@ -277,7 +303,7 @@ export default function TransactionsTable() {
           <div className="relative">
             <select
               value={pmFilter}
-              onChange={(e) => { setPmFilter(e.target.value as Extract<PaymentMethod, 'cash' | 'gcash'>); setPage(1); }}
+              onChange={(e) => { setPmFilter(e.target.value as TransactionPaymentFilter); setPage(1); }}
               className="input-base py-2 pr-8 text-sm appearance-none cursor-pointer min-w-40 rounded-xl border-slate-200/70 shadow-sm shadow-slate-200/20"
             >
               {PM_OPTIONS.map((opt) => (
@@ -287,11 +313,27 @@ export default function TransactionsTable() {
             <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
 
-          {/* Date Range (UI only) */}
-          <button className="flex items-center gap-2 btn-secondary py-2 rounded-xl border-slate-200/70 shadow-sm shadow-slate-200/15">
-            <Calendar size={14} />
-            <span>{new Date(new Date().getFullYear(), new Date().getMonth(), 1).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })} – {new Date().toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}</span>
-          </button>
+          {/* Date Range */}
+          <div className="flex items-center gap-1.5 rounded-xl border border-slate-200/70 bg-white px-3 py-1.5 text-slate-600 shadow-sm shadow-slate-200/15">
+            <Calendar size={14} className="shrink-0" />
+            <input
+              aria-label="Transactions from date"
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(event) => { setDateFrom(event.target.value); setPage(1); }}
+              className="w-[118px] bg-transparent text-xs font-medium outline-none"
+            />
+            <span className="text-slate-400">–</span>
+            <input
+              aria-label="Transactions to date"
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(event) => { setDateTo(event.target.value); setPage(1); }}
+              className="w-[118px] bg-transparent text-xs font-medium outline-none"
+            />
+          </div>
 
           {hasActiveFilters && (
             <button

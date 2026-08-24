@@ -303,7 +303,7 @@ export default function CustomersView() {
               services: order.serviceType || order.items?.map((i: any) => i.product?.name || 'Service').join(', ') || '',
               total: orderTotal,
               status: order.status || 'pending',
-              paymentMethod: order.paymentMethod || 'cash',
+              paymentMethod: order.paymentMethod || 'unknown',
             });
           });
 

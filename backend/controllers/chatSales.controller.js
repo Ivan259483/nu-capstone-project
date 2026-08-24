@@ -1,8 +1,10 @@
 import Notification from '../models/notification.model.js';
 import {
   assignSalesConversation,
+  addSalesConversationNote,
   getCustomerConversationMessages,
   getSalesConversation,
+  linkSalesConversationBooking,
   listSalesConversations,
   markCustomerConversationRead,
   markSalesConversationRead,
@@ -37,7 +39,7 @@ export const handoffConversation = async (req, res, next) => {
       });
     }
     const conversationId = clean(
-      req.body?.conversationId || req.body?.sessionId
+      req.body?.conversationId || req.body?.sessionId,
     );
     const guestKey = clean(req.body?.guestKey);
     if (!req.user?.id && !guestKey) {
@@ -126,6 +128,7 @@ export const postCustomerMessage = async (req, res, next) => {
       guestKey,
       message: req.body?.message,
       senderType: req.body?.senderType,
+      context: req.body?.context,
     });
     return res.status(201).json({ success: true, ...result });
   } catch (error) {
@@ -201,6 +204,21 @@ export const patchSalesConversationStatus = async (req, res, next) => {
     const conversation = await updateSalesConversationStatus({
       conversationId: clean(req.params.conversationId),
       status: req.body?.status,
+      reason: req.body?.reason,
+      salesUser: req.user,
+    });
+    return res.json({ success: true, conversation });
+  } catch (error) {
+    return sendKnownError(res, error, next);
+  }
+};
+
+export const linkSalesBooking = async (req, res, next) => {
+  try {
+    const conversation = await linkSalesConversationBooking({
+      conversationId: clean(req.params.conversationId),
+      bookingId: req.body?.bookingId,
+      salesUser: req.user,
     });
     return res.json({ success: true, conversation });
   } catch (error) {
@@ -223,9 +241,22 @@ export const assignSalesConversationToCurrentUser = async (req, res, next) => {
 export const readSalesConversation = async (req, res, next) => {
   try {
     const conversation = await markSalesConversationRead(
-      clean(req.params.conversationId)
+      clean(req.params.conversationId),
     );
     return res.json({ success: true, conversation });
+  } catch (error) {
+    return sendKnownError(res, error, next);
+  }
+};
+
+export const postSalesNote = async (req, res, next) => {
+  try {
+    const conversation = await addSalesConversationNote({
+      conversationId: clean(req.params.conversationId),
+      salesUser: req.user,
+      text: req.body?.text,
+    });
+    return res.status(201).json({ success: true, conversation });
   } catch (error) {
     return sendKnownError(res, error, next);
   }

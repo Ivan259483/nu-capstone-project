@@ -111,10 +111,10 @@ const loadReceiptLogo = () =>
   });
 
 const normalizePaymentMethod = (method?: string) => {
-  const m = String(method || 'cash').toLowerCase().replace(/\s+/g, '_');
+  const m = String(method || '').toLowerCase().replace(/\s+/g, '_');
   const known = ['cash', 'card', 'gcash', 'maya', 'bank_transfer'] as const;
   if ((known as readonly string[]).includes(m)) return getPaymentMethodLabel(m as PaymentMethod);
-  return m ? m.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Cash';
+  return m ? m.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Unknown';
 };
 
 const isPaidReceiptStatus = (status?: string) =>

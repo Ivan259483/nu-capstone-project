@@ -14,6 +14,7 @@ import * as Haptics from 'expo-haptics';
 interface PremiumInputProps extends Omit<TextInputProps, 'style'> {
   label: string;
   iconName?: keyof typeof Ionicons.glyphMap;
+  leftAccessory?: React.ReactNode;
   error?: string;
   isPassword?: boolean;
   premiumFocus?: boolean;
@@ -24,6 +25,7 @@ interface PremiumInputProps extends Omit<TextInputProps, 'style'> {
 export default function PremiumInput({ 
   label, 
   iconName, 
+  leftAccessory,
   error, 
   isPassword, 
   premiumFocus = false,
@@ -90,6 +92,8 @@ export default function PremiumInput({
           premiumFocus && isFocused && !error ? styles.inputContainerPremiumFocused : null,
         ]}
       >
+        {leftAccessory}
+
         {iconName && (
           <Ionicons
             name={iconName}

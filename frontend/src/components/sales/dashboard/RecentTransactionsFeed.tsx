@@ -30,10 +30,11 @@ const PM_COLORS: Record<string, string> = {
   gcash: 'text-blue-600 bg-blue-50/90 shadow-sm shadow-blue-900/5',
   maya: 'text-green-700 bg-green-50/90 shadow-sm shadow-green-900/5',
   bank_transfer: 'text-slate-600 bg-slate-50/90 shadow-sm shadow-slate-900/5',
+  unknown: 'text-slate-600 bg-slate-100/90 shadow-sm shadow-slate-900/5',
 };
 
 const PM_LABELS: Record<string, string> = {
-  cash: 'Cash', card: 'Card', gcash: 'GCash', maya: 'Maya', bank_transfer: 'Bank',
+  cash: 'Cash', card: 'Card', gcash: 'GCash', maya: 'Maya', bank_transfer: 'Bank', unknown: 'Unknown',
 };
 
 interface Props {
@@ -71,7 +72,7 @@ export default function RecentTransactionsFeed({ onViewAll }: Props) {
         ) : (
           recent.map((txn) => {
             const status = STATUS_CONFIG[txn.status] ?? STATUS_CONFIG.voided;
-            const pmColor = PM_COLORS[txn.paymentMethod] ?? PM_COLORS.cash;
+            const pmColor = PM_COLORS[txn.paymentMethod] ?? PM_COLORS.unknown;
             const amountColor =
               txn.status === 'pending' ? 'text-amber-600' :
                 txn.status === 'voided' ? 'text-slate-400' :
@@ -89,7 +90,7 @@ export default function RecentTransactionsFeed({ onViewAll }: Props) {
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <p className="text-xs font-semibold text-slate-900 truncate">{txn.customerName}</p>
                     <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${pmColor}`}>
-                      {PM_LABELS[txn.paymentMethod]}
+                      {PM_LABELS[txn.paymentMethod] ?? 'Unknown'}
                     </span>
                   </div>
                   <p className="text-[10px] text-slate-400 truncate">

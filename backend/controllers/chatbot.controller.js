@@ -52,8 +52,12 @@ import {
 } from '../services/chatOnboardingSemantic.service.js';
 import { extractActionChipsFromReply, sanitizeChatReply } from '../utils/chatReplyFormat.utils.js';
 import {
-  buildChatAiFallbackReply,
+  formatGroqApiError,
+  GROQ_CHAT_MAX_RETRIES,
   GROQ_CHAT_MODEL,
+  GROQ_CHAT_TOTAL_TIMEOUT_MS,
+  GROQ_CHAT_TIMEOUT_MS,
+  runGroqWithRetry,
 } from '../utils/groqChat.utils.js';
 import {
   buildCasualConciergeReply,
@@ -120,6 +124,9 @@ const chatSessionCache = new Map();
 const chatHistoryCache = new Map();
 const knowledgeCache = new Map();
 let priceListCache = null;
+const chatRequestCache = new Map();
+const CHAT_REQUEST_CACHE_TTL_MS = 5 * 60 * 1000;
+const CHAT_MESSAGE_MAX_LENGTH = 4_000;
 
 const QUOTE_INTENT_REGEX = /(quote|price|price\s*list|pricelist|cost|how much|pricing|rate|rates|estimate|presyo|magkano)/i;
 const BOOKING_INTENT_REGEX = /(book|schedule|appointment|reserve|book now)/i;
@@ -194,7 +201,12 @@ const getGroqClient = () => {
   const GROQ_API_KEY = (process.env.GROQ_API_KEY || '').trim();
   if (!GROQ_API_KEY) return null;
   if (!groqClient) {
-    groqClient = new Groq({ apiKey: GROQ_API_KEY });
+    groqClient = new Groq({
+      apiKey: GROQ_API_KEY,
+      timeout: GROQ_CHAT_TIMEOUT_MS,
+      // Retry policy is centralized below so the total provider budget stays bounded.
+      maxRetries: 0,
+    });
   }
   return groqClient;
 };
@@ -325,6 +337,29 @@ const saveChatMessageLater = (payload = {}) => {
       await maybeTitleConversationFromFirstUserMessage(conversationId, payload.message);
     }
   });
+};
+
+const saveUserChatMessageOnce = async (payload = {}) => {
+  const conversationId = payload.conversationId || payload.sessionId;
+  const doc = {
+    ...payload,
+    conversationId,
+    sessionId: payload.sessionId || conversationId,
+  };
+
+  try {
+    await ChatMessage.create(doc);
+  } catch (error) {
+    if (error?.code === 11000 && payload.clientMessageId) return false;
+    throw error;
+  }
+
+  runChatSideEffect('update conversation after customer message', async () => {
+    if (!conversationId || !payload.message) return;
+    await touchConversationActivity(conversationId, { preview: payload.message });
+    await maybeTitleConversationFromFirstUserMessage(conversationId, payload.message);
+  });
+  return true;
 };
 
 const persistSessionLater = (session, label = 'persist chat session') => {
@@ -2292,7 +2327,9 @@ const buildAvailabilityHints = (message = '', products = []) => {
 const callGroq = async (messages, { onToken } = {}) => {
   const client = getGroqClient();
   if (!client) {
-    return 'The AI assistant is not configured yet. Please set GROQ_API_KEY on the server.';
+    const error = new Error('GROQ_API_KEY is not configured');
+    error.code = 'GROQ_NOT_CONFIGURED';
+    throw error;
   }
 
   const request = {
@@ -2302,26 +2339,51 @@ const callGroq = async (messages, { onToken } = {}) => {
     max_completion_tokens: GROQ_MAX_COMPLETION_TOKENS,
   };
 
-  if (!onToken) {
-    const response = await client.chat.completions.create(request);
-    const raw = response.choices?.[0]?.message?.content?.trim();
-    return sanitizeChatReply(raw || 'I can help with services, pricing, and bookings. What would you like to know?');
-  }
+  let emittedToken = false;
+  return runGroqWithRetry(async (_attempt, remainingMs) => {
+    if (!onToken) {
+      const response = await client.chat.completions.create(request, {
+        timeout: Math.min(GROQ_CHAT_TIMEOUT_MS, remainingMs),
+        maxRetries: 0,
+      });
+      const raw = response.choices?.[0]?.message?.content?.trim();
+      if (!raw) {
+        const error = new Error('Groq returned an empty completion');
+        error.code = 'GROQ_EMPTY_RESPONSE';
+        throw error;
+      }
+      return sanitizeChatReply(raw);
+    }
 
-  const stream = await client.chat.completions.create({
-    ...request,
-    stream: true,
+    const stream = await client.chat.completions.create(
+      { ...request, stream: true },
+      {
+        timeout: Math.min(GROQ_CHAT_TIMEOUT_MS, remainingMs),
+        maxRetries: 0,
+      }
+    );
+
+    let full = '';
+    for await (const chunk of stream) {
+      const token = chunk.choices?.[0]?.delta?.content || '';
+      if (!token) continue;
+      emittedToken = true;
+      full += token;
+      onToken(token);
+    }
+
+    if (!full.trim()) {
+      const error = new Error('Groq returned an empty completion stream');
+      error.code = 'GROQ_EMPTY_RESPONSE';
+      throw error;
+    }
+    return sanitizeChatReply(full);
+  }, {
+    maxRetries: GROQ_CHAT_MAX_RETRIES,
+    maxElapsedMs: GROQ_CHAT_TOTAL_TIMEOUT_MS,
+    // Retrying after emitting tokens would duplicate a partially streamed answer.
+    shouldRetry: () => !emittedToken,
   });
-
-  let full = '';
-  for await (const chunk of stream) {
-    const token = chunk.choices?.[0]?.delta?.content || '';
-    if (!token) continue;
-    full += token;
-    onToken(token);
-  }
-
-  return sanitizeChatReply(full || 'I can help with services, pricing, and bookings. What would you like to know?');
 };
 
 const buildCompactSystemPrompt = ({
@@ -2373,7 +2435,7 @@ const buildCompactSystemPrompt = ({
   ].filter(Boolean).join('\n');
 };
 
-const processMessage = async ({
+const processMessageInternal = async ({
   sessionId,
   message,
   user,
@@ -2381,6 +2443,7 @@ const processMessage = async ({
   allowQuote = false,
   skipUserSave = false,
   onToken = null,
+  clientMessageId = '',
 }) => {
 
   const trimmed = (message || '').trim();
@@ -2416,13 +2479,16 @@ const processMessage = async ({
   });
 
   if (!skipUserSave) {
-    rememberChatMessage(sessionId, 'user', trimmed);
-    saveChatMessageLater({
+    const userMessageWasCreated = await saveUserChatMessageOnce({
       sessionId,
       userId: user?.id,
       sender: 'user',
       message: trimmed,
+      ...(clientMessageId ? { clientMessageId } : {}),
     });
+    if (userMessageWasCreated) {
+      rememberChatMessage(sessionId, 'user', trimmed);
+    }
   }
 
   const recordAssistantReply = (reply, metadata = undefined) => {
@@ -2431,6 +2497,7 @@ const processMessage = async ({
       sessionId,
       sender: 'assistant',
       message: reply,
+      ...(clientMessageId ? { clientMessageId } : {}),
       ...(metadata ? { metadata } : {}),
     });
   };
@@ -2462,7 +2529,15 @@ const processMessage = async ({
       language: activeLanguage,
     });
     persistSessionLater(session, 'persist chat intelligence memory');
-    recordAssistantReply(reply, finalMetadata);
+    recordAssistantReply(reply, {
+      ...finalMetadata,
+      clientResponse: {
+        action: extra.action || null,
+        handoffOffer: handoffOffer || null,
+        actionChips: extra.actionChips || [],
+        leadRequired: Boolean(extra.leadRequired),
+      },
+    });
 
     return {
       reply,
@@ -2744,6 +2819,7 @@ const processMessage = async ({
 
   let reply = '';
   let replySource = 'groq_primary';
+  let providerFailure = null;
 
   try {
     if (onToken) {
@@ -2754,19 +2830,23 @@ const processMessage = async ({
         reply = primaryAi.reply;
         replySource = primaryAi.source;
       } else {
-        reply = await callGroq(messages);
-        replySource = primaryAi.source === 'not_configured' ? 'groq_legacy' : 'groq_legacy_retry';
+        providerFailure = primaryAi.providerError || new Error(
+          primaryAi.source === 'not_configured'
+            ? 'GROQ_API_KEY is not configured'
+            : 'Groq did not return a usable response'
+        );
+        if (primaryAi.source === 'not_configured') {
+          providerFailure.code = 'GROQ_NOT_CONFIGURED';
+        } else if (!providerFailure.code) {
+          providerFailure.code = 'GROQ_EMPTY_RESPONSE';
+        }
+        replySource = primaryAi.source;
       }
     }
   } catch (error) {
-    const status = error?.status || error?.response?.status;
+    providerFailure = error;
     replySource = 'groq_error';
-    if (status === 429) {
-      reply = 'Hello! This is a demo mode. I will be fully active once credits are added.';
-    } else {
-      console.error('Chatbot Groq error:', error?.message || error);
-      reply = '';
-    }
+    reply = '';
   }
 
   if (!reply) {
@@ -2838,8 +2918,11 @@ const processMessage = async ({
       );
     }
 
-    reply = buildChatAiFallbackReply();
-    replySource = 'safe_fallback';
+    if (providerFailure) throw providerFailure;
+
+    const malformedResponseError = new Error('AI provider returned no usable response');
+    malformedResponseError.code = 'GROQ_EMPTY_RESPONSE';
+    throw malformedResponseError;
   }
 
   const { reply: cleanedReply, actionChips } = extractActionChipsFromReply(reply);
@@ -2878,6 +2961,66 @@ const processMessage = async ({
     },
     { action, actionChips, leadRequired: false }
   );
+};
+
+const normalizeClientMessageId = (value) => {
+  const candidate = String(value || '').trim();
+  return /^[A-Za-z0-9._:-]{8,128}$/.test(candidate) ? candidate : '';
+};
+
+const restoreCompletedChatResult = async (sessionId, clientMessageId) => {
+  const saved = await ChatMessage.findOne({
+    sessionId,
+    sender: 'assistant',
+    clientMessageId,
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+  if (!saved?.message) return null;
+
+  const storedMetadata = saved.metadata || {};
+  const clientResponse = storedMetadata.clientResponse || {};
+  const { clientResponse: _privateResponse, ...metadata } = storedMetadata;
+  return {
+    reply: saved.message,
+    metadata,
+    action: clientResponse.action || null,
+    handoffOffer: clientResponse.handoffOffer || null,
+    actionChips: clientResponse.actionChips || [],
+    leadRequired: Boolean(clientResponse.leadRequired),
+    deduplicated: true,
+  };
+};
+
+const processMessage = async (options = {}) => {
+  const sessionId = String(options.sessionId || '').trim();
+  const clientMessageId = normalizeClientMessageId(options.clientMessageId);
+  if (!sessionId || !clientMessageId) {
+    return processMessageInternal({ ...options, sessionId, clientMessageId: '' });
+  }
+
+  const cacheKey = `${sessionId}:${clientMessageId}`;
+  const cached = chatRequestCache.get(cacheKey);
+  if (cached?.result && cached.expiresAt > Date.now()) return cached.result;
+  if (cached?.promise) return cached.promise;
+
+  const savedResult = await restoreCompletedChatResult(sessionId, clientMessageId);
+  if (savedResult) return savedResult;
+
+  const promise = processMessageInternal({ ...options, sessionId, clientMessageId });
+  chatRequestCache.set(cacheKey, { promise, expiresAt: Date.now() + CHAT_REQUEST_CACHE_TTL_MS });
+
+  try {
+    const result = await promise;
+    chatRequestCache.set(cacheKey, {
+      result,
+      expiresAt: Date.now() + CHAT_REQUEST_CACHE_TTL_MS,
+    });
+    return result;
+  } catch (error) {
+    chatRequestCache.delete(cacheKey);
+    throw error;
+  }
 };
 
 const buildSessionPayload = (session) => ({
@@ -3252,14 +3395,90 @@ export const getPublicTracker = async (req, res, next) => {
   }
 };
 
+const validateChatRequest = (body = {}) => {
+  const sessionId = resolveThreadId(body);
+  const message = typeof body.message === 'string' ? body.message.trim() : '';
+  if (!sessionId) {
+    return { error: 'CHAT_SESSION_REQUIRED', message: 'A conversation is required.' };
+  }
+  if (!message) {
+    return { error: 'CHAT_MESSAGE_REQUIRED', message: 'Please enter a message.' };
+  }
+  if (message.length > CHAT_MESSAGE_MAX_LENGTH) {
+    return {
+      error: 'CHAT_MESSAGE_TOO_LONG',
+      message: `Messages must be ${CHAT_MESSAGE_MAX_LENGTH.toLocaleString()} characters or fewer.`,
+    };
+  }
+  return {
+    sessionId,
+    message,
+    clientMessageId: normalizeClientMessageId(body.clientMessageId),
+  };
+};
+
+const isAiProviderError = (error) =>
+  String(error?.code || '').startsWith('GROQ_') ||
+  String(error?.name || '').startsWith('API') ||
+  String(error?.response?.config?.url || '').includes('api.groq.com');
+
+const logAndBuildChatError = (req, error, startedAt) => {
+  const details = formatGroqApiError(error);
+  const payload = {
+    requestId: req.id,
+    userId: req.user?.id ? String(req.user.id) : undefined,
+    errorType: details.publicCode,
+    statusCode: details.statusCode,
+    providerStatus: details.status,
+    providerCode: details.code,
+    retryable: details.retryable,
+    retryAfterMs: details.retryAfterMs,
+    duration: Date.now() - startedAt,
+  };
+  console.error('[AI_CHAT_ERROR]', JSON.stringify(payload));
+  return { details, payload };
+};
+
+const sendChatProviderError = (req, res, error, startedAt) => {
+  const { details } = logAndBuildChatError(req, error, startedAt);
+  if (details.retryAfterMs) {
+    res.setHeader('Retry-After', Math.max(1, Math.ceil(details.retryAfterMs / 1000)));
+  }
+  return res.status(details.statusCode).json({
+    success: false,
+    error: {
+      code: details.publicCode,
+      retryable: details.retryable,
+      requestId: req.id,
+      ...(details.retryAfterMs ? { retryAfterMs: details.retryAfterMs } : {}),
+    },
+  });
+};
+
 export const sendMessage = async (req, res, next) => {
+  const startedAt = Date.now();
   try {
-    const sessionId = resolveThreadId(req.body || {});
-    const { message, context } = req.body || {};
-    const result = await processMessage({ sessionId, message, user: req.user, context });
+    const validated = validateChatRequest(req.body || {});
+    if (validated.error) {
+      return res.status(400).json({
+        success: false,
+        error: { code: validated.error, retryable: false, requestId: req.id },
+        message: validated.message,
+      });
+    }
+    const { sessionId, message, clientMessageId } = validated;
+    const { context } = req.body || {};
+    const result = await processMessage({
+      sessionId,
+      message,
+      clientMessageId,
+      user: req.user,
+      context,
+    });
     const session = await ChatSession.findOne({ sessionId }).lean();
     res.json({
       success: true,
+      requestId: req.id,
       ...result,
       ...(session ? { session: buildSessionPayload(session) } : {}),
     });
@@ -3270,6 +3489,9 @@ export const sendMessage = async (req, res, next) => {
         code: error.code,
         message: error.message,
       });
+    }
+    if (isAiProviderError(error)) {
+      return sendChatProviderError(req, res, error, startedAt);
     }
     next(error);
   }
@@ -3285,13 +3507,22 @@ const writeSse = (res, event, payload = {}) => {
 };
 
 export const sendMessageStream = async (req, res, next) => {
+  const startedAt = Date.now();
   const messageId = createStreamMessageId();
   let started = false;
   let sentDelta = false;
 
   try {
-    const sessionId = resolveThreadId(req.body || {});
-    const { message, context } = req.body || {};
+    const validated = validateChatRequest(req.body || {});
+    if (validated.error) {
+      return res.status(400).json({
+        success: false,
+        error: { code: validated.error, retryable: false, requestId: req.id },
+        message: validated.message,
+      });
+    }
+    const { sessionId, message, clientMessageId } = validated;
+    const { context } = req.body || {};
 
     await assertAiMessageAllowed(sessionId);
 
@@ -3303,13 +3534,19 @@ export const sendMessageStream = async (req, res, next) => {
     res.flushHeaders?.();
 
     started = true;
-    writeSse(res, 'start', { sessionId, conversationId: sessionId, messageId });
+    writeSse(res, 'start', {
+      sessionId,
+      conversationId: sessionId,
+      messageId,
+      requestId: req.id,
+    });
 
     const result = await processMessage({
       sessionId,
       message,
       user: req.user,
       context,
+      clientMessageId,
       onToken: (text) => {
         sentDelta = true;
         writeSse(res, 'delta', { text });
@@ -3340,19 +3577,46 @@ export const sendMessageStream = async (req, res, next) => {
           message: error.message,
         });
       }
+      if (isAiProviderError(error)) {
+        return sendChatProviderError(req, res, error, startedAt);
+      }
       next(error);
       return;
     }
-    console.error('Chatbot stream error:', error?.message || error);
-    writeSse(res, 'error', { message: 'Failed to process message' });
+    if (isAiProviderError(error)) {
+      const { details } = logAndBuildChatError(req, error, startedAt);
+      writeSse(res, 'error', {
+        code: details.publicCode,
+        retryable: details.retryable,
+        requestId: req.id,
+        ...(details.retryAfterMs ? { retryAfterMs: details.retryAfterMs } : {}),
+      });
+    } else {
+      console.error('[CHAT_STREAM_ERROR]', JSON.stringify({
+        requestId: req.id,
+        duration: Date.now() - startedAt,
+        message: error?.message || 'Unknown stream failure',
+      }));
+      writeSse(res, 'error', {
+        code: 'CHAT_SERVER_ERROR',
+        retryable: true,
+        requestId: req.id,
+      });
+    }
     res.end();
   }
 };
 
 export const handleSocketMessage = async (io, socket, payload = {}) => {
   try {
-    const { sessionId, message, context } = payload;
-    const result = await processMessage({ sessionId, message, user: socket.user, context });
+    const { sessionId, message, context, clientMessageId } = payload;
+    const result = await processMessage({
+      sessionId,
+      message,
+      clientMessageId: normalizeClientMessageId(clientMessageId),
+      user: socket.user,
+      context,
+    });
     const room = sessionId ? `chat:${sessionId}` : socket.id;
 
     io.to(room).emit('chat:response', {
@@ -3363,10 +3627,18 @@ export const handleSocketMessage = async (io, socket, payload = {}) => {
       metadata: result.metadata || null,
     });
   } catch (error) {
-    console.error('Socket chat error:', error.message);
+    const aiError = isAiProviderError(error) ? formatGroqApiError(error) : null;
+    const retryable = aiError?.retryable ?? error?.code !== 'SALES_HANDOFF_ACTIVE';
+    console.error('[SOCKET_CHAT_ERROR]', JSON.stringify({
+      socketId: socket.id,
+      errorType: aiError?.publicCode || error?.code || 'CHAT_SERVER_ERROR',
+      providerStatus: aiError?.status,
+      retryable,
+    }));
     socket.emit('chat:error', {
-      code: error?.code,
-      status: error?.status,
+      code: aiError?.publicCode || error?.code || 'CHAT_SERVER_ERROR',
+      status: aiError?.statusCode || error?.status,
+      retryable,
       message:
         error?.code === 'SALES_HANDOFF_ACTIVE'
           ? error.message
@@ -3392,6 +3664,7 @@ export const handleSocketStreamingMessage = async (io, socket, payload = {}) => 
       message,
       user: socket.user,
       context,
+      clientMessageId: normalizeClientMessageId(clientMessageId),
       onToken: (text) => {
         sentDelta = true;
         io.to(room).emit('chat:stream:delta', { ...basePayload, text });
@@ -3412,11 +3685,19 @@ export const handleSocketStreamingMessage = async (io, socket, payload = {}) => 
       metadata: result.metadata || null,
     });
   } catch (error) {
-    console.error('Socket stream chat error:', error?.message || error);
+    const aiError = isAiProviderError(error) ? formatGroqApiError(error) : null;
+    const retryable = aiError?.retryable ?? error?.code !== 'SALES_HANDOFF_ACTIVE';
+    console.error('[SOCKET_CHAT_STREAM_ERROR]', JSON.stringify({
+      socketId: socket.id,
+      errorType: aiError?.publicCode || error?.code || 'CHAT_SERVER_ERROR',
+      providerStatus: aiError?.status,
+      retryable,
+    }));
     io.to(room).emit('chat:stream:error', {
       ...basePayload,
-      code: error?.code,
-      status: error?.status,
+      code: aiError?.publicCode || error?.code || 'CHAT_SERVER_ERROR',
+      status: aiError?.statusCode || error?.status,
+      retryable,
       message:
         error?.code === 'SALES_HANDOFF_ACTIVE'
           ? error.message

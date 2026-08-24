@@ -11,16 +11,19 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '@/hooks/useThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { Palette } from '@/constants/theme';
+import { useNotifications } from '@/context/NotificationsContext';
 
 interface AnimatedHeaderProps {
   notifCount?: number;
 }
 
-export default function AnimatedHeader({ notifCount = 0 }: AnimatedHeaderProps) {
+export default function AnimatedHeader({ notifCount }: AnimatedHeaderProps) {
   const { colors, isDark, toggleTheme } = useTheme();
   const { profile } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { unreadCount } = useNotifications();
+  const badgeCount = notifCount ?? unreadCount;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -70,9 +73,9 @@ export default function AnimatedHeader({ notifCount = 0 }: AnimatedHeaderProps) 
             style={styles.bellBtn}
           >
             <Ionicons name="notifications-outline" size={22} color={colors.text} />
-            {notifCount > 0 && (
+            {badgeCount > 0 && (
               <View style={styles.badge}>
-                <Text style={styles.badgeText}>{notifCount}</Text>
+                <Text style={styles.badgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
               </View>
             )}
           </TouchableOpacity>

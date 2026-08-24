@@ -138,6 +138,15 @@ apiClient.interceptors.response.use(
         method === 'post' &&
         path.includes('/auth/social-login');
 
+      // Invalid credentials, validation failures, lockouts, and rate limits are
+      // expected outcomes of the login form. The screen renders these errors;
+      // logging them with console.error also makes Expo show a misleading red
+      // development error banner on top of the already-handled form state.
+      const isExpectedLoginRejection =
+        method === 'post' &&
+        /\/auth\/login(?:[/?]|$)/.test(path) &&
+        [400, 401, 403, 409, 423, 429].includes(status ?? 0);
+
       /** Express serves /api/bookings, POST /api/ai/scan, etc. 404 on these usually means the tunnel hits the wrong process (Vite/Metro) or port. */
       const isNgrokLikelyWrongTunnel404 =
         status === 404 &&
@@ -151,6 +160,7 @@ apiClient.interceptors.response.use(
         invalidatesAuthSession ||
         isLogoutFailure ||
         isSocialLoginMiss ||
+        isExpectedLoginRejection ||
         suppressExpectedErrorLog ||
         expectedOtpValidationFailure ||
         expectedAlreadyVerifiedResendOtp

@@ -10,6 +10,17 @@ export const ADMIN_NOTIFICATION_CATEGORIES = Object.freeze([
   'system',
 ]);
 
+export const CUSTOMER_NOTIFICATION_CATEGORIES = Object.freeze([
+  'important',
+  'service',
+  'promotion',
+]);
+
+export const NOTIFICATION_CATEGORIES = Object.freeze([
+  ...ADMIN_NOTIFICATION_CATEGORIES,
+  ...CUSTOMER_NOTIFICATION_CATEGORIES,
+]);
+
 export const NOTIFICATION_SEVERITIES = Object.freeze([
   'critical',
   'warning',
@@ -38,7 +49,7 @@ const notificationSchema = new mongoose.Schema(
     event: { type: String, trim: true, maxlength: 100, default: undefined },
     category: {
       type: String,
-      enum: ADMIN_NOTIFICATION_CATEGORIES,
+      enum: NOTIFICATION_CATEGORIES,
       default: undefined,
     },
     severity: {
@@ -68,6 +79,8 @@ const notificationSchema = new mongoose.Schema(
 
     link: { type: String, trim: true, maxlength: 1000 },
     action: { type: notificationActionSchema, default: undefined },
+    actionType: { type: String, trim: true, maxlength: 100, default: undefined },
+    actionId: { type: String, trim: true, maxlength: 200, default: undefined },
     metadata: mongoose.Schema.Types.Mixed,
 
     // Repeated operational events may update a recent group instead of creating

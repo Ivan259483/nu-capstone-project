@@ -55,7 +55,7 @@
       "expo-font",
       "expo-web-browser",
       "expo-secure-store",
-      "./plugins/withRemoveIosPushEntitlement.js"
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -41,6 +41,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // expo-blur available if needed for future glassmorphism enhancements
 import { useTheme } from '@/hooks/useThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -50,7 +51,7 @@ import { serviceService } from '@/services/api/serviceService';
 import { vehicleService } from '@/services/api/vehicleService';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import type { ServiceOption, Vehicle } from '@/services/api/types';
-import { Palette, BorderRadius, Shadows, TabBarHeight, Spacing } from '@/constants/theme';
+import { Palette, BorderRadius, Shadows, TabBarContentHeight, TabBarHeight, Spacing } from '@/constants/theme';
 import AnimatedHeader from '@/components/ui/AnimatedHeader';
 import GlassCard from '@/components/ui/GlassCard';
 import Badge from '@/components/ui/Badge';
@@ -398,34 +399,11 @@ type DayAvailabilityInfo = {
 };
 type DayAvailabilityMap = Record<string, DayAvailabilityInfo>;
 
-const MOBILE_AVAILABILITY_BADGE = {
-  high: { text: '#16a34a', background: 'rgba(34,197,94,0.10)', border: 'rgba(34,197,94,0.28)' },
-  medium: { text: '#d97706', background: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.28)' },
-  low: { text: '#ea580c', background: 'rgba(249,115,22,0.10)', border: 'rgba(249,115,22,0.28)' },
-  full: { text: '#dc2626', background: 'rgba(239,68,68,0.10)', border: 'rgba(239,68,68,0.26)' },
-  closed: { text: '#94a3b8', background: 'rgba(148,163,184,0.08)', border: 'rgba(148,163,184,0.20)' },
-  emergency: { text: '#dc2626', background: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.36)' },
+const CALENDAR_STATUS_COLORS = {
+  available: '#22C55E',
+  full: '#EF4444',
+  closed: '#94A3B8',
 } as const;
-
-function getMobileAvailabilityBadge(dayInfo: DayAvailabilityInfo) {
-  if (dayInfo.status === 'closed') {
-    if (dayInfo.errorCode === 'EMERGENCY_CLOSED' || dayInfo.closureType === 'emergency') {
-      return { ...MOBILE_AVAILABILITY_BADGE.emergency, label: 'Emergency Closed' };
-    }
-    return { ...MOBILE_AVAILABILITY_BADGE.closed, label: 'Closed' };
-  }
-  const remaining = Number(dayInfo.remaining);
-  const capacity = Number(dayInfo.capacity);
-  if (dayInfo.status === 'full' || remaining <= 0 || capacity <= 0) {
-    return { ...MOBILE_AVAILABILITY_BADGE.full, label: 'Fully Booked' };
-  }
-  const ratio = remaining / capacity;
-  const tone = remaining <= 2 ? 'low' : ratio >= 0.7 ? 'high' : ratio >= 0.3 ? 'medium' : 'low';
-  return {
-    ...MOBILE_AVAILABILITY_BADGE[tone],
-    label: tone === 'low' ? `${remaining} left` : `${remaining} available`,
-  };
-}
 
 type AvailableSlotsPayload = {
   success?: boolean;
@@ -627,12 +605,24 @@ function MonthCalendar({
     <View style={[cal.container, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, ...Shadows.sm }]}>
       {/* Header — arrows on sides, title centered */}
       <View style={cal.header}>
-        <TouchableOpacity onPress={prevMonth} activeOpacity={0.7} hitSlop={12} style={cal.arrowBtn}>
-          <Ionicons name="chevron-back" size={18} color={SECONDARY} />
+        <TouchableOpacity
+          onPress={prevMonth}
+          activeOpacity={0.7}
+          style={cal.arrowBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Show previous month"
+        >
+          <Ionicons name="chevron-back" size={20} color={SECONDARY} />
         </TouchableOpacity>
         <Text style={cal.monthTitle}>{MONTH_NAMES_FULL[month]} {year}</Text>
-        <TouchableOpacity onPress={nextMonth} activeOpacity={0.7} hitSlop={12} style={cal.arrowBtn}>
-          <Ionicons name="chevron-forward" size={18} color={SECONDARY} />
+        <TouchableOpacity
+          onPress={nextMonth}
+          activeOpacity={0.7}
+          style={cal.arrowBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Show next month"
+        >
+          <Ionicons name="chevron-forward" size={20} color={SECONDARY} />
         </TouchableOpacity>
       </View>
 
@@ -651,7 +641,19 @@ function MonthCalendar({
           const dayInfo = item.isCurrentMonth && !item.isPast ? monthAvailability[item.iso] : undefined;
           const availStatus = dayInfo?.status;
           const isUnavailable = loading || !dayInfo || !!dayInfo.unavailable || availStatus === 'closed' || availStatus === 'full';
-          const availabilityBadge = dayInfo ? getMobileAvailabilityBadge(dayInfo) : undefined;
+          const isToday = item.isCurrentMonth && item.iso === todayKey;
+          const statusColor = dayInfo
+            ? dayInfo.errorCode === 'EMERGENCY_CLOSED'
+              ? CALENDAR_STATUS_COLORS.full
+              : CALENDAR_STATUS_COLORS[dayInfo.status]
+            : null;
+          const statusMarkerStyle = dayInfo?.errorCode === 'EMERGENCY_CLOSED'
+            ? cal.statusIndicatorBooked
+            : dayInfo?.status === 'full'
+              ? cal.statusIndicatorBooked
+              : dayInfo?.status === 'closed'
+                ? cal.statusIndicatorClosed
+                : null;
 
           return (
             <TouchableOpacity
@@ -685,40 +687,43 @@ function MonthCalendar({
               }}
               style={[
                 cal.dayCell,
-                item.isCurrentMonth && !item.isPast && !isSelected && cal.dayCellActiveBorder,
-                isSelected && cal.dayCellSelected,
               ]}
             >
               <Text style={[
                 cal.dayText,
-                !item.isCurrentMonth && cal.dayTextHidden,
+                !item.isCurrentMonth && cal.dayTextAdjacent,
                 item.isCurrentMonth && item.isPast && cal.dayTextPast,
+                item.isCurrentMonth && !item.isPast && isUnavailable && cal.dayTextUnavailable,
+                isToday && cal.dayTextToday,
                 isSelected && cal.dayTextSelected,
-                isUnavailable && !isSelected && cal.dayTextPast,
               ]}>
                 {item.day}
               </Text>
-              {dayInfo && !item.isPast ? (
-                <View
-                  style={[
-                    cal.availabilityBadge,
-                    availabilityBadge ? {
-                      backgroundColor: availabilityBadge.background,
-                      borderColor: availabilityBadge.border,
-                    } : null,
-                  ]}
-                >
-                  <Text
-                    numberOfLines={1}
-                    style={[cal.availabilityText, availabilityBadge ? { color: availabilityBadge.text } : null]}
-                  >
-                    {availabilityBadge?.label}
-                  </Text>
-                </View>
-              ) : null}
+              <View style={cal.statusIndicatorTrack}>
+                {statusColor && !item.isPast ? (
+                  <View style={[
+                    cal.statusIndicator,
+                    { backgroundColor: statusColor },
+                    statusMarkerStyle,
+                  ]} />
+                ) : null}
+              </View>
             </TouchableOpacity>
           );
         })}
+      </View>
+
+      <View style={cal.legend} accessibilityLabel="Calendar availability legend">
+        {[
+          { color: CALENDAR_STATUS_COLORS.available, label: 'Available', marker: null },
+          { color: CALENDAR_STATUS_COLORS.full, label: 'Booked', marker: cal.statusIndicatorBooked },
+          { color: CALENDAR_STATUS_COLORS.closed, label: 'Closed', marker: cal.statusIndicatorClosed },
+        ].map((item) => (
+          <View key={item.label} style={cal.legendItem}>
+            <View style={[cal.legendDot, { backgroundColor: item.color }, item.marker]} />
+            <Text style={cal.legendText}>{item.label}</Text>
+          </View>
+        ))}
       </View>
     </View>
   );
@@ -727,13 +732,13 @@ function MonthCalendar({
 const cal = StyleSheet.create({
   container: {
     borderRadius: BorderRadius.xxl,
-    padding: 18,
+    padding: 16,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 12,
   },
   monthTitle: {
     fontSize: 17,
@@ -742,19 +747,23 @@ const cal = StyleSheet.create({
     letterSpacing: -0.01 * 17,
   },
   arrowBtn: {
-    padding: 6,
-    borderRadius: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.035)',
   },
   weekdays: {
     flexDirection: 'row',
-    marginBottom: 10,
+    marginBottom: 4,
   },
   weekdayText: {
     width: '14.28%',
     textAlign: 'center',
-    fontSize: 11,
-    fontWeight: '600',
-    color: MUTED,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#8B8B94',
   },
   grid: {
     flexDirection: 'row',
@@ -762,47 +771,94 @@ const cal = StyleSheet.create({
   },
   dayCell: {
     width: '14.28%',
-    paddingVertical: 6,
+    minHeight: 48,
+    paddingVertical: 2,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 1,
   },
-  dayCellActiveBorder: {},
-  dayCellSelected: {},
   dayText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
-    color: SECONDARY,
-    width: 32,
-    height: 32,
+    color: '#E4E4E7',
+    width: 34,
+    height: 34,
     textAlign: 'center',
-    lineHeight: 32,
-    borderRadius: 16,
+    lineHeight: 34,
+    borderRadius: 17,
     overflow: 'hidden',
   },
-  dayTextHidden: {
-    color: 'transparent',
-  },
-  dayTextPast: {
-    color: MUTED,
+  dayTextAdjacent: {
+    color: '#3F3F46',
     fontWeight: '400',
   },
+  dayTextPast: {
+    color: '#52525B',
+    fontWeight: '400',
+  },
+  dayTextUnavailable: {
+    color: '#71717A',
+    fontWeight: '500',
+  },
+  dayTextToday: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,107,53,0.55)',
+  },
   dayTextSelected: {
-    backgroundColor: PRIMARY,
-    color: ON_PRIMARY,
+    backgroundColor: Palette.accent,
+    borderColor: Palette.accent,
+    color: '#FFFFFF',
     fontWeight: '800',
   },
-  availabilityBadge: {
-    maxWidth: '98%',
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 3,
-    paddingVertical: 1,
+  statusIndicatorTrack: {
+    height: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  availabilityText: {
-    fontSize: 5.5,
-    fontWeight: '700',
-    textAlign: 'center',
+  statusIndicator: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+  statusIndicatorBooked: {
+    width: 10,
+    height: 3,
+    borderRadius: 1.5,
+  },
+  statusIndicatorClosed: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: CALENDAR_STATUS_COLORS.closed,
+  },
+  legend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    columnGap: 18,
+    rowGap: 8,
+    marginTop: 12,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  legendText: {
+    fontSize: 11,
+    color: '#A1A1AA',
+    fontWeight: '600',
   },
 });
 
@@ -812,6 +868,7 @@ export default function BookScreen() {
   const { colors, isDark } = useTheme();
   const { profile, backendUser } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   // ── State ──
   const [step, setStep] = useState(0);
@@ -900,7 +957,7 @@ export default function BookScreen() {
   const [scheduleMessage, setScheduleMessage] = useState('');
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [businessDate, setBusinessDate] = useState<string | null>(null);
-  const [businessTimeZone, setBusinessTimeZone] = useState<string | null>(null);
+  const [, setBusinessTimeZone] = useState<string | null>(null);
   const monthAvailabilityRequestRef = useRef(0);
   const slotAvailabilityRequestRef = useRef(0);
   const selectedDateRef = useRef<string | null>(null);
@@ -1546,7 +1603,7 @@ export default function BookScreen() {
             <Text style={s4.heroTitle}>Your booking is{`\n`}successful.</Text>
             <Text style={s4.heroSub}>
               Saved as{' '}
-              <Text style={{ color: PRIMARY, fontWeight: '700' }}>"Pending"</Text>.
+              <Text style={{ color: PRIMARY, fontWeight: '700' }}>{'“Pending”'}</Text>.
               {' '}Your booking is forwarded to our Sales Dashboard. We will confirm in{' '}
               <Text style={{ color: '#fff', fontWeight: '600' }}>1–3 minutes</Text>.
             </Text>
@@ -1698,7 +1755,12 @@ export default function BookScreen() {
       >
         <ScrollView
           style={ss.scroll}
-          contentContainerStyle={[ss.content, { paddingBottom: TabBarHeight + 32 }]}
+          contentContainerStyle={[
+            ss.content,
+            {
+              paddingBottom: TabBarContentHeight + insets.bottom + (step === 2 ? 72 : 32),
+            },
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
@@ -2102,7 +2164,7 @@ export default function BookScreen() {
               STEP 2 — SCHEDULE  (web Step 3 of 6)
           ═══════════════════════════════════════════════════ */}
           {step === 2 && (
-            <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
+            <Animated.View entering={FadeInDown.duration(200)} style={[ss.stepWrap, sch.scheduleWrap]}>
 
               {/* ── Calendar ── */}
               <MonthCalendar
@@ -2128,194 +2190,211 @@ export default function BookScreen() {
                 }}
               />
 
-              {/* Calendar Legend */}
-              <View style={sch.legend}>
-                {[
-                  { color: '#22c55e', label: 'Available' },
-                  { color: '#94a3b8', label: 'Unavailable' },
-                ].map((item) => (
-                  <View key={item.label} style={sch.legendItem}>
-                    <View style={[sch.legendDot, { backgroundColor: item.color }]} />
-                    <Text style={sch.legendText}>{item.label}</Text>
-                  </View>
-                ))}
-              </View>
-              {businessDate && businessTimeZone ? (
-                <Text style={[sch.legendText, { marginTop: -6, marginBottom: 8, textAlign: 'center' }]}>Today is {businessDate} in {businessTimeZone}</Text>
-              ) : null}
-
-              {selectedDate ? (
-                <View style={sch.dateSummary}>
-                  <View style={sch.dateSummaryBlock}>
-                    <Text style={sch.dateSummaryLabel}>SELECTED APPOINTMENT DATE</Text>
-                    <Text style={sch.dateSummaryDate}>{formatIsoDateForDisplay(selectedDate)}</Text>
-                  </View>
-                  <View style={[sch.dateSummaryBlock, sch.dateSummaryCapacityBlock]}>
-                    <Text style={sch.dateSummaryLabel}>DAILY SLOT AVAILABILITY</Text>
-                    <Text style={[
-                      sch.dateSummaryCapacity,
-                      selectedDayAvailability?.status === 'full' && sch.dateSummaryCapacityFull,
-                      selectedDayAvailability?.status === 'closed' && sch.dateSummaryCapacityClosed,
-                    ]}>
-                      {selectedDateCapacityLabel}
-                    </Text>
-                    {typeof selectedDayAvailability?.booked === 'number'
-                      && typeof selectedDayAvailability?.capacity === 'number' ? (
-                        <Text style={sch.dateSummaryMeta}>
-                          {selectedDayAvailability.booked} / {selectedDayAvailability.capacity} booked
-                        </Text>
-                      ) : null}
-                  </View>
-                </View>
-              ) : null}
-
               {/* ── Preferred Time ── */}
-              <View style={sch.timeSectionHeader}>
-                <Text style={sch.timeSectionLabel}>PREFERRED TIME</Text>
-                <Text style={sch.timeOptionCount}>{timeOptionCountLabel}</Text>
+              <View style={sch.sectionCard}>
+                <View style={sch.timeSectionHeader}>
+                  <Text style={sch.timeSectionLabel}>PREFERRED TIME</Text>
+                  <Text style={sch.timeOptionCount}>{timeOptionCountLabel}</Text>
+                </View>
+
+                {selectedDate ? (
+                  <View style={sch.dateSummary}>
+                    <View style={sch.dateSummaryBlock}>
+                      <Text style={sch.dateSummaryLabel}>SELECTED DATE</Text>
+                      <Text style={sch.dateSummaryDate}>{formatIsoDateForDisplay(selectedDate)}</Text>
+                    </View>
+                    <View style={[sch.dateSummaryBlock, sch.dateSummaryCapacityBlock]}>
+                      <Text style={sch.dateSummaryLabel}>AVAILABILITY</Text>
+                      <Text style={[
+                        sch.dateSummaryCapacity,
+                        selectedDayAvailability?.status === 'full' && sch.dateSummaryCapacityFull,
+                        selectedDayAvailability?.status === 'closed' && sch.dateSummaryCapacityClosed,
+                      ]}>
+                        {selectedDateCapacityLabel}
+                      </Text>
+                      {typeof selectedDayAvailability?.booked === 'number'
+                        && typeof selectedDayAvailability?.capacity === 'number' ? (
+                          <Text style={sch.dateSummaryMeta}>
+                            {selectedDayAvailability.booked} / {selectedDayAvailability.capacity} booked
+                          </Text>
+                        ) : null}
+                    </View>
+                  </View>
+                ) : null}
+
+                {!!scheduleMessage && (
+                  <View style={sch.scheduleMessage}>
+                    <Ionicons name="information-circle-outline" size={16} color={Palette.accent} />
+                    <Text style={sch.scheduleMessageText}>{scheduleMessage}</Text>
+                  </View>
+                )}
+
+                {!selectedDate ? (
+                  <View style={sch.emptyState}>
+                    <View style={sch.emptyIconWrap}>
+                      <Ionicons name="time-outline" size={20} color={Palette.accent} />
+                    </View>
+                    <Text style={sch.emptyTitle}>Choose an appointment date</Text>
+                    <Text style={sch.emptyText}>Select an available date to view time slots.</Text>
+                  </View>
+                ) : selectedDayAvailability?.status === 'full' ? (
+                  <View style={sch.emptyState}>
+                    <View style={sch.emptyIconWrap}>
+                      <Ionicons name="calendar-outline" size={20} color="#EF4444" />
+                    </View>
+                    <Text style={sch.emptyTitle}>No times available</Text>
+                    <Text style={sch.emptyText}>All appointment times for this date are booked.</Text>
+                  </View>
+                ) : selectedDayAvailability?.status === 'closed' ? (
+                  <View style={sch.emptyState}>
+                    <View style={sch.emptyIconWrap}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={20}
+                        color={selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED' ? '#EF4444' : '#94A3B8'}
+                      />
+                    </View>
+                    <Text style={[
+                      sch.emptyTitle,
+                      selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED' && { color: '#EF4444' },
+                    ]}>
+                      {selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED'
+                        ? 'Emergency closure'
+                        : 'Date unavailable'}
+                    </Text>
+                    <Text style={sch.emptyText}>
+                      {selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED'
+                        ? EMERGENCY_CLOSURE_MESSAGE
+                        : 'No appointment times are offered on this closed date.'}
+                    </Text>
+                  </View>
+                ) : slotsLoading ? (
+                  <View style={sch.emptyState}>
+                    <ActivityIndicator size="small" color={Palette.accent} />
+                    <Text style={sch.emptyTitle}>Checking availability…</Text>
+                  </View>
+                ) : slotStatuses.length === 0 ? (
+                  <View style={sch.emptyState}>
+                    <View style={sch.emptyIconWrap}>
+                      <Ionicons name="calendar-outline" size={20} color="#94A3B8" />
+                    </View>
+                    <Text style={sch.emptyTitle}>No times available</Text>
+                    <Text style={sch.emptyText}>Choose another available date to continue.</Text>
+                  </View>
+                ) : (
+                  <Animated.View entering={FadeInDown.delay(80).duration(200)}>
+                    <View style={s2.timeGrid}>
+                      {slotStatuses.map(({ time: t, status }) => {
+                        const isActive   = selectedTime === t;
+                        const isFull     = status === 'FULL';
+                        const isClosed   = status === 'CLOSED';
+                        const isDisabled = isFull || isClosed;
+                        const slotStatusLabel = isFull ? 'Booked' : isClosed ? 'Closed' : 'Available';
+                        return (
+                          <TouchableOpacity
+                            key={t}
+                            onPress={() => {
+                              if (isDisabled) return;
+                              setSelectedTime(t);
+                              Haptics.selectionAsync();
+                            }}
+                            activeOpacity={isDisabled ? 1 : 0.85}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${t}, ${slotStatusLabel}`}
+                            accessibilityState={{ disabled: isDisabled, selected: isActive }}
+                            style={[
+                              s2.timePill,
+                              isActive   && s2.timePillSelected,
+                              isFull     && s2.timePillFull,
+                              isClosed   && s2.timePillClosed,
+                            ]}
+                          >
+                            {isActive ? (
+                              <LinearGradient
+                                colors={[Palette.accentDark, Palette.accent]}
+                                start={{ x: 0, y: 0.5 }}
+                                end={{ x: 1, y: 0.5 }}
+                                style={s2.timePillGradient}
+                              >
+                                <Text style={s2.timeTextSelected}>{t}</Text>
+                              </LinearGradient>
+                            ) : (
+                              <View style={s2.timePillContent}>
+                                <Text style={[
+                                  s2.timeText,
+                                  isFull   && s2.timeTextFull,
+                                  isClosed && s2.timeTextClosed,
+                                ]}>{t}</Text>
+                                {isFull   && <Text style={s2.timeStatusBooked}>Booked</Text>}
+                                {isClosed && <Text style={s2.timeStatusClosed}>Closed</Text>}
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </Animated.View>
+                )}
               </View>
-
-              {!!scheduleMessage && (
-                <View style={{ marginBottom: 10, borderWidth: 1, borderColor: '#fde68a', backgroundColor: '#fffbeb', borderRadius: 10, padding: 10 }}>
-                  <Text style={{ color: '#92400e', fontSize: 12, lineHeight: 18 }}>{scheduleMessage}</Text>
-                </View>
-              )}
-
-              {!selectedDate ? (
-                <View style={sch.emptyState}>
-                  <Text style={sch.emptyText}>Select a date to see available times</Text>
-                  <View style={sch.timeLegend}>
-                    {[
-                      { color: '#111827', label: 'Available' },
-                      { color: '#ef4444', label: 'Booked' },
-                      { color: '#9ca3af', label: 'Closed' },
-                    ].map((item) => (
-                      <View key={item.label} style={sch.legendItem}>
-                        <View style={[sch.legendDot, { backgroundColor: item.color }]} />
-                        <Text style={sch.legendText}>{item.label}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              ) : selectedDayAvailability?.status === 'full' ? (
-                <View style={sch.emptyState}>
-                  <Ionicons name="calendar-outline" size={22} color={MUTED} />
-                  <Text style={[sch.emptyText, { marginTop: 8 }]}>All appointment times for this date are booked</Text>
-                </View>
-              ) : selectedDayAvailability?.status === 'closed' ? (
-                <View style={sch.emptyState}>
-                  <Ionicons
-                    name="calendar-outline"
-                    size={22}
-                    color={selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED' ? '#dc2626' : MUTED}
-                  />
-                  <Text style={[
-                    sch.emptyText,
-                    { marginTop: 8 },
-                    selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED' && { color: '#dc2626', fontWeight: '700' },
-                  ]}>
-                    {selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED'
-                      ? 'Emergency Closed'
-                      : 'No appointment times are offered on this closed date'}
-                  </Text>
-                  {selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED' ? (
-                    <Text style={[sch.emptyText, { marginTop: 4, textAlign: 'center' }]}>{EMERGENCY_CLOSURE_MESSAGE}</Text>
-                  ) : null}
-                </View>
-              ) : slotsLoading ? (
-                <View style={sch.emptyState}>
-                  <ActivityIndicator size="small" color={PRIMARY} />
-                  <Text style={[sch.emptyText, { marginTop: 8 }]}>Checking availability…</Text>
-                </View>
-              ) : slotStatuses.length === 0 ? (
-                <View style={sch.emptyState}>
-                  <Ionicons name="calendar-outline" size={22} color={MUTED} />
-                  <Text style={[sch.emptyText, { marginTop: 8 }]}>No available time options for this date</Text>
-                </View>
-              ) : (
-                <Animated.View entering={FadeInDown.delay(80).duration(200)}>
-                  <View style={s2.timeGrid}>
-                    {slotStatuses.map(({ time: t, status }) => {
-                      const isActive   = selectedTime === t;
-                      const isFull     = status === 'FULL';
-                      const isClosed   = status === 'CLOSED';
-                      const isDisabled = isFull || isClosed;
-                      return (
-                        <TouchableOpacity
-                          key={t}
-                          onPress={() => {
-                            if (isDisabled) return;
-                            setSelectedTime(t);
-                            Haptics.selectionAsync();
-                          }}
-                          activeOpacity={isDisabled ? 1 : 0.85}
-                          style={[
-                            s2.timePill,
-                            isActive   && s2.timePillSelected,
-                            isFull     && s2.timePillFull,
-                            isClosed   && s2.timePillClosed,
-                          ]}
-                        >
-                          {isActive ? (
-                            <LinearGradient
-                              colors={[PRIMARY_CTR, PRIMARY]}
-                              start={{ x: 0, y: 0.5 }}
-                              end={{ x: 1, y: 0.5 }}
-                              style={s2.timePillGradient}
-                            >
-                              <Text style={s2.timeTextSelected}>{t}</Text>
-                            </LinearGradient>
-                          ) : (
-                            <View style={{ alignItems: 'center', gap: 2 }}>
-                              <Text style={[
-                                s2.timeText,
-                                isFull   && { color: '#ef4444' },
-                                isClosed && { color: '#9ca3af' },
-                              ]}>{t}</Text>
-                              {isFull   && <Text style={{ fontSize: 9, color: '#ef4444', fontWeight: '600' }}>Booked</Text>}
-                              {isClosed && <Text style={{ fontSize: 9, color: '#9ca3af' }}>Closed</Text>}
-                            </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                </Animated.View>
-              )}
 
               {/* ── Notes ── */}
-              <View style={sch.notesHeader}>
-                <Text style={sch.sectionLabel}>
-                  NOTES <Text style={sch.optional}>(optional)</Text>
-                </Text>
-                <Text style={[sch.counter, notes.length > 180 && { color: '#ef4444' }]}>{notes.length}/200</Text>
+              <View style={sch.sectionCard}>
+                <View style={sch.notesHeader}>
+                  <Text style={sch.sectionLabel}>
+                    NOTES <Text style={sch.optional}>(optional)</Text>
+                  </Text>
+                  <Text style={[sch.counter, notes.length > 180 && { color: '#EF4444' }]}>{notes.length}/200</Text>
+                </View>
+                <TextInput
+                  style={sch.notesInput}
+                  placeholder="Any special requests..."
+                  placeholderTextColor="#71717A"
+                  value={notes}
+                  onChangeText={setNotes}
+                  maxLength={200}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                  accessibilityLabel="Optional booking notes"
+                />
               </View>
-              <TextInput
-                style={sch.notesInput}
-                placeholder="Any special requests..."
-                placeholderTextColor={MUTED}
-                value={notes}
-                onChangeText={(t: string) => setNotes(t.slice(0, 200))}
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
-              />
 
               {/* Navigation — Schedule */}
-              <View style={ss.btnRow}>
-                <TouchableOpacity activeOpacity={0.85} onPress={goBack} style={[ss.outlineBtn, { flex: 1 }]}>
+              <View style={[ss.btnRow, sch.actionRow]}>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={goBack}
+                  style={[ss.outlineBtn, sch.backButton, { flex: 1 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Go back to booking details"
+                >
                   <Text style={ss.outlineBtnText}>Back</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   activeOpacity={0.88}
                   disabled={!canProceedStep2}
                   onPress={goNext}
-                  style={{ flex: 2, opacity: canProceedStep2 ? 1 : 0.4 }}
+                  style={{ flex: 2 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Continue to booking review"
+                  accessibilityState={{ disabled: !canProceedStep2 }}
                 >
-                  <LinearGradient colors={[PRIMARY_CTR, PRIMARY]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={ss.gradientBtn}>
-                    <Text style={ss.gradientBtnText}>Continue</Text>
-                    <Ionicons name="chevron-forward" size={18} color={ON_PRIMARY} />
-                  </LinearGradient>
+                  {canProceedStep2 ? (
+                    <LinearGradient
+                      colors={[Palette.accentDark, Palette.accent]}
+                      start={{ x: 0, y: 0.5 }}
+                      end={{ x: 1, y: 0.5 }}
+                      style={ss.gradientBtn}
+                    >
+                      <Text style={sch.continueText}>Continue</Text>
+                      <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
+                    </LinearGradient>
+                  ) : (
+                    <View style={[ss.gradientBtn, sch.continueDisabled]}>
+                      <Text style={sch.continueDisabledText}>Continue</Text>
+                      <Ionicons name="chevron-forward" size={18} color="#71717A" />
+                    </View>
+                  )}
                 </TouchableOpacity>
               </View>
             </Animated.View>
@@ -3176,39 +3255,55 @@ const s2 = StyleSheet.create({
     gap: 10,
   },
   timePill: {
-    width: '30.5%',
-    borderRadius: 16,
+    width: '47.8%',
+    minHeight: 48,
+    borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: SURFACE_MID,
+    backgroundColor: SURFACE_HIGH,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    justifyContent: 'center',
   },
   timePillSelected: {
+    borderColor: 'rgba(255,107,53,0.75)',
     ...Platform.select({
       ios: {
-        shadowColor: PRIMARY,
+        shadowColor: Palette.accent,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
+        shadowOpacity: 0.2,
+        shadowRadius: 10,
       },
       android: { elevation: 4 },
     }),
   },
   timePillGradient: {
-    paddingVertical: 14,
+    minHeight: 48,
+    paddingVertical: 12,
     alignItems: 'center',
-    borderRadius: 16,
+    justifyContent: 'center',
+    borderRadius: 14,
+  },
+  timePillContent: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
   },
   timeText: {
     fontSize: 13,
-    fontWeight: '500',
-    color: SECONDARY,
-    paddingVertical: 14,
+    fontWeight: '600',
+    color: '#E4E4E7',
     textAlign: 'center',
   },
   timeTextSelected: {
-    color: ON_PRIMARY,
+    color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 13,
   },
+  timeTextFull: { color: '#F87171' },
+  timeTextClosed: { color: '#A1A1AA' },
+  timeStatusBooked: { fontSize: 9, color: '#F87171', fontWeight: '700' },
+  timeStatusClosed: { fontSize: 9, color: '#A1A1AA', fontWeight: '600' },
 
   /* ── Time slot status variants ── */
   timePillFull: {
@@ -4156,52 +4251,32 @@ const s1 = StyleSheet.create({
 
 // ── Schedule step styles (mirrors web layout) ──────────────────────────────
 const sch = StyleSheet.create({
+  scheduleWrap: {
+    gap: 24,
+  },
+  sectionCard: {
+    backgroundColor: SURFACE,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 20,
+    padding: 16,
+  },
   sectionLabel: {
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1.2,
-    color: DIM_TEXT,
-    marginTop: 20,
-    marginBottom: 10,
-  },
-  legend: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 18,
-    marginTop: 14,
-    marginBottom: 4,
-  },
-  timeLegend: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 14,
-    marginTop: 10,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  legendDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-  },
-  legendText: {
-    fontSize: 11,
-    color: MUTED,
-    fontWeight: '500',
+    color: '#E4E4E7',
   },
   dateSummary: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 12,
-    marginTop: 16,
+    marginBottom: 14,
     borderWidth: 1,
-    borderColor: GHOST,
+    borderColor: 'rgba(255,255,255,0.07)',
     borderRadius: 14,
-    backgroundColor: SURFACE_MID,
-    padding: 14,
+    backgroundColor: SURFACE_HIGH,
+    padding: 12,
   },
   dateSummaryBlock: {
     flex: 1,
@@ -4211,13 +4286,13 @@ const sch = StyleSheet.create({
     alignItems: 'flex-end',
   },
   dateSummaryLabel: {
-    color: MUTED,
+    color: '#8B8B94',
     fontSize: 9,
     fontWeight: '700',
     letterSpacing: 0.7,
   },
   dateSummaryDate: {
-    color: SECONDARY,
+    color: '#F4F4F5',
     fontSize: 13,
     fontWeight: '700',
     lineHeight: 18,
@@ -4230,75 +4305,141 @@ const sch = StyleSheet.create({
     textAlign: 'right',
   },
   dateSummaryCapacityFull: {
-    color: '#f59e0b',
+    color: '#EF4444',
   },
   dateSummaryCapacityClosed: {
     color: MUTED,
   },
   dateSummaryMeta: {
-    color: MUTED,
+    color: '#8B8B94',
     fontSize: 10,
     fontWeight: '500',
   },
   timeSectionHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    marginTop: 20,
-    marginBottom: 10,
+    marginBottom: 14,
   },
   timeSectionLabel: {
-    color: DIM_TEXT,
+    color: '#E4E4E7',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1.2,
   },
   timeOptionCount: {
     flex: 1,
-    color: SECONDARY,
+    color: '#A1A1AA',
     fontSize: 11,
     fontWeight: '600',
     textAlign: 'right',
   },
+  scheduleMessage: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,107,53,0.22)',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,107,53,0.07)',
+  },
+  scheduleMessageText: {
+    flex: 1,
+    color: '#D4D4D8',
+    fontSize: 12,
+    lineHeight: 18,
+  },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 18,
+    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 14,
+    backgroundColor: SURFACE_HIGH,
+  },
+  emptyIconWrap: {
+    width: 36,
+    height: 36,
+    marginBottom: 2,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,107,53,0.08)',
+  },
+  emptyTitle: {
+    fontSize: 13,
+    color: '#E4E4E7',
+    fontWeight: '700',
+    textAlign: 'center',
   },
   emptyText: {
-    fontSize: 13,
-    color: MUTED,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#A1A1AA',
     textAlign: 'center',
   },
   notesHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   optional: {
     fontSize: 11,
     fontWeight: '400',
     letterSpacing: 0,
     textTransform: 'none',
-    color: MUTED,
+    color: '#A1A1AA',
   },
   counter: {
     fontSize: 11,
-    color: MUTED,
+    color: '#A1A1AA',
   },
   notesInput: {
     borderWidth: 1,
-    borderColor: GHOST,
-    borderRadius: 12,
+    borderColor: 'rgba(255,255,255,0.09)',
+    borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingTop: 13,
+    paddingBottom: 13,
     fontSize: 14,
-    color: SECONDARY,
+    lineHeight: 20,
+    color: '#F4F4F5',
     backgroundColor: SURFACE_HIGH,
-    minHeight: 96,
+    minHeight: 128,
     textAlignVertical: 'top',
+  },
+  actionRow: {
+    marginTop: 0,
+  },
+  backButton: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: SURFACE,
+  },
+  continueText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.15,
+  },
+  continueDisabled: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: SURFACE_HIGH,
+    opacity: 0.78,
+  },
+  continueDisabledText: {
+    color: '#71717A',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.15,
   },
 });
 

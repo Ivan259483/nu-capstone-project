@@ -11,6 +11,11 @@ const chatMessageSchema = new mongoose.Schema(
       type: String,
       index: true,
     },
+    clientMessageId: {
+      type: String,
+      trim: true,
+      maxlength: 128,
+    },
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -40,5 +45,12 @@ const chatMessageSchema = new mongoose.Schema(
 
 chatMessageSchema.index({ createdAt: -1 });
 chatMessageSchema.index({ conversationId: 1, createdAt: 1 });
+chatMessageSchema.index(
+  { sessionId: 1, sender: 1, clientMessageId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { clientMessageId: { $type: 'string' } },
+  }
+);
 
 export default mongoose.model('ChatMessage', chatMessageSchema);

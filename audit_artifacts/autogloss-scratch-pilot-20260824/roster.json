@@ -1,0 +1,3782 @@
+[
+  {
+    "rank": 1,
+    "id": "toFxrWwTyXC1pxqPimTg",
+    "filename": "full_06001_z6jLNtJdTuLZPEMZtXkW_001613_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/toFxrWwTyXC1pxqPimTg/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_07",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1090,1091,1092,1093",
+      "frozen_v2_export_filename": "001613_jpg.rf.47fb86f94f5c8e727edb3a5b7b51471d.jpg",
+      "frozen_v2_image_id": 364,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "cvsMBn7EqgM20X5LIjgT",
+      "migration_index": 6001,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001613_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "z6jLNtJdTuLZPEMZtXkW",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "toFxrWwTyXC1pxqPimTg"
+    },
+    "ranks": [
+      4,
+      1,
+      18
+    ],
+    "rrf": 0.04483895544346364
+  },
+  {
+    "rank": 2,
+    "id": "nIM3MmilQQK7uazr45Cj",
+    "filename": "full_03855_HsH8D7LFHvAljyE2REjm_002673_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/nIM3MmilQQK7uazr45Cj/original.jpg",
+    "damage_count": 5,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "4007,4008,4009,4010,4011",
+      "frozen_v2_export_filename": "002673_jpg.rf.c1a722339db2f2064a454b0fc3817951.jpg",
+      "frozen_v2_image_id": 1298,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3855,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002673_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "HsH8D7LFHvAljyE2REjm",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "nIM3MmilQQK7uazr45Cj"
+    },
+    "ranks": [
+      10,
+      3,
+      12
+    ],
+    "rrf": 0.044047619047619044
+  },
+  {
+    "rank": 3,
+    "id": "qS4t9cfc0UfbRW20cnS9",
+    "filename": "full_05257_T1LTtaSpOHKGr6eZuRpP_003610_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/qS4t9cfc0UfbRW20cnS9/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "311,312",
+      "frozen_v2_export_filename": "003610_jpg.rf.6fdeb18045cd32044be3d74c16282e6d.jpg",
+      "frozen_v2_image_id": 93,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5257,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003610_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "T1LTtaSpOHKGr6eZuRpP",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "qS4t9cfc0UfbRW20cnS9"
+    },
+    "ranks": [
+      1,
+      23,
+      8
+    ],
+    "rrf": 0.04314751774697634
+  },
+  {
+    "rank": 4,
+    "id": "I3iNtUKp7JeGsgLUrgpf",
+    "filename": "full_04074_2hHyTZ9533ciDCUvtFTF_002832_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/I3iNtUKp7JeGsgLUrgpf/original.jpg",
+    "damage_count": 6,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "2564,2565,2566,2567,2568,2569",
+      "frozen_v2_export_filename": "002832_jpg.rf.0d08c108ad6af397b466d8ac123650a4.jpg",
+      "frozen_v2_image_id": 817,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4074,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002832_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "2hHyTZ9533ciDCUvtFTF",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "I3iNtUKp7JeGsgLUrgpf"
+    },
+    "ranks": [
+      17,
+      21,
+      21
+    ],
+    "rrf": 0.03767837101170435
+  },
+  {
+    "rank": 5,
+    "id": "dArtTMlivPjHiIPYpLkR",
+    "filename": "full_05156_vPd4KIQCtLR0eF0C3owr_003538_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/dArtTMlivPjHiIPYpLkR/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "13481,13482,13483,13484",
+      "frozen_v2_export_filename": "003538_jpg.rf.ea608ecd3dd849016c3567a583b61e93.jpg",
+      "frozen_v2_image_id": 4512,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5156,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003538_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "vPd4KIQCtLR0eF0C3owr",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "dArtTMlivPjHiIPYpLkR"
+    },
+    "ranks": [
+      3,
+      26,
+      42
+    ],
+    "rrf": 0.03730484441838751
+  },
+  {
+    "rank": 6,
+    "id": "hvAocu0LK99NlQ904RhO",
+    "filename": "full_03192_wykXeIAxEhuxzUqgHBz3_002184_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/hvAocu0LK99NlQ904RhO/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "17481",
+      "frozen_v2_export_filename": "002184_jpg.rf.e45162ca28f4d9ab9389298204312c68.jpg",
+      "frozen_v2_image_id": 5796,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3192,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002184_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "wykXeIAxEhuxzUqgHBz3",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "hvAocu0LK99NlQ904RhO"
+    },
+    "ranks": [
+      18,
+      51,
+      5
+    ],
+    "rrf": 0.037214137214137216
+  },
+  {
+    "rank": 7,
+    "id": "vNN5M7zroRVRL7csRZPE",
+    "filename": "full_01507_m4c4tKuVHbNT9FZ7rXp3_001005_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/vNN5M7zroRVRL7csRZPE/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_02",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "4135,4136",
+      "frozen_v2_export_filename": "001005_jpg.rf.2f9ef7a7a09f577b891329d5ac9ef3a5.jpg",
+      "frozen_v2_image_id": 1340,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "t2rZpa1LDH0B1YJo2qEf",
+      "migration_index": 1507,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001005_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "m4c4tKuVHbNT9FZ7rXp3",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "vNN5M7zroRVRL7csRZPE"
+    },
+    "ranks": [
+      7,
+      17,
+      48
+    ],
+    "rrf": 0.0371716453806006
+  },
+  {
+    "rank": 8,
+    "id": "scWLb4rYrMWF3rp9MaXV",
+    "filename": "full_00045_YhzZuRn5E5KtcU4QxbJN_000030_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/scWLb4rYrMWF3rp9MaXV/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_01",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "6703",
+      "frozen_v2_export_filename": "000030_jpg.rf.c8721fb10e775ef2e2b5e4cbad1a0361.jpg",
+      "frozen_v2_image_id": 2154,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "tnUurKE84pyIFe5QIm6l",
+      "migration_index": 45,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000030_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "YhzZuRn5E5KtcU4QxbJN",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "scWLb4rYrMWF3rp9MaXV"
+    },
+    "ranks": [
+      5,
+      39,
+      30
+    ],
+    "rrf": 0.0365967365967366
+  },
+  {
+    "rank": 9,
+    "id": "kuSG6wv6KadyjysW4AwA",
+    "filename": "full_03850_AvRpDEJCKdZkOSZO9cbC_002672_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/kuSG6wv6KadyjysW4AwA/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "6314,6315,6316,6317",
+      "frozen_v2_export_filename": "002672_jpg.rf.696eb9519b4399ea23c96616be98f863.jpg",
+      "frozen_v2_image_id": 2015,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3850,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002672_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "AvRpDEJCKdZkOSZO9cbC",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "kuSG6wv6KadyjysW4AwA"
+    },
+    "ranks": [
+      31,
+      5,
+      41
+    ],
+    "rrf": 0.03627461647263628
+  },
+  {
+    "rank": 10,
+    "id": "UW6wytayHxuZ0hG5xazU",
+    "filename": "full_05301_XoAP30FuzgFpMOlrYUa0_003633_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/UW6wytayHxuZ0hG5xazU/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "12188",
+      "frozen_v2_export_filename": "003633_jpg.rf.273ce43efa023ba19f14f9370403f087.jpg",
+      "frozen_v2_image_id": 4060,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5301,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003633_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "XoAP30FuzgFpMOlrYUa0",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "UW6wytayHxuZ0hG5xazU"
+    },
+    "ranks": [
+      51,
+      36,
+      2
+    ],
+    "rrf": 0.03555470793374019
+  },
+  {
+    "rank": 11,
+    "id": "kiNEIbsZ8l6Bw6GaruBl",
+    "filename": "full_05875_QCMLskgV5ACK2HGQTIFD_000583_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/kiNEIbsZ8l6Bw6GaruBl/original.jpg",
+    "damage_count": 11,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1595,1596,1597,1598,1599,1600,1601,1602,1603,1604,1605",
+      "frozen_v2_export_filename": "000583_jpg.rf.428d69e33cbcefd446fca45034fb1c0d.jpg",
+      "frozen_v2_image_id": 521,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5875,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000583_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "QCMLskgV5ACK2HGQTIFD",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "kiNEIbsZ8l6Bw6GaruBl"
+    },
+    "ranks": [
+      39,
+      31,
+      16
+    ],
+    "rrf": 0.03424791582686319
+  },
+  {
+    "rank": 12,
+    "id": "45eIPo03blL9W1JpcMcR",
+    "filename": "full_02621_xQ4m9JJ7Whl3Lxhh51ZA_001737_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/45eIPo03blL9W1JpcMcR/original.jpg",
+    "damage_count": 6,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "8737,8738,8739,8740,8741,8742",
+      "frozen_v2_export_filename": "001737_jpg.rf.239057ab83de2ca971d4e6a87244a658.jpg",
+      "frozen_v2_image_id": 2867,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2621,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001737_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "xQ4m9JJ7Whl3Lxhh51ZA",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "45eIPo03blL9W1JpcMcR"
+    },
+    "ranks": [
+      59,
+      37,
+      13
+    ],
+    "rrf": 0.03241126983203958
+  },
+  {
+    "rank": 13,
+    "id": "tbNMBxeL28ZgPN2rvHvf",
+    "filename": "full_05961_lFrhDAPi3L8UJSkc2eoR_001293_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/tbNMBxeL28ZgPN2rvHvf/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1373",
+      "frozen_v2_export_filename": "001293_jpg.rf.1c1044843c54811923e3149bc5595829.jpg",
+      "frozen_v2_image_id": 452,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5961,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001293_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "lFrhDAPi3L8UJSkc2eoR",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "tbNMBxeL28ZgPN2rvHvf"
+    },
+    "ranks": [
+      6,
+      139,
+      23
+    ],
+    "rrf": 0.0322248335507402
+  },
+  {
+    "rank": 14,
+    "id": "IU86v1UXFcFCJb2hYvDw",
+    "filename": "full_00036_xMv8UrMPdFyzhVomSHNr_000021_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/IU86v1UXFcFCJb2hYvDw/original.jpg",
+    "damage_count": 10,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_01",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "11842,11843,11844,11845,11846,11847,11848,11849,11850,11851",
+      "frozen_v2_export_filename": "000021_jpg.rf.b18b6a2a8e3b5597a5825c7a709a0ab9.jpg",
+      "frozen_v2_image_id": 3938,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "tnUurKE84pyIFe5QIm6l",
+      "migration_index": 36,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000021_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "xMv8UrMPdFyzhVomSHNr",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "IU86v1UXFcFCJb2hYvDw"
+    },
+    "ranks": [
+      25,
+      41,
+      36
+    ],
+    "rrf": 0.03208236264802951
+  },
+  {
+    "rank": 15,
+    "id": "JTzYYDdNXKGNCDW5n5K4",
+    "filename": "full_04021_8hOCOzNj1D20WfqmQB4p_002793_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/JTzYYDdNXKGNCDW5n5K4/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "16271",
+      "frozen_v2_export_filename": "002793_jpg.rf.85f8b5055370ab86e728e74c3a6aaf85.jpg",
+      "frozen_v2_image_id": 5394,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4021,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002793_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "8hOCOzNj1D20WfqmQB4p",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "JTzYYDdNXKGNCDW5n5K4"
+    },
+    "ranks": [
+      40,
+      57,
+      17
+    ],
+    "rrf": 0.03153402153402153
+  },
+  {
+    "rank": 16,
+    "id": "MetbJP34ZzcSNQT099EO",
+    "filename": "full_02630_UKFTUSTMiqNGe06LZELt_001745_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/MetbJP34ZzcSNQT099EO/original.jpg",
+    "damage_count": 5,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "17063,17064,17065,17066,17067",
+      "frozen_v2_export_filename": "001745_jpg.rf.126cd182bd3e92185a15ab7c289c276a.jpg",
+      "frozen_v2_image_id": 5652,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2630,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001745_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "UKFTUSTMiqNGe06LZELt",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "MetbJP34ZzcSNQT099EO"
+    },
+    "ranks": [
+      33,
+      6,
+      128
+    ],
+    "rrf": 0.031223352259728377
+  },
+  {
+    "rank": 17,
+    "id": "8KRYQb768s9NyKXt6jCC",
+    "filename": "full_04040_NnY66FGfTESHu1FrH8KX_002802_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/8KRYQb768s9NyKXt6jCC/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "15392,15393",
+      "frozen_v2_export_filename": "002802_jpg.rf.a6eee5b1e318b91e269becc67e512ca6.jpg",
+      "frozen_v2_image_id": 5130,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4040,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002802_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "NnY66FGfTESHu1FrH8KX",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "8KRYQb768s9NyKXt6jCC"
+    },
+    "ranks": [
+      27,
+      116,
+      14
+    ],
+    "rrf": 0.030689584568894916
+  },
+  {
+    "rank": 18,
+    "id": "kogr31z1CgJPkqRuCeiq",
+    "filename": "full_05299_O7mWB41jZgVkRrqKdSMb_003632_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/kogr31z1CgJPkqRuCeiq/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "13602",
+      "frozen_v2_export_filename": "003632_jpg.rf.dee7e0cd72ec33432642d2c4ec35e5f5.jpg",
+      "frozen_v2_image_id": 4549,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5299,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003632_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "O7mWB41jZgVkRrqKdSMb",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "kogr31z1CgJPkqRuCeiq"
+    },
+    "ranks": [
+      11,
+      49,
+      76
+    ],
+    "rrf": 0.030611760145329618
+  },
+  {
+    "rank": 19,
+    "id": "kRxijRwVONWFq4c57neW",
+    "filename": "full_04055_XEfEdgsWTolnStJKdSoQ_002812_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/kRxijRwVONWFq4c57neW/original.jpg",
+    "damage_count": 12,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "6349,6350,6351,6352,6353,6354,6355,6356,6357,6358,6359,6360",
+      "frozen_v2_export_filename": "002812_jpg.rf.792636a1e1862464a4de7bdd579868a4.jpg",
+      "frozen_v2_image_id": 2025,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4055,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002812_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "XEfEdgsWTolnStJKdSoQ",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "kRxijRwVONWFq4c57neW"
+    },
+    "ranks": [
+      28,
+      71,
+      27
+    ],
+    "rrf": 0.030491477023459123
+  },
+  {
+    "rank": 20,
+    "id": "JHufehk1VKsycRJHhDEV",
+    "filename": "full_04139_eaoweAew4epVCwjViias_002873_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/JHufehk1VKsycRJHhDEV/original.jpg",
+    "damage_count": 7,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "16112,16113,16114,16115,16116,16117,16118",
+      "frozen_v2_export_filename": "002873_jpg.rf.6b5ccf8b96916c85f4e0f3add7076c62.jpg",
+      "frozen_v2_image_id": 5335,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4139,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002873_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "eaoweAew4epVCwjViias",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "JHufehk1VKsycRJHhDEV"
+    },
+    "ranks": [
+      73,
+      15,
+      49
+    ],
+    "rrf": 0.030026442252420044
+  },
+  {
+    "rank": 21,
+    "id": "Ns0dYC2XcWaaiAsuKyrt",
+    "filename": "full_00672_L234PXTxabY6TmUkfces_000451_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/Ns0dYC2XcWaaiAsuKyrt/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_01",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "15708",
+      "frozen_v2_export_filename": "000451_jpg.rf.ad722d1755567896ccce2a33d827b9ab.jpg",
+      "frozen_v2_image_id": 5233,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "tnUurKE84pyIFe5QIm6l",
+      "migration_index": 672,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000451_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "L234PXTxabY6TmUkfces",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "Ns0dYC2XcWaaiAsuKyrt"
+    },
+    "ranks": [
+      62,
+      132,
+      1
+    ],
+    "rrf": 0.029798497267759565
+  },
+  {
+    "rank": 22,
+    "id": "klJNLYUmpa72IAS7OR50",
+    "filename": "full_06065_9MqAld51p1XMOseG49rr_002097_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/klJNLYUmpa72IAS7OR50/original.jpg",
+    "damage_count": 5,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_07",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1319,1320,1321,1322,1323",
+      "frozen_v2_export_filename": "002097_jpg.rf.d89eaedc38cdd51514cd02a58509eb7a.jpg",
+      "frozen_v2_image_id": 432,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "cvsMBn7EqgM20X5LIjgT",
+      "migration_index": 6065,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002097_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "9MqAld51p1XMOseG49rr",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "klJNLYUmpa72IAS7OR50"
+    },
+    "ranks": [
+      12,
+      53,
+      96
+    ],
+    "rrf": 0.02914870282126919
+  },
+  {
+    "rank": 23,
+    "id": "FiUwBTwbhJH7vQ3ul7Vb",
+    "filename": "full_03044_cg020YISDtlKdO3Ecmjl_002061_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/FiUwBTwbhJH7vQ3ul7Vb/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "14198",
+      "frozen_v2_export_filename": "002061_jpg.rf.df6e08d27d1ccd8722ea5eb3524d6cfd.jpg",
+      "frozen_v2_image_id": 4743,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3044,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002061_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "cg020YISDtlKdO3Ecmjl",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "FiUwBTwbhJH7vQ3ul7Vb"
+    },
+    "ranks": [
+      26,
+      154,
+      20
+    ],
+    "rrf": 0.02880080417300587
+  },
+  {
+    "rank": 24,
+    "id": "0xEUoFlwSgW6svwjJLWe",
+    "filename": "pilot_046_6YhdayYWcnQUv9FVCTzs_001179_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/0xEUoFlwSgW6svwjJLWe/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "frozen_v2_pilot_50",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "488,489,490,491",
+      "frozen_v2_export_filename": "001179_jpg.rf.e0cc1ebb95d76462ecbf0936993f13ea.jpg",
+      "frozen_v2_image_id": 148,
+      "original_filename": "001179_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "6YhdayYWcnQUv9FVCTzs",
+      "original_split": "test",
+      "original_width": 1024,
+      "pilot_phase": "grayscale_50",
+      "staging_image_id": "0xEUoFlwSgW6svwjJLWe"
+    },
+    "ranks": [
+      45,
+      9,
+      151
+    ],
+    "rrf": 0.028755899639888928
+  },
+  {
+    "rank": 25,
+    "id": "NLHVS2frXBmQIP5XdlkU",
+    "filename": "full_03605_QYOkbMHXKZs2Wnih8PFp_002492_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/NLHVS2frXBmQIP5XdlkU/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "3720",
+      "frozen_v2_export_filename": "002492_jpg.rf.c7ea5aeb5ed8adbe624566a6b2f3e1f1.jpg",
+      "frozen_v2_image_id": 1199,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3605,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002492_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "QYOkbMHXKZs2Wnih8PFp",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "NLHVS2frXBmQIP5XdlkU"
+    },
+    "ranks": [
+      2,
+      65,
+      170
+    ],
+    "rrf": 0.028476858345021037
+  },
+  {
+    "rank": 26,
+    "id": "izFdAmKzs1BaDS2XUmCy",
+    "filename": "full_00886_qOZ5vUntmIqrGDfDgfhI_000593_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/izFdAmKzs1BaDS2XUmCy/original.jpg",
+    "damage_count": 12,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_01",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "4448,4449,4450,4451,4452,4453,4454,4455,4456,4457,4458,4459",
+      "frozen_v2_export_filename": "000593_jpg.rf.570712ff8bd56ef76732b95626508eac.jpg",
+      "frozen_v2_image_id": 1456,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "tnUurKE84pyIFe5QIm6l",
+      "migration_index": 886,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000593_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "qOZ5vUntmIqrGDfDgfhI",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "izFdAmKzs1BaDS2XUmCy"
+    },
+    "ranks": [
+      68,
+      8,
+      109
+    ],
+    "rrf": 0.028435542116254785
+  },
+  {
+    "rank": 27,
+    "id": "K2Vdtxzgo5eU0ePhdl2F",
+    "filename": "pilot_040_skBD6iFYJtui9AYFG8iL_001480_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/K2Vdtxzgo5eU0ePhdl2F/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "frozen_v2_pilot_50",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1580,1581,1582,1583",
+      "frozen_v2_export_filename": "001480_jpg.rf.eb880dd515ea549317279763606cc2cc.jpg",
+      "frozen_v2_image_id": 518,
+      "original_filename": "001480_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "skBD6iFYJtui9AYFG8iL",
+      "original_split": "valid",
+      "original_width": 1024,
+      "pilot_phase": "grayscale_50",
+      "staging_image_id": "K2Vdtxzgo5eU0ePhdl2F"
+    },
+    "ranks": [
+      15,
+      127,
+      47
+    ],
+    "rrf": 0.028026721308744396
+  },
+  {
+    "rank": 28,
+    "id": "ytXnCsZ2xm0cAaay8pc4",
+    "filename": "full_04133_aoUOr3uPL5teIY7wLhck_002871_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/ytXnCsZ2xm0cAaay8pc4/original.jpg",
+    "damage_count": 3,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "990,991,992",
+      "frozen_v2_export_filename": "002871_jpg.rf.de5b6896ec54f5b93d2ac3a83e50b73b.jpg",
+      "frozen_v2_image_id": 305,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4133,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002871_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "aoUOr3uPL5teIY7wLhck",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "ytXnCsZ2xm0cAaay8pc4"
+    },
+    "ranks": [
+      63,
+      157,
+      6
+    ],
+    "rrf": 0.027889891383203736
+  },
+  {
+    "rank": 29,
+    "id": "xcawlfdfp84JB9HUxBVl",
+    "filename": "full_05078_0roWY0XkFXQyTpvRtPwK_003491_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/xcawlfdfp84JB9HUxBVl/original.jpg",
+    "damage_count": 3,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "10868,10869,10870",
+      "frozen_v2_export_filename": "003491_jpg.rf.6861f56dc34a1d44271999c13bf60cc0.jpg",
+      "frozen_v2_image_id": 3614,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5078,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003491_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "0roWY0XkFXQyTpvRtPwK",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "xcawlfdfp84JB9HUxBVl"
+    },
+    "ranks": [
+      20,
+      38,
+      140
+    ],
+    "rrf": 0.027704081632653064
+  },
+  {
+    "rank": 30,
+    "id": "LxRFk6RRbLi6l38vCEWx",
+    "filename": "full_00802_oWhaQbsNneC1u9SofmC0_000533_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/LxRFk6RRbLi6l38vCEWx/original.jpg",
+    "damage_count": 5,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_01",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "15901,15902,15903,15904,15905",
+      "frozen_v2_export_filename": "000533_jpg.rf.860def24dd889088a96a862c709ee63c.jpg",
+      "frozen_v2_image_id": 5277,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "tnUurKE84pyIFe5QIm6l",
+      "migration_index": 802,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000533_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "oWhaQbsNneC1u9SofmC0",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "LxRFk6RRbLi6l38vCEWx"
+    },
+    "ranks": [
+      94,
+      2,
+      144
+    ],
+    "rrf": 0.027524499535884737
+  },
+  {
+    "rank": 31,
+    "id": "h8NNPr58m8KGcKiOrs5e",
+    "filename": "full_00803_sCrrlHNh2dpgoLv0NL7G_000533_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/h8NNPr58m8KGcKiOrs5e/original.jpg",
+    "damage_count": 5,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_01",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "7430,7431,7432,7433,7434",
+      "frozen_v2_export_filename": "000533_jpg.rf.e898a53aaba45bb32fa8b6fc5ba7e000.jpg",
+      "frozen_v2_image_id": 2421,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "tnUurKE84pyIFe5QIm6l",
+      "migration_index": 803,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000533_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "sCrrlHNh2dpgoLv0NL7G",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "h8NNPr58m8KGcKiOrs5e"
+    },
+    "ranks": [
+      86,
+      4,
+      155
+    ],
+    "rrf": 0.027125477859190825
+  },
+  {
+    "rank": 32,
+    "id": "cvHhMXkPa5R27ZACBcVs",
+    "filename": "pilot_005_H5ojAVFmD5QXbso4rlZr_000584_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/cvHhMXkPa5R27ZACBcVs/original.jpg",
+    "damage_count": 9,
+    "tags": [
+      "frozen_v2_pilot_50",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "302,303,304,305,306,307,308,309,310",
+      "frozen_v2_export_filename": "000584_jpg.rf.ea489fa3f1d6b13d05fe8f00a0ae27e3.jpg",
+      "frozen_v2_image_id": 92,
+      "original_filename": "000584_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "H5ojAVFmD5QXbso4rlZr",
+      "original_split": "train",
+      "original_width": 1024,
+      "pilot_phase": "grayscale_50",
+      "staging_image_id": "cvHhMXkPa5R27ZACBcVs"
+    },
+    "ranks": [
+      76,
+      64,
+      28
+    ],
+    "rrf": 0.026781093669139208
+  },
+  {
+    "rank": 33,
+    "id": "NXI7LMmD8BeyUCfZTidq",
+    "filename": "full_03208_ntXcprf07LfKXVbOMQUN_002207_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/NXI7LMmD8BeyUCfZTidq/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "6939,6940,6941,6942",
+      "frozen_v2_export_filename": "002207_jpg.rf.2e620720fe5881fbb5dc49bc677db3e6.jpg",
+      "frozen_v2_image_id": 2247,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3208,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002207_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "ntXcprf07LfKXVbOMQUN",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "NXI7LMmD8BeyUCfZTidq"
+    },
+    "ranks": [
+      46,
+      102,
+      35
+    ],
+    "rrf": 0.026133117559797466
+  },
+  {
+    "rank": 34,
+    "id": "X5axa9RggkPj6baKB7St",
+    "filename": "full_05781_MpXWubZJArssdt2t9UgB_003981_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/X5axa9RggkPj6baKB7St/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "11987",
+      "frozen_v2_export_filename": "003981_jpg.rf.2f63f852616db95cb3b81358d0bc591d.jpg",
+      "frozen_v2_image_id": 3985,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5781,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003981_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "MpXWubZJArssdt2t9UgB",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "X5axa9RggkPj6baKB7St"
+    },
+    "ranks": [
+      41,
+      94,
+      43
+    ],
+    "rrf": 0.026103234456594064
+  },
+  {
+    "rank": 35,
+    "id": "twbpEPKjFCzVJZyk0Ly6",
+    "filename": "full_05890_b2F3l9py2tBeFfjN06T1_000709_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/twbpEPKjFCzVJZyk0Ly6/original.jpg",
+    "damage_count": 7,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1242,1243,1244,1245,1246,1247,1248",
+      "frozen_v2_export_filename": "000709_jpg.rf.ae6ff2687e55f12999f147e9ca146426.jpg",
+      "frozen_v2_image_id": 404,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5890,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000709_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "b2F3l9py2tBeFfjN06T1",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "twbpEPKjFCzVJZyk0Ly6"
+    },
+    "ranks": [
+      19,
+      103,
+      80
+    ],
+    "rrf": 0.025936054316111783
+  },
+  {
+    "rank": 36,
+    "id": "Qo8veBA52I4gHpaVs9Sg",
+    "filename": "full_03959_yv84KCC8qV0eE1xfHIzQ_002740_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/Qo8veBA52I4gHpaVs9Sg/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "3087",
+      "frozen_v2_export_filename": "002740_jpg.rf.edcb8ec5d8ea086405b30e4f8d7d6494.jpg",
+      "frozen_v2_image_id": 989,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3959,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002740_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "yv84KCC8qV0eE1xfHIzQ",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "Qo8veBA52I4gHpaVs9Sg"
+    },
+    "ranks": [
+      108,
+      92,
+      15
+    ],
+    "rrf": 0.02586466165413534
+  },
+  {
+    "rank": 37,
+    "id": "u4eyyvAJbx0qcqz3twiL",
+    "filename": "full_02349_elkaI108CKucOHRjxGIH_001571_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/u4eyyvAJbx0qcqz3twiL/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "268,269",
+      "frozen_v2_export_filename": "001571_jpg.rf.52ce07473d9a9f56ef848144d8edde3c.jpg",
+      "frozen_v2_image_id": 84,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2349,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001571_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "elkaI108CKucOHRjxGIH",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "u4eyyvAJbx0qcqz3twiL"
+    },
+    "ranks": [
+      9,
+      141,
+      98
+    ],
+    "rrf": 0.02579699192534849
+  },
+  {
+    "rank": 38,
+    "id": "ygi7I01u7Rn23riOLmih",
+    "filename": "full_03875_O6slRbSvDR5CytWf4W7i_002689_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/ygi7I01u7Rn23riOLmih/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "11457,11458,11459,11460",
+      "frozen_v2_export_filename": "002689_jpg.rf.9fbbd5e6f3696e228e5bdcd1c32a8310.jpg",
+      "frozen_v2_image_id": 3825,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3875,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002689_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "O6slRbSvDR5CytWf4W7i",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "ygi7I01u7Rn23riOLmih"
+    },
+    "ranks": [
+      87,
+      19,
+      99
+    ],
+    "rrf": 0.025750257112637266
+  },
+  {
+    "rank": 39,
+    "id": "FsHHh0d2NuafZQSMPfZG",
+    "filename": "pilot_019_vnHvQTB5AQZPHgjF9ypO_002237_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/FsHHh0d2NuafZQSMPfZG/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "frozen_v2_pilot_50",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "10468,10469,10470,10471",
+      "frozen_v2_export_filename": "002237_jpg.rf.f907536eee786c4a34e45ef83db4e887.jpg",
+      "frozen_v2_image_id": 3499,
+      "original_filename": "002237_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "vnHvQTB5AQZPHgjF9ypO",
+      "original_split": "train",
+      "original_width": 1024,
+      "pilot_phase": "grayscale_50",
+      "staging_image_id": "FsHHh0d2NuafZQSMPfZG"
+    },
+    "ranks": [
+      170,
+      87,
+      9
+    ],
+    "rrf": 0.0256433007985803
+  },
+  {
+    "rank": 40,
+    "id": "S0ZQ7vv6QhS2VHjKaU4n",
+    "filename": "full_02310_onOPSsYuXxRasGX2jrtk_001544_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/S0ZQ7vv6QhS2VHjKaU4n/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "13523,13524",
+      "frozen_v2_export_filename": "001544_jpg.rf.3d7625eacd53650cdb43369ec420e2d1.jpg",
+      "frozen_v2_image_id": 4522,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2310,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001544_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "onOPSsYuXxRasGX2jrtk",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "S0ZQ7vv6QhS2VHjKaU4n"
+    },
+    "ranks": [
+      75,
+      80,
+      31
+    ],
+    "rrf": 0.02553927553927554
+  },
+  {
+    "rank": 41,
+    "id": "bfYHWYrlAJkTU2IJvBgx",
+    "filename": "full_05693_eNNsPBY3bQqCImqloiJh_003921_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/bfYHWYrlAJkTU2IJvBgx/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "8934",
+      "frozen_v2_export_filename": "003921_jpg.rf.09c6a2b8380c46ea672abf351a0b2d02.jpg",
+      "frozen_v2_image_id": 2939,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5693,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003921_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "eNNsPBY3bQqCImqloiJh",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "bfYHWYrlAJkTU2IJvBgx"
+    },
+    "ranks": [
+      145,
+      150,
+      3
+    ],
+    "rrf": 0.02551296941540844
+  },
+  {
+    "rank": 42,
+    "id": "Cj99dnHJnKThAQdfyxw6",
+    "filename": "full_04030_0V7f3sAlRl0TAajmh4lu_002798_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/Cj99dnHJnKThAQdfyxw6/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "7305,7306",
+      "frozen_v2_export_filename": "002798_jpg.rf.36ae026638375526bf2be2de8b5c2f97.jpg",
+      "frozen_v2_image_id": 2381,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4030,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002798_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "0V7f3sAlRl0TAajmh4lu",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "Cj99dnHJnKThAQdfyxw6"
+    },
+    "ranks": [
+      29,
+      40,
+      179
+    ],
+    "rrf": 0.02542005547458982
+  },
+  {
+    "rank": 43,
+    "id": "mgH8Sh2jplNZxuaZSfXz",
+    "filename": "full_06089_abOZC9H8yFrPHPSoFKxd_002234_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/mgH8Sh2jplNZxuaZSfXz/original.jpg",
+    "damage_count": 7,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_07",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1234,1235,1236,1237,1238,1239,1240",
+      "frozen_v2_export_filename": "002234_jpg.rf.1ff8cc1ea5b9fa594cbd4c117c0030e2.jpg",
+      "frozen_v2_image_id": 402,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "cvsMBn7EqgM20X5LIjgT",
+      "migration_index": 6089,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002234_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "abOZC9H8yFrPHPSoFKxd",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "mgH8Sh2jplNZxuaZSfXz"
+    },
+    "ranks": [
+      48,
+      76,
+      59
+    ],
+    "rrf": 0.02501556178026766
+  },
+  {
+    "rank": 44,
+    "id": "XFqzAUwPMWKNNIl2avjo",
+    "filename": "full_04103_wAPWqA3xYZyro2OrYy1i_002846_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/XFqzAUwPMWKNNIl2avjo/original.jpg",
+    "damage_count": 3,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "16532,16533,16534",
+      "frozen_v2_export_filename": "002846_jpg.rf.889b493a69ea86281778dc5fad07fe83.jpg",
+      "frozen_v2_image_id": 5470,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4103,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002846_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "wAPWqA3xYZyro2OrYy1i",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "XFqzAUwPMWKNNIl2avjo"
+    },
+    "ranks": [
+      132,
+      7,
+      146
+    ],
+    "rrf": 0.024988075399700528
+  },
+  {
+    "rank": 45,
+    "id": "TokNyfZx3bXrxRQaBSi7",
+    "filename": "full_04033_osPHy9IVcyh7YAMfARmA_002799_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/TokNyfZx3bXrxRQaBSi7/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "886,887",
+      "frozen_v2_export_filename": "002799_jpg.rf.7e0eef53e35525b364764afcb0ca2302.jpg",
+      "frozen_v2_image_id": 272,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4033,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002799_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "osPHy9IVcyh7YAMfARmA",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "TokNyfZx3bXrxRQaBSi7"
+    },
+    "ranks": [
+      38,
+      193,
+      33
+    ],
+    "rrf": 0.024909338974656546
+  },
+  {
+    "rank": 46,
+    "id": "2PD83DJ6zcPP8BSwRKVI",
+    "filename": "full_06557_h0GZUE0UmB9mEebK1Cq6_002968_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/2PD83DJ6zcPP8BSwRKVI/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_07",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "347",
+      "frozen_v2_export_filename": "002968_jpg.rf.dc97d49121431758269d00fae845a74f.jpg",
+      "frozen_v2_image_id": 104,
+      "frozen_v2_split": "test",
+      "migration_batch_id": "cvsMBn7EqgM20X5LIjgT",
+      "migration_index": 6557,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002968_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "h0GZUE0UmB9mEebK1Cq6",
+      "original_split": "test",
+      "original_width": 1024,
+      "source_live_split": "test",
+      "staging_image_id": "2PD83DJ6zcPP8BSwRKVI"
+    },
+    "ranks": [
+      112,
+      85,
+      22
+    ],
+    "rrf": 0.024905627163729536
+  },
+  {
+    "rank": 47,
+    "id": "by5uLmOXKgQ5fJbT2T2q",
+    "filename": "full_01194_KxRETKCgBz977zV2EZKl_000798_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/by5uLmOXKgQ5fJbT2T2q/original.jpg",
+    "damage_count": 3,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_02",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "12320,12321,12322",
+      "frozen_v2_export_filename": "000798_jpg.rf.9894b1694328ddcb0f2aa2834f3e4e32.jpg",
+      "frozen_v2_image_id": 4115,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "t2rZpa1LDH0B1YJo2qEf",
+      "migration_index": 1194,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000798_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "KxRETKCgBz977zV2EZKl",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "by5uLmOXKgQ5fJbT2T2q"
+    },
+    "ranks": [
+      133,
+      13,
+      126
+    ],
+    "rrf": 0.024256321373266873
+  },
+  {
+    "rank": 48,
+    "id": "rXiyKpCnFVyDF2tSXvBK",
+    "filename": "full_03249_zUkS9KGzXz9RcFD9CVUQ_002229_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/rXiyKpCnFVyDF2tSXvBK/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "11080,11081,11082,11083",
+      "frozen_v2_export_filename": "002229_jpg.rf.d57a549352ae335e4f17265a8d13f70d.jpg",
+      "frozen_v2_image_id": 3697,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3249,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002229_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "zUkS9KGzXz9RcFD9CVUQ",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "rXiyKpCnFVyDF2tSXvBK"
+    },
+    "ranks": [
+      42,
+      106,
+      75
+    ],
+    "rrf": 0.023235425361577026
+  },
+  {
+    "rank": 49,
+    "id": "75FEL9jzZLCgwCNfgXbs",
+    "filename": "full_05091_SGL1hSUMF0AKTPC31x5y_003504_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/75FEL9jzZLCgwCNfgXbs/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "485,486",
+      "frozen_v2_export_filename": "003504_jpg.rf.ba2ff23b6f3722c970a2f954628894ef.jpg",
+      "frozen_v2_image_id": 147,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5091,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003504_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "SGL1hSUMF0AKTPC31x5y",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "75FEL9jzZLCgwCNfgXbs"
+    },
+    "ranks": [
+      105,
+      55,
+      58
+    ],
+    "rrf": 0.023230834505705546
+  },
+  {
+    "rank": 50,
+    "id": "rmoLa6AqNwQMH1oyadp9",
+    "filename": "full_04345_r4j63eMOwyhYObFwmcx3_003001_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/rmoLa6AqNwQMH1oyadp9/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "5457,5458,5459,5460",
+      "frozen_v2_export_filename": "003001_jpg.rf.b8fa63f64fad1ad081c8abff61cd56b7.jpg",
+      "frozen_v2_image_id": 1749,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4345,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003001_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "r4j63eMOwyhYObFwmcx3",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "rmoLa6AqNwQMH1oyadp9"
+    },
+    "ranks": [
+      67,
+      82,
+      61
+    ],
+    "rrf": 0.023180732079075613
+  },
+  {
+    "rank": 51,
+    "id": "ZvoBFj4W9RIBcUavvMEr",
+    "filename": "full_06333_QBc8OLbwsNHe42r7DcLE_003943_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/ZvoBFj4W9RIBcUavvMEr/original.jpg",
+    "damage_count": 3,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_07",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1379,1380,1381",
+      "frozen_v2_export_filename": "003943_jpg.rf.802f73f12ac6ea518efa77b4fbc2b5b0.jpg",
+      "frozen_v2_image_id": 455,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "cvsMBn7EqgM20X5LIjgT",
+      "migration_index": 6333,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003943_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "QBc8OLbwsNHe42r7DcLE",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "ZvoBFj4W9RIBcUavvMEr"
+    },
+    "ranks": [
+      13,
+      46,
+      null
+    ],
+    "rrf": 0.023132592401137242
+  },
+  {
+    "rank": 52,
+    "id": "Hu2AIQDDjhbA4lJJGXgP",
+    "filename": "full_02545_i2E9GW071Gb8GXpF0PqJ_001694_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/Hu2AIQDDjhbA4lJJGXgP/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "11513,11514,11515,11516",
+      "frozen_v2_export_filename": "001694_jpg.rf.f817e595cb856323b6a3f84a0e235758.jpg",
+      "frozen_v2_image_id": 3846,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2545,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001694_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "i2E9GW071Gb8GXpF0PqJ",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "Hu2AIQDDjhbA4lJJGXgP"
+    },
+    "ranks": [
+      22,
+      32,
+      null
+    ],
+    "rrf": 0.023064687168610817
+  },
+  {
+    "rank": 53,
+    "id": "7paOLrmtYUnI4fOG4tjC",
+    "filename": "full_03269_ar7tzcoKoJYAqQxkBe6y_002239_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/7paOLrmtYUnI4fOG4tjC/original.jpg",
+    "damage_count": 3,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "16298,16299,16300",
+      "frozen_v2_export_filename": "002239_jpg.rf.ce28770b91d8d3cf46261375d344fcb3.jpg",
+      "frozen_v2_image_id": 5403,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3269,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002239_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "ar7tzcoKoJYAqQxkBe6y",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "7paOLrmtYUnI4fOG4tjC"
+    },
+    "ranks": [
+      60,
+      null,
+      10
+    ],
+    "rrf": 0.02261904761904762
+  },
+  {
+    "rank": 54,
+    "id": "PhbJohGPe57P26GsWx2m",
+    "filename": "full_01216_97de3dG6I6vqcqEKqmCG_000813_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/PhbJohGPe57P26GsWx2m/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_02",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "13327,13328,13329,13330",
+      "frozen_v2_export_filename": "000813_jpg.rf.ab6e0ae25056f8dff974bdf44793896c.jpg",
+      "frozen_v2_image_id": 4454,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "t2rZpa1LDH0B1YJo2qEf",
+      "migration_index": 1216,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000813_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "97de3dG6I6vqcqEKqmCG",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "PhbJohGPe57P26GsWx2m"
+    },
+    "ranks": [
+      151,
+      25,
+      111
+    ],
+    "rrf": 0.022351995591618205
+  },
+  {
+    "rank": 55,
+    "id": "GXNSRxCjncaXNumSb7YG",
+    "filename": "full_05057_HnXy6dCGr8tiN2052H3s_003476_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/GXNSRxCjncaXNumSb7YG/original.jpg",
+    "damage_count": 8,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "16725,16726,16727,16728,16729,16730,16731,16732",
+      "frozen_v2_export_filename": "003476_jpg.rf.22de80045c82241dfd03948ccc2ee6ed.jpg",
+      "frozen_v2_image_id": 5544,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5057,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003476_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "HnXy6dCGr8tiN2052H3s",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "GXNSRxCjncaXNumSb7YG"
+    },
+    "ranks": [
+      97,
+      30,
+      149
+    ],
+    "rrf": 0.02226522685791878
+  },
+  {
+    "rank": 56,
+    "id": "7JmjQOfLmXnXIMhmZYm6",
+    "filename": "full_00540_pklYuOnF3OcBMNLYGjJb_000364_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/7JmjQOfLmXnXIMhmZYm6/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_01",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "4799,4800,4801,4802",
+      "frozen_v2_export_filename": "000364_jpg.rf.7570580dbe0c1c0bb9d4b30d7cc000f0.jpg",
+      "frozen_v2_image_id": 1548,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "tnUurKE84pyIFe5QIm6l",
+      "migration_index": 540,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000364_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "pklYuOnF3OcBMNLYGjJb",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "7JmjQOfLmXnXIMhmZYm6"
+    },
+    "ranks": [
+      50,
+      16,
+      null
+    ],
+    "rrf": 0.022248803827751195
+  },
+  {
+    "rank": 57,
+    "id": "HHAJ7Ow1EmvzrlEyO3RS",
+    "filename": "full_02922_ubSEJr82g6DyZy9KkXFs_001971_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/HHAJ7Ow1EmvzrlEyO3RS/original.jpg",
+    "damage_count": 3,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1784,1785,1786",
+      "frozen_v2_export_filename": "001971_jpg.rf.cf847383e9243140d2d887baf4c63fd6.jpg",
+      "frozen_v2_image_id": 557,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2922,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001971_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "ubSEJr82g6DyZy9KkXFs",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "HHAJ7Ow1EmvzrlEyO3RS"
+    },
+    "ranks": [
+      66,
+      10,
+      null
+    ],
+    "rrf": 0.02222222222222222
+  },
+  {
+    "rank": 58,
+    "id": "3VzSFx0eSy0wJ5g8c7JJ",
+    "filename": "full_03822_BEQUiCRsjqjjq99grRCh_002650_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/3VzSFx0eSy0wJ5g8c7JJ/original.jpg",
+    "damage_count": 6,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1723,1724,1725,1726,1727,1728",
+      "frozen_v2_export_filename": "002650_jpg.rf.2787d15bda24422eb5b134e97755ae61.jpg",
+      "frozen_v2_image_id": 538,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3822,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002650_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "BEQUiCRsjqjjq99grRCh",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "3VzSFx0eSy0wJ5g8c7JJ"
+    },
+    "ranks": [
+      119,
+      43,
+      88
+    ],
+    "rrf": 0.022052086799605377
+  },
+  {
+    "rank": 59,
+    "id": "u2mW3fZKMQtXiirN05S7",
+    "filename": "full_06162_PEpZQbDiTPBf5v4ij8SY_002746_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/u2mW3fZKMQtXiirN05S7/original.jpg",
+    "damage_count": 14,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_07",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "554,555,556,557,558,559,560,561,562,563,564,565,566,567",
+      "frozen_v2_export_filename": "002746_jpg.rf.56e036ad9c7d4f8fbcc51b175640ebaa.jpg",
+      "frozen_v2_image_id": 186,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "cvsMBn7EqgM20X5LIjgT",
+      "migration_index": 6162,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002746_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "PEpZQbDiTPBf5v4ij8SY",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "u2mW3fZKMQtXiirN05S7"
+    },
+    "ranks": [
+      116,
+      null,
+      4
+    ],
+    "rrf": 0.021306818181818184
+  },
+  {
+    "rank": 60,
+    "id": "WdNrsuew7y02IQgp3K1R",
+    "filename": "full_01978_gV47yDPVt5DqMyng205Q_001321_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/WdNrsuew7y02IQgp3K1R/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_02",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "9899",
+      "frozen_v2_export_filename": "001321_jpg.rf.0251e87bf63cf9a71042f7a7044edd33.jpg",
+      "frozen_v2_image_id": 3294,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "t2rZpa1LDH0B1YJo2qEf",
+      "migration_index": 1978,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001321_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "gV47yDPVt5DqMyng205Q",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "WdNrsuew7y02IQgp3K1R"
+    },
+    "ranks": [
+      184,
+      24,
+      138
+    ],
+    "rrf": 0.021053627611004662
+  },
+  {
+    "rank": 61,
+    "id": "lHmeRO7Hd1KvAr6JR3jn",
+    "filename": "full_04184_Qh61IibmHgGXLasYGssK_002904_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/lHmeRO7Hd1KvAr6JR3jn/original.jpg",
+    "damage_count": 3,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "11131,11132,11133",
+      "frozen_v2_export_filename": "002904_jpg.rf.f1280c9fe382297e9f68662ad5c1a33a.jpg",
+      "frozen_v2_image_id": 3708,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4184,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002904_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "Qh61IibmHgGXLasYGssK",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "lHmeRO7Hd1KvAr6JR3jn"
+    },
+    "ranks": [
+      106,
+      156,
+      39
+    ],
+    "rrf": 0.0207547361161819
+  },
+  {
+    "rank": 62,
+    "id": "wQcAwBygIPmIzcGBl7SX",
+    "filename": "full_03091_mYr4pM3QlKVMqaP8jvuw_002105_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/wQcAwBygIPmIzcGBl7SX/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "14253",
+      "frozen_v2_export_filename": "002105_jpg.rf.2649857344a4d035928c415826a8f4ee.jpg",
+      "frozen_v2_image_id": 4762,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3091,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002105_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "mYr4pM3QlKVMqaP8jvuw",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "wQcAwBygIPmIzcGBl7SX"
+    },
+    "ranks": [
+      109,
+      69,
+      95
+    ],
+    "rrf": 0.020120710651035538
+  },
+  {
+    "rank": 63,
+    "id": "8q0SoLlRLnqSv93jpgQy",
+    "filename": "full_05265_iv0dDz39LlHlMt1OgT0D_003616_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/8q0SoLlRLnqSv93jpgQy/original.jpg",
+    "damage_count": 6,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "7112,7113,7114,7115,7116,7117",
+      "frozen_v2_export_filename": "003616_jpg.rf.0f48d48cca002d928ee8603eeb04f8fd.jpg",
+      "frozen_v2_image_id": 2309,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5265,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003616_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "iv0dDz39LlHlMt1OgT0D",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "8q0SoLlRLnqSv93jpgQy"
+    },
+    "ranks": [
+      124,
+      null,
+      11
+    ],
+    "rrf": 0.01951928965094917
+  },
+  {
+    "rank": 64,
+    "id": "US1pEwHipSLVF6mRuy5X",
+    "filename": "full_06255_biwtf0QjKLITgTZXovYW_003449_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/US1pEwHipSLVF6mRuy5X/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_07",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1110,1111",
+      "frozen_v2_export_filename": "003449_jpg.rf.2241b73ec73e763cd9a641374298b80a.jpg",
+      "frozen_v2_image_id": 371,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "cvsMBn7EqgM20X5LIjgT",
+      "migration_index": 6255,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003449_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "biwtf0QjKLITgTZXovYW",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "US1pEwHipSLVF6mRuy5X"
+    },
+    "ranks": [
+      72,
+      77,
+      164
+    ],
+    "rrf": 0.01933931336303599
+  },
+  {
+    "rank": 65,
+    "id": "foEw2JWjNB6R1LeefxaX",
+    "filename": "full_05258_BEMtQ7oUq85cccqchjfe_003610_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/foEw2JWjNB6R1LeefxaX/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "9610,9611",
+      "frozen_v2_export_filename": "003610_jpg.rf.dae1155dfa47e8c4a1bf679fcc3bb3cc.jpg",
+      "frozen_v2_image_id": 3187,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5258,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003610_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "BEMtQ7oUq85cccqchjfe",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "foEw2JWjNB6R1LeefxaX"
+    },
+    "ranks": [
+      24,
+      75,
+      null
+    ],
+    "rrf": 0.019312169312169312
+  },
+  {
+    "rank": 66,
+    "id": "NTnFNOPcDTUgdxvguODN",
+    "filename": "full_05886_YnR8ovOPcIsbo4A0MJ3k_000686_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/NTnFNOPcDTUgdxvguODN/original.jpg",
+    "damage_count": 7,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "432,433,434,435,436,437,438",
+      "frozen_v2_export_filename": "000686_jpg.rf.f7517b9c07f12d427f5f8a1a79ca14d3.jpg",
+      "frozen_v2_image_id": 144,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5886,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000686_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "YnR8ovOPcIsbo4A0MJ3k",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "NTnFNOPcDTUgdxvguODN"
+    },
+    "ranks": [
+      125,
+      12,
+      null
+    ],
+    "rrf": 0.019294294294294294
+  },
+  {
+    "rank": 67,
+    "id": "o4LPltBEWBIMyMWR6UyG",
+    "filename": "full_04014_aCRWXjhmCs1rUTRLGtNd_002788_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/o4LPltBEWBIMyMWR6UyG/original.jpg",
+    "damage_count": 7,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "4859,4860,4861,4862,4863,4864,4865",
+      "frozen_v2_export_filename": "002788_jpg.rf.0eba18c9db388686f861a2d77507e833.jpg",
+      "frozen_v2_image_id": 1563,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4014,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002788_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "aCRWXjhmCs1rUTRLGtNd",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "o4LPltBEWBIMyMWR6UyG"
+    },
+    "ranks": [
+      44,
+      135,
+      161
+    ],
+    "rrf": 0.0192684766214178
+  },
+  {
+    "rank": 68,
+    "id": "OTObu91rDbNWKRF9OKwU",
+    "filename": "full_02690_R9Zxf3Yi63VLOPb4oYqS_001787_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/OTObu91rDbNWKRF9OKwU/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "5228",
+      "frozen_v2_export_filename": "001787_jpg.rf.01ee424acfe8a65de21054e3f2e26866.jpg",
+      "frozen_v2_image_id": 1679,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2690,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001787_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "R9Zxf3Yi63VLOPb4oYqS",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "OTObu91rDbNWKRF9OKwU"
+    },
+    "ranks": [
+      16,
+      108,
+      null
+    ],
+    "rrf": 0.019110275689223057
+  },
+  {
+    "rank": 69,
+    "id": "5XSUOs66VEsEcmzWapl3",
+    "filename": "full_03601_Z4JFfekSZfsserPdckmi_002489_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/5XSUOs66VEsEcmzWapl3/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "2688,2689",
+      "frozen_v2_export_filename": "002489_jpg.rf.eb625e97cffa83bb144c135d928f1ffd.jpg",
+      "frozen_v2_image_id": 856,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3601,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002489_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "Z4JFfekSZfsserPdckmi",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "5XSUOs66VEsEcmzWapl3"
+    },
+    "ranks": [
+      139,
+      14,
+      null
+    ],
+    "rrf": 0.01853863914165422
+  },
+  {
+    "rank": 70,
+    "id": "5eiqWFnNFf2jBDTBBpK5",
+    "filename": "full_05963_No012ZTbTA1ulSlbIgpO_001311_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/5eiqWFnNFf2jBDTBBpK5/original.jpg",
+    "damage_count": 7,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1276,1277,1278,1279,1280,1281,1282",
+      "frozen_v2_export_filename": "001311_jpg.rf.b2bff00ddf7ac92f2e5ec96869d46ddb.jpg",
+      "frozen_v2_image_id": 418,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5963,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001311_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "No012ZTbTA1ulSlbIgpO",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "5eiqWFnNFf2jBDTBBpK5"
+    },
+    "ranks": [
+      85,
+      null,
+      26
+    ],
+    "rrf": 0.018524458700882117
+  },
+  {
+    "rank": 71,
+    "id": "iCowEqyunSUZBEP1KXGD",
+    "filename": "full_02752_IDqCDgri1iQxT7KmdC89_001835_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/iCowEqyunSUZBEP1KXGD/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "5790",
+      "frozen_v2_export_filename": "001835_jpg.rf.f724ef5c6eadfa39a6b8aa8a33810511.jpg",
+      "frozen_v2_image_id": 1862,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2752,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001835_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "IDqCDgri1iQxT7KmdC89",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "iCowEqyunSUZBEP1KXGD"
+    },
+    "ranks": [
+      157,
+      59,
+      122
+    ],
+    "rrf": 0.018506161769918886
+  },
+  {
+    "rank": 72,
+    "id": "B0l9QaMjHWv9fefxP2Zw",
+    "filename": "full_02656_7dGeKKKn0Jo3wUIX2jSn_001764_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/B0l9QaMjHWv9fefxP2Zw/original.jpg",
+    "damage_count": 3,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "11151,11152,11153",
+      "frozen_v2_export_filename": "001764_jpg.rf.51ea8eb5c691a3c1269483b9bdb5dbb3.jpg",
+      "frozen_v2_image_id": 3713,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2656,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001764_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "7dGeKKKn0Jo3wUIX2jSn",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "B0l9QaMjHWv9fefxP2Zw"
+    },
+    "ranks": [
+      52,
+      119,
+      198
+    ],
+    "rrf": 0.01839113259959044
+  },
+  {
+    "rank": 73,
+    "id": "j7tRhtRhyVHc1K6EOpIN",
+    "filename": "full_03046_nEDTekXYsM16rx4hAwoc_002067_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/j7tRhtRhyVHc1K6EOpIN/original.jpg",
+    "damage_count": 3,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "16283,16284,16285",
+      "frozen_v2_export_filename": "002067_jpg.rf.129252c961028c880ce139f4a81c2d39.jpg",
+      "frozen_v2_image_id": 5399,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3046,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002067_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "nEDTekXYsM16rx4hAwoc",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "j7tRhtRhyVHc1K6EOpIN"
+    },
+    "ranks": [
+      74,
+      174,
+      92
+    ],
+    "rrf": 0.018315138209089504
+  },
+  {
+    "rank": 74,
+    "id": "6qcaUqs72JAScnUunkwC",
+    "filename": "full_06520_W4yuboWkFr4j2CeqvlAr_002405_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/6qcaUqs72JAScnUunkwC/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_07",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "632,633",
+      "frozen_v2_export_filename": "002405_jpg.rf.e2b3cbbcfba39a92ecf511fd1d45f561.jpg",
+      "frozen_v2_image_id": 205,
+      "frozen_v2_split": "test",
+      "migration_batch_id": "cvsMBn7EqgM20X5LIjgT",
+      "migration_index": 6520,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002405_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "W4yuboWkFr4j2CeqvlAr",
+      "original_split": "test",
+      "original_width": 1024,
+      "source_live_split": "test",
+      "staging_image_id": "6qcaUqs72JAScnUunkwC"
+    },
+    "ranks": [
+      107,
+      134,
+      86
+    ],
+    "rrf": 0.017991978195846692
+  },
+  {
+    "rank": 75,
+    "id": "QJoCbnXreVPa8AB9CFPE",
+    "filename": "full_01502_OHlNRVUTnsy2TzVBKjqg_001003_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/QJoCbnXreVPa8AB9CFPE/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_02",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "4603,4604",
+      "frozen_v2_export_filename": "001003_jpg.rf.610935e8fe5048399ba27c0a220e5c88.jpg",
+      "frozen_v2_image_id": 1491,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "t2rZpa1LDH0B1YJo2qEf",
+      "migration_index": 1502,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001003_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "OHlNRVUTnsy2TzVBKjqg",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "QJoCbnXreVPa8AB9CFPE"
+    },
+    "ranks": [
+      128,
+      126,
+      91
+    ],
+    "rrf": 0.017318009578483107
+  },
+  {
+    "rank": 76,
+    "id": "vIB8RgYBdOpRZcmSFHPP",
+    "filename": "full_05873_YJyd8HtNIP35feevQRKq_000560_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/vIB8RgYBdOpRZcmSFHPP/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "233,234",
+      "frozen_v2_export_filename": "000560_jpg.rf.c56e7183d1cabfa3b5a7c6800f850ed3.jpg",
+      "frozen_v2_image_id": 83,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5873,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000560_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "YJyd8HtNIP35feevQRKq",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "vIB8RgYBdOpRZcmSFHPP"
+    },
+    "ranks": [
+      91,
+      null,
+      34
+    ],
+    "rrf": 0.017260814428631817
+  },
+  {
+    "rank": 77,
+    "id": "fh7dgK6pGhoQlq1WwcKJ",
+    "filename": "full_05809_xTZsomd2I0qkxsSDb1mt_000121_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/fh7dgK6pGhoQlq1WwcKJ/original.jpg",
+    "damage_count": 3,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "243,244,245",
+      "frozen_v2_export_filename": "000121_jpg.rf.01c120453443d997af1f21f1055ce40f.jpg",
+      "frozen_v2_image_id": 88,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5809,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000121_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "xTZsomd2I0qkxsSDb1mt",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "fh7dgK6pGhoQlq1WwcKJ"
+    },
+    "ranks": [
+      138,
+      159,
+      78
+    ],
+    "rrf": 0.016863091907761356
+  },
+  {
+    "rank": 78,
+    "id": "qzSPQT5GGlWRKfz0d5gb",
+    "filename": "full_03387_rE3WrbtqOpFJgOUphAqH_002324_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/qzSPQT5GGlWRKfz0d5gb/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "12305",
+      "frozen_v2_export_filename": "002324_jpg.rf.e68c239856db4837430da9738740c1bd.jpg",
+      "frozen_v2_image_id": 4107,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3387,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002324_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "rE3WrbtqOpFJgOUphAqH",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "qzSPQT5GGlWRKfz0d5gb"
+    },
+    "ranks": [
+      37,
+      null,
+      93
+    ],
+    "rrf": 0.016845226062933764
+  },
+  {
+    "rank": 79,
+    "id": "Dn2qgZoPmQHjWn4GaFwM",
+    "filename": "full_03568_21ztMTnbCFlNoWN5omST_002466_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/Dn2qgZoPmQHjWn4GaFwM/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "16150,16151,16152,16153",
+      "frozen_v2_export_filename": "002466_jpg.rf.e0442ad967ae662d6929f7dfd4242e28.jpg",
+      "frozen_v2_image_id": 5347,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3568,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002466_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "21ztMTnbCFlNoWN5omST",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "Dn2qgZoPmQHjWn4GaFwM"
+    },
+    "ranks": [
+      65,
+      161,
+      173
+    ],
+    "rrf": 0.016816732371390287
+  },
+  {
+    "rank": 80,
+    "id": "O14024cMUHoAXUzTu3fX",
+    "filename": "full_03638_tsMP4MscY7br1m2YrXvj_002513_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/O14024cMUHoAXUzTu3fX/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "7053,7054",
+      "frozen_v2_export_filename": "002513_jpg.rf.d1ee68dfd7cd005b5c1ef15de64b4a4b.jpg",
+      "frozen_v2_image_id": 2289,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3638,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002513_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "tsMP4MscY7br1m2YrXvj",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "O14024cMUHoAXUzTu3fX"
+    },
+    "ranks": [
+      160,
+      22,
+      null
+    ],
+    "rrf": 0.016740576496674056
+  },
+  {
+    "rank": 81,
+    "id": "OxMuP69WsjwfetNkCvO8",
+    "filename": "full_05205_Q3uldZ4dQ7UxMzFQldFS_003579_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/OxMuP69WsjwfetNkCvO8/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "5976,5977",
+      "frozen_v2_export_filename": "003579_jpg.rf.18b45fde450c8d4d326f03eaaf9dce31.jpg",
+      "frozen_v2_image_id": 1909,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5205,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "003579_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "Q3uldZ4dQ7UxMzFQldFS",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "OxMuP69WsjwfetNkCvO8"
+    },
+    "ranks": [
+      123,
+      33,
+      null
+    ],
+    "rrf": 0.01621716904635995
+  },
+  {
+    "rank": 82,
+    "id": "kllJ2YW2mrDzUhXF1Q6T",
+    "filename": "full_04032_p3vDPhdArYY45T9y63QW_002799_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/kllJ2YW2mrDzUhXF1Q6T/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "6565,6566",
+      "frozen_v2_export_filename": "002799_jpg.rf.6fac476af033e3f670c75856efdaba5d.jpg",
+      "frozen_v2_image_id": 2091,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4032,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002799_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "p3vDPhdArYY45T9y63QW",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "kllJ2YW2mrDzUhXF1Q6T"
+    },
+    "ranks": [
+      78,
+      52,
+      null
+    ],
+    "rrf": 0.016174948240165632
+  },
+  {
+    "rank": 83,
+    "id": "VzwacSQFmiUMnldekXGo",
+    "filename": "full_01565_P4PoVVpNSS2dC5Ifki38_001034_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/VzwacSQFmiUMnldekXGo/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_02",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "14421,14422",
+      "frozen_v2_export_filename": "001034_jpg.rf.d6094f96ddef8750a0e0f2d5c318941f.jpg",
+      "frozen_v2_image_id": 4824,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "t2rZpa1LDH0B1YJo2qEf",
+      "migration_index": 1565,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001034_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "P4PoVVpNSS2dC5Ifki38",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "VzwacSQFmiUMnldekXGo"
+    },
+    "ranks": [
+      35,
+      null,
+      130
+    ],
+    "rrf": 0.015789473684210527
+  },
+  {
+    "rank": 84,
+    "id": "CtcijvzThyOGRKFlRnBb",
+    "filename": "full_01931_IAE2I5Lsf5UjFU2B6IiF_001290_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/CtcijvzThyOGRKFlRnBb/original.jpg",
+    "damage_count": 3,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_02",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "6397,6398,6399",
+      "frozen_v2_export_filename": "001290_jpg.rf.a62f91b9937cc7a238587aabe8541818.jpg",
+      "frozen_v2_image_id": 2029,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "t2rZpa1LDH0B1YJo2qEf",
+      "migration_index": 1931,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001290_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "IAE2I5Lsf5UjFU2B6IiF",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "CtcijvzThyOGRKFlRnBb"
+    },
+    "ranks": [
+      49,
+      98,
+      null
+    ],
+    "rrf": 0.015503425850656137
+  },
+  {
+    "rank": 85,
+    "id": "0PNTYEg5O9cjjWR3lG4O",
+    "filename": "full_02400_LLm3bipdudHhCnnw0osE_001603_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/0PNTYEg5O9cjjWR3lG4O/original.jpg",
+    "damage_count": 5,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1840,1841,1842,1843,1844",
+      "frozen_v2_export_filename": "001603_jpg.rf.3dffa4efa2c4c4d66fa0b9ede4ac4bf9.jpg",
+      "frozen_v2_image_id": 572,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2400,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001603_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "LLm3bipdudHhCnnw0osE",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "0PNTYEg5O9cjjWR3lG4O"
+    },
+    "ranks": [
+      114,
+      45,
+      null
+    ],
+    "rrf": 0.015270935960591134
+  },
+  {
+    "rank": 86,
+    "id": "oAkVYeyGj1ak25caHd1n",
+    "filename": "full_01988_eVFV9c1NvLS20KDIAbRU_001325_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/oAkVYeyGj1ak25caHd1n/original.jpg",
+    "damage_count": 7,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_02",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1478,1479,1480,1481,1482,1483,1484",
+      "frozen_v2_export_filename": "001325_jpg.rf.b532e17b58632f217452e1921bbed236.jpg",
+      "frozen_v2_image_id": 448,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "t2rZpa1LDH0B1YJo2qEf",
+      "migration_index": 1988,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001325_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "eVFV9c1NvLS20KDIAbRU",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "oAkVYeyGj1ak25caHd1n"
+    },
+    "ranks": [
+      166,
+      34,
+      null
+    ],
+    "rrf": 0.015063076633402372
+  },
+  {
+    "rank": 87,
+    "id": "G92xXwjTN1YjEJWzB6Tj",
+    "filename": "full_02221_6D5K5X7IG3Xc25LkuL2C_001476_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/G92xXwjTN1YjEJWzB6Tj/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "11422,11423",
+      "frozen_v2_export_filename": "001476_jpg.rf.743e7839efe3662162b0c196adf83853.jpg",
+      "frozen_v2_image_id": 3809,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2221,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001476_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "6D5K5X7IG3Xc25LkuL2C",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "G92xXwjTN1YjEJWzB6Tj"
+    },
+    "ranks": [
+      null,
+      179,
+      32
+    ],
+    "rrf": 0.015053665635801346
+  },
+  {
+    "rank": 88,
+    "id": "qYGPjRvRu6DMMJCYekUf",
+    "filename": "full_06088_g5mwh28ZdrGtvFmptcrZ_002228_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/qYGPjRvRu6DMMJCYekUf/original.jpg",
+    "damage_count": 6,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_07",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "6,7,8,9,10,11",
+      "frozen_v2_export_filename": "002228_jpg.rf.7aac59a30dc37720608261849e7af46d.jpg",
+      "frozen_v2_image_id": 4,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "cvsMBn7EqgM20X5LIjgT",
+      "migration_index": 6088,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002228_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "g5mwh28ZdrGtvFmptcrZ",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "qYGPjRvRu6DMMJCYekUf"
+    },
+    "ranks": [
+      77,
+      null,
+      70
+    ],
+    "rrf": 0.014991577765300393
+  },
+  {
+    "rank": 89,
+    "id": "VOpR6e1KQ90EyAaIR7SO",
+    "filename": "full_03487_Ye53ALDMw8O2FmYrLpBf_002391_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/VOpR6e1KQ90EyAaIR7SO/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "3068",
+      "frozen_v2_export_filename": "002391_jpg.rf.a0df63204f01189b2c5981cda8b246de.jpg",
+      "frozen_v2_image_id": 981,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3487,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002391_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "Ye53ALDMw8O2FmYrLpBf",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "VOpR6e1KQ90EyAaIR7SO"
+    },
+    "ranks": [
+      null,
+      null,
+      7
+    ],
+    "rrf": 0.014925373134328358
+  },
+  {
+    "rank": 90,
+    "id": "fDH0vvLMOzCcnqkW3Cww",
+    "filename": "full_06163_oeGk41O1idnsRBUDzNDn_002749_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/fDH0vvLMOzCcnqkW3Cww/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_07",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "1226,1227,1228,1229",
+      "frozen_v2_export_filename": "002749_jpg.rf.54f3433a8c2f61b522b9c46118c8932f.jpg",
+      "frozen_v2_image_id": 399,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "cvsMBn7EqgM20X5LIjgT",
+      "migration_index": 6163,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002749_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "oeGk41O1idnsRBUDzNDn",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "fDH0vvLMOzCcnqkW3Cww"
+    },
+    "ranks": [
+      144,
+      null,
+      44
+    ],
+    "rrf": 0.014517345399698341
+  },
+  {
+    "rank": 91,
+    "id": "vtTKknisTGyx0oifFthk",
+    "filename": "full_03541_svrjGKIi3wTB26hmEAkH_002436_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/vtTKknisTGyx0oifFthk/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_04",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "9865",
+      "frozen_v2_export_filename": "002436_jpg.rf.366686f3be7e94d3064dff39da493855.jpg",
+      "frozen_v2_image_id": 3279,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "c9M32UtTHgSVqAyYePbP",
+      "migration_index": 3541,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002436_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "svrjGKIi3wTB26hmEAkH",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "vtTKknisTGyx0oifFthk"
+    },
+    "ranks": [
+      null,
+      144,
+      46
+    ],
+    "rrf": 0.014335923048464668
+  },
+  {
+    "rank": 92,
+    "id": "gpAxCdEzFCWrZZyZ9flS",
+    "filename": "full_06083_KuF4PNLrX1xKZfCgepcp_002193_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/gpAxCdEzFCWrZZyZ9flS/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_07",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "493",
+      "frozen_v2_export_filename": "002193_jpg.rf.ba7d7831fa52c0971c2701c73dfd9d2a.jpg",
+      "frozen_v2_image_id": 162,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "cvsMBn7EqgM20X5LIjgT",
+      "migration_index": 6083,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002193_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "KuF4PNLrX1xKZfCgepcp",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "gpAxCdEzFCWrZZyZ9flS"
+    },
+    "ranks": [
+      174,
+      null,
+      40
+    ],
+    "rrf": 0.014273504273504274
+  },
+  {
+    "rank": 93,
+    "id": "NptVtFLHDQSk7crIS8pH",
+    "filename": "full_00118_UMlTRQAfLnDiDB5Z1RP8_000076_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/NptVtFLHDQSk7crIS8pH/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_01",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "10070",
+      "frozen_v2_export_filename": "000076_jpg.rf.0426a275a7a68698442aa6b23779931b.jpg",
+      "frozen_v2_image_id": 3356,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "tnUurKE84pyIFe5QIm6l",
+      "migration_index": 118,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000076_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "UMlTRQAfLnDiDB5Z1RP8",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "NptVtFLHDQSk7crIS8pH"
+    },
+    "ranks": [
+      81,
+      null,
+      81
+    ],
+    "rrf": 0.014184397163120567
+  },
+  {
+    "rank": 94,
+    "id": "MqDMTjSn5RcvQfiuqhOa",
+    "filename": "full_01576_hMHpk8mozBXbc1rrsqUB_001041_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/MqDMTjSn5RcvQfiuqhOa/original.jpg",
+    "damage_count": 7,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_02",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "14121,14122,14123,14124,14125,14126,14127",
+      "frozen_v2_export_filename": "001041_jpg.rf.a099ba48b8f77060b62192def2ce67c5.jpg",
+      "frozen_v2_image_id": 4712,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "t2rZpa1LDH0B1YJo2qEf",
+      "migration_index": 1576,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001041_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "hMHpk8mozBXbc1rrsqUB",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "MqDMTjSn5RcvQfiuqhOa"
+    },
+    "ranks": [
+      111,
+      null,
+      60
+    ],
+    "rrf": 0.014181286549707602
+  },
+  {
+    "rank": 95,
+    "id": "ZiKnv0Hxk7GhcLlgQf89",
+    "filename": "full_00651_Na2v0Dfabi9yIGS69Tko_000442_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/ZiKnv0Hxk7GhcLlgQf89/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_01",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "12966",
+      "frozen_v2_export_filename": "000442_jpg.rf.0e0b9ee8184ba6c9460475c1ed616edf.jpg",
+      "frozen_v2_image_id": 4334,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "tnUurKE84pyIFe5QIm6l",
+      "migration_index": 651,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "000442_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "Na2v0Dfabi9yIGS69Tko",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "ZiKnv0Hxk7GhcLlgQf89"
+    },
+    "ranks": [
+      null,
+      60,
+      115
+    ],
+    "rrf": 0.014047619047619048
+  },
+  {
+    "rank": 96,
+    "id": "pTNpHRHb7VlyhK5b169B",
+    "filename": "full_05999_B4FBsWFjLqVMpa8SCJqg_001608_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/pTNpHRHb7VlyhK5b169B/original.jpg",
+    "damage_count": 6,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_06",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "800,801,802,803,804,805",
+      "frozen_v2_export_filename": "001608_jpg.rf.13ddbf02248c9de02cc0ef96d9fb3135.jpg",
+      "frozen_v2_image_id": 260,
+      "frozen_v2_split": "valid",
+      "migration_batch_id": "e2quBouQ1nz6PFVhlkPr",
+      "migration_index": 5999,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001608_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "B4FBsWFjLqVMpa8SCJqg",
+      "original_split": "valid",
+      "original_width": 1024,
+      "source_live_split": "valid",
+      "staging_image_id": "pTNpHRHb7VlyhK5b169B"
+    },
+    "ranks": [
+      null,
+      95,
+      74
+    ],
+    "rrf": 0.013914299470389985
+  },
+  {
+    "rank": 97,
+    "id": "i5aLM144hRYAhhmm0C0L",
+    "filename": "full_02205_RPVnrbHxXeAMUgT30pEj_001471_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/i5aLM144hRYAhhmm0C0L/original.jpg",
+    "damage_count": 1,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "4247",
+      "frozen_v2_export_filename": "001471_jpg.rf.70188415a25aba1539514500ae7fe809.jpg",
+      "frozen_v2_image_id": 1368,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2205,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001471_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "RPVnrbHxXeAMUgT30pEj",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "i5aLM144hRYAhhmm0C0L"
+    },
+    "ranks": [
+      90,
+      null,
+      79
+    ],
+    "rrf": 0.013860911270983215
+  },
+  {
+    "rank": 98,
+    "id": "SKrkf0O4INgjVFY3NdGS",
+    "filename": "full_04029_eAlatMshlZGLNv5qYJSX_002798_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/SKrkf0O4INgjVFY3NdGS/original.jpg",
+    "damage_count": 2,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_05",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "526,527",
+      "frozen_v2_export_filename": "002798_jpg.rf.0db33f678eb2be14f3ae53a9de17263d.jpg",
+      "frozen_v2_image_id": 164,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "8iTK6E03BsaU8Pi7N0Ns",
+      "migration_index": 4029,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "002798_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "eAlatMshlZGLNv5qYJSX",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "SKrkf0O4INgjVFY3NdGS"
+    },
+    "ranks": [
+      56,
+      131,
+      null
+    ],
+    "rrf": 0.013856291749413252
+  },
+  {
+    "rank": 99,
+    "id": "X55rBbFgJBpRBFxiSTAx",
+    "filename": "full_02783_f1euYqktmFdVkbJuPD2Q_001867_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/X55rBbFgJBpRBFxiSTAx/original.jpg",
+    "damage_count": 4,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_03",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "5492,5493,5494,5495",
+      "frozen_v2_export_filename": "001867_jpg.rf.7552e986688265ecacb4a7bdfa094dda.jpg",
+      "frozen_v2_image_id": 1759,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "jnadW6EsRElW2ZBS9JMV",
+      "migration_index": 2783,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001867_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "f1euYqktmFdVkbJuPD2Q",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "X55rBbFgJBpRBFxiSTAx"
+    },
+    "ranks": [
+      54,
+      149,
+      null
+    ],
+    "rrf": 0.013556618819776715
+  },
+  {
+    "rank": 100,
+    "id": "iXpTOtUCYixR7mzm6GWy",
+    "filename": "full_01842_jKDNJr7mLAEqf87lLR4R_001220_jpg.jpg",
+    "url": "https://source.roboflow.com/AFQCv5k27cagiKVaaQy3698hsCR2/iXpTOtUCYixR7mzm6GWy/original.jpg",
+    "damage_count": 12,
+    "tags": [
+      "canonical_v2_migration",
+      "frozen_v2_full_02",
+      "grayscale_baseline"
+    ],
+    "user_metadata": {
+      "auto_oriented_height": 1024,
+      "auto_oriented_width": 1024,
+      "canonical_snapshot": "v2",
+      "exif_orientation": 1,
+      "frozen_v2_annotation_ids": "14850,14851,14852,14853,14854,14855,14856,14857,14858,14859,14860,14861",
+      "frozen_v2_export_filename": "001220_jpg.rf.d2e6537a47680fdb8df4cca23fad7666.jpg",
+      "frozen_v2_image_id": 4967,
+      "frozen_v2_split": "train",
+      "migration_batch_id": "t2rZpa1LDH0B1YJo2qEf",
+      "migration_index": 1842,
+      "migration_phase": "full_frozen_v2",
+      "original_filename": "001220_jpg",
+      "original_height": 1024,
+      "original_source_image_id": "jKDNJr7mLAEqf87lLR4R",
+      "original_split": "train",
+      "original_width": 1024,
+      "source_live_split": "train",
+      "staging_image_id": "iXpTOtUCYixR7mzm6GWy"
+    },
+    "ranks": [
+      69,
+      120,
+      null
+    ],
+    "rrf": 0.01330749354005168
+  }
+]

@@ -27,6 +27,13 @@ import GlobalErrorBoundary from '@/components/GlobalErrorBoundary';
 import PremiumToast from '@/components/ui/PremiumToast';
 import AppLockGuard from '@/components/AppLockGuard';
 import { resolveRouteForRole } from '@/utils/routeResolver';
+import { NotificationsProvider } from '@/context/NotificationsContext';
+import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
+import NetInfo from '@react-native-community/netinfo';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
+import { processQueue } from '@/services/offlineQueue';
+import { apiClient, getApiStatusCode } from '@/services/api/client';
 
 // Prevent the native splash from auto-hiding until our custom one is ready.
 SplashScreen.preventAutoHideAsync();
@@ -146,10 +153,6 @@ function InnerLayout() {
           options={{ animation: 'ios_from_right' }}
         />
         <Stack.Screen
-          name="(screens)/preferred-branch"
-          options={{ animation: 'ios_from_right' }}
-        />
-        <Stack.Screen
           name="(screens)/notification-preferences"
           options={{ animation: 'ios_from_right' }}
         />
@@ -157,13 +160,6 @@ function InnerLayout() {
     </>
   );
 }
-
-import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import NetInfo from '@react-native-community/netinfo';
-import { useRealtimeSync } from '@/hooks/useRealtimeSync';
-import { usePushNotifications } from '@/hooks/usePushNotifications';
-import { processQueue } from '@/services/offlineQueue';
-import { apiClient, getApiStatusCode } from '@/services/api/client';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -188,12 +184,11 @@ NetInfo.addEventListener((state: any) => {
 });
 
 function GlobalWatchers({ children }: { children: React.ReactNode }) {
-  const { session } = useAuth();
+  const { token } = useAuth();
   // Initiates socket connection natively based on user role
   useRealtimeSync();
-  // Initializes expo push tokens and device registration 
-  // Passes session so registration only fires after login completes
-  usePushNotifications(session);
+  // Initializes Expo push registration only after a JWT session exists.
+  usePushNotifications(Boolean(token));
 
   return <>{children}</>;
 }
@@ -205,12 +200,14 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
           <AuthProvider>
-            <AppLockGuard>
-              <PremiumToast />
-              <GlobalWatchers>
-                <InnerLayout />
-              </GlobalWatchers>
-            </AppLockGuard>
+            <NotificationsProvider>
+              <AppLockGuard>
+                <PremiumToast />
+                <GlobalWatchers>
+                  <InnerLayout />
+                </GlobalWatchers>
+              </AppLockGuard>
+            </NotificationsProvider>
           </AuthProvider>
         </ThemeProvider>
       </QueryClientProvider>

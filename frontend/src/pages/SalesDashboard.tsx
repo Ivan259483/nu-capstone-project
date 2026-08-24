@@ -51,10 +51,6 @@ function POSView({
           <h1 className="text-2xl font-bold text-slate-900">Point of Sale</h1>
           <p className="text-sm text-slate-500 mt-0.5">New transaction — {today}</p>
         </div>
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200">
-          <div className="w-2 h-2 rounded-full bg-blue-600" />
-          <span className="text-xs font-semibold text-blue-700">POS Active</span>
-        </div>
       </div>
       <div className="flex-1 overflow-hidden">
         <POSWorkspace preloadOrderId={preloadOrderId} onPreloadConsumed={onPreloadConsumed} />

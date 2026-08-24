@@ -20,7 +20,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useThemeContext';
-import { Palette, Glass } from '@/constants/theme';
+import { Palette, Glass, TabBarContentHeight } from '@/constants/theme';
 import AskAiFab from '@/components/ui/AskAiFab';
 
 const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -116,7 +116,7 @@ function CustomTabBar({ state, navigation }: any) {
       style={[
         styles.tabBarContainer,
         {
-          height: 62 + insets.bottom,
+          height: TabBarContentHeight + insets.bottom,
           paddingBottom: insets.bottom,
         },
       ]}

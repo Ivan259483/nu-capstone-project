@@ -35,7 +35,7 @@ const methodIcon = (method: string) => {
     return <Banknote className="w-3 h-3" />;
 };
 
-const methodLabel = (method: string) => (method || 'cash').toUpperCase();
+const methodLabel = (method: string) => (method || 'unknown').toUpperCase();
 
 const STATUS_CONFIG: Record<InvoiceStatus, { label: string; cls: string; dot: string; icon: React.ReactNode }> = {
     paid: {

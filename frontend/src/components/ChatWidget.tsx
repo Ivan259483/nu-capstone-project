@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
-import api, { BACKEND_API_URL, getStoredAuthToken } from '@/lib/api';
+import api from '@/lib/api';
+import {
+    ChatRequestError,
+    getChatFailureMessage,
+    sendChatMessage,
+    type ChatRequestStatus,
+} from '@/lib/chat-service';
 import {
     hasCorrectionIntent,
 } from '@/lib/chat-onboarding-correction';
@@ -38,7 +44,6 @@ interface ChatWidgetProps {
     className?: string;
     initialOpen?: boolean;
 }
-
 const QUOTE_INTENT_REGEX = /(quote|price|price\s*list|pricelist|cost|how much|pricing|rate|rates|estimate|presyo|magkano)/i;
 const CUSTOM_QUOTE_LEAD_REGEX = /\b(custom|personalized|send|share|prepare|quotation|formal|for\s+my\s+(car|vehicle)|pa[\s-]*quote|quote\s+for)\b/i;
 const PRICE_LIST_INTENT_REGEX =
@@ -137,81 +142,10 @@ const createMessageId = (prefix: string) =>
 
 const wait = (ms: number) => new Promise(resolve => window.setTimeout(resolve, ms));
 
-interface StreamCallbacks {
-    onStart: () => void;
-    onDelta: (text: string) => void;
-}
-
 interface SendMessageOptions {
     applyActions?: boolean;
+    clientMessageId?: string;
 }
-
-const parseSseBlock = (block: string): { event: string; data: any } | null => {
-    let event = 'message';
-    const dataLines: string[] = [];
-
-    block.split('\n').forEach(line => {
-        if (line.startsWith('event:')) {
-            event = line.slice(6).trim();
-        } else if (line.startsWith('data:')) {
-            dataLines.push(line.slice(5).trimStart());
-        }
-    });
-
-    if (!dataLines.length) return null;
-    try {
-        return { event, data: JSON.parse(dataLines.join('\n')) };
-    } catch {
-        return null;
-    }
-};
-
-const streamChatResponse = async (
-    conversationId: string,
-    message: string,
-    callbacks: StreamCallbacks
-) => {
-    const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-    };
-    const token = getStoredAuthToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-
-    const response = await fetch(`${BACKEND_API_URL}/chat/message/stream`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ conversationId, sessionId: conversationId, message }),
-    });
-
-    if (!response.ok || !response.body) {
-        throw new Error(`Stream failed (${response.status})`);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        let boundary = buffer.indexOf('\n\n');
-        while (boundary >= 0) {
-            const block = buffer.slice(0, boundary).trim();
-            buffer = buffer.slice(boundary + 2);
-            const parsed = parseSseBlock(block);
-            if (parsed?.event === 'start') callbacks.onStart();
-            if (parsed?.event === 'delta') callbacks.onDelta(parsed.data?.text || '');
-            if (parsed?.event === 'done') return parsed.data;
-            if (parsed?.event === 'error') throw new Error(parsed.data?.message || 'Stream failed');
-            boundary = buffer.indexOf('\n\n');
-        }
-    }
-
-    throw new Error('Stream ended before completion');
-};
 
 const extractBookingReference = (value: string) => {
     const match = value.match(ASPF_REFERENCE_REGEX);
@@ -416,6 +350,7 @@ export default function ChatWidget({
     const [leadRequired, setLeadRequired] = useState(false);
     const [pendingMessage, setPendingMessage] = useState<string | null>(null);
     const [isSending, setIsSending] = useState(false);
+    const [requestStatus, setRequestStatus] = useState<ChatRequestStatus>('idle');
     const [unread, setUnread] = useState(0);
     const [inputFocused, setInputFocused] = useState(false);
     const [registrationStep, setRegistrationStep] = useState<RegistrationStep>('idle');
@@ -440,6 +375,7 @@ export default function ChatWidget({
     const forceNextAutoScrollRef = useRef(false);
     const autoScrollLockTimeoutRef = useRef<number | null>(null);
     const bodyScrollLockRef = useRef<ChatScrollLockSnapshot | null>(null);
+    const sendGuardRef = useRef(false);
 
     const updateAutoScrollIntent = useCallback(() => {
         const node = messagesScrollRef.current;
@@ -1062,6 +998,14 @@ export default function ChatWidget({
         });
     };
 
+    const removeAssistantMessage = (id: string) => {
+        setMessages((current) => current.filter((message) => message.id !== id));
+    };
+
+    const updateMessageDelivery = (id: string, delivery: ChatMessage['delivery']) => {
+        setMessages((current) => current.map((message) => (message.id === id ? { ...message, delivery } : message)));
+    };
+
     const appendTrackerAssistant = async (message: string, meta?: ChatMessage['meta']) => {
         setIsSending(true);
         try {
@@ -1377,13 +1321,16 @@ export default function ChatWidget({
     const sendMessage = async (content: string, options: SendMessageOptions = {}) => {
         const applyActions = options.applyActions !== false;
         const conversationId = await ensureActiveConversationId();
-        let data: any;
+        const clientMessageId = options.clientMessageId || createMessageId('client');
         let streamStarted = false;
         let streamedReply = '';
-        const assistantId = createMessageId('assistant-stream');
+        const assistantId = `assistant-${clientMessageId}`;
 
         try {
-            data = await streamChatResponse(conversationId, content, {
+            const data = await sendChatMessage({
+                conversationId,
+                message: content,
+                clientMessageId,
                 onStart: () => {
                     streamStarted = true;
                 },
@@ -1392,86 +1339,79 @@ export default function ChatWidget({
                     streamStarted = true;
                     streamedReply += text;
                     upsertAssistantMessage(assistantId, streamedReply);
-                    if (streamedReply.trim()) {
-                        setIsSending(false);
-                    }
                 },
+                onReset: () => {
+                    streamStarted = false;
+                    streamedReply = '';
+                    removeAssistantMessage(assistantId);
+                },
+                onAttempt: setRequestStatus,
             });
-        } catch (networkErr) {
-            if (streamStarted) {
-                console.error('[ChatWidget] Stream error:', networkErr);
-                try {
-                    const res = await api.post('/chat/message', {
-                        conversationId,
-                        sessionId: conversationId,
-                        message: content,
-                    });
-                    data = res.data;
-                } catch (fallbackErr) {
-                    console.error('[ChatWidget] Fallback message error:', fallbackErr);
-                    throw new Error('Network error');
-                }
-            } else {
-                try {
-                    const res = await api.post('/chat/message', {
-                        conversationId,
-                        sessionId: conversationId,
-                        message: content,
-                    });
-                    data = res.data;
-                } catch (fallbackErr) {
-                    console.error('[ChatWidget] Network error:', fallbackErr);
-                    throw new Error('Network error');
-                }
+            const reply = String(data?.reply || streamedReply || '').trim();
+            if (!reply) {
+                throw new ChatRequestError('The AI returned an empty response.', {
+                    code: 'AI_BAD_RESPONSE',
+                    retryable: true,
+                    requestId: data?.requestId,
+                });
             }
-        }
+            syncRegistrationFromBackend({
+                ...data,
+                metadata: data?.metadata || data,
+            });
+            if (data?.session?.lastServiceInterest) {
+                setDetectedServiceInterest(data.session.lastServiceInterest);
+            }
 
-        const reply = data?.reply || streamedReply || 'Sorry, I could not generate a response.';
-        syncRegistrationFromBackend({ ...data, metadata: data?.metadata || data });
-        if (data?.session?.lastServiceInterest) {
-            setDetectedServiceInterest(data.session.lastServiceInterest);
-        }
+            if (streamStarted) {
+                upsertAssistantMessage(assistantId, reply);
+            } else {
+                appendMessage({ id: assistantId, sender: 'assistant', message: reply });
+            }
+            setConversations((prev) => {
+                const preview = content.trim() || reply.trim();
+                const next = prev.map((thread) =>
+                    thread.conversationId === conversationId
+                        ? {
+                              ...thread,
+                              lastMessagePreview: preview.slice(0, 120),
+                              lastMessageAt: new Date().toISOString(),
+                          }
+                        : thread,
+                );
+                const current = next.find((thread) => thread.conversationId === conversationId);
+                if (!current) return prev;
+                return [current, ...next.filter((thread) => thread.conversationId !== conversationId)];
+            });
+            setUnread((prev) => (isOpen && screen === 'chat' ? 0 : prev + 1));
 
-        if (streamStarted) {
-            upsertAssistantMessage(assistantId, reply);
-        } else {
-            appendMessage({ id: createMessageId('assistant'), sender: 'assistant', message: reply });
-        }
-        setConversations((prev) => {
-            const preview = content.trim() || reply.trim();
-            const next = prev.map((thread) =>
-                thread.conversationId === conversationId
-                    ? {
-                        ...thread,
-                        lastMessagePreview: preview.slice(0, 120),
-                        lastMessageAt: new Date().toISOString(),
-                    }
-                    : thread
-            );
-            const current = next.find((thread) => thread.conversationId === conversationId);
-            if (!current) return prev;
-            return [current, ...next.filter((thread) => thread.conversationId !== conversationId)];
-        });
-        setUnread(prev => (isOpen && screen === 'chat' ? 0 : prev + 1));
-
-        if (applyActions && data?.action?.type === 'open_booking' && onOpenBooking) {
-            onOpenBooking({ name: data.action.name, serviceName: data.action.serviceName });
-        }
-        if (applyActions && data?.action?.type === 'tracker_prompt') {
-            setTrackerStep('reference');
-            setTrackerDraft({ bookingReference: '' });
-        }
-        if (applyActions && data?.leadRequired) {
-            setLeadRequired(true);
-            setContactCapturePurpose('quote');
-            setPendingMessage(content);
-        }
-        if (applyActions && shouldOfferSalesHandoff(content, data)) {
-            setShowConnectToSales(true);
+            if (applyActions && data?.action?.type === 'open_booking' && onOpenBooking) {
+                onOpenBooking({
+                    name: data.action.name,
+                    serviceName: data.action.serviceName,
+                });
+            }
+            if (applyActions && data?.action?.type === 'tracker_prompt') {
+                setTrackerStep('reference');
+                setTrackerDraft({ bookingReference: '' });
+            }
+            if (applyActions && data?.leadRequired) {
+                setLeadRequired(true);
+                setContactCapturePurpose('quote');
+                setPendingMessage(content);
+            }
+            if (applyActions && shouldOfferSalesHandoff(content, data)) {
+                setShowConnectToSales(true);
+            }
+            setRequestStatus('success');
+        } catch (error) {
+            removeAssistantMessage(assistantId);
+            setRequestStatus('failed');
+            throw error;
         }
     };
 
-    const handleSend = async (overrideText?: string) => {
+    const handleSendInternal = async (overrideText?: string) => {
         const trimmed = (overrideText ?? input).trim();
         if (!trimmed) return;
         if (handoffStatus === 'resolved' || handoffStatus === 'converted') {
@@ -1486,7 +1426,12 @@ export default function ChatWidget({
         }
 
         const optimisticMessageId = createMessageId('user');
-        appendMessage({ id: optimisticMessageId, sender: 'user', message: trimmed });
+        appendMessage({
+            id: optimisticMessageId,
+            sender: 'user',
+            message: trimmed,
+            delivery: { status: 'sent' },
+        });
         setInput('');
 
         if (handoffStatus === 'needs_sales' || handoffStatus === 'in_conversation') {
@@ -1502,14 +1447,10 @@ export default function ChatWidget({
                     },
                     { meta: { suppressErrorToast: true } } as any,
                 );
-                const savedMessage = res.data?.message
-                    ? mapApiMessages([res.data.message])[0]
-                    : null;
+                const savedMessage = res.data?.message ? mapApiMessages([res.data.message])[0] : null;
                 if (savedMessage) {
                     setMessages((current) =>
-                        current.map((message) =>
-                            message.id === optimisticMessageId ? savedMessage : message,
-                        ),
+                        current.map((message) => (message.id === optimisticMessageId ? savedMessage : message)),
                     );
                 }
                 const nextStatus = normalizeHandoffStatus(res.data?.conversation?.status);
@@ -1518,22 +1459,20 @@ export default function ChatWidget({
                     current.map((thread) =>
                         thread.conversationId === conversationId
                             ? mergeThreadIdentity(
-                                {
-                                    ...thread,
-                                    status: nextStatus,
-                                    lastMessagePreview: trimmed.slice(0, 120),
-                                    lastMessageAt: new Date().toISOString(),
-                                },
-                                res.data?.conversation,
-                                savedMessage ? [savedMessage] : []
-                            )
+                                  {
+                                      ...thread,
+                                      status: nextStatus,
+                                      lastMessagePreview: trimmed.slice(0, 120),
+                                      lastMessageAt: new Date().toISOString(),
+                                  },
+                                  res.data?.conversation,
+                                  savedMessage ? [savedMessage] : [],
+                              )
                             : thread,
                     ),
                 );
             } catch (error) {
-                setMessages((current) =>
-                    current.filter((message) => message.id !== optimisticMessageId),
-                );
+                setMessages((current) => current.filter((message) => message.id !== optimisticMessageId));
                 toast.error('Unable to send your message to Sales.');
             } finally {
                 setIsSending(false);
@@ -1576,11 +1515,14 @@ export default function ChatWidget({
 
         if (!authed && !GREETING_ONLY_REGEX.test(trimmed) && SIGNUP_INTENT_REGEX.test(trimmed)) {
             setIsSending(true);
+            updateMessageDelivery(optimisticMessageId, { status: 'sending' });
             try {
-                await sendMessage(trimmed);
+                await sendMessage(trimmed, { clientMessageId: optimisticMessageId });
+                updateMessageDelivery(optimisticMessageId, { status: 'sent' });
             } catch {
                 if (SIGNUP_INTENT_REGEX.test(trimmed)) {
                     await beginRegistration({ triggerMessage: trimmed });
+                    updateMessageDelivery(optimisticMessageId, { status: 'sent' });
                 }
             } finally {
                 setIsSending(false);
@@ -1608,12 +1550,73 @@ export default function ChatWidget({
         }
 
         setIsSending(true);
+        updateMessageDelivery(optimisticMessageId, { status: 'sending' });
         try {
-            await sendMessage(trimmed);
-        } catch {
-            toast.error('Unable to send message.');
+            await sendMessage(trimmed, { clientMessageId: optimisticMessageId });
+            updateMessageDelivery(optimisticMessageId, { status: 'sent' });
+        } catch (error) {
+            const chatError =
+                error instanceof ChatRequestError
+                    ? error
+                    : new ChatRequestError('Unexpected chat error', {
+                          code: 'CHAT_UNEXPECTED_ERROR',
+                          retryable: true,
+                      });
+            updateMessageDelivery(optimisticMessageId, {
+                status: 'failed',
+                code: chatError.code,
+                message: getChatFailureMessage(chatError),
+                retryable: chatError.retryable,
+                requestId: chatError.requestId,
+            });
         } finally {
             setIsSending(false);
+        }
+    };
+
+    const handleSend = async (overrideText?: string) => {
+        if (sendGuardRef.current) return;
+        sendGuardRef.current = true;
+        try {
+            await handleSendInternal(overrideText);
+        } finally {
+            sendGuardRef.current = false;
+        }
+    };
+
+    const handleRetryMessage = async (messageId: string) => {
+        if (sendGuardRef.current) return;
+        const failedMessage = messages.find(
+            (message) => message.id === messageId && message.delivery?.status === 'failed',
+        );
+        if (!failedMessage) return;
+
+        sendGuardRef.current = true;
+        shouldAutoScrollRef.current = true;
+        forceNextAutoScrollRef.current = true;
+        setIsSending(true);
+        updateMessageDelivery(messageId, { status: 'sending' });
+        try {
+            await sendMessage(failedMessage.message, { clientMessageId: messageId });
+            updateMessageDelivery(messageId, { status: 'sent' });
+        } catch (error) {
+            const chatError =
+                error instanceof ChatRequestError
+                    ? error
+                    : new ChatRequestError('Unexpected chat error', {
+                          code: 'CHAT_UNEXPECTED_ERROR',
+                          retryable: true,
+                      });
+            updateMessageDelivery(messageId, {
+                status: 'failed',
+                code: chatError.code,
+                message: getChatFailureMessage(chatError),
+                retryable: chatError.retryable,
+                requestId: chatError.requestId,
+            });
+        } finally {
+            setIsSending(false);
+            sendGuardRef.current = false;
         }
     };
 
@@ -1796,6 +1799,7 @@ export default function ChatWidget({
                                 inputFocused={inputFocused}
                                 chatInputPlaceholder={chatInputPlaceholder}
                                 isSending={isSending}
+                                requestStatus={requestStatus}
                                 agentIdentity={activeAgentIdentity}
                                 handoffStatus={handoffStatus}
                                 showConnectToSales={showConnectToSales}
@@ -1819,6 +1823,7 @@ export default function ChatWidget({
                                 onInputFocus={() => setInputFocused(true)}
                                 onInputBlur={() => setInputFocused(false)}
                                 onSend={() => void handleSend()}
+                                onRetryMessage={(messageId) => void handleRetryMessage(messageId)}
                                 onLeadNameChange={setLeadName}
                                 onLeadPhoneChange={setLeadPhone}
                                 onLeadSubmit={() => void handleLeadSubmit()}

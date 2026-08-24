@@ -1,145 +1,144 @@
 import {
   Bot,
+  CalendarCheck2,
   CarFront,
+  Clock3,
   Copy,
   Hash,
+  Mail,
   MessageSquareText,
-  MoreHorizontal,
-  Paperclip,
-  Pencil,
   Phone,
-  Plus,
   Send,
-  Smile,
   Sparkles,
   Tag,
+  UserRoundCheck,
 } from 'lucide-react';
 import AiHandoffSummary from './AiHandoffSummary';
 import type { ConciergeConversation } from './conciergeTypes';
 
-type CustomerContextPanelProps = {
+type Props = {
   conversation: ConciergeConversation | null;
   noteText: string;
+  busy?: boolean;
   onNoteChange: (value: string) => void;
   onAddNote: () => void;
-  onEdit: () => void;
-  onAddAttribute: () => void;
-  onMoreNote: () => void;
-  onNoteTool: (tool: string) => void;
-  onAskCustomer: () => void;
+  onAskCustomer: (field: 'vehicle' | 'plate') => void;
 };
 
-const formatCustomerId = (customerId: string) =>
-  `CUS-${customerId.slice(-6).toUpperCase()}`;
+const displayCustomerId = (customerId: string) =>
+  customerId.startsWith('GUEST-')
+    ? customerId
+    : `CUS-${customerId.slice(-6).toUpperCase()}`;
 
 export default function CustomerContextPanel({
   conversation,
   noteText,
+  busy = false,
   onNoteChange,
   onAddNote,
-  onEdit,
-  onAddAttribute,
-  onMoreNote,
-  onNoteTool,
   onAskCustomer,
-}: CustomerContextPanelProps) {
+}: Props) {
   if (!conversation) {
     return (
       <aside className="flex min-h-[520px] items-center justify-center border-t border-slate-200 bg-white px-6 text-center lg:col-span-2 xl:col-span-1 xl:min-h-0 xl:border-l xl:border-t-0">
         <div>
-          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+          <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-400">
             <MessageSquareText size={19} />
-          </div>
-          <p className="mt-3 text-sm font-semibold text-slate-700">Customer details will appear here</p>
+          </span>
+          <p className="mt-3 text-sm font-semibold text-slate-700">
+            Customer context will appear here
+          </p>
         </div>
       </aside>
     );
   }
 
-  const customerDisplayId = formatCustomerId(conversation.customerId);
+  const customerId = displayCustomerId(conversation.customerId);
   const details = [
-    { label: 'Channel', value: conversation.source, icon: Bot },
+    { label: 'Source', value: conversation.source, icon: Bot },
     {
       label: 'Customer ID',
-      value: customerDisplayId,
+      value: customerId,
       fullValue: conversation.customerId,
-      copyable: true,
       icon: Hash,
     },
-    { label: 'Phone number', value: conversation.phone, icon: Phone },
+    { label: 'Phone', value: conversation.phone, icon: Phone },
+    { label: 'Email', value: conversation.email, icon: Mail },
     {
       label: 'Vehicle',
       value: conversation.vehicle || 'Not provided',
       icon: CarFront,
-      askable: true,
+      ask: 'vehicle' as const,
     },
     {
-      label: 'Plate number',
+      label: 'Plate',
       value: conversation.plate || 'Not provided',
       icon: Tag,
-      askable: true,
+      ask: 'plate' as const,
     },
-    { label: 'Service interest', value: conversation.serviceInterest, icon: Sparkles },
+    { label: 'Service', value: conversation.serviceInterest, icon: Sparkles },
+    {
+      label: 'Assignment',
+      value: conversation.assignedSalesName || 'Unassigned',
+      icon: UserRoundCheck,
+    },
+    { label: 'Handoff', value: conversation.handoffTimeLabel, icon: Clock3 },
+    {
+      label: 'Customer activity',
+      value: conversation.lastCustomerActivityLabel,
+      icon: MessageSquareText,
+    },
   ];
 
   return (
     <aside className="flex min-h-[720px] min-w-0 flex-col overflow-hidden border-t border-slate-200 bg-white lg:col-span-2 xl:col-span-1 xl:min-h-0 xl:border-l xl:border-t-0">
-      <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-black text-white ring-4 ring-slate-100">
-            {conversation.initials}
-          </div>
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-bold text-slate-900">{conversation.customerName}</h2>
-            <p
-              className="mt-0.5 truncate text-[11px] text-slate-500"
-              title={conversation.customerId}
-            >
-              {customerDisplayId}
-            </p>
-          </div>
+      <header className="flex shrink-0 items-center gap-3 border-b border-slate-200 px-5 py-4">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800 text-xs font-black text-white ring-4 ring-slate-100">
+          {conversation.initials}
+        </span>
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-bold text-slate-900">
+            {conversation.customerName}
+          </h2>
+          <p
+            className="mt-0.5 truncate text-[11px] text-slate-500"
+            title={conversation.customerId}
+          >
+            {customerId}
+          </p>
         </div>
-        <button
-          type="button"
-          onClick={onEdit}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
-        >
-          <Pencil size={13} />
-          Edit
-        </button>
       </header>
 
       <div className="scrollbar-thin flex-1 overflow-y-auto px-5 py-5">
-        <div className="space-y-[18px]">
+        <div className="space-y-3">
           {details.map((detail) => (
             <div
               key={detail.label}
-              className="grid grid-cols-[20px_96px_minmax(0,1fr)] items-start gap-2"
+              className="grid grid-cols-[18px_88px_minmax(0,1fr)] items-start gap-2"
             >
-              <detail.icon size={15} className="mt-0.5 text-slate-400" />
-              <span className="text-xs font-medium text-slate-500">{detail.label}</span>
-              <span
-                className="flex min-w-0 flex-wrap items-center gap-1.5 break-words text-xs font-semibold leading-5 text-slate-800"
-                title={detail.fullValue}
-              >
+              <detail.icon size={14} className="mt-0.5 text-slate-400" />
+              <span className="text-[11px] font-medium text-slate-500">
+                {detail.label}
+              </span>
+              <span className="flex min-w-0 flex-wrap items-center gap-1.5 break-words text-[11px] font-semibold leading-5 text-slate-800">
                 <span>{detail.value}</span>
-                {detail.copyable && detail.fullValue ? (
+                {detail.fullValue ? (
                   <button
                     type="button"
-                    onClick={() => void navigator.clipboard?.writeText(detail.fullValue)}
-                    className="inline-flex h-5 w-5 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]/30"
-                    title={`Copy full customer ID: ${detail.fullValue}`}
+                    onClick={() =>
+                      void navigator.clipboard?.writeText(detail.fullValue)
+                    }
+                    className="inline-flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                     aria-label={`Copy full customer ID ${detail.fullValue}`}
                   >
                     <Copy size={11} />
                   </button>
                 ) : null}
-                {detail.askable && detail.value === 'Not provided' ? (
+                {detail.ask && detail.value === 'Not provided' ? (
                   <button
                     type="button"
-                    onClick={onAskCustomer}
-                    className="inline-flex items-center gap-1 rounded-md border border-[#C9A84C] px-1.5 py-0.5 text-[10px] font-semibold text-[#8A6F24] transition-colors hover:bg-[#C9A84C]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]/30"
-                    aria-label={`Ask customer for ${detail.label.toLowerCase()}`}
+                    onClick={() => onAskCustomer(detail.ask)}
+                    className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
                   >
                     <MessageSquareText size={10} />
                     Ask customer
@@ -150,29 +149,38 @@ export default function CustomerContextPanel({
           ))}
         </div>
 
-        <button
-          type="button"
-          onClick={onAddAttribute}
-          className="mt-5 inline-flex w-full items-center gap-2 rounded-lg px-1 py-2 text-left text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
-        >
-          <Plus size={15} />
-          Add new attribute
-        </button>
+        {conversation.linkedBookingId ? (
+          <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+            <div className="flex items-center gap-2 text-emerald-700">
+              <CalendarCheck2 size={15} />
+              <p className="text-[10px] font-bold uppercase tracking-wide">
+                Booking created
+              </p>
+            </div>
+            <p className="mt-1.5 text-sm font-bold text-emerald-950">
+              {conversation.linkedBookingReference ||
+                conversation.linkedBookingId}
+            </p>
+          </div>
+        ) : null}
 
         <div className="my-5 h-px bg-slate-200" />
-
-        <AiHandoffSummary
-          summary={conversation.aiSummary}
-          serviceInterest={conversation.serviceInterest}
-        />
-
+        <AiHandoffSummary conversation={conversation} />
         <div className="my-5 h-px bg-slate-200" />
 
         <section aria-labelledby="concierge-notes-heading">
-          <h3 id="concierge-notes-heading" className="text-sm font-bold text-slate-800">
-            Notes
-          </h3>
-          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-[0_10px_24px_-24px_rgba(15,23,42,0.4)] transition focus-within:border-blue-300">
+          <div className="flex items-center justify-between">
+            <h3
+              id="concierge-notes-heading"
+              className="text-sm font-bold text-slate-800"
+            >
+              Internal notes
+            </h3>
+            <span className="text-[10px] font-medium text-slate-400">
+              {conversation.internalNotes.length}
+            </span>
+          </div>
+          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 focus-within:border-blue-300">
             <textarea
               value={noteText}
               onChange={(event) => onNoteChange(event.target.value)}
@@ -182,76 +190,47 @@ export default function CustomerContextPanel({
                   onAddNote();
                 }
               }}
-              rows={4}
-              placeholder="Write a note..."
-              className="w-full resize-none border-0 bg-transparent text-sm leading-5 text-slate-800 outline-none placeholder:text-slate-400 focus:ring-0"
+              rows={2}
+              maxLength={2000}
+              placeholder="Add a private note…"
+              className="w-full resize-y border-0 bg-transparent text-sm leading-5 text-slate-800 outline-none placeholder:text-slate-400 focus:ring-0"
             />
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1">
-                {[
-                  { label: 'Attach file', icon: Paperclip },
-                  { label: 'Add emoji', icon: Smile },
-                ].map((tool) => (
-                  <button
-                    key={tool.label}
-                    type="button"
-                    onClick={() => onNoteTool(tool.label)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-                    aria-label={`${tool.label} to internal note`}
-                  >
-                    <tool.icon size={14} />
-                  </button>
-                ))}
-              </div>
+            <div className="mt-2 flex justify-end">
               <button
                 type="button"
                 onClick={onAddNote}
-                disabled={!noteText.trim()}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 text-[11px] font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                disabled={!noteText.trim() || busy}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400"
               >
                 <Send size={12} />
                 Add note
               </button>
             </div>
           </div>
+          <div className="mt-3 divide-y divide-slate-100">
+            {conversation.internalNotes.length ? (
+              conversation.internalNotes.map((note) => (
+                <article key={note.id} className="py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate text-xs font-bold text-slate-800">
+                      {note.author}
+                    </p>
+                    <time className="shrink-0 text-[10px] text-slate-400">
+                      {note.time}
+                    </time>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    {note.text}
+                  </p>
+                </article>
+              ))
+            ) : (
+              <p className="py-4 text-center text-xs text-slate-400">
+                No internal notes yet.
+              </p>
+            )}
+          </div>
         </section>
-
-        <div className="mt-6 flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
-            Internal activity
-          </h3>
-          <span className="text-[10px] font-medium text-slate-400">
-            {conversation.internalNotes.length} note
-            {conversation.internalNotes.length === 1 ? '' : 's'}
-          </span>
-        </div>
-
-        <div className="mt-2 divide-y divide-slate-100" aria-label="Internal notes activity">
-          {conversation.internalNotes.map((note) => (
-            <article key={note.id} className="py-4 first:pt-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[10px] font-black text-blue-700">
-                    ST
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-bold text-slate-800">{note.author}</p>
-                    <p className="mt-0.5 text-[10px] text-slate-400">{note.time}</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={onMoreNote}
-                  className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                  aria-label={`More options for note from ${note.author}`}
-                >
-                  <MoreHorizontal size={14} />
-                </button>
-              </div>
-              <p className="mt-2 pl-10 text-xs leading-5 text-slate-600">{note.text}</p>
-            </article>
-          ))}
-        </div>
       </div>
     </aside>
   );

@@ -1,9 +1,10 @@
 import React, { useRef } from 'react';
-import { X, Printer, Download, RotateCcw, CheckCircle2, Car, Phone, Mail } from 'lucide-react';
+import { X, Printer, RotateCcw, CheckCircle2, Car, Phone, Mail } from 'lucide-react';
 import { Customer, Vehicle, CartItem, formatPeso, getPaymentMethodLabel, PaymentMethod } from '@/lib/salesData';
 import AppLogo from '@/components/sales/ui/AppLogo';
 import { COMPANY_BRANDING, companyContactLine } from '@/lib/company-branding';
 import { resolveReceiptPhone } from '@/lib/receipt-phone';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 interface Props {
   txnId: string;
@@ -18,6 +19,12 @@ interface Props {
   /** Reservation / GCash credited before this POS payment (for receipt line item). */
   reservationApplied?: number;
   paymentMethod: string;
+  cashReceived?: number | null;
+  amountReceived?: number | null;
+  changeGiven?: number | null;
+  paymentReference?: string | null;
+  staffName?: string | null;
+  transactionDate?: string | null;
   onClose: () => void;
   onNewTransaction: () => void;
 }
@@ -26,10 +33,17 @@ export default function ReceiptModal({
   txnId, customer, vehicle, cartItems,
   subtotal, discount, vatAmount, total, paymentMethod,
   reservationApplied = 0,
+  cashReceived = null,
+  amountReceived = null,
+  changeGiven = null,
+  paymentReference = null,
+  staffName = null,
+  transactionDate = null,
   onClose, onNewTransaction,
 }: Props) {
   const receiptRef = useRef<HTMLDivElement>(null);
-  const now = new Date();
+  const parsedTransactionDate = transactionDate ? new Date(transactionDate) : new Date();
+  const now = Number.isNaN(parsedTransactionDate.getTime()) ? new Date() : parsedTransactionDate;
   const dateStr = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
   const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
   const vehicleInfo = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ');
@@ -62,8 +76,12 @@ export default function ReceiptModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-      <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-md mx-4 animate-slide-up max-h-[90vh] flex flex-col">
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
+        aria-describedby={undefined}
+        overlayClassName="bg-slate-900/60 backdrop-blur-sm"
+        className="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md flex-col gap-0 overflow-hidden rounded-2xl border-0 bg-white p-0 shadow-modal sm:rounded-2xl [&>button]:hidden"
+      >
 
         {/* Success Header */}
         <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-t-2xl px-6 py-5 text-white">
@@ -73,12 +91,15 @@ export default function ReceiptModal({
                 <CheckCircle2 size={22} className="text-white" />
               </div>
               <div>
-                <p className="font-bold text-lg">Payment Successful!</p>
+                <DialogTitle className="text-lg font-bold leading-normal text-white">Payment Successful</DialogTitle>
+                <p className="text-sm font-semibold text-white">{formatPeso(total)} received</p>
                 <p className="text-emerald-100 text-xs">{txnId}</p>
               </div>
             </div>
             <button
+              type="button"
               onClick={onClose}
+              aria-label="Close receipt"
               className="p-1.5 rounded-lg hover:bg-white/20 transition-colors duration-150"
             >
               <X size={18} />
@@ -108,7 +129,7 @@ export default function ReceiptModal({
                   { key: 'ri-date', label: 'Date', value: dateStr },
                   { key: 'ri-time', label: 'Time', value: timeStr },
                   { key: 'ri-txn', label: 'Transaction #', value: txnId },
-                  { key: 'ri-staff', label: 'Served by', value: 'Sales Staff' },
+                  { key: 'ri-staff', label: 'Cashier', value: staffName || 'Sales Staff' },
                 ].map((row) => (
                   <React.Fragment key={row.key}>
                     <span className="text-[11px] text-slate-500">{row.label}</span>
@@ -206,6 +227,18 @@ export default function ReceiptModal({
                 <span>Payment Method</span>
                 <span className="font-semibold">{getPaymentMethodLabel(paymentMethod as PaymentMethod)}</span>
               </div>
+              {paymentMethod === 'cash' && cashReceived != null ? (
+                <>
+                  <div className="flex justify-between text-xs text-slate-600"><span>Cash Received</span><span className="font-semibold tabular-nums">{formatPeso(cashReceived)}</span></div>
+                  <div className="flex justify-between text-xs text-emerald-700"><span>Change</span><span className="font-semibold tabular-nums">{formatPeso(changeGiven || 0)}</span></div>
+                </>
+              ) : null}
+              {paymentMethod === 'gcash' ? (
+                <>
+                  <div className="flex justify-between text-xs text-slate-600"><span>Amount Received</span><span className="font-semibold tabular-nums">{formatPeso(amountReceived ?? total)}</span></div>
+                  {paymentReference ? <div className="flex justify-between gap-3 text-xs text-slate-600"><span>GCash Reference</span><span className="break-all text-right font-semibold">{paymentReference}</span></div> : null}
+                </>
+              ) : null}
             </div>
 
             {/* Footer */}
@@ -226,6 +259,7 @@ export default function ReceiptModal({
         {/* Action Buttons */}
         <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
           <button
+            type="button"
             onClick={onNewTransaction}
             className="flex-1 flex items-center justify-center gap-2 btn-secondary"
           >
@@ -233,18 +267,15 @@ export default function ReceiptModal({
             New Transaction
           </button>
           <button
+            type="button"
             onClick={handlePrint}
             className="flex items-center justify-center gap-2 btn-primary px-4"
           >
             <Printer size={14} />
             Print
           </button>
-          <button className="flex items-center justify-center gap-2 btn-secondary px-4">
-            <Download size={14} />
-            PDF
-          </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

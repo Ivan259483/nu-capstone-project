@@ -1,0 +1,2319 @@
+{
+  "pilot": "scratch_semantic_pilot_001",
+  "query": "class:damage \"surface scratch scuff on car paint\"",
+  "seed_ids": [
+    "IP5Cl3FRGre4hYo7hAei",
+    "ZYiylTHDgLfeVDuP3SCm",
+    "yItg4aaKVyGjm4v4vgDk"
+  ],
+  "roster_sha256": "081797742d04a5dac7ebb6992d1aacd3d617a2c48d1c518b79dc7feafae22ec8",
+  "geometry_sha256": "b72b555cd2c9d8da1f6cf73fe7e8b562ad36cc3c2539b7ebc45003b138ddb4ed",
+  "images": [
+    {
+      "rank": 1,
+      "id": "toFxrWwTyXC1pxqPimTg",
+      "filename": "full_06001_z6jLNtJdTuLZPEMZtXkW_001613_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 2,
+      "id": "nIM3MmilQQK7uazr45Cj",
+      "filename": "full_03855_HsH8D7LFHvAljyE2REjm_002673_jpg.jpg",
+      "damage_count": 5,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 3,
+      "id": "qS4t9cfc0UfbRW20cnS9",
+      "filename": "full_05257_T1LTtaSpOHKGr6eZuRpP_003610_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 4,
+      "id": "I3iNtUKp7JeGsgLUrgpf",
+      "filename": "full_04074_2hHyTZ9533ciDCUvtFTF_002832_jpg.jpg",
+      "damage_count": 6,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 5,
+      "id": "dArtTMlivPjHiIPYpLkR",
+      "filename": "full_05156_vPd4KIQCtLR0eF0C3owr_003538_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "excluded"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 6,
+      "id": "hvAocu0LK99NlQ904RhO",
+      "filename": "full_03192_wykXeIAxEhuxzUqgHBz3_002184_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "excluded"
+        }
+      ]
+    },
+    {
+      "rank": 7,
+      "id": "vNN5M7zroRVRL7csRZPE",
+      "filename": "full_01507_m4c4tKuVHbNT9FZ7rXp3_001005_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 8,
+      "id": "scWLb4rYrMWF3rp9MaXV",
+      "filename": "full_00045_YhzZuRn5E5KtcU4QxbJN_000030_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 9,
+      "id": "kuSG6wv6KadyjysW4AwA",
+      "filename": "full_03850_AvRpDEJCKdZkOSZO9cbC_002672_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 10,
+      "id": "UW6wytayHxuZ0hG5xazU",
+      "filename": "full_05301_XoAP30FuzgFpMOlrYUa0_003633_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 11,
+      "id": "kiNEIbsZ8l6Bw6GaruBl",
+      "filename": "full_05875_QCMLskgV5ACK2HGQTIFD_000583_jpg.jpg",
+      "damage_count": 11,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "excluded"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 7,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 8,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 9,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 10,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 11,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 12,
+      "id": "45eIPo03blL9W1JpcMcR",
+      "filename": "full_02621_xQ4m9JJ7Whl3Lxhh51ZA_001737_jpg.jpg",
+      "damage_count": 6,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 13,
+      "id": "tbNMBxeL28ZgPN2rvHvf",
+      "filename": "full_05961_lFrhDAPi3L8UJSkc2eoR_001293_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 14,
+      "id": "IU86v1UXFcFCJb2hYvDw",
+      "filename": "full_00036_xMv8UrMPdFyzhVomSHNr_000021_jpg.jpg",
+      "damage_count": 10,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "excluded"
+        },
+        {
+          "local_index": 6,
+          "action": "excluded"
+        },
+        {
+          "local_index": 7,
+          "action": "excluded"
+        },
+        {
+          "local_index": 8,
+          "action": "excluded"
+        },
+        {
+          "local_index": 9,
+          "action": "excluded"
+        },
+        {
+          "local_index": 10,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 15,
+      "id": "JTzYYDdNXKGNCDW5n5K4",
+      "filename": "full_04021_8hOCOzNj1D20WfqmQB4p_002793_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 16,
+      "id": "MetbJP34ZzcSNQT099EO",
+      "filename": "full_02630_UKFTUSTMiqNGe06LZELt_001745_jpg.jpg",
+      "damage_count": 5,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 17,
+      "id": "8KRYQb768s9NyKXt6jCC",
+      "filename": "full_04040_NnY66FGfTESHu1FrH8KX_002802_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 18,
+      "id": "kogr31z1CgJPkqRuCeiq",
+      "filename": "full_05299_O7mWB41jZgVkRrqKdSMb_003632_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 19,
+      "id": "kRxijRwVONWFq4c57neW",
+      "filename": "full_04055_XEfEdgsWTolnStJKdSoQ_002812_jpg.jpg",
+      "damage_count": 12,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 7,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 8,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 9,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 10,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 11,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 12,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 20,
+      "id": "JHufehk1VKsycRJHhDEV",
+      "filename": "full_04139_eaoweAew4epVCwjViias_002873_jpg.jpg",
+      "damage_count": 7,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "excluded"
+        },
+        {
+          "local_index": 7,
+          "action": "excluded"
+        }
+      ]
+    },
+    {
+      "rank": 21,
+      "id": "Ns0dYC2XcWaaiAsuKyrt",
+      "filename": "full_00672_L234PXTxabY6TmUkfces_000451_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 22,
+      "id": "klJNLYUmpa72IAS7OR50",
+      "filename": "full_06065_9MqAld51p1XMOseG49rr_002097_jpg.jpg",
+      "damage_count": 5,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 23,
+      "id": "FiUwBTwbhJH7vQ3ul7Vb",
+      "filename": "full_03044_cg020YISDtlKdO3Ecmjl_002061_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 24,
+      "id": "0xEUoFlwSgW6svwjJLWe",
+      "filename": "pilot_046_6YhdayYWcnQUv9FVCTzs_001179_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "excluded"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 25,
+      "id": "NLHVS2frXBmQIP5XdlkU",
+      "filename": "full_03605_QYOkbMHXKZs2Wnih8PFp_002492_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 26,
+      "id": "izFdAmKzs1BaDS2XUmCy",
+      "filename": "full_00886_qOZ5vUntmIqrGDfDgfhI_000593_jpg.jpg",
+      "damage_count": 12,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "dent"
+        },
+        {
+          "local_index": 2,
+          "action": "excluded"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "dent"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 7,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 8,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 9,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 10,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 11,
+          "action": "dent"
+        },
+        {
+          "local_index": 12,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 27,
+      "id": "K2Vdtxzgo5eU0ePhdl2F",
+      "filename": "pilot_040_skBD6iFYJtui9AYFG8iL_001480_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "excluded"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 28,
+      "id": "ytXnCsZ2xm0cAaay8pc4",
+      "filename": "full_04133_aoUOr3uPL5teIY7wLhck_002871_jpg.jpg",
+      "damage_count": 3,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 29,
+      "id": "xcawlfdfp84JB9HUxBVl",
+      "filename": "full_05078_0roWY0XkFXQyTpvRtPwK_003491_jpg.jpg",
+      "damage_count": 3,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 30,
+      "id": "LxRFk6RRbLi6l38vCEWx",
+      "filename": "full_00802_oWhaQbsNneC1u9SofmC0_000533_jpg.jpg",
+      "damage_count": 5,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 31,
+      "id": "h8NNPr58m8KGcKiOrs5e",
+      "filename": "full_00803_sCrrlHNh2dpgoLv0NL7G_000533_jpg.jpg",
+      "damage_count": 5,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 32,
+      "id": "cvHhMXkPa5R27ZACBcVs",
+      "filename": "pilot_005_H5ojAVFmD5QXbso4rlZr_000584_jpg.jpg",
+      "damage_count": 9,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "excluded"
+        },
+        {
+          "local_index": 2,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 3,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 4,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 5,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 6,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 7,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 8,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 9,
+          "action": "paint_damage"
+        }
+      ]
+    },
+    {
+      "rank": 33,
+      "id": "NXI7LMmD8BeyUCfZTidq",
+      "filename": "full_03208_ntXcprf07LfKXVbOMQUN_002207_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 34,
+      "id": "X5axa9RggkPj6baKB7St",
+      "filename": "full_05781_MpXWubZJArssdt2t9UgB_003981_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "dent"
+        }
+      ]
+    },
+    {
+      "rank": 35,
+      "id": "twbpEPKjFCzVJZyk0Ly6",
+      "filename": "full_05890_b2F3l9py2tBeFfjN06T1_000709_jpg.jpg",
+      "damage_count": 7,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 7,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 36,
+      "id": "Qo8veBA52I4gHpaVs9Sg",
+      "filename": "full_03959_yv84KCC8qV0eE1xfHIzQ_002740_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "dent"
+        }
+      ]
+    },
+    {
+      "rank": 37,
+      "id": "u4eyyvAJbx0qcqz3twiL",
+      "filename": "full_02349_elkaI108CKucOHRjxGIH_001571_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 38,
+      "id": "ygi7I01u7Rn23riOLmih",
+      "filename": "full_03875_O6slRbSvDR5CytWf4W7i_002689_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "excluded"
+        },
+        {
+          "local_index": 4,
+          "action": "excluded"
+        }
+      ]
+    },
+    {
+      "rank": 39,
+      "id": "FsHHh0d2NuafZQSMPfZG",
+      "filename": "pilot_019_vnHvQTB5AQZPHgjF9ypO_002237_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 40,
+      "id": "S0ZQ7vv6QhS2VHjKaU4n",
+      "filename": "full_02310_onOPSsYuXxRasGX2jrtk_001544_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 41,
+      "id": "bfYHWYrlAJkTU2IJvBgx",
+      "filename": "full_05693_eNNsPBY3bQqCImqloiJh_003921_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 42,
+      "id": "Cj99dnHJnKThAQdfyxw6",
+      "filename": "full_04030_0V7f3sAlRl0TAajmh4lu_002798_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 43,
+      "id": "mgH8Sh2jplNZxuaZSfXz",
+      "filename": "full_06089_abOZC9H8yFrPHPSoFKxd_002234_jpg.jpg",
+      "damage_count": 7,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 7,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 44,
+      "id": "XFqzAUwPMWKNNIl2avjo",
+      "filename": "full_04103_wAPWqA3xYZyro2OrYy1i_002846_jpg.jpg",
+      "damage_count": 3,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 45,
+      "id": "TokNyfZx3bXrxRQaBSi7",
+      "filename": "full_04033_osPHy9IVcyh7YAMfARmA_002799_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 46,
+      "id": "2PD83DJ6zcPP8BSwRKVI",
+      "filename": "full_06557_h0GZUE0UmB9mEebK1Cq6_002968_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 47,
+      "id": "by5uLmOXKgQ5fJbT2T2q",
+      "filename": "full_01194_KxRETKCgBz977zV2EZKl_000798_jpg.jpg",
+      "damage_count": 3,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 48,
+      "id": "rXiyKpCnFVyDF2tSXvBK",
+      "filename": "full_03249_zUkS9KGzXz9RcFD9CVUQ_002229_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 49,
+      "id": "75FEL9jzZLCgwCNfgXbs",
+      "filename": "full_05091_SGL1hSUMF0AKTPC31x5y_003504_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 50,
+      "id": "rmoLa6AqNwQMH1oyadp9",
+      "filename": "full_04345_r4j63eMOwyhYObFwmcx3_003001_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 51,
+      "id": "ZvoBFj4W9RIBcUavvMEr",
+      "filename": "full_06333_QBc8OLbwsNHe42r7DcLE_003943_jpg.jpg",
+      "damage_count": 3,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "dent"
+        },
+        {
+          "local_index": 2,
+          "action": "dent"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 52,
+      "id": "Hu2AIQDDjhbA4lJJGXgP",
+      "filename": "full_02545_i2E9GW071Gb8GXpF0PqJ_001694_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 53,
+      "id": "7paOLrmtYUnI4fOG4tjC",
+      "filename": "full_03269_ar7tzcoKoJYAqQxkBe6y_002239_jpg.jpg",
+      "damage_count": 3,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 54,
+      "id": "PhbJohGPe57P26GsWx2m",
+      "filename": "full_01216_97de3dG6I6vqcqEKqmCG_000813_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 55,
+      "id": "GXNSRxCjncaXNumSb7YG",
+      "filename": "full_05057_HnXy6dCGr8tiN2052H3s_003476_jpg.jpg",
+      "damage_count": 8,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 7,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 8,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 56,
+      "id": "7JmjQOfLmXnXIMhmZYm6",
+      "filename": "full_00540_pklYuOnF3OcBMNLYGjJb_000364_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 57,
+      "id": "HHAJ7Ow1EmvzrlEyO3RS",
+      "filename": "full_02922_ubSEJr82g6DyZy9KkXFs_001971_jpg.jpg",
+      "damage_count": 3,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 58,
+      "id": "3VzSFx0eSy0wJ5g8c7JJ",
+      "filename": "full_03822_BEQUiCRsjqjjq99grRCh_002650_jpg.jpg",
+      "damage_count": 6,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "excluded"
+        },
+        {
+          "local_index": 2,
+          "action": "excluded"
+        },
+        {
+          "local_index": 3,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 4,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 5,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 6,
+          "action": "paint_damage"
+        }
+      ]
+    },
+    {
+      "rank": 59,
+      "id": "u2mW3fZKMQtXiirN05S7",
+      "filename": "full_06162_PEpZQbDiTPBf5v4ij8SY_002746_jpg.jpg",
+      "damage_count": 14,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "excluded"
+        },
+        {
+          "local_index": 4,
+          "action": "excluded"
+        },
+        {
+          "local_index": 5,
+          "action": "excluded"
+        },
+        {
+          "local_index": 6,
+          "action": "excluded"
+        },
+        {
+          "local_index": 7,
+          "action": "excluded"
+        },
+        {
+          "local_index": 8,
+          "action": "excluded"
+        },
+        {
+          "local_index": 9,
+          "action": "excluded"
+        },
+        {
+          "local_index": 10,
+          "action": "excluded"
+        },
+        {
+          "local_index": 11,
+          "action": "excluded"
+        },
+        {
+          "local_index": 12,
+          "action": "excluded"
+        },
+        {
+          "local_index": 13,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 14,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 60,
+      "id": "WdNrsuew7y02IQgp3K1R",
+      "filename": "full_01978_gV47yDPVt5DqMyng205Q_001321_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 61,
+      "id": "lHmeRO7Hd1KvAr6JR3jn",
+      "filename": "full_04184_Qh61IibmHgGXLasYGssK_002904_jpg.jpg",
+      "damage_count": 3,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "excluded"
+        }
+      ]
+    },
+    {
+      "rank": 62,
+      "id": "wQcAwBygIPmIzcGBl7SX",
+      "filename": "full_03091_mYr4pM3QlKVMqaP8jvuw_002105_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 63,
+      "id": "8q0SoLlRLnqSv93jpgQy",
+      "filename": "full_05265_iv0dDz39LlHlMt1OgT0D_003616_jpg.jpg",
+      "damage_count": 6,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 64,
+      "id": "US1pEwHipSLVF6mRuy5X",
+      "filename": "full_06255_biwtf0QjKLITgTZXovYW_003449_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 65,
+      "id": "foEw2JWjNB6R1LeefxaX",
+      "filename": "full_05258_BEMtQ7oUq85cccqchjfe_003610_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 66,
+      "id": "NTnFNOPcDTUgdxvguODN",
+      "filename": "full_05886_YnR8ovOPcIsbo4A0MJ3k_000686_jpg.jpg",
+      "damage_count": 7,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 7,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 67,
+      "id": "o4LPltBEWBIMyMWR6UyG",
+      "filename": "full_04014_aCRWXjhmCs1rUTRLGtNd_002788_jpg.jpg",
+      "damage_count": 7,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 7,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 68,
+      "id": "OTObu91rDbNWKRF9OKwU",
+      "filename": "full_02690_R9Zxf3Yi63VLOPb4oYqS_001787_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 69,
+      "id": "5XSUOs66VEsEcmzWapl3",
+      "filename": "full_03601_Z4JFfekSZfsserPdckmi_002489_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 70,
+      "id": "5eiqWFnNFf2jBDTBBpK5",
+      "filename": "full_05963_No012ZTbTA1ulSlbIgpO_001311_jpg.jpg",
+      "damage_count": 7,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 7,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 71,
+      "id": "iCowEqyunSUZBEP1KXGD",
+      "filename": "full_02752_IDqCDgri1iQxT7KmdC89_001835_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 72,
+      "id": "B0l9QaMjHWv9fefxP2Zw",
+      "filename": "full_02656_7dGeKKKn0Jo3wUIX2jSn_001764_jpg.jpg",
+      "damage_count": 3,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 73,
+      "id": "j7tRhtRhyVHc1K6EOpIN",
+      "filename": "full_03046_nEDTekXYsM16rx4hAwoc_002067_jpg.jpg",
+      "damage_count": 3,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "lamp_damage"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 74,
+      "id": "6qcaUqs72JAScnUunkwC",
+      "filename": "full_06520_W4yuboWkFr4j2CeqvlAr_002405_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 75,
+      "id": "QJoCbnXreVPa8AB9CFPE",
+      "filename": "full_01502_OHlNRVUTnsy2TzVBKjqg_001003_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 76,
+      "id": "vIB8RgYBdOpRZcmSFHPP",
+      "filename": "full_05873_YJyd8HtNIP35feevQRKq_000560_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 77,
+      "id": "fh7dgK6pGhoQlq1WwcKJ",
+      "filename": "full_05809_xTZsomd2I0qkxsSDb1mt_000121_jpg.jpg",
+      "damage_count": 3,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 78,
+      "id": "qzSPQT5GGlWRKfz0d5gb",
+      "filename": "full_03387_rE3WrbtqOpFJgOUphAqH_002324_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 79,
+      "id": "Dn2qgZoPmQHjWn4GaFwM",
+      "filename": "full_03568_21ztMTnbCFlNoWN5omST_002466_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "excluded"
+        },
+        {
+          "local_index": 2,
+          "action": "dent"
+        },
+        {
+          "local_index": 3,
+          "action": "excluded"
+        },
+        {
+          "local_index": 4,
+          "action": "excluded"
+        }
+      ]
+    },
+    {
+      "rank": 80,
+      "id": "O14024cMUHoAXUzTu3fX",
+      "filename": "full_03638_tsMP4MscY7br1m2YrXvj_002513_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 81,
+      "id": "OxMuP69WsjwfetNkCvO8",
+      "filename": "full_05205_Q3uldZ4dQ7UxMzFQldFS_003579_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 82,
+      "id": "kllJ2YW2mrDzUhXF1Q6T",
+      "filename": "full_04032_p3vDPhdArYY45T9y63QW_002799_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 83,
+      "id": "VzwacSQFmiUMnldekXGo",
+      "filename": "full_01565_P4PoVVpNSS2dC5Ifki38_001034_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 84,
+      "id": "CtcijvzThyOGRKFlRnBb",
+      "filename": "full_01931_IAE2I5Lsf5UjFU2B6IiF_001290_jpg.jpg",
+      "damage_count": 3,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 85,
+      "id": "0PNTYEg5O9cjjWR3lG4O",
+      "filename": "full_02400_LLm3bipdudHhCnnw0osE_001603_jpg.jpg",
+      "damage_count": 5,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 86,
+      "id": "oAkVYeyGj1ak25caHd1n",
+      "filename": "full_01988_eVFV9c1NvLS20KDIAbRU_001325_jpg.jpg",
+      "damage_count": 7,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "excluded"
+        },
+        {
+          "local_index": 5,
+          "action": "excluded"
+        },
+        {
+          "local_index": 6,
+          "action": "excluded"
+        },
+        {
+          "local_index": 7,
+          "action": "excluded"
+        }
+      ]
+    },
+    {
+      "rank": 87,
+      "id": "G92xXwjTN1YjEJWzB6Tj",
+      "filename": "full_02221_6D5K5X7IG3Xc25LkuL2C_001476_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 88,
+      "id": "qYGPjRvRu6DMMJCYekUf",
+      "filename": "full_06088_g5mwh28ZdrGtvFmptcrZ_002228_jpg.jpg",
+      "damage_count": 6,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 89,
+      "id": "VOpR6e1KQ90EyAaIR7SO",
+      "filename": "full_03487_Ye53ALDMw8O2FmYrLpBf_002391_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "excluded"
+        }
+      ]
+    },
+    {
+      "rank": 90,
+      "id": "fDH0vvLMOzCcnqkW3Cww",
+      "filename": "full_06163_oeGk41O1idnsRBUDzNDn_002749_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 91,
+      "id": "vtTKknisTGyx0oifFthk",
+      "filename": "full_03541_svrjGKIi3wTB26hmEAkH_002436_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "dent"
+        }
+      ]
+    },
+    {
+      "rank": 92,
+      "id": "gpAxCdEzFCWrZZyZ9flS",
+      "filename": "full_06083_KuF4PNLrX1xKZfCgepcp_002193_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 93,
+      "id": "NptVtFLHDQSk7crIS8pH",
+      "filename": "full_00118_UMlTRQAfLnDiDB5Z1RP8_000076_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 94,
+      "id": "MqDMTjSn5RcvQfiuqhOa",
+      "filename": "full_01576_hMHpk8mozBXbc1rrsqUB_001041_jpg.jpg",
+      "damage_count": 7,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "excluded"
+        },
+        {
+          "local_index": 6,
+          "action": "excluded"
+        },
+        {
+          "local_index": 7,
+          "action": "excluded"
+        }
+      ]
+    },
+    {
+      "rank": 95,
+      "id": "ZiKnv0Hxk7GhcLlgQf89",
+      "filename": "full_00651_Na2v0Dfabi9yIGS69Tko_000442_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "excluded"
+        }
+      ]
+    },
+    {
+      "rank": 96,
+      "id": "pTNpHRHb7VlyhK5b169B",
+      "filename": "full_05999_B4FBsWFjLqVMpa8SCJqg_001608_jpg.jpg",
+      "damage_count": 6,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "paint_damage"
+        },
+        {
+          "local_index": 2,
+          "action": "excluded"
+        },
+        {
+          "local_index": 3,
+          "action": "excluded"
+        },
+        {
+          "local_index": 4,
+          "action": "excluded"
+        },
+        {
+          "local_index": 5,
+          "action": "excluded"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 97,
+      "id": "i5aLM144hRYAhhmm0C0L",
+      "filename": "full_02205_RPVnrbHxXeAMUgT30pEj_001471_jpg.jpg",
+      "damage_count": 1,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "excluded"
+        }
+      ]
+    },
+    {
+      "rank": 98,
+      "id": "SKrkf0O4INgjVFY3NdGS",
+      "filename": "full_04029_eAlatMshlZGLNv5qYJSX_002798_jpg.jpg",
+      "damage_count": 2,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 99,
+      "id": "X55rBbFgJBpRBFxiSTAx",
+      "filename": "full_02783_f1euYqktmFdVkbJuPD2Q_001867_jpg.jpg",
+      "damage_count": 4,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        }
+      ]
+    },
+    {
+      "rank": 100,
+      "id": "iXpTOtUCYixR7mzm6GWy",
+      "filename": "full_01842_jKDNJr7mLAEqf87lLR4R_001220_jpg.jpg",
+      "damage_count": 12,
+      "decisions": [
+        {
+          "local_index": 1,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 2,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 3,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 4,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 5,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 6,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 7,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 8,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 9,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 10,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 11,
+          "action": "scratch_scuff"
+        },
+        {
+          "local_index": 12,
+          "action": "scratch_scuff"
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "scratch_scuff": 303,
+    "dent": 9,
+    "paint_damage": 15,
+    "crack": 0,
+    "lamp_damage": 1,
+    "excluded": 46,
+    "unresolved": 0
+  },
+  "scratch_purity_pct": 81
+}

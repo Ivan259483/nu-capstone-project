@@ -69,6 +69,9 @@ export const isAdminDashboardRole = (role: string | null | undefined): role is U
 export const isServiceStaffRole = (role: string | null | undefined): role is UserRole =>
   typeof role === 'string' && STAFF_ROLE_SET.has(getSafeUserRole(role));
 
+export const isCustomerRole = (role: string | null | undefined): role is UserRole =>
+  normalizeToCanonical(role) === CUSTOMER_ROLE;
+
 export const getRoleLabel = (role: string | null | undefined): string =>
   ROLE_LABELS[getSafeUserRole(role, CUSTOMER_ROLE)];
 

@@ -5,7 +5,13 @@ import ChatMessage from '../models/chatMessage.model.js';
 import ChatSession from '../models/chatSession.model.js';
 import User from '../models/user.model.js';
 import Vehicle from '../models/vehicle.model.js';
-import { decrypt, encrypt, looksLikeEncryptedValue } from '../utils/encryption.utils.js';
+import Order from '../models/order.model.js';
+import Service from '../models/service.model.js';
+import {
+  decrypt,
+  encrypt,
+  looksLikeEncryptedValue,
+} from '../utils/encryption.utils.js';
 import {
   validateChatRegistrationPhone,
   validateNamePart,
@@ -21,15 +27,22 @@ import {
   serializeConversation,
 } from './chatConversation.service.js';
 
-export const SALES_CHAT_ROLES = Object.freeze(['sales', 'administrator', 'office_admin']);
+export const SALES_CHAT_ROLES = Object.freeze([
+  'sales',
+  'administrator',
+  'office_admin',
+]);
 export const SALES_HANDOFF_ACTIVE_STATUSES = Object.freeze([
   'needs_sales',
   'in_conversation',
+  'waiting_customer',
+  'booking_created',
   'resolved',
   'converted',
 ]);
 
-export const HANDOFF_SYSTEM_MESSAGE = 'Chat was escalated from AutoSPF+ AI to Sales.';
+export const HANDOFF_SYSTEM_MESSAGE =
+  'Chat was escalated from AutoSPF+ AI to Sales.';
 const SALES_JOINED_SYSTEM_MESSAGE = 'Sales joined the conversation.';
 const CHAT_AGENT_USER_FIELDS =
   '_id name role email avatar avatarUrl photoURL profileImage profilePhoto image photo';
@@ -49,9 +62,9 @@ const isHttpImage = (value = '') => /^https?:\/\//i.test(clean(value));
 const isInlineImage = (value = '') => /^data:image\//i.test(clean(value));
 
 const resolveChatAgentImage = (user = {}) => {
-  const candidates = CHAT_AGENT_IMAGE_FIELDS
-    .map((field) => clean(user?.[field]))
-    .filter((value) => value && !value.startsWith('blob:'));
+  const candidates = CHAT_AGENT_IMAGE_FIELDS.map((field) =>
+    clean(user?.[field]),
+  ).filter((value) => value && !value.startsWith('blob:'));
 
   return (
     candidates.find(isHttpImage) ||
@@ -89,7 +102,7 @@ export const createSalesHandoffError = () =>
   createHttpError(
     409,
     'SALES_HANDOFF_ACTIVE',
-    'This conversation is currently handled by AutoSPF+ Sales.'
+    'This conversation is currently handled by AutoSPF+ Sales.',
   );
 
 export const assertAiMessageAllowed = async (conversationId) => {
@@ -102,7 +115,10 @@ export const assertAiMessageAllowed = async (conversationId) => {
   if (!conversation) return null;
 
   const status = normalizeConversationStatus(conversation.status);
-  if (SALES_HANDOFF_ACTIVE_STATUSES.includes(status) || conversation.handedOffAt) {
+  if (
+    SALES_HANDOFF_ACTIVE_STATUSES.includes(status) ||
+    conversation.handedOffAt
+  ) {
     throw createSalesHandoffError();
   }
   return conversation;
@@ -137,7 +153,7 @@ const requireGuestContact = (snapshot = {}) => {
       422,
       'SALES_CONTACT_REQUIRED',
       'Please share your name and valid Philippine mobile number before connecting to Sales.',
-      { fields: missingFields }
+      { fields: missingFields },
     );
   }
 
@@ -149,17 +165,24 @@ const requireGuestContact = (snapshot = {}) => {
 };
 
 const resolveOwnedVehicle = async ({ vehicleId, userId }) => {
-  if (!vehicleId || !userId || !mongoose.isValidObjectId(vehicleId)) return null;
+  if (!vehicleId || !userId || !mongoose.isValidObjectId(vehicleId))
+    return null;
   return Vehicle.findOne({ _id: vehicleId, customer: userId }).lean();
 };
 
 const buildAiSummary = ({ session, latestCustomerMessage = '' }) => {
   const parts = [
     session?.lastVehicleLabel ? `Vehicle: ${session.lastVehicleLabel}` : '',
-    session?.lastServiceInterest ? `Service: ${session.lastServiceInterest}` : '',
-    session?.lastPackageInterest ? `Package: ${session.lastPackageInterest}` : '',
+    session?.lastServiceInterest
+      ? `Service: ${session.lastServiceInterest}`
+      : '',
+    session?.lastPackageInterest
+      ? `Package: ${session.lastPackageInterest}`
+      : '',
     session?.lastProtectionGoal ? `Goal: ${session.lastProtectionGoal}` : '',
-    latestCustomerMessage ? `Latest request: ${clean(latestCustomerMessage)}` : '',
+    latestCustomerMessage
+      ? `Latest request: ${clean(latestCustomerMessage)}`
+      : '',
   ].filter(Boolean);
   return parts.join(' | ').slice(0, 1000);
 };
@@ -183,7 +206,7 @@ const ensureSystemMessage = async ({ conversationId, type, message }) => {
       .createHash('sha256')
       .update(`${conversationId}:${type}`)
       .digest('hex')
-      .slice(0, 24)
+      .slice(0, 24),
   );
   try {
     return await ChatMessage.findOneAndUpdate(
@@ -197,7 +220,7 @@ const ensureSystemMessage = async ({ conversationId, type, message }) => {
           metadata: { type },
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     ).lean();
   } catch (error) {
     if (error?.code === 11000) {
@@ -248,16 +271,40 @@ export const serializeSalesConversation = (conversation = {}) => ({
   vehicleLabel: conversation.vehicleLabel || '',
   plateNumber: conversation.plateNumber || '',
   serviceInterest: conversation.serviceInterest || '',
+  selectedServiceId: conversation.selectedServiceId || null,
+  selectedServiceName: conversation.selectedServiceName || '',
+  selectedVehicleType: conversation.selectedVehicleType || '',
+  offeredSchedule: Array.isArray(conversation.offeredSchedule)
+    ? conversation.offeredSchedule.map((slot) => ({
+        date: slot.date,
+        time: slot.time,
+      }))
+    : [],
   source: conversation.source || 'ai_chatbot',
   status: normalizeConversationStatus(conversation.status),
   assignedSalesId: conversation.assignedSalesId || null,
   assignedSalesName: conversation.assignedSalesName || '',
-  lastMessage: conversation.lastMessage || conversation.lastMessagePreview || '',
+  lastMessage:
+    conversation.lastMessage || conversation.lastMessagePreview || '',
   lastMessagePreview: conversation.lastMessagePreview || '',
   lastMessageAt: conversation.lastMessageAt,
+  lastCustomerMessageAt: conversation.lastCustomerMessageAt || null,
   unreadForSales: Boolean(conversation.unreadForSales),
   unreadForCustomer: Boolean(conversation.unreadForCustomer),
   aiSummary: conversation.aiSummary || '',
+  linkedBookingId: conversation.linkedBookingId || null,
+  linkedBookingReference: conversation.linkedBookingReference || '',
+  resolutionReason: conversation.resolutionReason || '',
+  resolvedAt: conversation.resolvedAt || null,
+  internalNotes: Array.isArray(conversation.internalNotes)
+    ? conversation.internalNotes.map((note) => ({
+        id: note._id,
+        authorId: note.authorId,
+        authorName: note.authorName || 'Sales Team',
+        text: note.text,
+        createdAt: note.createdAt,
+      }))
+    : [],
   handedOffAt: conversation.handedOffAt || null,
   salesJoinedAt: conversation.salesJoinedAt || null,
   createdAt: conversation.createdAt,
@@ -289,7 +336,8 @@ const serializeChatAgentProfile = (user, fallback = {}) => {
 };
 
 const getLatestSalesMessage = (messages = []) =>
-  [...messages].reverse().find((message) => message?.sender === 'sales') || null;
+  [...messages].reverse().find((message) => message?.sender === 'sales') ||
+  null;
 
 export const getDefaultSalesAgentProfile = async () => {
   const users = await User.find({
@@ -323,7 +371,7 @@ export const getDefaultSalesAgentProfile = async () => {
 export const serializeChatConversationPayload = async (
   conversation = {},
   messages = [],
-  { conversationSerializer = serializeSalesConversation } = {}
+  { conversationSerializer = serializeSalesConversation } = {},
 ) => {
   const latestSalesMessage = getLatestSalesMessage(messages);
   const assignedSalesId = clean(conversation.assignedSalesId);
@@ -333,8 +381,9 @@ export const serializeChatConversationPayload = async (
     .map((message) => clean(message.senderId));
   const userIds = [
     ...new Set(
-      [assignedSalesId, lastResponderId, ...salesSenderIds]
-        .filter((id) => mongoose.isValidObjectId(id))
+      [assignedSalesId, lastResponderId, ...salesSenderIds].filter((id) =>
+        mongoose.isValidObjectId(id),
+      ),
     ),
   ];
   const users = userIds.length
@@ -400,7 +449,7 @@ export const serializeChatConversationPayload = async (
 
 export const serializeChatConversationList = async (
   conversations = [],
-  { conversationSerializer = serializeSalesConversation } = {}
+  { conversationSerializer = serializeSalesConversation } = {},
 ) => {
   const conversationIds = conversations
     .map((conversation) => clean(conversation.conversationId))
@@ -418,7 +467,9 @@ export const serializeChatConversationList = async (
         },
         {
           $addFields: {
-            resolvedConversationId: { $ifNull: ['$conversationId', '$sessionId'] },
+            resolvedConversationId: {
+              $ifNull: ['$conversationId', '$sessionId'],
+            },
           },
         },
         { $sort: { createdAt: -1 } },
@@ -451,10 +502,11 @@ export const serializeChatConversationList = async (
   const userIds = [
     ...new Set(
       [
-        ...conversations.map((conversation) => clean(conversation.assignedSalesId)),
+        ...conversations.map((conversation) =>
+          clean(conversation.assignedSalesId),
+        ),
         ...latestSalesMessages.map((message) => clean(message.senderId)),
-      ]
-        .filter((id) => mongoose.isValidObjectId(id))
+      ].filter((id) => mongoose.isValidObjectId(id)),
     ),
   ];
   const users = userIds.length
@@ -467,7 +519,7 @@ export const serializeChatConversationList = async (
   return conversations.map((conversation) => {
     const assignedSalesId = clean(conversation.assignedSalesId);
     const latestSalesMessage = latestSalesByConversation.get(
-      clean(conversation.conversationId)
+      clean(conversation.conversationId),
     );
     const lastResponderId = clean(latestSalesMessage?.senderId);
     const assignedSalesUser =
@@ -504,7 +556,7 @@ export const serializeChatConversationList = async (
 
 export const serializeCustomerChatConversationPayload = (
   conversation = {},
-  messages = []
+  messages = [],
 ) =>
   serializeChatConversationPayload(conversation, messages, {
     conversationSerializer: serializeConversation,
@@ -542,7 +594,11 @@ export const promoteConversationToSales = async ({
   }
 
   if (!conversation && id) {
-    throw createHttpError(404, 'CHAT_CONVERSATION_NOT_FOUND', 'Conversation not found');
+    throw createHttpError(
+      404,
+      'CHAT_CONVERSATION_NOT_FOUND',
+      'Conversation not found',
+    );
   }
 
   if (!conversation) {
@@ -561,7 +617,7 @@ export const promoteConversationToSales = async ({
     throw createHttpError(
       409,
       'CHAT_CONVERSATION_CLOSED',
-      'This conversation is closed. Start a new conversation to contact Sales.'
+      'This conversation is closed. Start a new conversation to contact Sales.',
     );
   }
 
@@ -582,7 +638,7 @@ export const promoteConversationToSales = async ({
           source,
         },
       },
-      { upsert: true, new: true }
+      { upsert: true, new: true },
     );
   }
   const ownedVehicle = await resolveOwnedVehicle({
@@ -596,14 +652,19 @@ export const promoteConversationToSales = async ({
     userId,
     senderName: snapshot.customerName,
   });
-  const latestCustomer = customerMessage || await getLatestCustomerMessage(id);
+  const latestCustomer =
+    customerMessage || (await getLatestCustomerMessage(id));
   const handoffMessage = await ensureSystemMessage({
     conversationId: id,
     type: 'sales_handoff',
     message: HANDOFF_SYSTEM_MESSAGE,
   });
   const now = new Date();
-  const lastMessage = clean(latestCustomer?.message || conversation.lastMessage || conversation.lastMessagePreview);
+  const lastMessage = clean(
+    latestCustomer?.message ||
+      conversation.lastMessage ||
+      conversation.lastMessagePreview,
+  );
   const firstHandoff = !conversation.handedOffAt;
 
   const updated = await ChatConversation.findOneAndUpdate(
@@ -619,25 +680,37 @@ export const promoteConversationToSales = async ({
         vehicleLabel:
           clean(body.vehicleLabel) ||
           (ownedVehicle
-            ? [ownedVehicle.year, ownedVehicle.make, ownedVehicle.model].filter(Boolean).join(' ')
+            ? [ownedVehicle.year, ownedVehicle.make, ownedVehicle.model]
+                .filter(Boolean)
+                .join(' ')
             : clean(session?.lastVehicleLabel || conversation.vehicleLabel)),
-        plateNumber: clean(body.plateNumber || ownedVehicle?.plateNumber || conversation.plateNumber),
+        plateNumber: clean(
+          body.plateNumber ||
+            ownedVehicle?.plateNumber ||
+            conversation.plateNumber,
+        ),
         serviceInterest: clean(
-          body.serviceInterest || session?.lastServiceInterest || conversation.serviceInterest
+          body.serviceInterest ||
+            session?.lastServiceInterest ||
+            conversation.serviceInterest,
         ),
         status: 'needs_sales',
         handedOffAt: conversation.handedOffAt || now,
         unreadForSales: true,
         lastMessage,
-        lastMessagePreview: buildConversationPreview(lastMessage || handoffMessage.message),
-        lastMessageAt: latestCustomer?.createdAt || handoffMessage.createdAt || now,
+        lastMessagePreview: buildConversationPreview(
+          lastMessage || handoffMessage.message,
+        ),
+        lastMessageAt:
+          latestCustomer?.createdAt || handoffMessage.createdAt || now,
+        lastCustomerMessageAt: latestCustomer?.createdAt || now,
         aiSummary: buildAiSummary({
           session,
           latestCustomerMessage: lastMessage,
         }),
       },
     },
-    { new: true, runValidators: true }
+    { new: true, runValidators: true },
   ).lean();
 
   const messages = await ChatMessage.find({
@@ -665,7 +738,11 @@ export const getCustomerConversationMessages = async ({
     guestKey,
   });
   if (!conversation) {
-    throw createHttpError(404, 'CHAT_CONVERSATION_NOT_FOUND', 'Conversation not found');
+    throw createHttpError(
+      404,
+      'CHAT_CONVERSATION_NOT_FOUND',
+      'Conversation not found',
+    );
   }
 
   const messages = await ChatMessage.find({
@@ -686,7 +763,11 @@ export const sendCustomerConversationMessage = async ({
   senderType,
 }) => {
   if (senderType && senderType !== 'customer') {
-    throw createHttpError(400, 'INVALID_CHAT_SENDER', 'Customer messages must use senderType customer');
+    throw createHttpError(
+      400,
+      'INVALID_CHAT_SENDER',
+      'Customer messages must use senderType customer',
+    );
   }
   const conversation = await findConversationForAccess({
     conversationId,
@@ -694,20 +775,36 @@ export const sendCustomerConversationMessage = async ({
     guestKey,
   });
   if (!conversation) {
-    throw createHttpError(404, 'CHAT_CONVERSATION_NOT_FOUND', 'Conversation not found');
+    throw createHttpError(
+      404,
+      'CHAT_CONVERSATION_NOT_FOUND',
+      'Conversation not found',
+    );
   }
 
   const text = clean(message);
-  if (!text) throw createHttpError(400, 'CHAT_MESSAGE_REQUIRED', 'Message is required');
+  if (!text)
+    throw createHttpError(400, 'CHAT_MESSAGE_REQUIRED', 'Message is required');
   const status = normalizeConversationStatus(conversation.status);
   if (['resolved', 'converted'].includes(status)) {
-    throw createHttpError(409, 'CHAT_CONVERSATION_CLOSED', 'This conversation is closed');
+    throw createHttpError(
+      409,
+      'CHAT_CONVERSATION_CLOSED',
+      'This conversation is closed',
+    );
   }
-  if (!['needs_sales', 'in_conversation'].includes(status)) {
+  if (
+    ![
+      'needs_sales',
+      'in_conversation',
+      'waiting_customer',
+      'booking_created',
+    ].includes(status)
+  ) {
     throw createHttpError(
       409,
       'SALES_HANDOFF_REQUIRED',
-      'Connect to Sales before sending a Sales conversation message.'
+      'Connect to Sales before sending a Sales conversation message.',
     );
   }
 
@@ -725,17 +822,20 @@ export const sendCustomerConversationMessage = async ({
     { conversationId },
     {
       $set: {
-        status,
+        status: status === 'waiting_customer' ? 'in_conversation' : status,
         unreadForSales: true,
         lastMessage: text,
         lastMessagePreview: buildConversationPreview(text),
         lastMessageAt: now,
+        lastCustomerMessageAt: now,
       },
     },
-    { new: true, runValidators: true }
+    { new: true, runValidators: true },
   ).lean();
 
-  const payload = await serializeChatConversationPayload(updated, [created.toObject()]);
+  const payload = await serializeChatConversationPayload(updated, [
+    created.toObject(),
+  ]);
   return {
     conversation: payload.conversation,
     message: payload.messages[0],
@@ -753,13 +853,17 @@ export const markCustomerConversationRead = async ({
     guestKey,
   });
   if (!conversation) {
-    throw createHttpError(404, 'CHAT_CONVERSATION_NOT_FOUND', 'Conversation not found');
+    throw createHttpError(
+      404,
+      'CHAT_CONVERSATION_NOT_FOUND',
+      'Conversation not found',
+    );
   }
 
   const updated = await ChatConversation.findOneAndUpdate(
     { conversationId },
     { $set: { unreadForCustomer: false } },
-    { new: true, runValidators: true }
+    { new: true, runValidators: true },
   ).lean();
   const payload = await serializeChatConversationPayload(updated);
   return payload.conversation;
@@ -768,14 +872,37 @@ export const markCustomerConversationRead = async ({
 const salesConversationFilter = () => ({
   $or: [
     { handedOffAt: { $exists: true, $ne: null } },
-    { status: { $in: ['needs_sales', 'in_conversation', 'resolved', 'converted'] } },
+    {
+      status: {
+        $in: [
+          'needs_sales',
+          'in_conversation',
+          'waiting_customer',
+          'booking_created',
+          'resolved',
+          'converted',
+        ],
+      },
+    },
+  ],
+});
+
+const salesOwnershipFilter = (salesUser) => ({
+  $or: [
+    { assignedSalesId: { $exists: false } },
+    { assignedSalesId: null },
+    { assignedSalesId: salesUser.id },
   ],
 });
 
 export const listSalesConversations = async ({ status, search } = {}) => {
   const requestedStatus = clean(status);
   if (requestedStatus && !CANONICAL_CHAT_STATUSES.includes(requestedStatus)) {
-    throw createHttpError(400, 'INVALID_CHAT_STATUS', 'Invalid conversation status');
+    throw createHttpError(
+      400,
+      'INVALID_CHAT_STATUS',
+      'Invalid conversation status',
+    );
   }
 
   const filter = salesConversationFilter();
@@ -804,22 +931,19 @@ export const listSalesConversations = async ({ status, search } = {}) => {
     queryVariants.add(`0${compactPhoneQuery.slice(3)}`);
   }
   const matchers = [...queryVariants].map(
-    (value) => new RegExp(escapeRegex(value), 'i')
+    (value) => new RegExp(escapeRegex(value), 'i'),
   );
-  const filteredRows = rows
-    .filter((row) =>
-      [
-        row.customerName,
-        row.customerEmail,
-        decryptPhone(row.customerPhone),
-        row.vehicleLabel,
-        row.plateNumber,
-        row.serviceInterest,
-        row.lastMessage,
-      ].some((value) =>
-        matchers.some((matcher) => matcher.test(clean(value)))
-      )
-    );
+  const filteredRows = rows.filter((row) =>
+    [
+      row.customerName,
+      row.customerEmail,
+      decryptPhone(row.customerPhone),
+      row.vehicleLabel,
+      row.plateNumber,
+      row.serviceInterest,
+      row.lastMessage,
+    ].some((value) => matchers.some((matcher) => matcher.test(clean(value)))),
+  );
   return serializeChatConversationList(filteredRows);
 };
 
@@ -829,7 +953,11 @@ export const getSalesConversation = async (conversationId) => {
     ...salesConversationFilter(),
   }).lean();
   if (!conversation) {
-    throw createHttpError(404, 'CHAT_CONVERSATION_NOT_FOUND', 'Conversation not found');
+    throw createHttpError(
+      404,
+      'CHAT_CONVERSATION_NOT_FOUND',
+      'Conversation not found',
+    );
   }
   const messages = await ChatMessage.find({
     $or: [{ conversationId }, { sessionId: conversationId }],
@@ -845,24 +973,118 @@ export const sendSalesConversationMessage = async ({
   salesUser,
   message,
   senderType,
+  context,
 }) => {
   if (senderType && senderType !== 'sales') {
-    throw createHttpError(400, 'INVALID_CHAT_SENDER', 'Sales messages must use senderType sales');
+    throw createHttpError(
+      400,
+      'INVALID_CHAT_SENDER',
+      'Sales messages must use senderType sales',
+    );
   }
   const text = clean(message);
-  if (!text) throw createHttpError(400, 'CHAT_MESSAGE_REQUIRED', 'Message is required');
+  if (!text)
+    throw createHttpError(400, 'CHAT_MESSAGE_REQUIRED', 'Message is required');
+
+  const structuredContext = {};
+  if (context?.selectedServiceId) {
+    if (!mongoose.isValidObjectId(context.selectedServiceId)) {
+      throw createHttpError(
+        400,
+        'INVALID_SERVICE_ID',
+        'Select a valid service.',
+      );
+    }
+    const selectedService = await Service.findOne({
+      _id: context.selectedServiceId,
+      status: 'Active',
+      isPublished: true,
+    })
+      .select('_id name')
+      .lean();
+    if (!selectedService) {
+      throw createHttpError(
+        400,
+        'SERVICE_NOT_AVAILABLE',
+        'The selected service is not currently published.',
+      );
+    }
+    structuredContext.selectedServiceId = selectedService._id;
+    structuredContext.selectedServiceName = selectedService.name;
+    structuredContext.serviceInterest = selectedService.name;
+    structuredContext.selectedVehicleType = clean(context.selectedVehicleType);
+  }
+  if (Array.isArray(context?.offeredSchedule)) {
+    const schedule = context.offeredSchedule
+      .slice(0, 5)
+      .map((slot) => ({
+        date: clean(slot?.date),
+        time: clean(slot?.time),
+      }))
+      .filter((slot) => /^\d{4}-\d{2}-\d{2}$/.test(slot.date) && slot.time);
+    if (!schedule.length) {
+      throw createHttpError(
+        400,
+        'INVALID_OFFERED_SCHEDULE',
+        'Select at least one valid appointment time.',
+      );
+    }
+    structuredContext.offeredSchedule = schedule;
+  }
 
   const conversation = await ChatConversation.findOne({
     conversationId,
     ...salesConversationFilter(),
   }).lean();
   if (!conversation) {
-    throw createHttpError(404, 'CHAT_CONVERSATION_NOT_FOUND', 'Conversation not found');
+    throw createHttpError(
+      404,
+      'CHAT_CONVERSATION_NOT_FOUND',
+      'Conversation not found',
+    );
   }
   const status = normalizeConversationStatus(conversation.status);
   if (['resolved', 'converted'].includes(status)) {
-    throw createHttpError(409, 'CHAT_CONVERSATION_CLOSED', 'Reopen the conversation before replying');
+    throw createHttpError(
+      409,
+      'CHAT_CONVERSATION_CLOSED',
+      'Reopen the conversation before replying',
+    );
   }
+  const assignedSalesId = clean(conversation.assignedSalesId);
+  if (assignedSalesId && assignedSalesId !== clean(salesUser.id)) {
+    throw createHttpError(
+      409,
+      'CHAT_CONVERSATION_ASSIGNED',
+      `This conversation is assigned to ${conversation.assignedSalesName || 'another Sales agent'}.`,
+    );
+  }
+  const claimedConversation = await ChatConversation.findOneAndUpdate(
+    {
+      conversationId,
+      $and: [salesConversationFilter(), salesOwnershipFilter(salesUser)],
+    },
+    {
+      $set: {
+        assignedSalesId: salesUser.id,
+        assignedSalesName:
+          salesUser.name || salesUser.email || 'AutoSPF+ Sales',
+      },
+    },
+    { new: true, runValidators: true },
+  ).lean();
+  if (!claimedConversation) {
+    const owner = await ChatConversation.findOne({ conversationId })
+      .select('assignedSalesName')
+      .lean();
+    throw createHttpError(
+      409,
+      'CHAT_CONVERSATION_ASSIGNED',
+      `This conversation is assigned to ${owner?.assignedSalesName || 'another Sales agent'}.`,
+    );
+  }
+  conversation.assignedSalesId = claimedConversation.assignedSalesId;
+  conversation.assignedSalesName = claimedConversation.assignedSalesName;
 
   const joinedAt = new Date();
   const unjoinedFilter = [
@@ -895,7 +1117,7 @@ export const sendSalesConversationMessage = async ({
             salesUser.name || salesUser.email || 'AutoSPF+ Sales',
         },
       },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     ).lean();
   }
   if (!conversation.salesJoinedAt && !joinedConversation) {
@@ -912,7 +1134,7 @@ export const sendSalesConversationMessage = async ({
           salesJoinedAt: joinedAt,
         },
       },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     ).lean();
   }
   const joinedNow = Boolean(joinedConversation);
@@ -928,6 +1150,9 @@ export const sendSalesConversationMessage = async ({
     senderId: salesUser.id,
     senderName: salesUser.name || salesUser.email || 'AutoSPF+ Sales',
     message: text,
+    ...(Object.keys(structuredContext).length
+      ? { metadata: { type: 'sales_context', ...structuredContext } }
+      : {}),
   });
   const now = created.createdAt || new Date();
   const updated = await ChatConversation.findOneAndUpdate(
@@ -937,22 +1162,30 @@ export const sendSalesConversationMessage = async ({
     },
     {
       $set: {
-        status: 'in_conversation',
+        status:
+          status === 'booking_created' ? 'booking_created' : 'in_conversation',
         unreadForCustomer: true,
         unreadForSales: false,
         lastMessage: text,
         lastMessagePreview: buildConversationPreview(text),
         lastMessageAt: now,
+        ...structuredContext,
       },
     },
-    { new: true, runValidators: true }
+    { new: true, runValidators: true },
   ).lean();
   if (!updated) {
     await ChatMessage.deleteOne({ _id: created._id });
-    throw createHttpError(409, 'CHAT_CONVERSATION_CLOSED', 'Reopen the conversation before replying');
+    throw createHttpError(
+      409,
+      'CHAT_CONVERSATION_CLOSED',
+      'Reopen the conversation before replying',
+    );
   }
 
-  const payload = await serializeChatConversationPayload(updated, [created.toObject()]);
+  const payload = await serializeChatConversationPayload(updated, [
+    created.toObject(),
+  ]);
   return {
     conversation: payload.conversation,
     message: payload.messages[0],
@@ -960,44 +1193,267 @@ export const sendSalesConversationMessage = async ({
   };
 };
 
-export const updateSalesConversationStatus = async ({ conversationId, status }) => {
+export const updateSalesConversationStatus = async ({
+  conversationId,
+  status,
+  reason,
+  salesUser,
+}) => {
   const nextStatus = clean(status);
-  if (!['needs_sales', 'in_conversation', 'resolved', 'converted'].includes(nextStatus)) {
-    throw createHttpError(400, 'INVALID_CHAT_STATUS', 'Invalid Sales conversation status');
+  if (
+    ![
+      'needs_sales',
+      'in_conversation',
+      'waiting_customer',
+      'booking_created',
+      'resolved',
+      'converted',
+    ].includes(nextStatus)
+  ) {
+    throw createHttpError(
+      400,
+      'INVALID_CHAT_STATUS',
+      'Invalid Sales conversation status',
+    );
   }
+  const validReasons = [
+    'booking_created',
+    'question_answered',
+    'customer_declined',
+    'no_response',
+    'duplicate_spam',
+    'other',
+  ];
+  const resolutionReason = clean(reason);
+  if (nextStatus === 'resolved' && !validReasons.includes(resolutionReason)) {
+    throw createHttpError(
+      400,
+      'RESOLUTION_REASON_REQUIRED',
+      'Select a valid resolution reason.',
+    );
+  }
+  const now = new Date();
   const updated = await ChatConversation.findOneAndUpdate(
-    { conversationId, ...salesConversationFilter() },
+    {
+      conversationId,
+      $and: [salesConversationFilter(), salesOwnershipFilter(salesUser)],
+    },
     {
       $set: {
         status: nextStatus,
-        ...(nextStatus === 'resolved' || nextStatus === 'converted'
-          ? { unreadForSales: false, unreadForCustomer: true }
-          : {}),
+        assignedSalesId: salesUser?.id,
+        assignedSalesName:
+          salesUser?.name || salesUser?.email || 'AutoSPF+ Sales',
+        ...(nextStatus === 'resolved'
+          ? {
+              resolutionReason,
+              resolvedAt: now,
+              resolvedBy: salesUser?.id,
+              unreadForSales: false,
+              unreadForCustomer: true,
+            }
+          : {
+              resolutionReason: '',
+              resolvedAt: null,
+              resolvedBy: null,
+            }),
       },
     },
-    { new: true, runValidators: true }
+    { new: true, runValidators: true },
   ).lean();
   if (!updated) {
-    throw createHttpError(404, 'CHAT_CONVERSATION_NOT_FOUND', 'Conversation not found');
+    const existing = await ChatConversation.findOne({
+      conversationId,
+      ...salesConversationFilter(),
+    })
+      .select('assignedSalesName')
+      .lean();
+    if (existing) {
+      throw createHttpError(
+        409,
+        'CHAT_CONVERSATION_ASSIGNED',
+        `This conversation is assigned to ${existing.assignedSalesName || 'another Sales agent'}.`,
+      );
+    }
+    throw createHttpError(
+      404,
+      'CHAT_CONVERSATION_NOT_FOUND',
+      'Conversation not found',
+    );
+  }
+  if (nextStatus === 'resolved') {
+    await ChatMessage.create({
+      sessionId: conversationId,
+      conversationId,
+      sender: 'system',
+      senderId: salesUser?.id,
+      senderName: salesUser?.name || salesUser?.email || 'AutoSPF+ Sales',
+      message: `Conversation resolved · ${resolutionReason.replaceAll('_', ' ')}`,
+      metadata: { type: 'conversation_resolved', reason: resolutionReason },
+    });
   }
   const payload = await serializeChatConversationPayload(updated);
   return payload.conversation;
 };
 
-export const assignSalesConversation = async ({ conversationId, salesUser }) => {
+export const assignSalesConversation = async ({
+  conversationId,
+  salesUser,
+}) => {
   const updated = await ChatConversation.findOneAndUpdate(
-    { conversationId, ...salesConversationFilter() },
+    {
+      conversationId,
+      $and: [salesConversationFilter(), salesOwnershipFilter(salesUser)],
+    },
     {
       $set: {
         assignedSalesId: salesUser.id,
-        assignedSalesName: salesUser.name || salesUser.email || 'AutoSPF+ Sales',
+        assignedSalesName:
+          salesUser.name || salesUser.email || 'AutoSPF+ Sales',
       },
     },
-    { new: true, runValidators: true }
+    { new: true, runValidators: true },
   ).lean();
   if (!updated) {
-    throw createHttpError(404, 'CHAT_CONVERSATION_NOT_FOUND', 'Conversation not found');
+    const existing = await ChatConversation.findOne({
+      conversationId,
+      ...salesConversationFilter(),
+    })
+      .select('assignedSalesName')
+      .lean();
+    if (existing) {
+      throw createHttpError(
+        409,
+        'CHAT_CONVERSATION_ASSIGNED',
+        `This conversation is already assigned to ${existing.assignedSalesName || 'another Sales agent'}.`,
+      );
+    }
+    throw createHttpError(
+      404,
+      'CHAT_CONVERSATION_NOT_FOUND',
+      'Conversation not found',
+    );
   }
+  const payload = await serializeChatConversationPayload(updated);
+  return payload.conversation;
+};
+
+export const linkSalesConversationBooking = async ({
+  conversationId,
+  bookingId,
+  salesUser,
+}) => {
+  const normalizedBookingId = clean(bookingId);
+  if (!mongoose.isValidObjectId(normalizedBookingId)) {
+    throw createHttpError(
+      400,
+      'INVALID_BOOKING_ID',
+      'A valid booking ID is required.',
+    );
+  }
+  const conversation = await ChatConversation.findOne({
+    conversationId,
+    ...salesConversationFilter(),
+  }).lean();
+  if (!conversation) {
+    throw createHttpError(
+      404,
+      'CHAT_CONVERSATION_NOT_FOUND',
+      'Conversation not found',
+    );
+  }
+  if (
+    conversation.assignedSalesId &&
+    clean(conversation.assignedSalesId) !== clean(salesUser?.id)
+  ) {
+    throw createHttpError(
+      409,
+      'CHAT_CONVERSATION_ASSIGNED',
+      `This conversation is assigned to ${conversation.assignedSalesName || 'another Sales agent'}.`,
+    );
+  }
+  if (conversation.linkedBookingId) {
+    if (clean(conversation.linkedBookingId) !== normalizedBookingId) {
+      throw createHttpError(
+        409,
+        'CHAT_BOOKING_ALREADY_LINKED',
+        'A booking is already linked to this conversation.',
+      );
+    }
+    const payload = await serializeChatConversationPayload(conversation);
+    return payload.conversation;
+  }
+  const booking = await Order.findById(normalizedBookingId)
+    .select('_id customer bookingReference orderNumber bookingDate bookingTime')
+    .lean();
+  if (!booking) {
+    throw createHttpError(404, 'BOOKING_NOT_FOUND', 'Booking not found.');
+  }
+  if (
+    conversation.userId &&
+    clean(booking.customer) !== clean(conversation.userId)
+  ) {
+    throw createHttpError(
+      403,
+      'BOOKING_CUSTOMER_MISMATCH',
+      'Booking does not belong to this conversation customer.',
+    );
+  }
+  const reference = clean(booking.bookingReference || booking.orderNumber);
+  const bookingMessage = `Booking ${reference || normalizedBookingId} created for ${booking.bookingDate} at ${booking.bookingTime}.`;
+  const bookingActivityAt = new Date();
+  const updated = await ChatConversation.findOneAndUpdate(
+    {
+      conversationId,
+      $and: [
+        salesConversationFilter(),
+        salesOwnershipFilter(salesUser),
+        {
+          $or: [
+            { linkedBookingId: { $exists: false } },
+            { linkedBookingId: null },
+            { linkedBookingId: booking._id },
+          ],
+        },
+      ],
+    },
+    {
+      $set: {
+        status: 'booking_created',
+        linkedBookingId: booking._id,
+        linkedBookingReference: reference,
+        assignedSalesId: salesUser?.id,
+        assignedSalesName:
+          salesUser?.name || salesUser?.email || 'AutoSPF+ Sales',
+        unreadForCustomer: true,
+        unreadForSales: false,
+        lastMessage: bookingMessage,
+        lastMessagePreview: buildConversationPreview(bookingMessage),
+        lastMessageAt: bookingActivityAt,
+      },
+    },
+    { new: true, runValidators: true },
+  ).lean();
+  if (!updated) {
+    throw createHttpError(
+      409,
+      'CHAT_BOOKING_ALREADY_LINKED',
+      'A booking is already linked to this conversation.',
+    );
+  }
+  await ChatMessage.create({
+    sessionId: conversationId,
+    conversationId,
+    sender: 'system',
+    senderId: salesUser?.id,
+    senderName: salesUser?.name || salesUser?.email || 'AutoSPF+ Sales',
+    message: bookingMessage,
+    metadata: {
+      type: 'booking_created',
+      bookingId: normalizedBookingId,
+      bookingReference: reference,
+    },
+  });
   const payload = await serializeChatConversationPayload(updated);
   return payload.conversation;
 };
@@ -1006,10 +1462,68 @@ export const markSalesConversationRead = async (conversationId) => {
   const updated = await ChatConversation.findOneAndUpdate(
     { conversationId, ...salesConversationFilter() },
     { $set: { unreadForSales: false } },
-    { new: true, runValidators: true }
+    { new: true, runValidators: true },
   ).lean();
   if (!updated) {
-    throw createHttpError(404, 'CHAT_CONVERSATION_NOT_FOUND', 'Conversation not found');
+    throw createHttpError(
+      404,
+      'CHAT_CONVERSATION_NOT_FOUND',
+      'Conversation not found',
+    );
+  }
+  const payload = await serializeChatConversationPayload(updated);
+  return payload.conversation;
+};
+
+export const addSalesConversationNote = async ({
+  conversationId,
+  salesUser,
+  text,
+}) => {
+  const note = clean(text);
+  if (!note)
+    throw createHttpError(400, 'CHAT_NOTE_REQUIRED', 'Note is required.');
+  if (note.length > 2000)
+    throw createHttpError(
+      400,
+      'CHAT_NOTE_TOO_LONG',
+      'Note must be 2,000 characters or fewer.',
+    );
+  const updated = await ChatConversation.findOneAndUpdate(
+    {
+      conversationId,
+      $and: [salesConversationFilter(), salesOwnershipFilter(salesUser)],
+    },
+    {
+      $push: {
+        internalNotes: {
+          authorId: salesUser.id,
+          authorName: salesUser.name || salesUser.email || 'Sales Team',
+          text: note,
+          createdAt: new Date(),
+        },
+      },
+    },
+    { new: true, runValidators: true },
+  ).lean();
+  if (!updated) {
+    const existing = await ChatConversation.findOne({
+      conversationId,
+      ...salesConversationFilter(),
+    })
+      .select('assignedSalesName')
+      .lean();
+    if (existing)
+      throw createHttpError(
+        409,
+        'CHAT_CONVERSATION_ASSIGNED',
+        `This conversation is assigned to ${existing.assignedSalesName || 'another Sales agent'}.`,
+      );
+    throw createHttpError(
+      404,
+      'CHAT_CONVERSATION_NOT_FOUND',
+      'Conversation not found',
+    );
   }
   const payload = await serializeChatConversationPayload(updated);
   return payload.conversation;

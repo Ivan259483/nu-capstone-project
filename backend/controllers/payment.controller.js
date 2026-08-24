@@ -13,6 +13,7 @@ import { isCustomerRole } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { notifyCustomerReceiptReady } from '../utils/customerReceiptNotification.utils.js';
+import { createCustomerPaymentConfirmedNotification } from '../utils/customerStageNotifications.utils.js';
 import { normalizeMoney, computeDiscountAmount, computeBillingTotals } from '../utils/billingTotals.js';
 import { countGatePhotos, REQUIRED_GATE_PHOTOS } from '../utils/trackerGatePhotos.utils.js';
 import {
@@ -35,6 +36,7 @@ import {
   getPendingPaymentsSummary,
   PENDING_PAYMENT_STATUSES,
 } from '../services/pendingPayments.service.js';
+import { normalizePaymentMethod } from '../utils/paymentMethod.utils.js';
 
 const LOW_STOCK_THRESHOLD = 10;
 const LOCAL_PAYMENTS_PROVIDER = (process.env.LOCAL_PAYMENTS_PROVIDER || 'paymongo').toLowerCase();
@@ -190,16 +192,6 @@ const notifyInventoryIssue = async ({ title, message, metadata }) => {
     });
   } catch (error) {
     console.error('Failed to create inventory notification:', error.message);
-  }
-};
-
-const emitCustomerNotification = (customerId, notification) => {
-  try {
-    if (!customerId) return;
-    const io = getIO();
-    io.to(`user:${customerId.toString()}`).emit('notification:customer', notification);
-  } catch (error) {
-    console.warn('Socket not initialized for customer notification:', error.message);
   }
 };
 
@@ -440,40 +432,7 @@ const finalizePayment = async (payment, order, payload = {}) => {
   }
 
   try {
-    const customerId = typeof order.customer === 'object' ? order.customer?._id : order.customer;
-    if (customerId) {
-      const existingCustomer = await Notification.findOne({
-        'metadata.paymentId': payment._id,
-        type: 'success',
-        recipientRole: 'customer',
-      });
-      if (!existingCustomer) {
-        const createdNotification = await Notification.create({
-          title: 'Payment Received',
-          message: `Payment ${payment.invoiceId} received successfully.`,
-          type: 'success',
-          recipientRole: 'customer',
-          recipientUserId: customerId,
-          link: '/customer/dashboard?tab=bookings',
-          metadata: {
-            paymentId: payment._id,
-            orderId: order._id,
-            customerId: customerId.toString(),
-            invoiceId: payment.invoiceId,
-            amount: payment.amount,
-          },
-        });
-        emitCustomerNotification(customerId, {
-          id: createdNotification._id,
-          title: createdNotification.title,
-          message: createdNotification.message,
-          type: createdNotification.type,
-          isRead: createdNotification.isRead,
-          createdAt: createdNotification.createdAt,
-          link: createdNotification.link,
-        });
-      }
-    }
+    await createCustomerPaymentConfirmedNotification(order, payment);
   } catch (notifyError) {
     console.error('Failed to notify customer payment completion:', notifyError.message);
   }
@@ -1020,6 +979,67 @@ export const getMyPayments = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/payments/customer/:customerId/summary
+ * Cashier-safe customer history derived only from succeeded payment records.
+ */
+export const getCustomerPaymentSummary = async (req, res, next) => {
+  try {
+    const { customerId } = req.params;
+    if (!mongoose.isValidObjectId(customerId)) {
+      return res.status(400).json({ success: false, message: 'Invalid customer id' });
+    }
+
+    const customerObjectId = new mongoose.Types.ObjectId(customerId);
+    const [totals, recentPayments] = await Promise.all([
+      Payment.aggregate([
+        { $match: { customer: customerObjectId, status: 'succeeded' } },
+        {
+          $group: {
+            _id: null,
+            totalSpent: { $sum: '$amount' },
+            orderIds: { $addToSet: '$order' },
+            lastVisit: { $max: '$createdAt' },
+          },
+        },
+      ]),
+      Payment.find({ customer: customerObjectId, status: 'succeeded' })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select('invoiceId order items amount createdAt method')
+        .populate('order', 'orderNumber serviceType')
+        .lean(),
+    ]);
+
+    const summary = totals?.[0];
+    const recentServices = recentPayments.map((payment) => {
+      const itemNames = Array.isArray(payment.items)
+        ? payment.items.map((item) => String(item?.name || '').trim()).filter(Boolean)
+        : [];
+      return {
+        id: payment._id,
+        transactionId: payment.invoiceId,
+        service: itemNames.join(', ') || payment.order?.serviceType || 'Service payment',
+        date: payment.createdAt,
+        amount: normalizeMoney(payment.amount),
+        paymentMethod: payment.method,
+      };
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        totalSpent: normalizeMoney(summary?.totalSpent || 0),
+        visitCount: Array.isArray(summary?.orderIds) ? summary.orderIds.filter(Boolean).length : 0,
+        lastVisit: summary?.lastVisit || null,
+        recentServices,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getAllPayments = async (req, res, next) => {
   try {
     const { limit = 100 } = req.query || {};
@@ -1075,6 +1095,8 @@ export const runPosCheckoutCore = async ({
   paymentMethod,
   staffId,
   cashReceived,
+  amountReceived,
+  paymentReference,
   splitPayments = [],
   invoiceRecordId = null,
   billingVersion = null,
@@ -1119,8 +1141,18 @@ export const runPosCheckoutCore = async ({
       `Checkout already completed for this order (${duplicatePayment.invoiceId}).`
     );
   }
+  if (paymentMethod === 'gcash') {
+    const reusedReference = await Payment.findOne({
+      paymentReference: String(paymentReference || '').trim(),
+      status: 'succeeded',
+    }).select('_id invoiceId');
+    if (reusedReference) {
+      throw checkoutConflict(`This GCash reference was already used for ${reusedReference.invoiceId}.`);
+    }
+  }
 
   let changeGiven = null;
+  const normalizedPaymentReference = String(paymentReference || '').trim().slice(0, 64);
   if (amountCollected > 0) {
     if (paymentMethod === 'cash') {
       const received = Number(cashReceived);
@@ -1147,6 +1179,20 @@ export const runPosCheckoutCore = async ({
       } else if (totalSplit > amountCollected) {
         changeGiven = normalizeMoney(totalSplit - amountCollected);
       }
+    } else if (paymentMethod === 'gcash') {
+      const received = Number(amountReceived);
+      if (!normalizedPaymentReference || normalizedPaymentReference.length < 6) {
+        const err = new Error('A valid GCash reference number is required.');
+        err.statusCode = 400;
+        throw err;
+      }
+      if (!Number.isFinite(received) || Math.abs(received - amountCollected) > 0.009) {
+        const err = new Error(
+          `GCash amount received must match the amount due of ₱${amountCollected.toFixed(2)}.`
+        );
+        err.statusCode = 400;
+        throw err;
+      }
     }
   }
 
@@ -1170,9 +1216,10 @@ export const runPosCheckoutCore = async ({
     }
   }
 
+  const resolvedStaffId = staffId || req.user?.id || null;
   let staffUser = null;
-  if (staffId) {
-    staffUser = await User.findById(staffId).select('name email');
+  if (resolvedStaffId) {
+    staffUser = await User.findById(resolvedStaffId).select('name email');
   }
 
   const invoiceId = await allocateUniquePaymentInvoiceId(order.invoiceId);
@@ -1202,23 +1249,34 @@ export const runPosCheckoutCore = async ({
       method: paymentMethod,
       provider: paymentMethod === 'card' ? 'stripe' : 'pos',
       providerReference: `POS-${invoiceId}`,
+      paymentReference: paymentMethod === 'gcash' ? normalizedPaymentReference : null,
       checkoutReference,
-      staffAssigned: staffId || null,
+      staffAssigned: resolvedStaffId,
       discount: discount && discount.value > 0 ? discount : null,
       splitPayments: paymentMethod === 'split' ? splitPayments : [],
       cashReceived: ['cash', 'split'].includes(paymentMethod) ? Number(cashReceived) : null,
+      amountReceived:
+        paymentMethod === 'gcash'
+          ? Number(amountReceived)
+          : ['cash', 'split'].includes(paymentMethod)
+            ? Number(cashReceived)
+            : amountCollected,
       changeGiven,
       items: allItems,
       metadata: {
         orderNumber: order.orderNumber,
         posTransaction: true,
         ...metadataExtra,
+        ...(paymentMethod === 'gcash' ? { paymentReference: normalizedPaymentReference } : {}),
         checkoutReference,
       },
     });
   } catch (error) {
     if (error?.code === 11000 && error?.keyPattern?.checkoutReference) {
       throw checkoutConflict('Checkout already completed for this order.');
+    }
+    if (error?.code === 11000 && error?.keyPattern?.paymentReference) {
+      throw checkoutConflict('This GCash reference has already been used.');
     }
     throw error;
   }
@@ -1447,7 +1505,14 @@ export const runPosCheckoutCore = async ({
     paymentMethod,
     splitPayments: paymentMethod === 'split' ? splitPayments : [],
     cashReceived: ['cash', 'split'].includes(paymentMethod) ? Number(cashReceived) : null,
+    amountReceived:
+      paymentMethod === 'gcash'
+        ? Number(amountReceived)
+        : ['cash', 'split'].includes(paymentMethod)
+          ? Number(cashReceived)
+          : amountCollected,
     changeGiven,
+    paymentReference: paymentMethod === 'gcash' ? normalizedPaymentReference : null,
     staff: staffUser ? { id: staffUser._id, name: staffUser.name } : null,
     bookingRef: order.orderNumber,
     date: new Date().toISOString(),
@@ -1479,10 +1544,12 @@ export const createPOSTransaction = async (req, res, next) => {
     const {
       orderId,
       items = [],
-      paymentMethod = 'cash',
+      paymentMethod: requestedPaymentMethod,
       staffId,
       discount,
       cashReceived,
+      amountReceived,
+      paymentReference,
       addons = [],
       splitPayments = [],
       taxVatAmount: bodyTax = 0,
@@ -1497,15 +1564,16 @@ export const createPOSTransaction = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'At least one item is required' });
     }
 
-    const validMethods = ['cash', 'gcash', 'maya', 'card', 'split'];
-    if (!validMethods.includes(paymentMethod)) {
-      return res.status(400).json({ success: false, message: 'Invalid payment method' });
+    const paymentMethod = normalizePaymentMethod(requestedPaymentMethod);
+    if (!paymentMethod) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid payment method is required',
+      });
     }
 
-    if (paymentMethod === 'split') {
-      if (!splitPayments || !splitPayments.length) {
-        return res.status(400).json({ success: false, message: 'Split payments array is required for split method' });
-      }
+    if (paymentMethod === 'split' && (!splitPayments || !splitPayments.length)) {
+      return res.status(400).json({ success: false, message: 'Split payments array is required for split method' });
     }
 
     const order = await Order.findById(orderId)
@@ -1576,6 +1644,8 @@ export const createPOSTransaction = async (req, res, next) => {
       paymentMethod,
       staffId,
       cashReceived,
+      amountReceived,
+      paymentReference,
       splitPayments,
       invoiceRecordId: null,
       billingVersion: null,
@@ -1688,7 +1758,9 @@ export const getReceiptData = async (req, res, next) => {
       paymentMethod: payment.method,
       splitPayments: payment.splitPayments || [],
       cashReceived: payment.cashReceived,
+      amountReceived: payment.amountReceived,
       changeGiven: payment.changeGiven,
+      paymentReference: payment.paymentReference,
       staff: payment.staffAssigned ? { id: payment.staffAssigned._id, name: payment.staffAssigned.name } : null,
       bookingRef: payment.order?.orderNumber || '',
       serviceType: payment.order?.serviceType || '',

@@ -10,8 +10,9 @@ type ConversationStatusBadgeProps = {
 const STATUS_CLASSES: Record<ConversationStatus, string> = {
   'Needs Sales': 'border-amber-200 bg-amber-50 text-amber-700',
   'In Conversation': 'border-blue-200 bg-blue-50 text-blue-700',
+  'Waiting for Customer': 'border-violet-200 bg-violet-50 text-violet-700',
+  'Booking Created': 'border-emerald-200 bg-emerald-50 text-emerald-700',
   Resolved: 'border-slate-200 bg-slate-100 text-slate-600',
-  Converted: 'border-emerald-200 bg-emerald-50 text-emerald-700',
 };
 
 export default function ConversationStatusBadge({
@@ -25,7 +26,9 @@ export default function ConversationStatusBadge({
         compact ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px]'
       }`}
     >
-      {status === 'Resolved' ? <CheckCircle2 size={compact ? 11 : 12} className="text-emerald-600" /> : null}
+      {status === 'Resolved' ? (
+        <CheckCircle2 size={compact ? 11 : 12} className="text-emerald-600" />
+      ) : null}
       {status}
       {detail ? <span aria-hidden="true">·</span> : null}
       {detail ? <span>{detail}</span> : null}

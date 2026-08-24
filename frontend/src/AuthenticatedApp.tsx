@@ -196,6 +196,22 @@ function AuthenticatedHomeEntry() {
     return <Home />;
 }
 
+/** Sales account pages are dashboard views, never standalone routes. */
+function LegacyAccountPathRedirect() {
+    const { user, isLoading, isFirebaseAuthReady } = useAuth();
+
+    if (!isFirebaseAuthReady || isLoading) {
+        return <RoutePageSkeleton />;
+    }
+
+    if (getSafeUserRole(user?.role) === 'sales') {
+        return <Navigate to="/sales/dashboard" replace />;
+    }
+
+    // Preserve the previous wildcard behavior for every non-Sales role.
+    return <Navigate to="/" replace />;
+}
+
 function AppRoutes() {
     // NOTE: Role-based redirect after login is handled by AuthContext + Login.tsx useEffect.
     // Do NOT add a separate auth.onAuthStateChanged here — it causes race conditions and
@@ -227,6 +243,9 @@ function AppRoutes() {
                     <Route path="/verify-account" element={<VerifyStaffAccountPage />} />
                     <Route path="/set-password" element={<SetPasswordPage />} />
                     <Route path="/track/:token" element={<PublicTrackerPage />} />
+                    <Route path="/settings" element={<LegacyAccountPathRedirect />} />
+                    <Route path="/profile" element={<LegacyAccountPathRedirect />} />
+                    <Route path="/my-profile" element={<LegacyAccountPathRedirect />} />
                     <Route
                         path="/customer/dashboard"
                         element={

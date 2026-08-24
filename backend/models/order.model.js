@@ -72,7 +72,16 @@ const orderSchema = new mongoose.Schema(
       // ⚠️ Bug #4 fix: Removed all capitalized/duplicate enum values.
       // Only lowercase values are accepted. The normalizeCustomerStatus() helper
       // in order.controller.js enforces this on all writes.
-      enum: ['received', 'washing', 'detailing', 'queued', 'in-progress', 'finishing', 'ready', 'completed'],
+      enum: [
+        'received',
+        'washing',
+        'detailing',
+        'queued',
+        'in-progress',
+        'finishing',
+        'ready',
+        'completed',
+      ],
       default: 'received',
     },
     customerStatusUpdatedAt: Date,
@@ -80,9 +89,9 @@ const orderSchema = new mongoose.Schema(
       type: String,
       enum: [
         'pending_confirmation', // Customer submitted + uploaded GCash proof — awaiting sales review
-        'approved',             // Sales approved — booking enters service queue
-        'rejected',             // Sales rejected the payment proof
-        'pending',              // Legacy / walk-in (kept for backward compat)
+        'approved', // Sales approved — booking enters service queue
+        'rejected', // Sales rejected the payment proof
+        'pending', // Legacy / walk-in (kept for backward compat)
         'confirmed',
         'assigned',
         'queued',
@@ -97,7 +106,7 @@ const orderSchema = new mongoose.Schema(
       default: 'pending_confirmation',
     },
     paymentProofUrl: {
-      type: String,          // GCash screenshot URL / file path
+      type: String, // GCash screenshot URL / file path
       default: null,
     },
     approvedAt: Date,
@@ -135,15 +144,27 @@ const orderSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
+    sourceConversationId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      trim: true,
+    },
     downpaymentProof: String,
     inventoryReservation: {
-      items: [{
-        product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
-        productName: String,
-        quantity: Number,
-        reservedAt: Date,
-      }],
-      status: { type: String, enum: [null, 'reserved', 'committed', 'released'], default: null },
+      items: [
+        {
+          product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+          productName: String,
+          quantity: Number,
+          reservedAt: Date,
+        },
+      ],
+      status: {
+        type: String,
+        enum: [null, 'reserved', 'committed', 'released'],
+        default: null,
+      },
       reservedAt: Date,
       committedAt: Date,
     },
@@ -189,8 +210,8 @@ const orderSchema = new mongoose.Schema(
           isMustExplain: { type: Boolean, default: false },
           isRequired: { type: Boolean, default: true },
           completed: { type: Boolean, default: false },
-          completedAt: Date
-        }
+          completedAt: Date,
+        },
       ],
       egress: [
         {
@@ -198,9 +219,9 @@ const orderSchema = new mongoose.Schema(
           isMustExplain: { type: Boolean, default: false },
           isRequired: { type: Boolean, default: true },
           completed: { type: Boolean, default: false },
-          completedAt: Date
-        }
-      ]
+          completedAt: Date,
+        },
+      ],
     },
     warrantyAndReceipt: {
       certificateNumber: String,
@@ -215,7 +236,7 @@ const orderSchema = new mongoose.Schema(
       installationDate: Date,
       existingFwsAndShade: String,
       reasonForChanging: String,
-      signedAt: Date
+      signedAt: Date,
     },
     currentStepIndex: {
       type: Number,
@@ -255,12 +276,14 @@ const orderSchema = new mongoose.Schema(
 
     // Step 2 — Ingress Checklist
     ingressChecklist: {
-      items: [{
-        category: String,
-        name: String,
-        checked: { type: Boolean, default: false },
-        note: String,
-      }],
+      items: [
+        {
+          category: String,
+          name: String,
+          checked: { type: Boolean, default: false },
+          note: String,
+        },
+      ],
       beforeServiceNotes: String,
       preExistingConditions: String,
       completedAt: Date,
@@ -268,24 +291,42 @@ const orderSchema = new mongoose.Schema(
     },
 
     // Step 3 — Damage Annotations
-    damageAnnotations: [{
-      x: Number,
-      y: Number,
-      view: { type: String, enum: ['top', 'left', 'right'], default: 'top' },
-      panel: String,
-      type: { type: String, enum: ['scratch', 'dent', 'chip', 'repaint', 'cracked_light', 'swirl_mark', 'curb_rash', 'swirl', 'crack', 'stain'] },
-      severity: String,
-      note: String,
-      images: [String],
-      addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-      addedAt: { type: Date, default: Date.now },
-    }],
+    damageAnnotations: [
+      {
+        x: Number,
+        y: Number,
+        view: { type: String, enum: ['top', 'left', 'right'], default: 'top' },
+        panel: String,
+        type: {
+          type: String,
+          enum: [
+            'scratch',
+            'dent',
+            'chip',
+            'repaint',
+            'cracked_light',
+            'swirl_mark',
+            'curb_rash',
+            'swirl',
+            'crack',
+            'stain',
+          ],
+        },
+        severity: String,
+        note: String,
+        images: [String],
+        addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        addedAt: { type: Date, default: Date.now },
+      },
+    ],
     damagePhotos: { type: [String], default: [] },
     damageCompletedAt: Date,
 
     // Step 4 — Customer Waiver
     customerWaiver: {
-      termsAccepted: [{ label: String, accepted: { type: Boolean, default: false } }],
+      termsAccepted: [
+        { label: String, accepted: { type: Boolean, default: false } },
+      ],
       customerFullName: String,
       digitalSignature: String,
       dateSigned: Date,
@@ -294,17 +335,25 @@ const orderSchema = new mongoose.Schema(
 
     // Step 5 — Service Proper
     serviceProper: {
-      checklist: [{
-        name: String,
-        status: { type: String, enum: ['pending', 'in-progress', 'completed'], default: 'pending' },
-        completedAt: Date,
-      }],
-      materialsUsed: [{
-        productId: String,
-        productName: String,
-        quantity: Number,
-        unit: String,
-      }],
+      checklist: [
+        {
+          name: String,
+          status: {
+            type: String,
+            enum: ['pending', 'in-progress', 'completed'],
+            default: 'pending',
+          },
+          completedAt: Date,
+        },
+      ],
+      materialsUsed: [
+        {
+          productId: String,
+          productName: String,
+          quantity: Number,
+          unit: String,
+        },
+      ],
       technicianNotes: String,
       progressPercentage: { type: Number, default: 0 },
       completedAt: Date,
@@ -312,21 +361,25 @@ const orderSchema = new mongoose.Schema(
     },
 
     // Step 6 — QC Checklist
-    qcChecklist: [{
-      item: String,
-      passed: { type: Boolean, default: false },
-      note: String,
-      checkedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-      checkedAt: Date,
-    }],
+    qcChecklist: [
+      {
+        item: String,
+        passed: { type: Boolean, default: false },
+        note: String,
+        checkedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        checkedAt: Date,
+      },
+    ],
     qcCompletedAt: Date,
 
     // Step 7 — Egress / Release
     egressData: {
-      aftercareChecklist: [{
-        item: String,
-        checked: { type: Boolean, default: false },
-      }],
+      aftercareChecklist: [
+        {
+          item: String,
+          checked: { type: Boolean, default: false },
+        },
+      ],
       paymentConfirmed: { type: Boolean, default: false },
       customerSignature: String,
       detailerName: String,
@@ -340,39 +393,66 @@ const orderSchema = new mongoose.Schema(
     // This drives the customer's 5-step live tracking display.
     serviceTrackingStage: {
       type: String,
-      enum: [null, 'confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup', 'completed', 'released'],
+      enum: [
+        null,
+        'confirmed',
+        'received',
+        'in_progress',
+        'quality_check',
+        'ready_pickup',
+        'completed',
+        'released',
+      ],
       default: null,
     },
     serviceTrackingUpdatedAt: Date,
     serviceTrackingUpdatedBy: String,
 
     // Named staff assigned to the job (displayed on customer tracker)
-    serviceStaffAssignments: [{
-      slot: { type: String, enum: ['staff1', 'staff2', 'staff3', 'staff4'] },
-      name: String,
-      role: String,
-      assignedAt: { type: Date, default: Date.now },
-      assignedBy: String,
-    }],
+    serviceStaffAssignments: [
+      {
+        slot: { type: String, enum: ['staff1', 'staff2', 'staff3', 'staff4'] },
+        name: String,
+        role: String,
+        assignedAt: { type: Date, default: Date.now },
+        assignedBy: String,
+      },
+    ],
 
     /** Per live-tracker stage + angle slot: staff photo + optional note (customer-facing). */
-    trackerStageMedia: [{
-      stage: {
-        type: String,
-        enum: ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'],
-        required: true,
+    trackerStageMedia: [
+      {
+        stage: {
+          type: String,
+          enum: [
+            'confirmed',
+            'received',
+            'in_progress',
+            'quality_check',
+            'ready_pickup',
+          ],
+          required: true,
+        },
+        /** Gate stages: five angles; preassessment_form on received (QC); qc_form on quality_check (single checklist photo). */
+        slot: {
+          type: String,
+          enum: [
+            'front',
+            'rear',
+            'left',
+            'right',
+            'close_up',
+            'preassessment_form',
+            'qc_form',
+          ],
+          required: false,
+        },
+        photoUrl: { type: String, default: '' },
+        description: { type: String, default: '' },
+        uploadedAt: { type: Date, default: Date.now },
+        uploadedBy: String,
       },
-      /** Gate stages: five angles; preassessment_form on received (QC); qc_form on quality_check (single checklist photo). */
-      slot: {
-        type: String,
-        enum: ['front', 'rear', 'left', 'right', 'close_up', 'preassessment_form', 'qc_form'],
-        required: false,
-      },
-      photoUrl: { type: String, default: '' },
-      description: { type: String, default: '' },
-      uploadedAt: { type: Date, default: Date.now },
-      uploadedBy: String,
-    }],
+    ],
 
     /** QC live tracker — editable vehicle / tint handoff (paper QC form mirror). */
     qcHandoffSheet: {
@@ -386,11 +466,12 @@ const orderSchema = new mongoose.Schema(
       updatedBy: String,
     },
   },
-  { timestamps: true, optimisticConcurrency: true }
+  { timestamps: true, optimisticConcurrency: true },
 );
 
 // Virtual alias: plateNumber ↔ vehiclePlate (read/write convenience accessor)
-orderSchema.virtual('plateNumber')
+orderSchema
+  .virtual('plateNumber')
   .get(function () {
     return this.vehiclePlate;
   })
@@ -409,14 +490,29 @@ orderSchema.pre('save', function (next) {
   if (this.isModified('notes') && this.notes) {
     this.notes = encrypt(this.notes);
   }
-  if (this.isModified('legalCompliance.waiverSignature') && this.legalCompliance?.waiverSignature) {
-    this.legalCompliance.waiverSignature = encrypt(this.legalCompliance.waiverSignature);
+  if (
+    this.isModified('legalCompliance.waiverSignature') &&
+    this.legalCompliance?.waiverSignature
+  ) {
+    this.legalCompliance.waiverSignature = encrypt(
+      this.legalCompliance.waiverSignature,
+    );
   }
-  if (this.isModified('legalCompliance.damageNotes') && this.legalCompliance?.damageNotes) {
-    this.legalCompliance.damageNotes = encrypt(this.legalCompliance.damageNotes);
+  if (
+    this.isModified('legalCompliance.damageNotes') &&
+    this.legalCompliance?.damageNotes
+  ) {
+    this.legalCompliance.damageNotes = encrypt(
+      this.legalCompliance.damageNotes,
+    );
   }
-  if (this.isModified('warrantyAndReceipt.customerSignature') && this.warrantyAndReceipt?.customerSignature) {
-    this.warrantyAndReceipt.customerSignature = encrypt(this.warrantyAndReceipt.customerSignature);
+  if (
+    this.isModified('warrantyAndReceipt.customerSignature') &&
+    this.warrantyAndReceipt?.customerSignature
+  ) {
+    this.warrantyAndReceipt.customerSignature = encrypt(
+      this.warrantyAndReceipt.customerSignature,
+    );
   }
   next();
 });
@@ -433,44 +529,58 @@ orderSchema.post('init', function (doc) {
   hydrateDecryptedValue('shippingAddress', doc.shippingAddress);
   hydrateDecryptedValue('notes', doc.notes);
   if (doc.legalCompliance?.waiverSignature) {
-    hydrateDecryptedValue('legalCompliance.waiverSignature', doc.legalCompliance.waiverSignature);
+    hydrateDecryptedValue(
+      'legalCompliance.waiverSignature',
+      doc.legalCompliance.waiverSignature,
+    );
   }
   if (doc.legalCompliance?.damageNotes) {
-    hydrateDecryptedValue('legalCompliance.damageNotes', doc.legalCompliance.damageNotes);
+    hydrateDecryptedValue(
+      'legalCompliance.damageNotes',
+      doc.legalCompliance.damageNotes,
+    );
   }
   if (doc.warrantyAndReceipt?.customerSignature) {
-    hydrateDecryptedValue('warrantyAndReceipt.customerSignature', doc.warrantyAndReceipt.customerSignature);
+    hydrateDecryptedValue(
+      'warrantyAndReceipt.customerSignature',
+      doc.warrantyAndReceipt.customerSignature,
+    );
   }
 });
 
 // ── Performance Indexes ──────────────────────────────────────────────
 // These compound indexes cover the most common query patterns and
 // eliminate full collection scans on the orders collection.
-orderSchema.index({ customer: 1, archived: 1, createdAt: -1 });       // Customer bookings (getAllOrders for customers)
-orderSchema.index({ customer: 1, createdAt: -1 });                    // Customer booking history
-orderSchema.index({ customer: 1, archived: 1, updatedAt: -1 });       // Customer notification-stage backfill
-orderSchema.index({ customer: 1, paymentStatus: 1, updatedAt: -1 });  // Customer receipt notification backfill
-orderSchema.index({ assignedDetailer: 1, status: 1 });                // Detailer queue & active jobs
-orderSchema.index({ status: 1 });                                     // QC/admin status filters
-orderSchema.index({ createdAt: -1 });                                 // Recent-first queues
-orderSchema.index({ paymentStatus: 1, createdAt: -1 });               // POS unpaid/paid queues
-orderSchema.index({ posQueueStatus: 1, readyForPaymentAt: -1 });       // POS Balance / Pickup queue
-orderSchema.index({ serviceId: 1 });                                  // Service-specific booking filters
-orderSchema.index({ serviceId: 1, createdAt: -1 });                   // Service-specific booking history
-orderSchema.index({ qcCompletedAt: -1 });                             // QC review/report lookups
-orderSchema.index({ status: 1, createdAt: -1 });                      // QC jobs by status + recency
-orderSchema.index({ qcCompletedAt: 1, assignedDetailer: 1 });          // QC status + assigned technician lookups
-orderSchema.index({ serviceTrackingStage: 1, status: 1 });             // Live tracker gate + order status lookups
+orderSchema.index({ customer: 1, archived: 1, createdAt: -1 }); // Customer bookings (getAllOrders for customers)
+orderSchema.index({ customer: 1, createdAt: -1 }); // Customer booking history
+orderSchema.index({ customer: 1, archived: 1, updatedAt: -1 }); // Customer notification-stage backfill
+orderSchema.index({ customer: 1, paymentStatus: 1, updatedAt: -1 }); // Customer receipt notification backfill
+orderSchema.index({ assignedDetailer: 1, status: 1 }); // Detailer queue & active jobs
+orderSchema.index({ status: 1 }); // QC/admin status filters
+orderSchema.index({ createdAt: -1 }); // Recent-first queues
+orderSchema.index({ paymentStatus: 1, createdAt: -1 }); // POS unpaid/paid queues
+orderSchema.index({ posQueueStatus: 1, readyForPaymentAt: -1 }); // POS Balance / Pickup queue
+orderSchema.index({ serviceId: 1 }); // Service-specific booking filters
+orderSchema.index({ serviceId: 1, createdAt: -1 }); // Service-specific booking history
+orderSchema.index({ qcCompletedAt: -1 }); // QC review/report lookups
+orderSchema.index({ status: 1, createdAt: -1 }); // QC jobs by status + recency
+orderSchema.index({ qcCompletedAt: 1, assignedDetailer: 1 }); // QC status + assigned technician lookups
+orderSchema.index({ serviceTrackingStage: 1, status: 1 }); // Live tracker gate + order status lookups
 orderSchema.index({ archived: 1, paymentStatus: 1, status: 1, updatedAt: -1 }); // Sales balance/pickup queue by status
-orderSchema.index({ archived: 1, paymentStatus: 1, serviceTrackingStage: 1, updatedAt: -1 }); // Sales balance/pickup queue by stage
-orderSchema.index({ archived: 1, status: 1, createdAt: -1 });          // Active QC jobs by archive flag + recency
-orderSchema.index({ status: 1, archived: 1, createdAt: -1 });         // Admin status + recency (getAllOrders)
-orderSchema.index({ bookingDate: 1, bookingTime: 1, status: 1 });     // Available slots lookup
+orderSchema.index({
+  archived: 1,
+  paymentStatus: 1,
+  serviceTrackingStage: 1,
+  updatedAt: -1,
+}); // Sales balance/pickup queue by stage
+orderSchema.index({ archived: 1, status: 1, createdAt: -1 }); // Active QC jobs by archive flag + recency
+orderSchema.index({ status: 1, archived: 1, createdAt: -1 }); // Admin status + recency (getAllOrders)
+orderSchema.index({ bookingDate: 1, bookingTime: 1, status: 1 }); // Available slots lookup
 // Slot service filters { status: $in, bookingDate: $in } — prefix { bookingDate: 1 } is used; kept explicit for Atlas/SRV planners
 orderSchema.index({ bookingDate: 1, status: 1 });
-orderSchema.index({ archived: 1, createdAt: -1 });                    // Archived orders listing
-orderSchema.index({ archived: 1, createdAt: -1, _id: -1 });            // Active order list by recency + stable pagination
-orderSchema.index({ archived: 1, updatedAt: -1, _id: -1 });            // Active order list by latest update + stable pagination
+orderSchema.index({ archived: 1, createdAt: -1 }); // Archived orders listing
+orderSchema.index({ archived: 1, createdAt: -1, _id: -1 }); // Active order list by recency + stable pagination
+orderSchema.index({ archived: 1, updatedAt: -1, _id: -1 }); // Active order list by latest update + stable pagination
 orderSchema.index({ assignedDetailer: 1, archived: 1, updatedAt: -1, _id: -1 }); // Scoped QC activity/report reads
 orderSchema.index({ bookingReference: 1 }, { unique: true, sparse: true }); // Booking ref lookup
 

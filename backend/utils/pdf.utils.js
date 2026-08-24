@@ -511,7 +511,7 @@ export const buildInvoicePdfBuffer = (snapshot) => {
   doc.text('Payment Status', margin + 190, y);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  doc.text(String(payment.method || 'cash').replace(/_/g, ' ').toUpperCase(), margin, y + 16);
+  doc.text(String(payment.method || 'unknown').replace(/_/g, ' ').toUpperCase(), margin, y + 16);
   doc.text(String(payment.status || snapshot.paymentStatus || 'paid').toUpperCase(), margin + 190, y + 16);
   y += 48;
 

@@ -6,7 +6,10 @@ import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
 import { config } from '../config/environment.js';
-import { STAFF_2FA_AUTH_LEVEL, requiresStaffTwoFactor } from '../constants/roles.js';
+import {
+  STAFF_2FA_AUTH_LEVEL,
+  requiresStaffTwoFactor,
+} from '../constants/roles.js';
 import {
   handleSocketMessage,
   handleSocketStreamingMessage,
@@ -42,11 +45,13 @@ const tokenFor = (user) =>
       role: user.role,
       email: user.email,
       name: user.name,
-      ...(requiresStaffTwoFactor(user.role) ? { authLevel: STAFF_2FA_AUTH_LEVEL } : {}),
+      ...(requiresStaffTwoFactor(user.role)
+        ? { authLevel: STAFF_2FA_AUTH_LEVEL }
+        : {}),
       ...(user.role === 'customer' ? { otpVerified: true } : {}),
     },
     config.jwtSecret,
-    { expiresIn: '1h' }
+    { expiresIn: '1h' },
   );
 
 const seedGuestConversation = async ({
@@ -108,7 +113,7 @@ beforeEach(async () => {
 after(async () => {
   if (server) {
     await new Promise((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve()))
+      server.close((error) => (error ? reject(error) : resolve())),
     );
   }
   await mongoose.disconnect();
@@ -119,13 +124,13 @@ test('guest handoff and messages require the exact guest key', async () => {
   const { conversationId, guestKey } = await seedGuestConversation();
 
   const missing = await jsonRequest(
-    `/api/chat/conversations/${conversationId}/messages`
+    `/api/chat/conversations/${conversationId}/messages`,
   );
   assert.equal(missing.response.status, 400);
   assert.equal(missing.body.code, 'GUEST_KEY_REQUIRED');
 
   const wrong = await jsonRequest(
-    `/api/chat/conversations/${conversationId}/messages?guestKey=wrong-key`
+    `/api/chat/conversations/${conversationId}/messages?guestKey=wrong-key`,
   );
   assert.equal(wrong.response.status, 404);
 
@@ -151,8 +156,10 @@ test('guest handoff and messages require the exact guest key', async () => {
   assert.equal(handoff.body.conversation.status, 'needs_sales');
   assert.equal(handoff.body.conversation.customerPhone, '+639171234567');
   assert.equal(
-    handoff.body.messages.find((message) => message.metadata?.type === 'sales_handoff')?.message,
-    'Chat was escalated from AutoSPF+ AI to Sales.'
+    handoff.body.messages.find(
+      (message) => message.metadata?.type === 'sales_handoff',
+    )?.message,
+    'Chat was escalated from AutoSPF+ AI to Sales.',
   );
 
   const stored = await ChatConversation.findOne({ conversationId }).lean();
@@ -183,7 +190,7 @@ test('guest handoff and messages require the exact guest key', async () => {
         senderType: 'sales',
         message: 'Spoofed reply',
       }),
-    }
+    },
   );
   assert.equal(spoofed.response.status, 400);
   assert.equal(spoofed.body.code, 'INVALID_CHAT_SENDER');
@@ -197,7 +204,7 @@ test('guest handoff and messages require the exact guest key', async () => {
         senderType: 'customer',
         message: 'My preferred date is Friday.',
       }),
-    }
+    },
   );
   assert.equal(customerMessage.response.status, 201);
   assert.equal(customerMessage.body.message.senderType, 'customer');
@@ -210,7 +217,7 @@ test('guest handoff and messages require the exact guest key', async () => {
         guestKey: 'wrong-key',
         message: 'This must not be saved.',
       }),
-    }
+    },
   );
   assert.equal(wrongWrite.response.status, 404);
 });
@@ -253,7 +260,9 @@ test('guest handoff requires valid contact details and saves them to the session
   assert.equal(connected.response.status, 201);
   assert.equal(connected.body.conversation.status, 'needs_sales');
 
-  const session = await ChatSession.findOne({ sessionId: conversationId }).lean();
+  const session = await ChatSession.findOne({
+    sessionId: conversationId,
+  }).lean();
   assert.equal(session.leadName, 'Guest Customer');
   assert.equal(session.leadPhone, '+639171234567');
 });
@@ -273,10 +282,57 @@ test('offering the Sales CTA does not hand off or notify staff before the click'
   assert.equal(response.response.status, 200);
   assert.equal(response.body.handoffOffer.reason, 'human_help');
 
-  const conversation = await ChatConversation.findOne({ conversationId }).lean();
+  const conversation = await ChatConversation.findOne({
+    conversationId,
+  }).lean();
   assert.equal(conversation.status, 'ai_handling');
   assert.equal(conversation.handedOffAt, undefined);
-  assert.equal(await Notification.countDocuments({ 'metadata.sessionId': conversationId }), 0);
+  assert.equal(
+    await Notification.countDocuments({ 'metadata.sessionId': conversationId }),
+    0,
+  );
+});
+
+test('chat message retries reuse the client message id without duplicating history', async () => {
+  const { conversationId } = await seedGuestConversation({
+    conversationId: 'idempotent-chat-message',
+  });
+  const payload = {
+    sessionId: conversationId,
+    message: 'Can I talk to a human representative?',
+    clientMessageId: 'client-message-retry-001',
+  };
+
+  const first = await jsonRequest('/api/chat/message', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  const retry = await jsonRequest('/api/chat/message', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  assert.equal(first.response.status, 200);
+  assert.equal(retry.response.status, 200);
+  assert.equal(retry.body.reply, first.body.reply);
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(
+    await ChatMessage.countDocuments({
+      sessionId: conversationId,
+      sender: 'user',
+      clientMessageId: payload.clientMessageId,
+    }),
+    1,
+  );
+  assert.equal(
+    await ChatMessage.countDocuments({
+      sessionId: conversationId,
+      sender: 'assistant',
+      clientMessageId: payload.clientMessageId,
+    }),
+    1,
+  );
 });
 
 test('customer Sales messages cannot implicitly promote an AI conversation', async () => {
@@ -293,12 +349,14 @@ test('customer Sales messages cannot implicitly promote an AI conversation', asy
         senderType: 'customer',
         message: 'This must stay in the AI flow.',
       }),
-    }
+    },
   );
   assert.equal(response.response.status, 409);
   assert.equal(response.body.code, 'SALES_HANDOFF_REQUIRED');
 
-  const conversation = await ChatConversation.findOne({ conversationId }).lean();
+  const conversation = await ChatConversation.findOne({
+    conversationId,
+  }).lean();
   assert.equal(conversation.status, 'ai_handling');
   assert.equal(conversation.handedOffAt, undefined);
 });
@@ -330,7 +388,10 @@ test('logged-in customer handoff uses account identity without contact capture',
   });
   assert.equal(response.response.status, 201);
   assert.equal(response.body.conversation.customerName, 'Account Customer');
-  assert.equal(response.body.conversation.customerEmail, 'account-customer@example.com');
+  assert.equal(
+    response.body.conversation.customerEmail,
+    'account-customer@example.com',
+  );
   assert.equal(response.body.conversation.status, 'needs_sales');
 });
 
@@ -345,7 +406,9 @@ test('customer conversation list returns a safe default Sales agent without exis
     isActive: true,
   });
 
-  const response = await jsonRequest('/api/chat/conversations?guestKey=fresh-public-guest');
+  const response = await jsonRequest(
+    '/api/chat/conversations?guestKey=fresh-public-guest',
+  );
   assert.equal(response.response.status, 200);
   assert.deepEqual(response.body.conversations, []);
   assert.equal(response.body.defaultSalesAgent.name, sales.name);
@@ -406,7 +469,7 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
     headers: { Authorization: `Bearer ${salesToken}` },
   });
   const legacyConversation = legacyList.body.conversations.find(
-    (conversation) => conversation.conversationId === 'undecryptable-phone'
+    (conversation) => conversation.conversationId === 'undecryptable-phone',
   );
   assert.equal(legacyConversation.customerPhone, '');
 
@@ -419,7 +482,7 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
         senderType: 'sales',
         message: 'A Sales adviser is now reviewing your request.',
       }),
-    }
+    },
   );
   assert.equal(reply.response.status, 201);
   assert.equal(reply.body.conversation.status, 'in_conversation');
@@ -428,57 +491,79 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
   assert.equal(reply.body.conversation.assignedSalesUser.name, 'Sales One');
   assert.equal(
     reply.body.conversation.assignedSalesUser.profileImage,
-    'https://cdn.example.com/sales-one-avatar.jpg'
+    'https://cdn.example.com/sales-one-avatar.jpg',
   );
   assert.equal(
     reply.body.conversation.assignedSalesUser.avatarUrl,
-    'https://cdn.example.com/sales-one-avatar.jpg'
+    'https://cdn.example.com/sales-one-avatar.jpg',
   );
   assert.equal(
     reply.body.conversation.assignedSalesUser.avatar,
-    'https://cdn.example.com/sales-one-avatar.jpg'
+    'https://cdn.example.com/sales-one-avatar.jpg',
   );
   assert.equal('password' in reply.body.conversation.assignedSalesUser, false);
   assert.equal(reply.body.message.senderType, 'sales');
   assert.equal(
     reply.body.message.senderAvatarUrl,
-    'https://cdn.example.com/sales-one-avatar.jpg'
+    'https://cdn.example.com/sales-one-avatar.jpg',
   );
 
+  const otherSales = await User.create({
+    name: 'Sales Two',
+    email: 'sales-two@example.com',
+    role: 'sales',
+    isVerified: true,
+    status: 'active',
+    isActive: true,
+  });
+  const conflictingReply = await jsonRequest(
+    `/api/chat/sales/conversations/${conversationId}/messages`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokenFor(otherSales)}` },
+      body: JSON.stringify({
+        senderType: 'sales',
+        message: 'Conflicting reply',
+      }),
+    },
+  );
+  assert.equal(conflictingReply.response.status, 409);
+  assert.equal(conflictingReply.body.code, 'CHAT_CONVERSATION_ASSIGNED');
+
   const customerMessages = await jsonRequest(
-    `/api/chat/conversations/${conversationId}/messages?guestKey=${guestKey}`
+    `/api/chat/conversations/${conversationId}/messages?guestKey=${guestKey}`,
   );
   assert.equal(customerMessages.response.status, 200);
   assert.equal(
     customerMessages.body.conversation.lastHumanResponder.profileImage,
-    'https://cdn.example.com/sales-one-avatar.jpg'
+    'https://cdn.example.com/sales-one-avatar.jpg',
   );
   assert.equal(
     customerMessages.body.messages.find((message) => message.sender === 'sales')
       .senderAvatarUrl,
-    'https://cdn.example.com/sales-one-avatar.jpg'
+    'https://cdn.example.com/sales-one-avatar.jpg',
   );
 
   const customerDetail = await jsonRequest(
-    `/api/chat/conversations/${conversationId}?guestKey=${guestKey}`
+    `/api/chat/conversations/${conversationId}?guestKey=${guestKey}`,
   );
   assert.equal(customerDetail.response.status, 200);
   assert.equal(
     customerDetail.body.conversation.assignedSalesUser.profileImage,
-    'https://cdn.example.com/sales-one-avatar.jpg'
+    'https://cdn.example.com/sales-one-avatar.jpg',
   );
 
   const customerList = await jsonRequest(
-    `/api/chat/conversations?guestKey=${guestKey}`
+    `/api/chat/conversations?guestKey=${guestKey}`,
   );
   assert.equal(customerList.response.status, 200);
   assert.equal(
     customerList.body.conversations[0].assignedSalesUser.profileImage,
-    'https://cdn.example.com/sales-one-avatar.jpg'
+    'https://cdn.example.com/sales-one-avatar.jpg',
   );
   assert.equal(
     customerList.body.conversations[0].lastHumanResponder.avatarUrl,
-    'https://cdn.example.com/sales-one-avatar.jpg'
+    'https://cdn.example.com/sales-one-avatar.jpg',
   );
 
   const joinedCount = await ChatMessage.countDocuments({
@@ -498,7 +583,7 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
       method: 'PATCH',
       headers: { Authorization: `Bearer ${salesToken}` },
       body: '{}',
-    }
+    },
   );
   assert.equal(assign.response.status, 200);
   assert.equal(assign.body.conversation.assignedSalesName, 'Sales One');
@@ -508,11 +593,17 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
     {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${salesToken}` },
-      body: JSON.stringify({ status: 'resolved' }),
-    }
+      body: JSON.stringify({ status: 'resolved', reason: 'question_answered' }),
+    },
   );
   assert.equal(resolve.response.status, 200);
   assert.equal(resolve.body.conversation.status, 'resolved');
+  assert.equal(resolve.body.conversation.resolutionReason, 'question_answered');
+  const resolutionActivity = await ChatMessage.findOne({
+    conversationId,
+    'metadata.type': 'conversation_resolved',
+  }).lean();
+  assert.equal(resolutionActivity.metadata.reason, 'question_answered');
 
   const closedCustomerWrite = await jsonRequest(
     `/api/chat/conversations/${conversationId}/messages`,
@@ -523,7 +614,7 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
         senderType: 'customer',
         message: 'This must be rejected while resolved.',
       }),
-    }
+    },
   );
   assert.equal(closedCustomerWrite.response.status, 409);
   assert.equal(closedCustomerWrite.body.code, 'CHAT_CONVERSATION_CLOSED');
@@ -534,7 +625,7 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
       method: 'PATCH',
       headers: { Authorization: `Bearer ${salesToken}` },
       body: JSON.stringify({ status: 'in_conversation' }),
-    }
+    },
   );
   assert.equal(reopen.response.status, 200);
   assert.equal(reopen.body.conversation.status, 'in_conversation');
@@ -548,7 +639,7 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
         senderType: 'customer',
         message: 'Thanks for reopening this conversation.',
       }),
-    }
+    },
   );
   assert.equal(reopenedCustomerWrite.response.status, 201);
 
@@ -558,7 +649,7 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
       method: 'PATCH',
       headers: { Authorization: `Bearer ${salesToken}` },
       body: JSON.stringify({ status: 'closed' }),
-    }
+    },
   );
   assert.equal(invalidLegacyWrite.response.status, 400);
 });
@@ -587,31 +678,33 @@ test('simultaneous first Sales replies join and assign the conversation exactly 
         method: 'POST',
         headers: { Authorization: `Bearer ${salesToken}` },
         body: JSON.stringify({ senderType: 'sales', message }),
-      })
-    )
+      }),
+    ),
   );
 
   assert.deepEqual(
     replies.map(({ response }) => response.status),
-    [201, 201]
+    [201, 201],
   );
-  assert.deepEqual(
-    replies.map(({ body }) => Boolean(body.joinedNow)).sort(),
-    [false, true]
-  );
+  assert.deepEqual(replies.map(({ body }) => Boolean(body.joinedNow)).sort(), [
+    false,
+    true,
+  ]);
   assert.equal(
     await ChatMessage.countDocuments({
       conversationId,
       'metadata.type': 'sales_joined',
     }),
-    1
+    1,
   );
   assert.equal(
     await ChatMessage.countDocuments({ conversationId, sender: 'sales' }),
-    2
+    2,
   );
 
-  const conversation = await ChatConversation.findOne({ conversationId }).lean();
+  const conversation = await ChatConversation.findOne({
+    conversationId,
+  }).lean();
   assert.equal(conversation.status, 'in_conversation');
   assert.equal(conversation.assignedSalesId.toString(), sales._id.toString());
   assert.equal(conversation.assignedSalesName, 'Concurrent Sales');
@@ -646,13 +739,16 @@ test('logged-in customers cannot read another customer conversation', async () =
     '/api/chat/conversations/owned-conversation/messages?guestKey=owner-guest-key',
     {
       headers: { Authorization: `Bearer ${tokenFor(other)}` },
-    }
+    },
   );
   assert.equal(response.response.status, 404);
 
-  const list = await jsonRequest('/api/chat/conversations?guestKey=owner-guest-key', {
-    headers: { Authorization: `Bearer ${tokenFor(other)}` },
-  });
+  const list = await jsonRequest(
+    '/api/chat/conversations?guestKey=owner-guest-key',
+    {
+      headers: { Authorization: `Bearer ${tokenFor(other)}` },
+    },
+  );
   assert.equal(list.response.status, 200);
   assert.equal(list.body.conversations.length, 0);
 });
@@ -693,22 +789,33 @@ test('unauthenticated guest can hydrate a conversation later linked to a custome
     message: 'I can help from Sales.',
   });
 
-  const list = await jsonRequest('/api/chat/conversations?guestKey=linked-guest-key');
+  const list = await jsonRequest(
+    '/api/chat/conversations?guestKey=linked-guest-key',
+  );
   assert.equal(list.response.status, 200);
   assert.equal(list.body.conversations.length, 1);
-  assert.equal(list.body.conversations[0].assignedSalesUser.avatarUrl, sales.avatar);
+  assert.equal(
+    list.body.conversations[0].assignedSalesUser.avatarUrl,
+    sales.avatar,
+  );
 
   const detail = await jsonRequest(
-    '/api/chat/conversations/guest-linked-conversation?guestKey=linked-guest-key'
+    '/api/chat/conversations/guest-linked-conversation?guestKey=linked-guest-key',
   );
   assert.equal(detail.response.status, 200);
-  assert.equal(detail.body.conversation.assignedSalesUser.avatarUrl, sales.avatar);
+  assert.equal(
+    detail.body.conversation.assignedSalesUser.avatarUrl,
+    sales.avatar,
+  );
 
   const messages = await jsonRequest(
-    '/api/chat/conversations/guest-linked-conversation/messages?guestKey=linked-guest-key'
+    '/api/chat/conversations/guest-linked-conversation/messages?guestKey=linked-guest-key',
   );
   assert.equal(messages.response.status, 200);
-  assert.equal(messages.body.conversation.assignedSalesUser.avatarUrl, sales.avatar);
+  assert.equal(
+    messages.body.conversation.assignedSalesUser.avatarUrl,
+    sales.avatar,
+  );
   assert.equal(messages.body.messages[0].senderAvatarUrl, sales.avatar);
 });
 
@@ -723,14 +830,20 @@ test('AI HTTP, SSE, and existing Socket.IO paths are blocked during Sales handof
 
   const http = await jsonRequest('/api/chat/message', {
     method: 'POST',
-    body: JSON.stringify({ sessionId: conversationId, message: 'AI reply please' }),
+    body: JSON.stringify({
+      sessionId: conversationId,
+      message: 'AI reply please',
+    }),
   });
   assert.equal(http.response.status, 409);
   assert.equal(http.body.code, 'SALES_HANDOFF_ACTIVE');
 
   const sse = await jsonRequest('/api/chat/message/stream', {
     method: 'POST',
-    body: JSON.stringify({ sessionId: conversationId, message: 'AI stream please' }),
+    body: JSON.stringify({
+      sessionId: conversationId,
+      message: 'AI stream please',
+    }),
   });
   assert.equal(sse.response.status, 409);
   assert.equal(sse.body.code, 'SALES_HANDOFF_ACTIVE');
@@ -760,7 +873,7 @@ test('AI HTTP, SSE, and existing Socket.IO paths are blocked during Sales handof
   });
   assert.equal(
     socketEvents.find((entry) => entry.event === 'chat:error')?.payload?.code,
-    'SALES_HANDOFF_ACTIVE'
+    'SALES_HANDOFF_ACTIVE',
   );
 
   socketEvents.length = 0;
@@ -770,7 +883,8 @@ test('AI HTTP, SSE, and existing Socket.IO paths are blocked during Sales handof
     clientMessageId: 'client-message',
   });
   assert.equal(
-    socketEvents.find((entry) => entry.event === 'chat:stream:error')?.payload?.code,
-    'SALES_HANDOFF_ACTIVE'
+    socketEvents.find((entry) => entry.event === 'chat:stream:error')?.payload
+      ?.code,
+    'SALES_HANDOFF_ACTIVE',
   );
 });

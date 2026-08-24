@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/input';
 import ChatAgentAvatar from './ChatAgentAvatar';
 import { CHAT_BLUE } from './chat-theme';
 import { SendArrowIcon } from './ChatIcons';
+import type { ChatRequestStatus } from '@/lib/chat-service';
 import {
     formatChatMessageText,
     formatRelativeTime,
@@ -62,7 +63,6 @@ function getSystemMessageCopy(message: ChatMessage): string {
     }
     return formatChatMessageText(message.message);
 }
-
 function MiniBrandMark() {
     return (
         <span
@@ -81,6 +81,7 @@ interface ChatConversationScreenProps {
     inputFocused: boolean;
     chatInputPlaceholder: string;
     isSending: boolean;
+    requestStatus: ChatRequestStatus;
     agentIdentity: ChatAgentIdentity;
     handoffStatus: SalesHandoffStatus;
     showConnectToSales: boolean;
@@ -104,6 +105,7 @@ interface ChatConversationScreenProps {
     onInputFocus: () => void;
     onInputBlur: () => void;
     onSend: () => void;
+    onRetryMessage: (messageId: string) => void;
     onLeadNameChange: (value: string) => void;
     onLeadPhoneChange: (value: string) => void;
     onLeadSubmit: () => void;
@@ -232,7 +234,7 @@ function TrackerLinkCard({
     );
 }
 
-function TypingIndicator({ identity }: { identity: ChatAgentIdentity }) {
+function TypingIndicator({ identity, retrying = false }: { identity: ChatAgentIdentity; retrying?: boolean }) {
     return (
         <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -240,7 +242,7 @@ function TypingIndicator({ identity }: { identity: ChatAgentIdentity }) {
             exit={{ opacity: 0, y: 4 }}
             className="flex items-end gap-2"
             aria-live="polite"
-            aria-label={`${identity.displayName} is typing`}
+            aria-label={retrying ? 'Retrying message' : `${identity.displayName} is typing`}
         >
             <ChatAgentAvatar identity={identity} size="sm" />
             <div className="flex items-center gap-1.5 rounded-[22px] rounded-tl-[10px] bg-[#F4F4F5] px-4 py-3.5">
@@ -249,7 +251,12 @@ function TypingIndicator({ identity }: { identity: ChatAgentIdentity }) {
                         key={i}
                         className="h-2 w-2 rounded-full bg-[#94A3B8]"
                         animate={{ opacity: [0.35, 1, 0.35], y: [0, -2, 0] }}
-                        transition={{ duration: 0.9, repeat: Infinity, delay, ease: 'easeInOut' }}
+                        transition={{
+                            duration: 0.9,
+                            repeat: Infinity,
+                            delay,
+                            ease: 'easeInOut',
+                        }}
                     />
                 ))}
             </div>
@@ -263,6 +270,7 @@ export default function ChatConversationScreen({
     inputFocused,
     chatInputPlaceholder,
     isSending,
+    requestStatus,
     agentIdentity,
     handoffStatus,
     showConnectToSales,
@@ -286,6 +294,7 @@ export default function ChatConversationScreen({
     onInputFocus,
     onInputBlur,
     onSend,
+    onRetryMessage,
     onLeadNameChange,
     onLeadPhoneChange,
     onLeadSubmit,
@@ -441,7 +450,28 @@ export default function ChatConversationScreen({
                                     >
                                         {formatChatMessageText(msg.message)}
                                     </div>
-                                    {isSales && endsSenderGroup ? (
+                                    {isCustomer && msg.delivery?.status === 'sending' ? (
+                                            <p className="mt-1.5 px-1 text-right text-[11px] text-[#8B9099]">
+                                                {requestStatus === 'retrying' ? 'Trying again…' : 'Sending…'}
+                                            </p>
+                                        ) : null}
+                                        {isCustomer && msg.delivery?.status === 'failed' ? (
+                                            <div className="mt-2 flex max-w-[260px] flex-col items-end gap-1.5 text-right">
+                                                <p className="text-[12px] leading-5 text-[#B42318]">
+                                                    {msg.delivery.message || 'Couldn’t send your message.'}
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onRetryMessage(msg.id)}
+                                                    disabled={isSending}
+                                                    className="inline-flex items-center gap-1.5 rounded-full border !border-[#D0D5DD] bg-white px-3 py-1.5 text-[12px] font-semibold text-[#344054] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    <RefreshCw className="h-3.5 w-3.5" />
+                                                    Try again
+                                                </button>
+                                            </div>
+                                        ) : null}
+                                        {isSales && endsSenderGroup ? (
                                         <p className="mt-1.5 px-1 text-[12px] text-[#888D96]">
                                             {salesDisplayName}
                                             {msg.createdAt ? ` · ${formatRelativeTime(msg.createdAt)}` : ''}
@@ -457,7 +487,10 @@ export default function ChatConversationScreen({
                 <AnimatePresence>
                     {showTypingIndicator && (
                         <div className="flex justify-start">
-                            <TypingIndicator identity={agentIdentity} />
+                            <TypingIndicator
+                                identity={agentIdentity}
+                                retrying={requestStatus === 'retrying'}
+                            />
                         </div>
                     )}
                 </AnimatePresence>
@@ -619,6 +652,7 @@ export default function ChatConversationScreen({
                         onFocus={onInputFocus}
                         onBlur={onInputBlur}
                         placeholder={chatInputPlaceholder}
+                        maxLength={4000}
                         disabled={registrationStep === 'submitting' || isClosedHandoff || handoffBusy}
                         rows={2}
                         className="w-full resize-none border-0 bg-transparent px-5 pb-1 pt-4 text-[15px] text-gray-900 placeholder:text-[#8B9099] focus:outline-none focus:ring-0 disabled:opacity-60"

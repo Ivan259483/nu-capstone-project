@@ -7,18 +7,18 @@
 
 export const RegexRules = {
   // E.g., name@example.com (RFC 5322 approximation)
-  email: /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/,
+  email: /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$/,
   
   // Philippine Standard: +639171234567 or 09171234567
   phPhone: /^(?:\+63|0)9[0-9]{9}$/,
   
-  // Requires at least 8 chars, 1 uppercase, 1 lowercase, 1 number
-  passwordStrong: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d\w\W]{8,}$/,
+  // Mirrors backend auth validation: 8+ chars, upper, lower, number, special.
+  passwordStrong: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]).{8,}$/,
 };
 
 export const Validation = {
   isValidEmail(email: string): boolean {
-    return RegexRules.email.test(email);
+    return RegexRules.email.test(email.trim());
   },
 
   isValidPhone(phone: string): boolean {

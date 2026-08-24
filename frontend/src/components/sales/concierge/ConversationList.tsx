@@ -1,34 +1,45 @@
-import { ArrowLeft, MoreHorizontal, Search, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowLeft, Search, UserRound } from 'lucide-react';
 import ConversationStatusBadge from './ConversationStatusBadge';
 import type { ConciergeConversation } from './conciergeTypes';
 
-type ConversationListProps = {
+export type ConversationFilter =
+  | 'All'
+  | 'Needs Sales'
+  | 'Unassigned'
+  | 'Mine'
+  | 'Waiting'
+  | 'Resolved';
+
+type Props = {
   conversations: ConciergeConversation[];
   selectedId: string | null;
   searchTerm: string;
-  openOnly: boolean;
-  newestFirst: boolean;
+  filter: ConversationFilter;
   onBack: () => void;
   onSearchChange: (value: string) => void;
-  onToggleOpen: () => void;
-  onToggleNewest: () => void;
+  onFilterChange: (filter: ConversationFilter) => void;
   onSelect: (conversationId: string) => void;
-  onMore: (customerName: string) => void;
 };
+
+const FILTERS: ConversationFilter[] = [
+  'All',
+  'Needs Sales',
+  'Unassigned',
+  'Mine',
+  'Waiting',
+  'Resolved',
+];
 
 export default function ConversationList({
   conversations,
   selectedId,
   searchTerm,
-  openOnly,
-  newestFirst,
+  filter,
   onBack,
   onSearchChange,
-  onToggleOpen,
-  onToggleNewest,
+  onFilterChange,
   onSelect,
-  onMore,
-}: ConversationListProps) {
+}: Props) {
   return (
     <section
       className="flex min-h-[540px] min-w-0 flex-col overflow-hidden bg-white lg:min-h-[720px] xl:min-h-0"
@@ -39,19 +50,20 @@ export default function ConversationList({
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
             aria-label="Back to Sales Dashboard"
           >
             <ArrowLeft size={18} />
           </button>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-600">Sales</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-600">
+              Sales
+            </p>
             <h1 className="truncate text-lg font-bold tracking-tight text-slate-950">
               Concierge Inbox
             </h1>
           </div>
         </div>
-
         <label className="relative mt-4 block">
           <span className="sr-only">Search concierge conversations</span>
           <Search
@@ -62,130 +74,98 @@ export default function ConversationList({
             type="search"
             value={searchTerm}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Search conversations"
+            placeholder="Search name, phone, vehicle…"
             className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500/10"
           />
         </label>
-
-        <div className="mt-3 flex items-center gap-2">
-          <span
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm"
-            aria-hidden="true"
-          >
-            <SlidersHorizontal size={15} />
-          </span>
-          <button
-            type="button"
-            onClick={onToggleOpen}
-            aria-pressed={openOnly}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
-              openOnly
-                ? 'border-blue-500 bg-blue-50 text-blue-700'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            Open
-            {openOnly ? <X size={12} /> : null}
-          </button>
-          <button
-            type="button"
-            onClick={onToggleNewest}
-            aria-pressed={newestFirst}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
-              newestFirst
-                ? 'border-blue-500 bg-blue-50 text-blue-700'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            Newest
-            {newestFirst ? <X size={12} /> : null}
-          </button>
+        <div
+          className="scrollbar-thin mt-3 flex gap-1.5 overflow-x-auto pb-1"
+          aria-label="Conversation filters"
+        >
+          {FILTERS.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => onFilterChange(item)}
+              aria-pressed={filter === item}
+              className={`shrink-0 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold ${filter === item ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+              {item}
+            </button>
+          ))}
         </div>
       </header>
 
       {conversations.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-400">
             <Search size={18} />
-          </div>
-          <p className="mt-4 text-sm font-bold text-slate-800">No matching conversations</p>
+          </span>
+          <p className="mt-4 text-sm font-bold text-slate-800">
+            No matching conversations
+          </p>
           <p className="mt-1 max-w-xs text-xs leading-5 text-slate-500">
-            Change the search term or remove the Open filter.
+            Try another search or lifecycle filter.
           </p>
         </div>
       ) : (
         <div className="scrollbar-thin flex-1 overflow-y-auto">
           {conversations.map((conversation) => {
-            const isSelected = selectedId === conversation.id;
-
+            const selected = selectedId === conversation.id;
+            const assignment = conversation.assignedSalesName || 'Unassigned';
             return (
-              <div
+              <button
                 key={conversation.id}
-                className={`relative border-b border-slate-100 transition-colors ${
-                  isSelected
-                    ? 'bg-blue-50/80 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-blue-600'
-                    : 'bg-white hover:bg-slate-50/80'
-                }`}
+                type="button"
+                onClick={() => onSelect(conversation.id)}
+                aria-pressed={selected}
+                className={`relative block w-full border-b border-slate-100 px-5 py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/30 ${selected ? 'bg-blue-50/80 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-blue-600' : 'bg-white hover:bg-slate-50/80'}`}
               >
-                <button
-                  type="button"
-                  onClick={() => onSelect(conversation.id)}
-                  aria-pressed={isSelected}
-                  className="w-full px-5 py-3.5 pr-12 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/30"
-                >
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div
-                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-black ring-1 ring-inset ${
-                        isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
-                      } ${isSelected ? 'ring-blue-500' : 'ring-slate-200'}`}
-                    >
-                      {conversation.initials}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="truncate text-sm font-bold text-slate-900">
-                          {conversation.customerName}
-                        </p>
-                        <span className="shrink-0 text-[10px] font-medium text-slate-400">
-                          {conversation.time}
-                        </span>
-                      </div>
-                      <p className="mt-1 line-clamp-1 text-xs leading-5 text-slate-500">
-                        {conversation.lastMessagePreview}
-                      </p>
-
-                      <div className="mt-2 flex items-center gap-2">
-                        <ConversationStatusBadge
-                          status={conversation.status}
-                          compact
-                          detail={
-                            conversation.status === 'In Conversation'
-                              ? conversation.conversationStarted
-                              : undefined
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onMore(conversation.customerName)}
-                  className="absolute right-3.5 top-10 inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
-                  aria-label={`More options for ${conversation.customerName}`}
-                >
-                  <MoreHorizontal size={15} />
-                </button>
-                {conversation.unread ? (
+                <div className="flex min-w-0 items-start gap-3">
                   <span
-                    className="absolute right-4 top-[4.45rem] inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-bold text-white ring-2 ring-white"
-                    aria-label="1 unread message"
+                    className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-black ring-1 ring-inset ${selected ? 'bg-blue-600 text-white ring-blue-500' : 'bg-slate-100 text-slate-600 ring-slate-200'}`}
                   >
-                    1
+                    {conversation.initials}
+                    {conversation.unread ? (
+                      <span
+                        className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full bg-blue-600 ring-2 ring-white"
+                        aria-label="Unread customer message"
+                      />
+                    ) : null}
                   </span>
-                ) : null}
-              </div>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-start justify-between gap-2">
+                      <span
+                        className={`truncate text-sm text-slate-900 ${conversation.unread ? 'font-black' : 'font-bold'}`}
+                      >
+                        {conversation.customerName}
+                      </span>
+                      <time
+                        dateTime={conversation.lastMessageAt}
+                        title={conversation.lastActivityLabel}
+                        className="shrink-0 text-[10px] font-medium text-slate-400"
+                      >
+                        {conversation.time}
+                      </time>
+                    </span>
+                    <span
+                      className={`mt-1 block line-clamp-1 text-xs leading-5 ${conversation.unread ? 'font-semibold text-slate-700' : 'text-slate-500'}`}
+                    >
+                      {conversation.lastMessagePreview}
+                    </span>
+                    <span className="mt-2 flex min-w-0 items-center gap-2">
+                      <ConversationStatusBadge
+                        status={conversation.status}
+                        compact
+                      />
+                      <span className="inline-flex min-w-0 items-center gap-1 truncate text-[10px] font-medium text-slate-400">
+                        <UserRound size={10} />
+                        {assignment}
+                      </span>
+                    </span>
+                  </span>
+                </div>
+              </button>
             );
           })}
         </div>

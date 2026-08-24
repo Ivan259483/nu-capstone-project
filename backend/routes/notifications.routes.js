@@ -16,6 +16,7 @@ router.use(authenticate);
 
 router.get('/', getNotifications);
 router.get('/unread-count', getUnreadCount);
+router.patch('/read-all', markAllAsRead);
 router.post('/mark-all-read', markAllAsRead);
 router.post('/bulk-status', bulkSetReadState);
 router.post('/archive', bulkSetArchivedState);

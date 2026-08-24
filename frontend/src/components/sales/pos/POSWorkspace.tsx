@@ -7,7 +7,7 @@ import ReceiptModal from './ReceiptModal';
 import BillingWorkspace, { type BillingChargesPayload } from '@/components/sales/billing/BillingWorkspace';
 import type { BillingDiscount, BillingDoc } from '@/lib/billing-service';
 import InvoiceA4, { type InvoiceA4Snapshot } from '@/components/sales/billing/InvoiceA4';
-import { Customer, Vehicle, CartItem, formatPeso } from '@/lib/salesData';
+import { Customer, Vehicle, CartItem, formatPeso, formatVehicleTypeLabel } from '@/lib/salesData';
 import { useServices, VehicleType, getEffectivePrice } from '@/hooks/useServices';
 import {
   BillingService,
@@ -21,6 +21,7 @@ import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
 import { DEFAULT_SPF_ADDON_PRICES } from '@/lib/service-pricing';
 import { resolveReceiptPhone } from '@/lib/receipt-phone';
 import { normalizePlateNumber } from '@/lib/plate';
+import { useAuth } from '@/contexts/AuthContext';
 import { VehicleService, mapApiVehicleToPosVehicle } from '@/lib/vehicle-service';
 import {
   idString,
@@ -29,6 +30,7 @@ import {
   normalizeQueuedPickupOrder,
   posQueueDebug,
 } from '@/lib/pos-pickup-queue';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 // Map vehicle.type string → VehicleType key
 const VEHICLE_TYPE_MAP: Record<string, VehicleType> = {
@@ -265,7 +267,7 @@ function customerFromOrder(order: any): Customer {
     vehicles: [],
     totalSpent: 0,
     visitCount: 0,
-    lastVisit: new Date().toISOString(),
+    lastVisit: '',
     memberSince: rawCustomer?.createdAt ? new Date(rawCustomer.createdAt).toISOString() : new Date().toISOString(),
     notes: '',
     tier: 'bronze',
@@ -368,15 +370,15 @@ function CheckInQueuePanel({
   const first = bookings[0] || null;
 
   return (
-    <div className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-[0_1px_6px_rgba(15,23,42,0.05)]">
+    <div className={`shrink-0 rounded-xl border border-slate-200 bg-white px-3 shadow-[0_1px_6px_rgba(15,23,42,0.05)] ${queueCount > 0 ? 'py-2.5' : 'w-fit max-w-full py-1.5'}`}>
       <div className="flex min-w-0 items-center gap-2">
         <button
           type="button"
           onClick={onOpenSearch}
           className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
         >
-          <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" style={{ animation: 'posQPulse 1.5s ease-in-out infinite' }} />
-          <span className="shrink-0 text-xs font-bold text-slate-800">Balance / Pickup Queue</span>
+          <span className={`h-2 w-2 shrink-0 rounded-full ${queueCount > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} />
+          <span className="shrink-0 text-xs font-bold text-slate-800">Pickup queue</span>
           <span className="shrink-0 text-xs font-semibold text-slate-400">·</span>
           <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
             queueCount > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
@@ -395,7 +397,7 @@ function CheckInQueuePanel({
             e.stopPropagation();
             onRefresh();
           }}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:bg-white hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          className={`h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:bg-white hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${queueCount > 0 || loading ? 'flex' : 'hidden sm:flex'}`}
           aria-label="Refresh pickup queue"
         >
           {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
@@ -417,6 +419,7 @@ export default function POSWorkspace({
   onPreloadConsumed,
 }: POSWorkspaceProps = {}) {
   const { services, isLoading: servicesLoading } = useServices();
+  const { user: cashier } = useAuth();
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
@@ -435,6 +438,7 @@ export default function POSWorkspace({
 
   const customerPanelRef = useRef<CustomerVehiclePanelHandle>(null);
   const staleToastKeysRef = useRef<Set<string>>(new Set());
+  const paymentLockRef = useRef(false);
 
   const [cartItems, setCartItems] = useState<PosCartItem[]>([]);
   const [billingCharges, setBillingCharges] = useState<PosBillingCharges>(emptyBillingCharges);
@@ -443,8 +447,11 @@ export default function POSWorkspace({
   const [transactionNotes, setTransactionNotes] = useState('');
   const [showReceipt, setShowReceipt] = useState(false);
   const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
-  const [paymentConfirmAmountLabel, setPaymentConfirmAmountLabel] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [cashReceived, setCashReceived] = useState('');
+  const [gcashAmountReceived, setGcashAmountReceived] = useState('');
+  const [gcashReference, setGcashReference] = useState('');
+  const [paymentValidationAttempted, setPaymentValidationAttempted] = useState(false);
   const [completedTxnId, setCompletedTxnId] = useState<string>('');
   /** Snapshot for receipt after payment (cart is cleared in same flow). */
   const [receiptData, setReceiptData] = useState<{
@@ -456,6 +463,12 @@ export default function POSWorkspace({
     total: number;
     paymentMethod: string;
     customerPhone?: string;
+    cashReceived?: number | null;
+    amountReceived?: number | null;
+    changeGiven?: number | null;
+    paymentReference?: string | null;
+    staffName?: string | null;
+    transactionDate?: string | null;
     /** Reservation / GCash credited before this POS payment (for receipt line item). */
     reservationApplied?: number;
   } | null>(null);
@@ -799,6 +812,11 @@ export default function POSWorkspace({
     setPosBillingOrderId(null);
     setQueuedOrderContext(hydrated.queuedContext);
     setSelectedOrderStale(false);
+    setPaymentMethod('cash');
+    setCashReceived('');
+    setGcashAmountReceived('');
+    setGcashReference('');
+    setPaymentValidationAttempted(false);
     setLastInvoiceSnap(null);
     setLastInvoiceNumber(null);
     setBillingSyncNonce((n) => n + 1);
@@ -894,6 +912,10 @@ export default function POSWorkspace({
   }, [preloadOrderId, loadOrderForCheckout, onPreloadConsumed]);
 
   const addToCart = (svcId: string, withTint = false) => {
+    if (!selectedVehicle) {
+      toast.error('Select a vehicle before adding a service.');
+      return;
+    }
     const svc = services.find((s) => s._id === svcId);
     if (!svc) return;
     const lockedVehicleType = effectiveVehicleType;
@@ -924,9 +946,10 @@ export default function POSWorkspace({
     const price = getEffectivePrice(svc, lockedVehicleType);
     const existing = cartItems.find((c) => c.id === svcId);
     if (existing) {
-      setCartItems(cartItems.map((c) => c.id === svcId ? { ...c, quantity: c.quantity + 1 } : c));
+      toast.info('This service is already in the transaction. Update quantity from the cart.');
+      return;
     } else {
-      setCartItems([...cartItems, {
+      setCartItems((prev) => [...prev, {
         id: svc._id,
         name: svc.name,
         category: svc.category,
@@ -938,13 +961,49 @@ export default function POSWorkspace({
         vehicleType: lockedVehicleType,
       } as PosCartItem]);
     }
-    toast.success(`Added: ${svc.name} (${lockedVehicleType})`);
+    toast.success(`Added: ${svc.name} (${formatVehicleTypeLabel(lockedVehicleType)})`);
   };
 
-  const removeFromCart = (svcId: string) => setCartItems(cartItems.filter((c) => c.id !== svcId));
+  const removeFromCart = (svcId: string) => setCartItems((prev) => prev.filter((c) => c.id !== svcId));
   const updateQty = (svcId: string, qty: number) => {
     if (qty < 1) { removeFromCart(svcId); return; }
-    setCartItems(cartItems.map((c) => c.id === svcId ? { ...c, quantity: qty } : c));
+    setCartItems((prev) => prev.map((c) => c.id === svcId ? { ...c, quantity: qty } : c));
+  };
+
+  const repriceManualCartItem = (item: PosCartItem, nextVehicleType: VehicleType): PosCartItem => {
+    if (item.source === 'pickup_queue' || item.orderLinked) return item;
+    const itemId = String(item.id);
+    const baseServiceId = itemId.endsWith('-tint') ? itemId.slice(0, -'-tint'.length) : itemId;
+    const service = services.find((candidate) => candidate._id === baseServiceId);
+    if (!service) return { ...item, vehicleType: nextVehicleType };
+    if (itemId.endsWith('-tint')) {
+      const spfKey = Object.keys(TINT_PRICES).find((key) => service.name.includes(key));
+      const tintPrice = spfKey ? (TINT_PRICES[spfKey][nextVehicleType] ?? item.price) : item.price;
+      return { ...item, price: tintPrice, vehicleType: nextVehicleType };
+    }
+    return { ...item, price: getEffectivePrice(service, nextVehicleType), vehicleType: nextVehicleType };
+  };
+
+  const selectVehicleAndRefreshPricing = (vehicle: Vehicle) => {
+    const nextVehicleType = resolveVehicleType(vehicle.type);
+    const hadManualItems = cartItems.some((item) => item.source !== 'pickup_queue' && !item.orderLinked);
+    setSelectedVehicle(vehicle);
+    setManualVehicleType(null);
+    setCashReceived('');
+    setGcashAmountReceived('');
+    setPaymentValidationAttempted(false);
+    setCartItems((currentItems) => currentItems.map((item) => repriceManualCartItem(item, nextVehicleType)));
+    if (hadManualItems) toast.info('Cart pricing updated for the selected vehicle.');
+  };
+
+  const selectVehicleTypeAndRefreshPricing = (nextVehicleType: VehicleType) => {
+    const hadManualItems = cartItems.some((item) => item.source !== 'pickup_queue' && !item.orderLinked);
+    setManualVehicleType(nextVehicleType);
+    setCashReceived('');
+    setGcashAmountReceived('');
+    setPaymentValidationAttempted(false);
+    setCartItems((currentItems) => currentItems.map((item) => repriceManualCartItem(item, nextVehicleType)));
+    if (hadManualItems) toast.info('Cart pricing updated for the selected vehicle class.');
   };
 
   const subtotal = cartItems.reduce((sum, c) => sum + c.price * c.quantity, 0);
@@ -971,10 +1030,7 @@ export default function POSWorkspace({
 
   const total = walkInTotals?.grandTotal ?? 0;
 
-  const walkInDiscountDisplay =
-    billingCharges.discount.discountType === 'fixed'
-      ? billingCharges.discount.value
-      : walkInTotals?.discountTotal ?? 0;
+  const walkInDiscountDisplay = walkInTotals?.discountTotal ?? 0;
 
   const balanceCheckoutPreview = useMemo(() => {
     if (!effectiveOrderId || cartItems.length === 0) return null;
@@ -1020,6 +1076,50 @@ export default function POSWorkspace({
     totalsFromCharges,
     buildLineItemsFromCart,
   ]);
+
+  const currentPayAmount = balanceCheckoutPreview?.remainingBalance ?? balanceCheckoutPreview?.balanceDue ?? total;
+  const cashReceivedAmount = Math.max(0, Number(cashReceived) || 0);
+  const gcashReceivedAmount = Math.max(0, Number(gcashAmountReceived) || 0);
+
+  const paymentValidationMessage = useMemo(() => {
+    if (selectedOrderStale) return 'This queued order is no longer eligible for checkout.';
+    if (hydratingOrderId) return 'Wait for the queued order to finish loading.';
+    if (!selectedCustomer) return 'Select a customer before checkout.';
+    if (!selectedVehicle) return 'Select a vehicle before checkout.';
+    if (cartItems.length === 0) return 'Add at least one service before checkout.';
+    if (currentPayAmount <= 0) return 'The transaction total must be greater than zero.';
+    if (paymentMethod === 'cash' && cashReceivedAmount < currentPayAmount) {
+      return cashReceivedAmount > 0
+        ? `Cash received is ${formatPeso(currentPayAmount - cashReceivedAmount)} short.`
+        : 'Enter the cash received.';
+    }
+    if (paymentMethod === 'gcash') {
+      if (Math.abs(gcashReceivedAmount - currentPayAmount) > 0.009) {
+        return `GCash amount received must match ${formatPeso(currentPayAmount)}.`;
+      }
+      if (gcashReference.trim().length < 6) return 'Enter a valid GCash reference number.';
+    }
+    return '';
+  }, [
+    cartItems.length,
+    cashReceivedAmount,
+    currentPayAmount,
+    gcashReceivedAmount,
+    gcashReference,
+    hydratingOrderId,
+    paymentMethod,
+    selectedCustomer,
+    selectedOrderStale,
+    selectedVehicle,
+  ]);
+
+  const handlePaymentMethodChange = useCallback((method: string) => {
+    setPaymentMethod(method);
+    setPaymentValidationAttempted(false);
+    if (method === 'gcash') {
+      setGcashAmountReceived((current) => current || currentPayAmount.toFixed(2));
+    }
+  }, [currentPayAmount]);
 
   const activeUnpaidOrder = useMemo(() => {
     if (!effectiveOrderId) return null;
@@ -1095,35 +1195,25 @@ export default function POSWorkspace({
       : '(A4)';
 
   const handleProcessPayment = () => {
+    setPaymentValidationAttempted(true);
     if (selectedOrderStale) {
       showStaleToastOnce(effectiveOrderId);
       clearQueuedOrderContext();
       void loadUnpaidOrders({ notifyStale: false });
       return;
     }
-    if (!selectedCustomer) { toast.error('Please select a customer before processing payment.'); return; }
-    if (!selectedVehicle) { toast.error('Please select a vehicle for this transaction.'); return; }
-    if (cartItems.length === 0) { toast.error('Add at least one service to proceed.'); return; }
-
-    const lineItemsForConfirm = buildLineItemsFromCart() as BillingLineItem[];
-    const confirmBalance = effectiveOrderId
-      ? (balanceCheckoutPreview?.remainingBalance ?? totalsFromCharges(lineItemsForConfirm).balanceDue)
-      : total;
-
-    setPaymentConfirmAmountLabel(
-      effectiveOrderId
-        ? `Balance due: ${formatPeso(confirmBalance)}`
-        : `Total: ${formatPeso(confirmBalance)}`
-    );
+    if (paymentValidationMessage || paymentLockRef.current || processing) return;
     setShowPaymentConfirm(true);
   };
 
   const executeConfirmedPayment = async () => {
-    setShowPaymentConfirm(false);
+    if (paymentLockRef.current) return;
     if (!selectedCustomer || !selectedVehicle) {
-      toast.error('Customer or vehicle missing. Reload the order and try again.');
+      setPaymentValidationAttempted(true);
       return;
     }
+    paymentLockRef.current = true;
+    setShowPaymentConfirm(false);
     setProcessing(true);
     try {
       if (effectiveOrderId) {
@@ -1143,7 +1233,10 @@ export default function POSWorkspace({
         const pm = mapPm(paymentMethod);
         const chk = await BillingService.checkout(effectiveOrderId, {
           paymentMethod: pm,
-          cashReceived: pm === 'cash' ? balanceDue : undefined,
+          staffId: cashier?._id || cashier?.id || null,
+          cashReceived: pm === 'cash' ? cashReceivedAmount : undefined,
+          amountReceived: pm === 'gcash' ? gcashReceivedAmount : undefined,
+          paymentReference: pm === 'gcash' ? gcashReference.trim() : undefined,
         });
         if (!chk.success || !('data' in chk) || !chk.data) {
           if ((chk as { status?: number; code?: string }).status === 409 || (chk as { code?: string }).code === 'POS_QUEUE_STALE') {
@@ -1175,6 +1268,12 @@ export default function POSWorkspace({
             total: Number(savedReceipt.amountCollected ?? savedReceipt.total ?? balanceDue),
             paymentMethod: String(savedReceipt.paymentMethod || paymentMethod),
             customerPhone: resolveReceiptPhone(savedReceipt),
+            cashReceived: savedReceipt.cashReceived == null ? null : Number(savedReceipt.cashReceived),
+            amountReceived: savedReceipt.amountReceived == null ? null : Number(savedReceipt.amountReceived),
+            changeGiven: savedReceipt.changeGiven == null ? null : Number(savedReceipt.changeGiven),
+            paymentReference: savedReceipt.paymentReference ? String(savedReceipt.paymentReference) : null,
+            staffName: savedReceipt.staff?.name ? String(savedReceipt.staff.name) : cashier?.name || null,
+            transactionDate: savedReceipt.date ? String(savedReceipt.date) : new Date().toISOString(),
             reservationApplied: Number(savedReceipt.downpayment ?? billingCharges.downpayment),
           });
           setCompletedTxnId(txnId);
@@ -1259,7 +1358,10 @@ export default function POSWorkspace({
       const pm = mapPm(paymentMethod);
       const chk = await BillingService.checkout(createdOrderId, {
         paymentMethod: pm,
-        cashReceived: pm === 'cash' ? balanceDue : undefined,
+        staffId: cashier?._id || cashier?.id || null,
+        cashReceived: pm === 'cash' ? cashReceivedAmount : undefined,
+        amountReceived: pm === 'gcash' ? gcashReceivedAmount : undefined,
+        paymentReference: pm === 'gcash' ? gcashReference.trim() : undefined,
       });
       if (!chk.success || !('data' in chk) || !chk.data) {
         toast.error(chk.message || 'Checkout failed');
@@ -1284,6 +1386,12 @@ export default function POSWorkspace({
         total: Number(savedReceipt.amountCollected ?? savedReceipt.total ?? balanceDue),
         paymentMethod: String(savedReceipt.paymentMethod || paymentMethod),
         customerPhone: resolveReceiptPhone(savedReceipt),
+        cashReceived: savedReceipt.cashReceived == null ? null : Number(savedReceipt.cashReceived),
+        amountReceived: savedReceipt.amountReceived == null ? null : Number(savedReceipt.amountReceived),
+        changeGiven: savedReceipt.changeGiven == null ? null : Number(savedReceipt.changeGiven),
+        paymentReference: savedReceipt.paymentReference ? String(savedReceipt.paymentReference) : null,
+        staffName: savedReceipt.staff?.name ? String(savedReceipt.staff.name) : cashier?.name || null,
+        transactionDate: savedReceipt.date ? String(savedReceipt.date) : new Date().toISOString(),
         reservationApplied: Number(savedReceipt.downpayment ?? 0),
       });
       setCompletedTxnId(txnId);
@@ -1321,6 +1429,7 @@ export default function POSWorkspace({
       );
     } finally {
       setProcessing(false);
+      paymentLockRef.current = false;
     }
   };
 
@@ -1331,6 +1440,10 @@ export default function POSWorkspace({
     setCartItems([]);
     resetPosTransaction();
     setPaymentMethod('cash');
+    setCashReceived('');
+    setGcashAmountReceived('');
+    setGcashReference('');
+    setPaymentValidationAttempted(false);
     setTransactionNotes('');
     setShowReceipt(false);
     setShowPaymentConfirm(false);
@@ -1351,6 +1464,12 @@ export default function POSWorkspace({
   const receiptTotal = receiptSnap?.total ?? total;
   const receiptTxnId = receiptSnap?.txnId ?? completedTxnId;
   const receiptPm = receiptSnap?.paymentMethod ?? paymentMethod;
+  const receiptCashReceived = receiptSnap?.cashReceived ?? null;
+  const receiptAmountReceived = receiptSnap?.amountReceived ?? null;
+  const receiptChangeGiven = receiptSnap?.changeGiven ?? null;
+  const receiptPaymentReference = receiptSnap?.paymentReference ?? null;
+  const receiptStaffName = receiptSnap?.staffName ?? cashier?.name ?? null;
+  const receiptTransactionDate = receiptSnap?.transactionDate ?? null;
   const receiptCustomer = selectedCustomer && receiptSnap?.customerPhone
     ? { ...selectedCustomer, phone: receiptSnap.customerPhone }
     : selectedCustomer;
@@ -1361,7 +1480,7 @@ export default function POSWorkspace({
         @keyframes posQSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes posQPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .5; transform: scale(.8); } }
       ` }} />
-      <div className="h-full flex flex-col gap-3">
+      <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto lg:overflow-hidden">
         <CheckInQueuePanel
           bookings={unpaidOrders}
           loading={unpaidOrdersLoading}
@@ -1370,8 +1489,8 @@ export default function POSWorkspace({
         />
 
         {/* POS 3-column area — fills remaining space */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch flex-1 min-h-0">
-          <div className="lg:col-span-3 flex flex-col overflow-hidden">
+        <div className="grid grid-cols-1 items-stretch gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-12">
+          <div className="flex min-h-[30rem] flex-col overflow-hidden lg:col-span-3 lg:min-h-0">
             <CustomerVehiclePanel
               ref={customerPanelRef}
               selectedCustomer={selectedCustomer}
@@ -1392,18 +1511,24 @@ export default function POSWorkspace({
                 setManualVehicleType(null);
                 setLinkedOrderId(null);
                 setPosBillingOrderId(null);
+                setPaymentMethod('cash');
+                setCashReceived('');
+                setGcashAmountReceived('');
+                setGcashReference('');
+                setPaymentValidationAttempted(false);
                 resetPosTransaction();
               }}
-              onSelectVehicle={(v) => { setSelectedVehicle(v); setManualVehicleType(null); }}
+              onSelectVehicle={selectVehicleAndRefreshPricing}
             />
           </div>
 
-          <div className="lg:col-span-5 flex flex-col overflow-hidden">
+          <div className="flex min-h-[40rem] flex-col overflow-hidden lg:col-span-5 lg:min-h-0">
             <ServiceCartPanel
               services={services}
               servicesLoading={servicesLoading}
               selectedVehicleType={effectiveVehicleType}
-              onVehicleTypeChange={setManualVehicleType}
+              selectedVehicle={selectedVehicle}
+              onVehicleTypeChange={selectVehicleTypeAndRefreshPricing}
               isVehicleFromCustomer={isVehicleFromCustomer}
               cartItems={cartItems}
               onAddToCart={addToCart}
@@ -1412,7 +1537,7 @@ export default function POSWorkspace({
             />
           </div>
 
-          <div className="lg:col-span-4 flex flex-col min-h-0 overflow-hidden gap-2">
+          <div className="flex min-h-[38rem] flex-col gap-2 overflow-hidden lg:sticky lg:top-0 lg:col-span-4 lg:min-h-0">
             {/* Balance checkout: summary stays full height (no squeeze); billing scrolls below */}
             <div
               className={
@@ -1425,27 +1550,31 @@ export default function POSWorkspace({
                 cartItems={cartItems}
                 subtotal={subtotal}
                 discount={walkInDiscountDisplay}
+                discountConfig={billingCharges.discount}
                 vatAmount={billingCharges.taxVatAmount}
                 total={total}
                 balanceCheckout={balanceCheckoutPreview}
                 compact={Boolean(effectiveOrderId)}
                 paymentMethod={paymentMethod}
                 processing={processing}
-                paymentDisabled={selectedOrderStale || Boolean(hydratingOrderId)}
+                paymentDisabled={Boolean(paymentValidationMessage)}
                 queuedOrderLabel={queuedOrderContext?.label ?? null}
                 onClearQueuedOrder={queuedOrderContext ? clearQueuedOrderContext : undefined}
                 transactionNotes={transactionNotes}
+                cashReceived={cashReceived}
+                gcashAmountReceived={gcashAmountReceived}
+                gcashReference={gcashReference}
+                validationAttempted={paymentValidationAttempted}
+                validationMessage={paymentValidationMessage}
                 onTransactionNotesChange={setTransactionNotes}
-                onDiscountChange={(v) =>
-                  setBillingCharges((c) => ({
-                    ...c,
-                    discount: { discountType: 'fixed', value: v },
-                  }))
-                }
+                onDiscountChange={(discount) => setBillingCharges((charges) => ({ ...charges, discount }))}
                 onVatChange={(v) =>
                   setBillingCharges((c) => ({ ...c, taxVatAmount: Math.max(0, v) }))
                 }
-                onPaymentMethodChange={setPaymentMethod}
+                onPaymentMethodChange={handlePaymentMethodChange}
+                onCashReceivedChange={(value) => { setCashReceived(value); setPaymentValidationAttempted(false); }}
+                onGcashAmountReceivedChange={(value) => { setGcashAmountReceived(value); setPaymentValidationAttempted(false); }}
+                onGcashReferenceChange={(value) => { setGcashReference(value); setPaymentValidationAttempted(false); }}
                 onProcessPayment={handleProcessPayment}
               />
             </div>
@@ -1483,23 +1612,43 @@ export default function POSWorkspace({
           </div>
         </div>
 
-        {showPaymentConfirm && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
-              <div className="p-5 text-center">
-                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+        <Dialog
+          open={showPaymentConfirm}
+          onOpenChange={(open) => {
+            if (!processing) setShowPaymentConfirm(open);
+          }}
+        >
+          <DialogContent
+            aria-describedby={undefined}
+            overlayClassName="bg-slate-900/60 backdrop-blur-sm"
+            className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md gap-0 overflow-y-auto rounded-2xl border-0 bg-white p-0 shadow-xl sm:rounded-2xl [&>button]:right-4 [&>button]:top-4 [&>button]:rounded-lg [&>button]:p-1.5 [&>button]:text-slate-400 [&>button]:opacity-100 [&>button:hover]:bg-slate-100 [&>button:hover]:text-slate-700"
+          >
+              <div className="p-5">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
                   <CheckCircle2 size={24} className="text-blue-700" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-900 mb-1">Confirm payment</h3>
-                <p className="text-sm text-slate-700 font-medium mb-1">
-                  Are you sure you want to confirm this payment?
-                </p>
-                {paymentConfirmAmountLabel ? (
-                  <p className="text-xs text-slate-500 mb-4">{paymentConfirmAmountLabel}</p>
-                ) : (
-                  <p className="text-xs text-slate-500 mb-4">&nbsp;</p>
-                )}
-                <div className="flex gap-3">
+                <div className="text-center">
+                  <DialogTitle className="text-lg font-bold leading-normal text-slate-950">Confirm {paymentMethod === 'gcash' ? 'GCash' : 'Cash'} Payment</DialogTitle>
+                  <p className="mt-1 text-xs text-slate-500">Review the tender details before creating the transaction.</p>
+                </div>
+                <dl className="mt-5 space-y-2.5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs">
+                  <div className="flex items-start justify-between gap-4"><dt className="text-slate-500">Customer</dt><dd className="text-right font-bold text-slate-900">{selectedCustomer?.name || '—'}</dd></div>
+                  <div className="flex items-start justify-between gap-4"><dt className="text-slate-500">Vehicle</dt><dd className="max-w-[65%] text-right font-bold text-slate-900">{selectedVehicle ? `${[selectedVehicle.year, selectedVehicle.make, selectedVehicle.model].filter(Boolean).join(' ')}${selectedVehicle.plate ? ` · ${selectedVehicle.plate}` : ''}` : '—'}</dd></div>
+                  <div className="flex items-start justify-between gap-4 border-t border-slate-200 pt-2.5"><dt className="font-semibold text-slate-700">Total</dt><dd className="text-base font-black tabular-nums text-blue-700">{formatPeso(currentPayAmount)}</dd></div>
+                  {paymentMethod === 'cash' ? (
+                    <>
+                      <div className="flex items-start justify-between gap-4"><dt className="text-slate-500">Cash Received</dt><dd className="font-bold tabular-nums text-slate-900">{formatPeso(cashReceivedAmount)}</dd></div>
+                      <div className="flex items-start justify-between gap-4"><dt className="text-slate-500">Change</dt><dd className="font-bold tabular-nums text-emerald-700">{formatPeso(Math.max(0, cashReceivedAmount - currentPayAmount))}</dd></div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between gap-4"><dt className="text-slate-500">Amount Received</dt><dd className="font-bold tabular-nums text-slate-900">{formatPeso(gcashReceivedAmount)}</dd></div>
+                      <div className="flex items-start justify-between gap-4"><dt className="text-slate-500">GCash reference</dt><dd className="max-w-[65%] break-all text-right font-bold text-slate-900">{gcashReference.trim()}</dd></div>
+                    </>
+                  )}
+                  <div className="flex items-start justify-between gap-4 border-t border-slate-200 pt-2.5"><dt className="text-slate-500">Cashier</dt><dd className="text-right font-semibold text-slate-800">{cashier?.name || 'Signed-in sales staff'}</dd></div>
+                </dl>
+                <div className="mt-5 flex gap-3">
                   <button
                     type="button"
                     onClick={() => setShowPaymentConfirm(false)}
@@ -1513,13 +1662,12 @@ export default function POSWorkspace({
                     disabled={processing}
                     className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
                   >
-                    Yes, confirm
+                    {paymentMethod === 'gcash' ? 'Confirm GCash Payment' : 'Confirm Payment'}
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
+          </DialogContent>
+        </Dialog>
 
         {showReceipt && receiptCustomer && selectedVehicle && (
           <ReceiptModal
@@ -1533,6 +1681,12 @@ export default function POSWorkspace({
             total={receiptTotal}
             reservationApplied={receiptSnap?.reservationApplied ?? 0}
             paymentMethod={receiptPm}
+            cashReceived={receiptCashReceived}
+            amountReceived={receiptAmountReceived}
+            changeGiven={receiptChangeGiven}
+            paymentReference={receiptPaymentReference}
+            staffName={receiptStaffName}
+            transactionDate={receiptTransactionDate}
             onClose={() => {
               setShowReceipt(false);
               setReceiptData(null);

@@ -36,6 +36,7 @@ import {
   createAdminNotification,
 } from '../services/adminNotification.service.js';
 import { runInBackground } from '../utils/performance.utils.js';
+import { Expo } from 'expo-server-sdk';
 
 const getQueryByIdOrFirebaseUid = (id) => {
   // If it's a 24-character hex string, assume it's a valid ObjectId
@@ -1279,29 +1280,49 @@ export const changePassword = async (req, res, next) => {
  */
 export const registerPushToken = async (req, res) => {
   try {
-    const { token } = req.body;
+    const token = String(req.body?.token || '').trim();
     
-    if (!token) {
-      return res.status(400).json({ success: false, message: 'Push token is required' });
+    if (!Expo.isExpoPushToken(token)) {
+      return res.status(400).json({ success: false, message: 'A valid Expo push token is required' });
     }
 
-    const user = await User.findById(req.user.id);
+    // An Expo token identifies one app installation. Transfer it away from any
+    // previous account before attaching it to the current authenticated user so
+    // a shared device can never receive another customer's private alerts.
+    await User.updateMany(
+      { _id: { $ne: req.user.id }, expoPushTokens: token },
+      { $pull: { expoPushTokens: token } }
+    );
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { $addToSet: { expoPushTokens: token } },
+      { new: true }
+    ).select('_id');
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    if (!user.expoPushTokens) {
-      user.expoPushTokens = [];
-    }
-
-    if (!user.expoPushTokens.includes(token)) {
-      user.expoPushTokens.push(token);
-      await user.save();
     }
 
     res.json({ success: true, message: 'Push token registered successfully' });
   } catch (error) {
     console.error('❌ Register Push Token Error:', error);
     res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+  }
+};
+
+/** Remove one device token without affecting the customer's other devices. */
+export const unregisterPushToken = async (req, res) => {
+  try {
+    const token = String(req.body?.token || '').trim();
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Push token is required' });
+    }
+    await User.updateOne(
+      { _id: req.user.id },
+      { $pull: { expoPushTokens: token } }
+    );
+    return res.json({ success: true, message: 'Push token unregistered successfully' });
+  } catch (error) {
+    console.error('❌ Unregister Push Token Error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };

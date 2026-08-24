@@ -136,8 +136,33 @@ export interface NotificationRecord {
   title: string;
   message: string;
   type?: string;
+  event?: string;
+  category?: string;
+  priority?: 'low' | 'normal' | 'high';
   isRead: boolean;
   createdAt?: string;
+  updatedAt?: string;
   link?: string;
+  action?: { label?: string; link?: string };
+  actionType?: string;
+  actionId?: string;
+  data?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
+}
+
+export interface NotificationPage {
+  notifications: NotificationRecord[];
+  unreadCount: number;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
+  facets: {
+    categories: Record<string, number>;
+    unreadCategories: Record<string, number>;
+  };
 }

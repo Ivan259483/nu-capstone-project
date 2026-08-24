@@ -176,5 +176,6 @@ export const Glass = {
 
 // ── Bottom Tab ─────────────────────────────────────────────────────
 export const BottomTabInset = Platform.select({ ios: 34, android: 16 }) ?? 0;
+export const TabBarContentHeight = 62;
 export const TabBarHeight = 72 + BottomTabInset; // Larger for floating style
 export const MaxContentWidth = 430;

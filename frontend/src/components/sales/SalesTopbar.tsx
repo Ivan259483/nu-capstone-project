@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Search,
   Bell,
@@ -16,6 +16,8 @@ import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
+import { resolveProfileImage } from '@/lib/profile-image';
+import { isSettingsManagerRole } from '@/lib/roles';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
 import {
   isBalancePickupNotification,
@@ -55,6 +57,19 @@ function relativeTime(iso: string | undefined): string {
   } catch {
     return '';
   }
+}
+
+function formatAccountLabel(value: string | null | undefined, fallback: string): string {
+  const normalized = String(value || '').trim().replace(/\s+/g, ' ');
+  if (!normalized) return fallback;
+
+  const isUniformCase = normalized === normalized.toLowerCase() || normalized === normalized.toUpperCase();
+  if (!isUniformCase) return normalized;
+
+  return normalized
+    .split(' ')
+    .map((part) => part ? `${part[0].toUpperCase()}${part.slice(1).toLowerCase()}` : part)
+    .join(' ');
 }
 
 function parseSalesNotifDisplay(n: SalesNotif) {
@@ -136,6 +151,8 @@ export default function SalesTopbar({
   const [notifLoading, setNotifLoading] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
   const [soundOn, setSoundOn] = useState(() => isNotificationSoundEnabled());
+  const notificationMenuRef = useRef<HTMLDivElement>(null);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
 
   const fetchNotifications = useCallback(async () => {
@@ -172,6 +189,26 @@ export default function SalesTopbar({
   useEffect(() => {
     if (notifOpen) void fetchNotifications();
   }, [notifOpen, fetchNotifications]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (notifOpen && !notificationMenuRef.current?.contains(target)) setNotifOpen(false);
+      if (profileOpen && !profileMenuRef.current?.contains(target)) setProfileOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setNotifOpen(false);
+      setProfileOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [notifOpen, profileOpen]);
 
   useEffect(() => {
     const socket = getSharedSocket();
@@ -250,14 +287,17 @@ export default function SalesTopbar({
     setProfileOpen(false);
   };
 
-  const initials = user?.name
-    ? user.name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()
+  const displayName = formatAccountLabel(user?.name || user?.displayName, 'Sales Staff');
+  const roleLabel = formatAccountLabel((user?.role || 'sales').replace(/_/g, ' '), 'Sales');
+  const profileImage = resolveProfileImage(user);
+  const initials = displayName
+    ? displayName.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()
     : 'SA';
   const today = new Date().toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 
   return (
     <header
-      className="h-16 bg-white flex items-center px-6 gap-4 shrink-0 z-20"
+      className="h-16 bg-white flex items-center px-3 sm:px-6 gap-2 sm:gap-4 shrink-0 z-20"
       style={{
         borderBottom: '1px solid rgba(226,232,240,0.5)',
         boxShadow: '0 2px 12px -4px rgba(0,0,0,0.05)',
@@ -270,35 +310,41 @@ export default function SalesTopbar({
           placeholder="Search customers, transactions, plates…"
           className="w-full pl-9 pr-14 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-all duration-150"
         />
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+        <span className="absolute right-3 top-1/2 hidden -translate-y-1/2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 sm:inline-flex">
           ⌘K
         </span>
       </div>
 
-      <div className="flex items-center gap-3 ml-auto">
-        <span className="text-xs text-slate-500 font-medium hidden lg:block">{today}</span>
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <span className="mr-3 hidden text-xs font-medium tabular-nums text-slate-500 lg:block">{today}</span>
 
-        <div className="relative">
+        <div ref={notificationMenuRef} className="relative">
           <button
             type="button"
             onClick={() => {
-              setNotifOpen(!notifOpen);
+              setNotifOpen((open) => !open);
               setProfileOpen(false);
             }}
-            className="relative p-2 rounded-lg hover:bg-slate-100 transition-colors duration-150"
+            className={`relative inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600/50 ${notifOpen ? 'bg-slate-100 text-slate-950' : 'bg-transparent'}`}
             aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+            aria-haspopup="dialog"
+            aria-expanded={notifOpen}
+            aria-controls={notifOpen ? 'sales-notification-panel' : undefined}
           >
-            <Bell size={18} className="text-slate-600" />
+            <Bell size={19} strokeWidth={1.9} aria-hidden />
             {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 min-w-[1rem] h-4 px-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                {unreadCount > 9 ? '9+' : unreadCount}
+              <span className="absolute -right-0.5 -top-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-rose-600 px-1 text-[9px] font-bold leading-none tabular-nums text-white ring-2 ring-white">
+                {unreadCount > 99 ? '99+' : unreadCount}
               </span>
             )}
           </button>
 
           {notifOpen && (
             <div
-              className="absolute right-0 top-12 z-50 flex w-[min(22rem,92vw)] max-h-[min(440px,72vh)] flex-col overflow-hidden rounded-[1.25rem] bg-gradient-to-b from-slate-100/95 via-slate-50/98 to-white shadow-[0_24px_60px_-16px_rgba(15,23,42,0.22),0_12px_32px_-12px_rgba(15,23,42,0.1)] ring-1 ring-white/80 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200"
+              id="sales-notification-panel"
+              role="dialog"
+              aria-label="Sales notifications"
+              className="fixed inset-x-3 top-[4.5rem] z-50 flex max-h-[min(440px,72vh)] w-auto flex-col overflow-hidden rounded-[1.25rem] bg-gradient-to-b from-slate-100/95 via-slate-50/98 to-white shadow-[0_24px_60px_-16px_rgba(15,23,42,0.22),0_12px_32px_-12px_rgba(15,23,42,0.1)] ring-1 ring-white/80 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200 sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:w-[22rem]"
             >
               <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-blue-500/[0.07] via-transparent to-transparent" />
               <div className="relative flex shrink-0 items-center justify-between gap-2 px-4 pb-3 pt-4">
@@ -438,73 +484,95 @@ export default function SalesTopbar({
           )}
         </div>
 
-        <div className="relative">
+        <div ref={profileMenuRef} className="relative">
           <button
             type="button"
             onClick={() => {
-              setProfileOpen(!profileOpen);
+              setProfileOpen((open) => !open);
               setNotifOpen(false);
             }}
-            className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors duration-150"
+            className={`flex min-h-10 items-center gap-2 rounded-xl px-1.5 py-1 text-left transition-colors duration-150 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600/50 ${profileOpen ? 'bg-slate-100' : 'bg-transparent'}`}
+            aria-label={`${profileOpen ? 'Close' : 'Open'} user menu for ${displayName}`}
+            aria-haspopup="menu"
+            aria-expanded={profileOpen}
+            aria-controls={profileOpen ? 'sales-profile-menu' : undefined}
           >
-            {user?.avatar && (user.avatar.startsWith('http') || user.avatar.startsWith('data:image/')) ? (
+            {profileImage ? (
               <img
-                src={user.avatar}
-                alt={user?.name || 'Profile'}
-                className="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-200"
+                src={profileImage}
+                alt=""
+                className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-slate-200"
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center text-white text-xs font-bold shrink-0">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-bold tracking-wide text-blue-700 ring-1 ring-inset ring-blue-100" aria-hidden>
                 {initials}
               </div>
             )}
-            <div className="text-left hidden md:block">
-              <p className="text-xs font-semibold text-slate-900 leading-tight">{user?.name || 'Sales Staff'}</p>
-              <p className="text-[10px] text-slate-500 leading-tight capitalize">{(user?.role || 'sales').replace(/_/g, ' ')}</p>
+            <div className="hidden min-w-0 max-w-36 text-left md:block">
+              <p className="truncate text-[13px] font-semibold leading-[1.15] text-slate-950">{displayName}</p>
+              <p className="mt-0.5 truncate text-[11px] font-medium leading-[1.15] text-slate-500">{roleLabel}</p>
             </div>
-            <ChevronDown size={14} className="text-slate-400 hidden md:block" />
+            <ChevronDown
+              size={15}
+              className={`ml-0.5 hidden shrink-0 text-slate-400 transition-transform duration-200 md:block ${profileOpen ? 'rotate-180' : ''}`}
+              aria-hidden
+            />
           </button>
 
           {profileOpen && (
-            <div className="absolute right-0 top-12 w-52 bg-white rounded-xl border border-slate-200 shadow-xl z-50">
-              <div className="px-4 py-3 border-b border-slate-100">
-                <p className="text-sm font-semibold text-slate-900">{user?.name || 'Sales Staff'}</p>
-                <p className="text-xs text-slate-500">{user?.email || ''}</p>
+            <div
+              id="sales-profile-menu"
+              role="menu"
+              aria-label="User account"
+              className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-xl bg-white p-1.5 shadow-[0_16px_40px_-16px_rgba(15,23,42,0.28)] ring-1 ring-slate-200/80 animate-in fade-in zoom-in-95 duration-150"
+            >
+              <div className="px-2.5 pb-3 pt-2">
+                <p className="truncate text-sm font-semibold text-slate-950">{displayName}</p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">{user?.email || roleLabel}</p>
               </div>
-              <div className="py-1">
+              <div className="border-t border-slate-100 pt-1.5">
+                {onNavigateToProfile && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      onNavigateToProfile();
+                    }}
+                    className="flex min-h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600/40"
+                  >
+                    <User size={16} aria-hidden />
+                    <span>My Profile</span>
+                  </button>
+                )}
+                {onNavigateToSettings && isSettingsManagerRole(user?.role) && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      onNavigateToSettings();
+                    }}
+                    className="flex min-h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600/40"
+                  >
+                    <Settings size={16} aria-hidden />
+                    <span>Settings</span>
+                  </button>
+                )}
+                {(onNavigateToProfile || (onNavigateToSettings && isSettingsManagerRole(user?.role))) && (
+                  <hr className="my-1.5 border-slate-100" />
+                )}
                 <button
                   type="button"
+                  role="menuitem"
                   onClick={() => {
                     setProfileOpen(false);
-                    onNavigateToProfile?.();
+                    void logout();
                   }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all duration-150 cursor-pointer"
+                  className="flex min-h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-600/40"
                 >
-                  <User size={15} />
-                  <span>My Profile</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setProfileOpen(false);
-                    onNavigateToSettings?.();
-                  }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all duration-150 cursor-pointer"
-                >
-                  <Settings size={15} />
-                  <span>Settings</span>
-                </button>
-                <hr className="my-1 border-slate-100" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setProfileOpen(false);
-                    logout();
-                  }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-500 hover:bg-red-50 hover:text-red-600 transition-all duration-150 cursor-pointer"
-                >
-                  <LogOut size={15} className="text-red-500" />
+                  <LogOut size={16} aria-hidden />
                   <span>Sign Out</span>
                 </button>
               </div>

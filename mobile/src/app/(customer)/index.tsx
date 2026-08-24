@@ -73,6 +73,7 @@ import {
 import {
   resolveCustomerHomeRailStep,
 } from '@/utils/customer-home-rail-step';
+import { useNotifications } from '@/context/NotificationsContext';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // VIEWPORT
@@ -515,7 +516,7 @@ const rl = StyleSheet.create({
 // SECTION: Header — parallax collapse, name, status pill
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function HeaderSection({
-  profile, name, scrollY, active, completed, router,
+  profile, name, scrollY, active, completed, router, unreadCount,
 }: any) {
   const hdrAnim = useAnimatedStyle(() => ({
     transform: [{ translateY: interpolate(scrollY.value, [0,110], [0,-10], Extrapolation.CLAMP) }],
@@ -549,9 +550,9 @@ function HeaderSection({
         <Tap onPress={() => router.push('/(screens)/notifications')} targetScale={0.92}>
           <View style={$.bellBtn}>
             <Ionicons name="notifications-outline" size={18} color={D.w55} />
-            {active.length > 0 && (
+            {unreadCount > 0 && (
               <View style={$.notifBubble}>
-                <Text style={$.notifTxt}>{active.length > 9 ? '9+' : String(active.length)}</Text>
+                <Text style={$.notifTxt}>{unreadCount > 99 ? '99+' : String(unreadCount)}</Text>
               </View>
             )}
           </View>
@@ -1211,6 +1212,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const scrollY = useSharedValue(0);
+  const { unreadCount } = useNotifications();
 
   const { data: bookings = [], refetch, isRefetching, isLoading } = useQuery({
     queryKey: ['bookings'],
@@ -1271,6 +1273,7 @@ export default function HomeScreen() {
         <HeaderSection
           profile={profile} name={name} scrollY={scrollY}
           active={active} completed={completed.length} router={router}
+          unreadCount={unreadCount}
         />
 
         {/* 2. HERO (parallax + parallax scroll) */}

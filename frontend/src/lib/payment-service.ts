@@ -85,6 +85,8 @@ export const PaymentService = {
         staffId?: string | null;
         discount?: { discountType: 'fixed' | 'percent'; value: number; reason?: string } | null;
         cashReceived?: number | null;
+        amountReceived?: number | null;
+        paymentReference?: string | null;
         taxVatAmount?: number;
         additionalFees?: number;
         downpayment?: number;

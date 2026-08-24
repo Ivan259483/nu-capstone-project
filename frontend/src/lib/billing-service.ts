@@ -110,6 +110,8 @@ export const BillingService = {
       paymentMethod: 'cash' | 'gcash' | 'maya' | 'card' | 'split';
       staffId?: string | null;
       cashReceived?: number | null;
+      amountReceived?: number | null;
+      paymentReference?: string | null;
       splitPayments?: { method: string; amount: number }[];
     }
   ) => {

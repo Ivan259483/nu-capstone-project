@@ -1,7 +1,10 @@
 import { Server as SocketIOServer } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/environment.js';
-import { handleSocketMessage, handleSocketStreamingMessage } from '../controllers/chatbot.controller.js';
+import {
+  handleSocketMessage,
+  handleSocketStreamingMessage,
+} from '../controllers/chatbot.controller.js';
 import {
   isAdminDashboardRole,
   isBookingManagerRole,
@@ -12,7 +15,6 @@ import {
   STAFF_2FA_AUTH_LEVEL,
 } from '../constants/roles.js';
 import User from '../models/user.model.js';
-import { sendExpoPushNotification } from './push.utils.js';
 import { decrypt, looksLikeEncryptedValue } from './encryption.utils.js';
 import { authVersionMatches } from './authVersion.utils.js';
 import { isConfiguredCorsOriginAllowed } from './origin.utils.js';
@@ -35,10 +37,17 @@ function safeDecryptOrderField(val) {
 
 function prepareOrderDocumentForSocket(doc) {
   if (!doc || typeof doc !== 'object') return doc;
-  const vehicleInfo = [doc.vehicleYear, doc.vehicleMake, doc.vehicleModel].filter(Boolean).join(' ').trim();
+  const vehicleInfo = [doc.vehicleYear, doc.vehicleMake, doc.vehicleModel]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
   const serviceName = doc.serviceName || doc.serviceType || 'Service';
   const id = doc._id?.toString?.() || doc.id;
-  const customerId = doc.customer?._id?.toString?.() || doc.customer?.toString?.() || doc.customer || '';
+  const customerId =
+    doc.customer?._id?.toString?.() ||
+    doc.customer?.toString?.() ||
+    doc.customer ||
+    '';
 
   return {
     _id: doc._id,
@@ -53,7 +62,10 @@ function prepareOrderDocumentForSocket(doc) {
     serviceType: doc.serviceType,
     serviceName,
     items: Array.isArray(doc.items)
-      ? doc.items.map((item) => ({ quantity: item.quantity, price: item.price }))
+      ? doc.items.map((item) => ({
+          quantity: item.quantity,
+          price: item.price,
+        }))
       : [],
     totalAmount: doc.totalAmount,
     totalPrice: doc.totalPrice,
@@ -88,8 +100,14 @@ function prepareOrderDocumentForSocket(doc) {
     serviceTrackingStage: doc.serviceTrackingStage || null,
     serviceTrackingUpdatedAt: doc.serviceTrackingUpdatedAt || null,
     serviceTrackingUpdatedBy: doc.serviceTrackingUpdatedBy || null,
-    serviceStaffAssignments: Array.isArray(doc.serviceStaffAssignments) ? doc.serviceStaffAssignments : [],
-    hasPaymentProof: Boolean(doc.paymentProofUrl || doc.downpaymentProof || doc.status === 'pending_confirmation'),
+    serviceStaffAssignments: Array.isArray(doc.serviceStaffAssignments)
+      ? doc.serviceStaffAssignments
+      : [],
+    hasPaymentProof: Boolean(
+      doc.paymentProofUrl ||
+        doc.downpaymentProof ||
+        doc.status === 'pending_confirmation',
+    ),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -104,6 +122,8 @@ const WATCHED_COLLECTIONS = new Set([
   'services',
   'shopavailabilities',
   'scheduledclosures',
+  'chatconversations',
+  'chatmessages',
 ]);
 
 // ── Debounce/batch rapid successive changes (200 ms window) ─────────
@@ -128,9 +148,12 @@ export const isSocketRoomAuthorized = (socketUser, room) => {
   if (room === `user:${socketUser.id}`) return true;
   if (room === 'admin:chat') return isAdminDashboardRole(socketUser.role);
   if (room === 'booking:approvals') {
-    return isBookingManagerRole(socketUser.role) || isPosManagerRole(socketUser.role);
+    return (
+      isBookingManagerRole(socketUser.role) || isPosManagerRole(socketUser.role)
+    );
   }
-  if (room === `staff:${socketUser.id}`) return requiresStaffTwoFactor(socketUser.role);
+  if (room === `staff:${socketUser.id}`)
+    return requiresStaffTwoFactor(socketUser.role);
   return false;
 };
 
@@ -148,7 +171,10 @@ const flushBatch = () => {
     // them. Customers and anonymous chat clients receive a content-free cache
     // invalidation signal and must refetch through the authorized HTTP API.
     io.to(REALTIME_STAFF_ROOM).emit('db_change', payload);
-    io.to(REALTIME_LIMITED_ROOM).emit('db_change', getLimitedDbChangePayload(payload));
+    io.to(REALTIME_LIMITED_ROOM).emit(
+      'db_change',
+      getLimitedDbChangePayload(payload),
+    );
   }
   batchBuffer = [];
   batchTimer = null;
@@ -194,38 +220,36 @@ export const initSocket = (httpServer) => {
       if (!decoded?.id) return next(new Error('Unauthorized socket'));
 
       const user = await User.findById(decoded.id)
-        .select('email name role isActive isDeleted isVerified lockUntil authVersion')
+        .select(
+          'email name role isActive isDeleted isVerified lockUntil authVersion',
+        )
         .lean();
       if (
-        !user
-        || user.isDeleted
-        || !user.isActive
-        || (user.lockUntil && user.lockUntil > new Date())
+        !user ||
+        user.isDeleted ||
+        !user.isActive ||
+        (user.lockUntil && user.lockUntil > new Date())
       ) {
         return next(new Error('Unauthorized socket'));
       }
 
       const liveRole = migrateLegacyUserRole(user.role);
       if (
-        requiresStaffTwoFactor(liveRole)
-        && (
-          !user.isVerified
-          || decoded.authLevel !== STAFF_2FA_AUTH_LEVEL
-          || !authVersionMatches(decoded.authVersion, user.authVersion)
-        )
+        requiresStaffTwoFactor(liveRole) &&
+        (!user.isVerified ||
+          decoded.authLevel !== STAFF_2FA_AUTH_LEVEL ||
+          !authVersionMatches(decoded.authVersion, user.authVersion))
       ) {
         return next(new Error('Staff two-factor authentication required'));
       }
       if (
-        isCustomerRole(liveRole)
-        && (
-          !user.isVerified
-          || !(
-            decoded.otpVerified === true
-            || decoded.federatedVerified === true
-            || decoded.emailLinkVerified === true
-          )
-        )
+        isCustomerRole(liveRole) &&
+        (!user.isVerified ||
+          !(
+            decoded.otpVerified === true ||
+            decoded.federatedVerified === true ||
+            decoded.emailLinkVerified === true
+          ))
       ) {
         return next(new Error('Customer email verification required'));
       }
@@ -250,8 +274,12 @@ export const initSocket = (httpServer) => {
       socket.join(REALTIME_LIMITED_ROOM);
     }
 
-    const sessionId = socket.handshake.auth?.sessionId || socket.handshake.query?.sessionId;
-    if (typeof sessionId === 'string' && /^[A-Za-z0-9_-]{8,180}$/.test(sessionId)) {
+    const sessionId =
+      socket.handshake.auth?.sessionId || socket.handshake.query?.sessionId;
+    if (
+      typeof sessionId === 'string' &&
+      /^[A-Za-z0-9_-]{8,180}$/.test(sessionId)
+    ) {
       socket.join(`chat:${sessionId}`);
     }
     if (socket.user?.id) {
@@ -260,7 +288,10 @@ export const initSocket = (httpServer) => {
     if (isAdminDashboardRole(socket.user?.role)) {
       socket.join('admin:chat');
     }
-    if (isBookingManagerRole(socket.user?.role) || isPosManagerRole(socket.user?.role)) {
+    if (
+      isBookingManagerRole(socket.user?.role) ||
+      isPosManagerRole(socket.user?.role)
+    ) {
       socket.join('booking:approvals');
     }
 
@@ -292,9 +323,14 @@ export const getIO = () => {
 export const initChangeStreams = (mongooseConnection) => {
   if (!io) return;
   console.log('[SOCKET] Initializing MongoDB Change Streams...');
-  console.log('[SOCKET] Watching collections:', [...WATCHED_COLLECTIONS].join(', '));
+  console.log(
+    '[SOCKET] Watching collections:',
+    [...WATCHED_COLLECTIONS].join(', '),
+  );
   try {
-    const changeStream = mongooseConnection.watch([], { fullDocument: 'updateLookup' });
+    const changeStream = mongooseConnection.watch([], {
+      fullDocument: 'updateLookup',
+    });
     changeStream.on('change', (change) => {
       const collectionName = change.ns ? change.ns.coll : '';
 
@@ -303,7 +339,9 @@ export const initChangeStreams = (mongooseConnection) => {
 
       const rawDoc = change.fullDocument || null;
       const fullDocument =
-        collectionName === 'orders' && rawDoc ? prepareOrderDocumentForSocket(rawDoc) : rawDoc;
+        collectionName === 'orders' && rawDoc
+          ? prepareOrderDocumentForSocket(rawDoc)
+          : rawDoc;
 
       const payload = {
         collection: collectionName,
@@ -316,52 +354,25 @@ export const initChangeStreams = (mongooseConnection) => {
 
       // Batch rapid successive changes (e.g. bulk import, migration)
       enqueueChange(payload);
-
-      // Expo Push Notification Logic for Orders
-      if (collectionName === 'orders' && change.operationType === 'update' && change.updateDescription?.updatedFields?.status) {
-        // Run asynchronously so we don't block the change stream
-        (async () => {
-          try {
-            const newStatus = change.updateDescription.updatedFields.status;
-            // Fetch the document to know who owns it
-            const fullDoc = payload.fullDocument;
-            if (!fullDoc || !fullDoc.customer) return;
-
-            const customer = await User.findById(fullDoc.customer);
-            if (customer && customer.expoPushTokens && customer.expoPushTokens.length > 0) {
-              let title = 'Booking Update';
-              let body = `Your booking status is now: ${newStatus}`;
-
-              if (newStatus === 'completed' || newStatus === 'ready_for_payment') {
-                title = 'Service Completed!';
-                body = 'Your vehicle is ready. Please view your invoice to proceed with payment.';
-              } else if (newStatus === 'in_progress') {
-                title = 'Service Started';
-                body = 'We have started working on your vehicle!';
-              } else if (newStatus === 'confirmed') {
-                title = 'Booking Confirmed';
-                body = 'Your AutoSPF+ appointment has been confirmed.';
-              }
-
-              await sendExpoPushNotification(customer.expoPushTokens, title, body, { orderId: fullDoc._id });
-            }
-          } catch (e) {
-            console.error('[SOCKET] Error dispatching push notification:', e);
-          }
-        })();
-      }
     });
     changeStream.on('error', (err) => {
       // Code 40573 = "$changeStream is only supported on replica sets"
       // This happens when using a standalone in-memory MongoDB (non-replica-set).
       if (err.code === 40573) {
-        console.warn('[SOCKET] ⚠️  Change Streams not supported (standalone MongoDB — not a replica set). Real-time db_change events disabled.');
-        console.warn('[SOCKET]    Tip: The in-memory fallback should use MongoMemoryReplSet for Change Stream support.');
+        console.warn(
+          '[SOCKET] ⚠️  Change Streams not supported (standalone MongoDB — not a replica set). Real-time db_change events disabled.',
+        );
+        console.warn(
+          '[SOCKET]    Tip: The in-memory fallback should use MongoMemoryReplSet for Change Stream support.',
+        );
       } else {
         console.error('[SOCKET] MongoDB Change Stream Error:', err);
       }
     });
   } catch (error) {
-    console.error('[SOCKET] Failed to initialize Mongoose Change Streams:', error);
+    console.error(
+      '[SOCKET] Failed to initialize Mongoose Change Streams:',
+      error,
+    );
   }
 };

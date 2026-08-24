@@ -18,6 +18,7 @@ const COLLECTION_QUERY_MAP: Record<string, string[]> = {
 const ORDERS_REFRESH_DEBOUNCE_MS = 700;
 
 let sharedSocket: Socket | null = null;
+let sharedSocketPromise: Promise<Socket> | null = null;
 let socketListenersAttached = false;
 let subscribers: ((payload: any) => void)[] = [];
 let globalQueryClient: QueryClient | null = null;
@@ -114,7 +115,10 @@ function patchOrderQueryCaches(payload: any): void {
 }
 
 export const getSharedSocket = async (): Promise<Socket> => {
-  if (!sharedSocket || !sharedSocket.connected) {
+  if (sharedSocket && (sharedSocket.connected || sharedSocket.active)) return sharedSocket;
+  if (sharedSocketPromise) return sharedSocketPromise;
+
+  sharedSocketPromise = (async () => {
     if (sharedSocket) {
       sharedSocket.disconnect();
       socketListenersAttached = false;
@@ -131,8 +135,14 @@ export const getSharedSocket = async (): Promise<Socket> => {
       reconnectionAttempts: 10,
       auth: { token },
     });
+    return sharedSocket;
+  })();
+
+  try {
+    return await sharedSocketPromise;
+  } finally {
+    sharedSocketPromise = null;
   }
-  return sharedSocket;
 };
 
 /** Re-handshake an existing anonymous/stale socket with the newly issued JWT. */
@@ -218,6 +228,8 @@ export function useRealtimeSync(
   callback?: (collection: string, operationType: string, documentKey: any, fullDocument?: any) => void
 ) {
   const { profile } = useAuth();
+  const profileId = profile?.id;
+  const profileRole = profile?.role;
   const queryClient = useQueryClient();
   const collectionsRef = useRef(collectionsToWatch);
   const callbackRef = useRef(callback);
@@ -230,10 +242,11 @@ export function useRealtimeSync(
   }, [queryClient]);
 
   useEffect(() => {
-    if (!profile) {
+    if (!profileId) {
       if (sharedSocket) {
         sharedSocket.disconnect();
         sharedSocket = null;
+        sharedSocketPromise = null;
         socketListenersAttached = false;
       }
       if (ordersRefreshTimer) {
@@ -264,12 +277,12 @@ export function useRealtimeSync(
 
       attachGlobalSocketListeners(socket);
 
-      if (isAdminDashboardRole(profile.role)) {
+      if (isAdminDashboardRole(profileRole)) {
         socket.emit('join_room', 'admin:chat');
-      } else if (isServiceStaffRole(profile.role)) {
-        socket.emit('join_room', `staff:${profile.id}`);
+      } else if (isServiceStaffRole(profileRole)) {
+        socket.emit('join_room', `staff:${profileId}`);
       } else {
-        socket.emit('join_room', `user:${profile.id}`);
+        socket.emit('join_room', `user:${profileId}`);
       }
     })();
 
@@ -277,5 +290,5 @@ export function useRealtimeSync(
       cancelled = true;
       subscribers = subscribers.filter((sub) => sub !== handler);
     };
-  }, [profile?.id, profile?.role]);
+  }, [profileId, profileRole]);
 }

@@ -411,6 +411,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async (): Promise<void> => {
     try {
+      const { unregisterCurrentPushToken } = await import('@/hooks/usePushNotifications');
+      await unregisterCurrentPushToken();
       await authService.signOut();
       // Clear any stuck offline-queued requests so they aren't
       // replayed with a stale token in the next session.

@@ -122,7 +122,7 @@ export default function ForgotPasswordScreen() {
 
     if (!newPassword) { setPasswordError('Password is required'); return; }
     if (!Validation.isStrongPassword(newPassword)) {
-      setPasswordError('Must be 8+ chars with upper, lower & number');
+      setPasswordError('Must be 8+ chars with upper, lower, number & special character');
       return;
     }
     if (newPassword !== confirmPassword) { setConfirmError('Passwords do not match'); return; }
@@ -199,7 +199,7 @@ export default function ForgotPasswordScreen() {
                   <Ionicons name="lock-closed-outline" size={32} color={Palette.accent} />
                 </View>
                 <Text style={styles.title}>Reset Password</Text>
-                <Text style={styles.subtitle}>Enter your email and we'll send a verification code to reset your password.</Text>
+                <Text style={styles.subtitle}>Enter your email and we&apos;ll send a verification code to reset your password.</Text>
               </Animated.View>
 
               <Animated.View entering={FadeInUp.delay(200).duration(200)}>

@@ -3,7 +3,7 @@
  * (`activeSection === 'payments'`): per-booking cards, reservation fee + full payment, totals.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -20,7 +20,7 @@ import {
   Share,
   Linking,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
@@ -248,6 +248,10 @@ function BookingPaymentCard({
 export default function PaymentsScreen() {
   const { colors, isDark } = useTheme();
   const router = useRouter();
+  const { orderId: routeOrderId, openReceipt: routeOpenReceipt } = useLocalSearchParams<{
+    orderId?: string;
+    openReceipt?: string;
+  }>();
   const insets = useSafeAreaInsets();
   const { width: windowW } = useWindowDimensions();
   const cardWidth = Math.min(windowW - 32, 560);
@@ -259,6 +263,7 @@ export default function PaymentsScreen() {
   const [proofModalUrl, setProofModalUrl] = useState<string | null>(null);
   const [pdfFileUri, setPdfFileUri] = useState<string | null>(null);
   const [receiptLoadingId, setReceiptLoadingId] = useState<string | null>(null);
+  const handledRouteKey = useRef<string | null>(null);
 
   const visible = sortBookingsNewestFirst(filterBookingsForPaymentHistory(bookings));
   const bookingCount = countPaymentHistoryBookings(bookings);
@@ -302,6 +307,19 @@ export default function PaymentsScreen() {
       setReceiptLoadingId(null);
     }
   }, []);
+
+  useEffect(() => {
+    const orderId = String(routeOrderId || '').trim();
+    const routeKey = `${orderId}:${routeOpenReceipt || ''}`;
+    if (!orderId || loading || error || handledRouteKey.current === routeKey) return;
+    handledRouteKey.current = routeKey;
+    const exists = bookings.some((booking) => String(booking.id || booking._id) === orderId);
+    if (!exists) {
+      Toast.show('This payment or booking record is no longer available.', 'warning');
+      return;
+    }
+    if (routeOpenReceipt === '1') void openReceipt(orderId);
+  }, [bookings, error, loading, openReceipt, routeOpenReceipt, routeOrderId]);
 
   const closePdfModal = useCallback(async () => {
     const uri = pdfFileUri;

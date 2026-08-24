@@ -1,11 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard, ShoppingCart, Receipt, Users, BarChart3,
-  Settings, ChevronLeft, LogOut, CheckSquare, CalendarDays,
-  MessagesSquare, User,
+  ChevronLeft, CheckSquare, CalendarDays, MessagesSquare,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 
 type SalesView = 'dashboard' | 'concierge-inbox' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar' | 'profile';
@@ -29,19 +26,10 @@ const NAV_MAIN = [
 const NAV_MGMT = [
   { key: 'customers' as SalesView, label: 'Customers', icon: Users },
   { key: 'reports' as SalesView, label: 'Sales Reports', icon: BarChart3 },
-  { key: 'settings' as SalesView, label: 'Settings', icon: Settings },
-  { key: 'profile' as SalesView, label: 'My Profile', icon: User },
 ];
 
 export default function SalesSidebar({ activeView, onNavigate, collapsed, onToggle }: Props) {
-  const { logout } = useAuth();
-  const navigate = useNavigate();
   const [pendingCount, setPendingCount] = useState(0);
-
-  const handleLogout = useCallback(async () => {
-    await logout();
-    navigate('/login');
-  }, [logout, navigate]);
 
   useEffect(() => {
     const fetchCount = async () => {
@@ -142,18 +130,8 @@ export default function SalesSidebar({ activeView, onNavigate, collapsed, onTogg
         })}
       </nav>
 
-      {/* Footer — match Customer / QC: Log Out + Collapse */}
+      {/* Footer — Sales keeps only the sidebar collapse control. */}
       <div className="customer-sidebar-footer">
-        <button
-          type="button"
-          className={`customer-sidebar-item customer-sidebar-item--danger ${collapsed ? 'justify-center' : ''}`}
-          onClick={handleLogout}
-          aria-label="Log out"
-          title={collapsed ? 'Log out' : undefined}
-        >
-          <LogOut className="h-5 w-5 shrink-0" strokeWidth={2} />
-          {!collapsed && <span className="customer-sidebar-label">Log Out</span>}
-        </button>
         <button
           type="button"
           className="customer-sidebar-collapse-btn"

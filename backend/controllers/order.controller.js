@@ -5,6 +5,7 @@ import Product from '../models/product.model.js';
 import Service from '../models/service.model.js';
 import Vehicle from '../models/vehicle.model.js';
 import User from '../models/user.model.js';
+import ChatConversation from '../models/chatConversation.model.js';
 import Notification from '../models/notification.model.js';
 import Setting from '../models/setting.model.js';
 import InventoryTransaction from '../models/inventoryTransaction.model.js';
@@ -26,7 +27,16 @@ import {
   normalizeToCanonical,
 } from '../constants/roles.js';
 import { emitBookingManagerNotification } from '../utils/bookingManagerNotifications.utils.js';
-import { createCustomerStageNotification } from '../utils/customerStageNotifications.utils.js';
+import {
+  createCustomerBookingCancelledNotification,
+  createCustomerBookingRejectedNotification,
+  createCustomerBookingRescheduledNotification,
+  createCustomerDamageReportNotification,
+  createCustomerPaymentConfirmedNotification,
+  createCustomerServiceProgressNotification,
+  createCustomerStageNotification,
+  createCustomerTechnicianAssignedNotification,
+} from '../utils/customerStageNotifications.utils.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { decrypt, looksLikeEncryptedValue } from '../utils/encryption.utils.js';
@@ -60,6 +70,7 @@ import {
   createAdminNotification,
 } from '../services/adminNotification.service.js';
 import { timeOperation } from '../utils/performance.utils.js';
+import { normalizePosPaymentMethod } from '../utils/paymentMethod.utils.js';
 
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
@@ -231,15 +242,6 @@ const emitAdminNotification = (notification) => {
   }
 };
 
-const emitCustomerNotification = (customerId, notification) => {
-  try {
-    if (!customerId) return;
-    const io = getIO();
-    io.to(`user:${customerId.toString()}`).emit('notification:customer', notification);
-  } catch (error) {
-    console.warn('Socket not initialized for customer notification:', error.message);
-  }
-};
 const normalizeCurrency = (value) => {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
@@ -543,7 +545,13 @@ const formatBookingListDto = (orderDoc) => {
     finalPaymentAmount: order.finalPaymentAmount,
     invoiceId: order.invoiceId,
     paymentStatus: order.paymentStatus,
-    paymentMethod: order.paymentMethod,
+    // Expose one canonical API field. A succeeded Payment is authoritative for
+    // completed checkout; invoice/order values are compatibility fallbacks only.
+    paymentMethod:
+      order.latestPayment?.method
+      ?? order.invoiceRecord?.snapshot?.payment?.method
+      ?? order.paymentMethod
+      ?? null,
     paymentProvider: order.paymentProvider,
     paidAt: order.paidAt,
     approvedAt: order.approvedAt,
@@ -1410,6 +1418,7 @@ export const getOrderGcashProofFields = async (req, res, next) => {
  */
 export const createOrder = async (req, res, next) => {
   let reservedSlot = null;
+  let conciergeSourceConversationId = '';
   try {
     // Controller-Level Authorization Guard
     if (!req.user || !req.user.id || !req.user.role) {
@@ -1442,13 +1451,19 @@ export const createOrder = async (req, res, next) => {
       totalPrice: totalPriceInput,
       price: priceInput,
       downpaymentProof: downpaymentProofInput,
-      paymentProofUrl: paymentProofUrlInput
+      paymentProofUrl: paymentProofUrlInput,
+      sourceConversationId: sourceConversationIdInput,
+      vehicleType: vehicleTypeInput,
     } = req.body;
 
-    // Defense in depth for any direct controller mount: scheduled appointment
-    // creation belongs exclusively to the authenticated customer. Staff may
-    // only use this shared endpoint for an explicitly unscheduled POS walk-in.
-    if (!isCustomerRole(req.user.role) && isWalkIn !== true) {
+    // Defense in depth for any direct controller mount: staff appointment
+    // creation is allowed only when it is tied to a verified Concierge handoff.
+    const sourceConversationId = typeof sourceConversationIdInput === 'string'
+      ? sourceConversationIdInput.trim()
+      : '';
+    conciergeSourceConversationId = sourceConversationId;
+    const isConciergeSalesBooking = req.user.role === 'sales' && Boolean(sourceConversationId);
+    if (!isCustomerRole(req.user.role) && isWalkIn !== true && !isConciergeSalesBooking) {
       return res.status(403).json({
         success: false,
         errorCode: 'APPOINTMENT_CUSTOMER_ONLY',
@@ -1472,6 +1487,29 @@ export const createOrder = async (req, res, next) => {
         return res.status(400).json({ success: false, message: 'Order owner must be a customer account.' });
       }
       resolvedCustomerId = String(targetCustomer._id);
+    }
+
+    if (isConciergeSalesBooking) {
+      const sourceConversation = await ChatConversation.findOne({
+        conversationId: sourceConversationId,
+        userId: resolvedCustomerId,
+        status: { $in: ['needs_sales', 'in_conversation', 'waiting_customer', 'booking_created'] },
+      }).select('_id linkedBookingId').lean();
+      if (!sourceConversation) {
+        return res.status(400).json({
+          success: false,
+          errorCode: 'INVALID_CONCIERGE_CONVERSATION',
+          message: 'The Sales conversation does not belong to this customer.',
+        });
+      }
+      const existingBooking = await Order.findOne({ sourceConversationId }).lean();
+      if (existingBooking) {
+        return res.status(200).json({
+          success: true,
+          message: 'Existing booking returned for this conversation.',
+          data: formatBookingDto(existingBooking),
+        });
+      }
     }
 
     let fallbackCustomerName = isCustomerRole(req.user.role)
@@ -1583,6 +1621,29 @@ export const createOrder = async (req, res, next) => {
                 vehiclePlate
             };
         }
+    } else if (isConciergeSalesBooking && mongoose.Types.ObjectId.isValid(serviceId)) {
+        const service = await Service.findOne({
+          _id: serviceId,
+          status: 'Active',
+          isPublished: true,
+        });
+        if (!service) {
+          return res.status(400).json({ success: false, message: 'Select an active published service.' });
+        }
+        const vehiclePriceKey = normalizeVehiclePriceKey(vehicleTypeInput);
+        const servicePrice = getServicePriceForVehicle(service, vehiclePriceKey)
+          || normalizeCurrency(service.basePrice);
+        if (!Number.isFinite(servicePrice) || servicePrice <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'The selected service does not have a current price for this vehicle type.',
+          });
+        }
+        resolvedServiceId = service._id;
+        finalItems = [{ quantity: 1, price: servicePrice }];
+        finalServiceType = service.name;
+        finalTotalAmount = servicePrice;
+        finalTotalPrice = servicePrice;
     } else {
         // Standard Product Order Mode (with a "custom package" escape hatch)
 
@@ -1772,9 +1833,11 @@ export const createOrder = async (req, res, next) => {
       ...finalVehicleData,
       bookingDate: canonicalBookingDate,
       bookingTime: canonicalBookingTime,
+      sourceConversationId: sourceConversationId || undefined,
       isWalkIn: isAuthorizedWalkIn,
       downpaymentProof: resolvedPaymentProof,
       paymentProofUrl: resolvedPaymentProof,
+      paymentMethod: resolvedPaymentProof ? 'gcash' : undefined,
     });
 
     const checklist = generateOperationsChecklist(finalServiceType);
@@ -1935,6 +1998,18 @@ export const createOrder = async (req, res, next) => {
         await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
       } catch (releaseError) {
         console.error('[SLOT_RELEASE_ERROR] Failed to release slot after createOrder failure:', releaseError.message);
+      }
+    }
+    if (error?.code === 11000 && conciergeSourceConversationId) {
+      const existingBooking = await Order.findOne({
+        sourceConversationId: conciergeSourceConversationId,
+      }).lean();
+      if (existingBooking) {
+        return res.status(200).json({
+          success: true,
+          message: 'Existing booking returned for this conversation.',
+          data: formatBookingDto(existingBooking),
+        });
       }
     }
     if (error.name === 'ValidationError') {
@@ -2244,10 +2319,11 @@ export const updateOrder = async (req, res, next) => {
       update.paidAt = req.body.paymentStatus === 'paid' ? new Date() : null;
     }
     if (Object.prototype.hasOwnProperty.call(req.body, 'paymentMethod')) {
-      if (!isPosManagerRole(req.user.role) || typeof req.body.paymentMethod !== 'string' || req.body.paymentMethod.length > 40) {
+      const paymentMethod = normalizePosPaymentMethod(req.body.paymentMethod);
+      if (!isPosManagerRole(req.user.role) || !paymentMethod) {
         return res.status(400).json({ success: false, message: 'Invalid payment method.' });
       }
-      update.paymentMethod = req.body.paymentMethod.trim();
+      update.paymentMethod = paymentMethod;
     }
 
     if (Object.prototype.hasOwnProperty.call(req.body, 'archived')) {
@@ -2357,34 +2433,12 @@ export const updateOrder = async (req, res, next) => {
       // 1. Push live status update to the customer's socket room
       emitCustomerStatusUpdate(order);
 
-      // 2. Create a persistent Notification for the customer
+      // 2. Persist and deliver the customer payment notification idempotently.
       try {
-        const customerId =
-          typeof order.customer === 'object' ? order.customer?._id : order.customer;
-        if (customerId) {
-          const createdNotification = await Notification.create({
-            title: 'Payment Received ✓',
-            message: `Your booking ${order.orderNumber || order._id} is confirmed and paid. Your detailer will be assigned shortly.`,
-            type: 'payment',
-            recipientRole: 'customer',
-            recipientUserId: customerId,
-            link: '/customer/dashboard?tab=tracking',
-            metadata: {
-              orderId: order._id,
-              customerId: customerId.toString(),
-            },
-          });
-          // 3. Push real-time notification to customer socket
-          emitCustomerNotification(customerId, {
-            id: createdNotification._id,
-            title: createdNotification.title,
-            message: createdNotification.message,
-            type: createdNotification.type,
-            isRead: createdNotification.isRead,
-            createdAt: createdNotification.createdAt,
-            link: createdNotification.link,
-          });
-        }
+        await createCustomerPaymentConfirmedNotification(order, {
+          invoiceId: order.invoiceId,
+          amount: order.totalPrice || order.totalAmount,
+        });
       } catch (notifyError) {
         console.error('Failed to create payment notification:', notifyError.message);
       }
@@ -2440,6 +2494,11 @@ export const updateOrder = async (req, res, next) => {
       } catch (notificationError) {
         console.warn('[appointments] Cancellation notification failed:', notificationError.message);
       }
+      try {
+        await createCustomerBookingCancelledNotification(order, req.body.cancellationReason);
+      } catch (notificationError) {
+        console.warn('[appointments] Customer cancellation notification failed:', notificationError.message);
+      }
     } else if (
       previousSlot
       && currentSlot
@@ -2468,6 +2527,11 @@ export const updateOrder = async (req, res, next) => {
         });
       } catch (notificationError) {
         console.warn('[appointments] Reschedule notification failed:', notificationError.message);
+      }
+      try {
+        await createCustomerBookingRescheduledNotification(order, previousSlot);
+      } catch (notificationError) {
+        console.warn('[appointments] Customer reschedule notification failed:', notificationError.message);
       }
     }
 
@@ -2594,30 +2658,7 @@ export const updateOrder = async (req, res, next) => {
 
     if (previousStatus !== order.status && order.status === 'confirmed') {
       try {
-        const customerId = typeof order.customer === 'object' ? order.customer?._id : order.customer;
-        if (customerId) {
-          const createdNotification = await Notification.create({
-            title: 'Booking Confirmed',
-            message: `Your booking ${order.orderNumber || order._id} is confirmed.`,
-            type: 'booking',
-            recipientRole: 'customer',
-            recipientUserId: customerId,
-            link: '/customer/dashboard?tab=bookings',
-            metadata: {
-              orderId: order._id,
-              customerId: customerId.toString(),
-            },
-          });
-          emitCustomerNotification(customerId, {
-            id: createdNotification._id,
-            title: createdNotification.title,
-            message: createdNotification.message,
-            type: createdNotification.type,
-            isRead: createdNotification.isRead,
-            createdAt: createdNotification.createdAt,
-            link: createdNotification.link,
-          });
-        }
+        await createCustomerStageNotification(order, 'confirmed');
       } catch (notifyError) {
         console.error('Failed to notify customer booking confirmation:', notifyError.message);
       }
@@ -2746,9 +2787,16 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
 
     // Optionally mark as paid as part of the same transaction
     if (isMarkPaid) {
+      const canonicalPaymentMethod = normalizePosPaymentMethod(paymentMethod);
+      if (!canonicalPaymentMethod) {
+        return res.status(400).json({
+          success: false,
+          message: 'Payment method is required and must be cash or gcash when marking an order paid.',
+        });
+      }
       order.paymentStatus = 'paid';
       order.paidAt = order.paidAt || new Date();
-      order.paymentMethod = paymentMethod || order.paymentMethod || 'manual';
+      order.paymentMethod = canonicalPaymentMethod;
       order.paymentProvider = order.paymentProvider || 'admin';
       if (!order.invoiceId) {
         order.invoiceId = `INV-${Date.now()}`;
@@ -2829,35 +2877,9 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
       );
     }
 
-    // Create unified customer notification that a detailer is assigned
+    // Create unified customer notification that a detailer is assigned.
     try {
-      const customerId = typeof order.customer === 'object' ? order.customer?._id : order.customer;
-      if (customerId) {
-        const notification = await Notification.create({
-          title: 'Detailer Assigned',
-          message: 'Your detailer has been assigned and is working on your car! Please check Live Tracking to track your vehicle\'s progress.',
-          type: 'booking',
-          recipientRole: 'customer',
-          recipientUserId: customerId,
-          link: '/customer/dashboard?tab=tracking',
-          metadata: {
-            orderId: order._id,
-            customerId: customerId.toString(),
-            assignedDetailer: order.assignedDetailer,
-            paymentStatus: order.paymentStatus,
-          },
-        });
-
-        emitCustomerNotification(customerId, {
-          id: notification._id,
-          title: notification.title,
-          message: notification.message,
-          type: notification.type,
-          isRead: notification.isRead,
-          createdAt: notification.createdAt,
-          link: notification.link,
-        });
-      }
+      await createCustomerTechnicianAssignedNotification(order);
     } catch (notifyError) {
       console.error('Failed to send detailer-assigned notification:', notifyError.message);
     }
@@ -3207,6 +3229,18 @@ export const updateOrderProgress = async (req, res, next) => {
       order,
       captureOrderOccupancyWithStatus(order, previousStatus)
     );
+
+    if (normalizedStepIndex !== undefined || shouldComplete) {
+      const completedSteps = (order.serviceSteps || []).filter((step) => step.status === 'completed').length;
+      const progress = shouldComplete
+        ? 100
+        : Math.round((completedSteps / Math.max(order.serviceSteps.length, 1)) * 100);
+      try {
+        await createCustomerServiceProgressNotification(order, progress);
+      } catch (notificationError) {
+        console.warn('[orders] Customer progress notification failed:', notificationError.message);
+      }
+    }
 
     // Activity logs for status changes (fire-and-forget)
     if (previousStatus !== order.status) {
@@ -3812,6 +3846,8 @@ export const updateMobileWorkflow = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Cannot update workflow for a booking that is pending confirmation.' });
     }
 
+    const previousProgress = Number(order.serviceProper?.progressPercentage || 0);
+
     // 1. Update the generic Mobile Workflow state
     if (workflow) {
       if (!order.workflow) order.workflow = {};
@@ -3862,6 +3898,24 @@ export const updateMobileWorkflow = async (req, res, next) => {
     }
 
     await order.save();
+
+    if (step === 4 && stepData) {
+      try {
+        await createCustomerDamageReportNotification(order);
+      } catch (notificationError) {
+        console.warn('[orders] Customer damage-report notification failed:', notificationError.message);
+      }
+    }
+    if (step === 6 && Number.isFinite(Number(stepData?.progressPercentage))) {
+      const progress = Number(stepData.progressPercentage);
+      if (progress !== previousProgress) {
+        try {
+          await createCustomerServiceProgressNotification(order, progress);
+        } catch (notificationError) {
+          console.warn('[orders] Customer progress notification failed:', notificationError.message);
+        }
+      }
+    }
     res.json({ success: true, data: order });
   } catch (error) {
     next(error);
@@ -3912,10 +3966,15 @@ export const operateCheckIn = async (req, res, next) => {
       return res.status(400).json({ success: false, message: `Down payment must be at least 30% (₱${minDownPayment.toFixed(2)})` });
     }
 
-    order.downPaymentAmount = downPaymentAmount;
-    if (paymentMethod) {
-      order.paymentMethod = paymentMethod;
+    const canonicalPaymentMethod = normalizePosPaymentMethod(paymentMethod);
+    if (!canonicalPaymentMethod) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment method is required and must be cash or gcash.',
+      });
     }
+    order.downPaymentAmount = downPaymentAmount;
+    order.paymentMethod = canonicalPaymentMethod;
 
     if (sigData) {
       try {
@@ -4072,7 +4131,14 @@ export const operateQCComplete = async (req, res, next) => {
 export const operateFinalPayment = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { finalPaymentAmount } = req.body;
+    const { finalPaymentAmount, paymentMethod } = req.body;
+    const canonicalPaymentMethod = normalizePosPaymentMethod(paymentMethod);
+    if (!canonicalPaymentMethod) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment method is required and must be cash or gcash.',
+      });
+    }
     let order = await Order.findById(id);
 
     if (!order) return res.status(404).json({ message: 'Order not found' });
@@ -4086,6 +4152,7 @@ export const operateFinalPayment = async (req, res, next) => {
     // Usually remaining balance = total - downpayment
     order.finalPaymentAmount = finalPaymentAmount;
     order.paymentStatus = 'paid';
+    order.paymentMethod = canonicalPaymentMethod;
     order.paidAt = new Date();
     order.status = 'paid';
     
@@ -4364,6 +4431,7 @@ export const uploadPaymentProof = async (req, res, next) => {
       {
         $set: {
           paymentProofUrl,
+          paymentMethod: 'gcash',
           status: 'pending_confirmation',
           rejectionReason: null,
           rejectedAt: null,
@@ -4599,23 +4667,10 @@ export const rejectBooking = async (req, res, next) => {
     } catch (_) {}
 
     try {
-      const customerId = typeof order.customer === 'object'
-        ? order.customer?._id : order.customer;
-      const notif = await Notification.create({
-        title: '❌ Appointment Not Approved',
-        message: `Your booking was not approved. Reason: ${reason}. Please book again with a valid payment proof.`,
-        type: 'warning',
-        recipientUserId: customerId,
-        metadata: { orderId: order._id, orderNumber: order.orderNumber }
-      });
-      try {
-        const io = getIO();
-        io.to(`user:${customerId.toString()}`).emit('notification:customer', {
-          id: notif._id, title: notif.title, message: notif.message,
-          type: notif.type, isRead: false, createdAt: notif.createdAt,
-        });
-      } catch (_) {}
-    } catch (_) {}
+      await createCustomerBookingRejectedNotification(order, reason);
+    } catch (notificationError) {
+      console.warn('[orders] Customer rejection notification failed:', notificationError.message);
+    }
 
     logActivity({ req, type: 'status_change', module: 'Booking', action: 'BOOKING_REJECTED',
       description: `${req.user?.name} rejected booking ${order.orderNumber}. Reason: ${reason}`, status: 'success',
@@ -4783,6 +4838,15 @@ export const rescheduleBooking = async (req, res, next) => {
       });
     } catch (notificationError) {
       console.warn('[appointments] Reschedule notification failed:', notificationError.message);
+    }
+
+    try {
+      await createCustomerBookingRescheduledNotification(savedOrder, {
+        date: oldDate,
+        time: oldTime,
+      });
+    } catch (notificationError) {
+      console.warn('[appointments] Customer reschedule notification failed:', notificationError.message);
     }
 
     return res.json({ success: true, message: 'Booking rescheduled successfully.', data: formatBookingDto(savedOrder) });

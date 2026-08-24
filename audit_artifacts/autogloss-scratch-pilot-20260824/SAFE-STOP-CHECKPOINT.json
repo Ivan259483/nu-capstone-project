@@ -1,0 +1,91 @@
+{
+  "checkpoint_time": "2026-08-24T14:34:00+08:00",
+  "status": "SAFE_STOP_CONNECTOR_AUTH_FAILURE",
+  "connector_error": "OAuth refresh token rejected: invalid_grant; authorization required",
+  "write_project": "ivan-tadena/autogloss-vehicle-damage",
+  "read_only_source": "ivan-tadena/vehicle-damage-dataset-le164",
+  "dent_pilot": {
+    "status": "complete_and_sealed",
+    "images": 100,
+    "masks": 389,
+    "counts": {
+      "dent": 42,
+      "scratch_scuff": 255,
+      "paint_damage": 4,
+      "crack": 1,
+      "lamp_damage": 2,
+      "excluded": 81,
+      "unresolved": 4
+    },
+    "physically_preserved_excluded_masks": 26,
+    "raw_live_damage_in_pilot": 30,
+    "eligible_generic_in_pilot": 4,
+    "verdict": "DENT_GROUP_LOW_PURITY",
+    "checkpoint_sha256": "26d6a6c76572025e6bd570931f975a349d3ff62e2e112a0975ccc5d00302b6f9"
+  },
+  "project_reconciliation_before_scratch_pilot": {
+    "raw_live_damage_masks": 16897,
+    "raw_live_damage_images": 5866,
+    "physically_preserved_excluded_masks": 332,
+    "physically_preserved_excluded_images": 242,
+    "next_pilot_eligible_masks": 14971,
+    "next_pilot_eligible_images": 5209
+  },
+  "scratch_pilot": {
+    "pilot": "scratch_semantic_pilot_001",
+    "query": "class:damage \"surface scratch scuff on car paint\"",
+    "seed_ids": [
+      "IP5Cl3FRGre4hYo7hAei",
+      "ZYiylTHDgLfeVDuP3SCm",
+      "yItg4aaKVyGjm4v4vgDk"
+    ],
+    "visual_review_status": "complete_frozen",
+    "reviewed_images": 100,
+    "reviewed_masks": 374,
+    "counts": {
+      "scratch_scuff": 303,
+      "dent": 9,
+      "paint_damage": 15,
+      "crack": 0,
+      "lamp_damage": 1,
+      "excluded": 46,
+      "unresolved": 0
+    },
+    "purity_pct": 81,
+    "verdict": "SCRATCH_GROUP_HIGH_PURITY",
+    "geometry_edits": 0,
+    "roster_sha256": "081797742d04a5dac7ebb6992d1aacd3d617a2c48d1c518b79dc7feafae22ec8",
+    "geometry_sha256": "b72b555cd2c9d8da1f6cf73fe7e8b562ad36cc3c2539b7ebc45003b138ddb4ed",
+    "decisions_sha256": "ca0948a0fe7cc67f384e436968ab8c9bc158a7870f613d3c2816dff370be2946",
+    "last_fully_verified_rank": 84,
+    "verified_images": 84,
+    "verified_original_masks": 313,
+    "completed_remote_batch_checkpoints": [
+      "1-10",
+      "11-20",
+      "21-30",
+      "31-40",
+      "41-50",
+      "51-60",
+      "61-70",
+      "71-80"
+    ],
+    "ranks_81_84": "committed_and_individually_verified; batch 09 not yet sealed",
+    "rank_85": {
+      "id": "0PNTYEg5O9cjjWR3lG4O",
+      "expected_live_counts": {
+        "scratch_scuff": 5
+      },
+      "original_counts": {
+        "damage": 5
+      },
+      "annotation_save": "acknowledged_before_auth_failure",
+      "live_verification": "unknown_due_to_auth_failure",
+      "metadata_status": "not_attempted_or_unconfirmed; reconcile read-only",
+      "replay_policy": "DO_NOT_REPLAY. After reconnect, query exact live annotation first. If scratch_scuff:5, apply rank-85 metadata only. If damage:5 persists, repeat read-only reconciliation before deciding whether the acknowledged save failed."
+    },
+    "ranks_86_100": "untouched",
+    "uncommitted_original_masks_ranks_85_100": 61,
+    "expansion_500_status": "not_started; start only after ranks 85-100 complete and full pilot reconciliation"
+  }
+}

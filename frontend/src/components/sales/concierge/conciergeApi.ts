@@ -11,6 +11,8 @@ type ApiConversationStatus =
   | 'ai_handling'
   | 'needs_sales'
   | 'in_conversation'
+  | 'waiting_customer'
+  | 'booking_created'
   | 'resolved'
   | 'converted';
 
@@ -33,6 +35,10 @@ type ApiConversation = {
   vehicleLabel?: string;
   plateNumber?: string;
   serviceInterest?: string;
+  selectedServiceId?: string | null;
+  selectedServiceName?: string;
+  selectedVehicleType?: string;
+  offeredSchedule?: { date: string; time: string }[];
   source?: string;
   status: ApiConversationStatus;
   assignedSalesId?: string | null;
@@ -40,11 +46,23 @@ type ApiConversation = {
   lastMessage?: string;
   lastMessagePreview?: string;
   lastMessageAt?: string;
+  lastCustomerMessageAt?: string;
   handedOffAt?: string;
   salesJoinedAt?: string;
   createdAt?: string;
   unreadForSales?: boolean;
   aiSummary?: string;
+  linkedBookingId?: string | null;
+  linkedBookingReference?: string;
+  resolutionReason?: ConciergeConversation['resolutionReason'];
+  resolvedAt?: string;
+  internalNotes?: {
+    id?: string;
+    _id?: string;
+    authorName?: string;
+    text: string;
+    createdAt?: string;
+  }[];
 };
 
 type ConversationListResponse = {
@@ -62,14 +80,17 @@ const STATUS_LABELS: Record<ApiConversationStatus, ConversationStatus> = {
   ai_handling: 'Needs Sales',
   needs_sales: 'Needs Sales',
   in_conversation: 'In Conversation',
+  waiting_customer: 'Waiting for Customer',
+  booking_created: 'Booking Created',
   resolved: 'Resolved',
-  converted: 'Converted',
+  converted: 'Booking Created',
 };
 
 const statusToApi = (status: ConversationStatus): ApiConversationStatus => {
   if (status === 'Needs Sales') return 'needs_sales';
   if (status === 'In Conversation') return 'in_conversation';
-  if (status === 'Converted') return 'converted';
+  if (status === 'Waiting for Customer') return 'waiting_customer';
+  if (status === 'Booking Created') return 'booking_created';
   return 'resolved';
 };
 
@@ -124,10 +145,16 @@ export const mapConciergeConversation = (
   messages: ApiMessage[] = [],
 ): ConciergeConversation => {
   const customerName = conversation.customerName?.trim() || 'Guest Customer';
-  const lastActive = formatRelativeTime(conversation.lastMessageAt);
-  const conversationStarted = formatRelativeTime(
-    conversation.salesJoinedAt || conversation.handedOffAt || conversation.createdAt,
-  );
+  const lastActivity = formatRelativeTime(conversation.lastMessageAt);
+  const lastCustomerActivity = conversation.lastCustomerMessageAt
+    ? formatRelativeTime(conversation.lastCustomerMessageAt)
+    : 'Not recorded';
+  const handoffTime = conversation.handedOffAt
+    ? formatRelativeTime(conversation.handedOffAt)
+    : 'Not recorded';
+  const salesJoinedTime = conversation.salesJoinedAt
+    ? formatRelativeTime(conversation.salesJoinedAt)
+    : 'Not yet';
 
   return {
     id: conversation.conversationId,
@@ -136,38 +163,83 @@ export const mapConciergeConversation = (
       : `GUEST-${conversation.conversationId.slice(0, 8).toUpperCase()}`,
     customerName,
     initials: getInitials(customerName),
-    phone: formatPhilippinePhoneDisplay(conversation.customerPhone) || 'Not provided',
+    phone:
+      formatPhilippinePhoneDisplay(conversation.customerPhone) ||
+      'Not provided',
+    email: conversation.customerEmail || 'Not provided',
     vehicle: conversation.vehicleLabel || 'Not provided',
     plate: conversation.plateNumber || '',
     serviceInterest: conversation.serviceInterest || 'General inquiry',
+    selectedServiceId: conversation.selectedServiceId
+      ? String(conversation.selectedServiceId)
+      : '',
+    selectedServiceName: conversation.selectedServiceName || '',
+    selectedVehicleType: conversation.selectedVehicleType || '',
+    offeredSchedule: conversation.offeredSchedule || [],
     status: STATUS_LABELS[conversation.status] || 'Needs Sales',
     source: 'AI Chatbot',
     lastMessagePreview:
-      conversation.lastMessagePreview || conversation.lastMessage || 'No messages yet',
-    time: lastActive,
-    lastActive: `Active ${lastActive.toLowerCase()}`,
-    conversationStarted,
+      conversation.lastMessagePreview ||
+      conversation.lastMessage ||
+      'No messages yet',
+    time: lastActivity,
+    lastActivityLabel: `Last activity ${lastActivity.toLowerCase()}`,
+    lastCustomerActivityLabel:
+      lastCustomerActivity === 'Not recorded'
+        ? 'Customer activity not recorded'
+        : `Customer replied ${lastCustomerActivity.toLowerCase()}`,
+    handoffTimeLabel:
+      handoffTime === 'Not recorded'
+        ? 'Handoff time not recorded'
+        : `Handed off ${handoffTime.toLowerCase()}`,
+    salesJoinedTimeLabel:
+      salesJoinedTime === 'Not yet'
+        ? 'Sales has not joined'
+        : `Sales joined ${salesJoinedTime.toLowerCase()}`,
+    lastMessageAt: conversation.lastMessageAt,
+    lastCustomerMessageAt: conversation.lastCustomerMessageAt,
+    handedOffAt: conversation.handedOffAt,
+    salesJoinedAt: conversation.salesJoinedAt,
     unread: Boolean(conversation.unreadForSales),
     handoffNote: 'Chat was escalated from AutoSPF+ AI to Sales.',
     aiSummary:
       conversation.aiSummary ||
       'Review the conversation history and continue the customer request from the AI handoff.',
     bookingNotes: conversation.aiSummary || conversation.lastMessage || '',
-    internalNotes: [],
+    internalNotes: (conversation.internalNotes || []).map((note) => ({
+      id: String(note.id || note._id || `note-${Date.now()}`),
+      author: note.authorName || 'Sales Team',
+      time: note.createdAt
+        ? new Intl.DateTimeFormat('en-PH', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+          }).format(new Date(note.createdAt))
+        : 'Just now',
+      text: note.text,
+    })),
     messages: messages.map(mapConciergeMessage),
     assignedSalesId: conversation.assignedSalesId
       ? String(conversation.assignedSalesId)
       : null,
     assignedSalesName: conversation.assignedSalesName || '',
+    linkedBookingId: conversation.linkedBookingId
+      ? String(conversation.linkedBookingId)
+      : null,
+    linkedBookingReference: conversation.linkedBookingReference || '',
+    resolutionReason: conversation.resolutionReason || '',
+    resolvedAt: conversation.resolvedAt,
   };
 };
 
 export const conciergeApi = {
   async list(search = ''): Promise<ConciergeConversation[]> {
-    const response = await api.get<ConversationListResponse>('/chat/sales/conversations', {
-      params: search.trim() ? { search: search.trim() } : undefined,
-      meta: { suppressErrorToast: true },
-    } as any);
+    const response = await api.get<ConversationListResponse>(
+      '/chat/sales/conversations',
+      {
+        params: search.trim() ? { search: search.trim() } : undefined,
+        meta: { suppressErrorToast: true },
+      } as any,
+    );
     return (response.data.conversations || []).map((conversation) =>
       mapConciergeConversation(conversation),
     );
@@ -184,10 +256,19 @@ export const conciergeApi = {
     );
   },
 
-  async send(conversationId: string, message: string): Promise<ConciergeConversation> {
+  async send(
+    conversationId: string,
+    message: string,
+    context?: {
+      selectedServiceId?: string;
+      selectedVehicleType?: string;
+      offeredSchedule?: { date: string; time: string }[];
+    },
+  ): Promise<ConciergeConversation> {
     await api.post(`/chat/sales/conversations/${conversationId}/messages`, {
       senderType: 'sales',
       message,
+      ...(context ? { context } : {}),
     });
     return this.detail(conversationId);
   },
@@ -195,9 +276,11 @@ export const conciergeApi = {
   async updateStatus(
     conversationId: string,
     status: ConversationStatus,
+    reason?: ConciergeConversation['resolutionReason'],
   ): Promise<ConciergeConversation> {
     await api.patch(`/chat/sales/conversations/${conversationId}/status`, {
       status: statusToApi(status),
+      ...(reason ? { reason } : {}),
     });
     return this.detail(conversationId);
   },
@@ -209,5 +292,25 @@ export const conciergeApi = {
 
   async markRead(conversationId: string): Promise<void> {
     await api.patch(`/chat/sales/conversations/${conversationId}/read`);
+  },
+
+  async linkBooking(
+    conversationId: string,
+    bookingId: string,
+  ): Promise<ConciergeConversation> {
+    await api.post(`/chat/sales/conversations/${conversationId}/booking`, {
+      bookingId,
+    });
+    return this.detail(conversationId);
+  },
+
+  async addNote(
+    conversationId: string,
+    text: string,
+  ): Promise<ConciergeConversation> {
+    await api.post(`/chat/sales/conversations/${conversationId}/notes`, {
+      text,
+    });
+    return this.detail(conversationId);
   },
 };

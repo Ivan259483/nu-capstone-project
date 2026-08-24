@@ -15,6 +15,7 @@ import {
   USER_PHONE_SELECT_FIELDS,
 } from '../utils/phone-client.utils.js';
 import { hydrateReceiptSnapshot } from '../utils/receiptSnapshot.utils.js';
+import { normalizePosPaymentMethod } from '../utils/paymentMethod.utils.js';
 
 const RECEIPT_CUSTOMER_SELECT = `name email ${USER_PHONE_SELECT_FIELDS}`;
 const RECEIPT_VEHICLE_SELECT = 'year make model color plateNumber vehicleType';
@@ -284,11 +285,21 @@ export const checkoutBilling = async (req, res, next) => {
     }
 
     const {
-      paymentMethod = 'cash',
+      paymentMethod: requestedPaymentMethod,
       staffId,
       cashReceived,
+      amountReceived,
+      paymentReference,
       splitPayments = [],
     } = req.body || {};
+
+    const paymentMethod = normalizePosPaymentMethod(requestedPaymentMethod);
+    if (!paymentMethod) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment method is required and must be cash or gcash',
+      });
+    }
 
     const order = await Order.findById(orderId)
       .populate('customer', RECEIPT_CUSTOMER_SELECT)
@@ -378,6 +389,8 @@ export const checkoutBilling = async (req, res, next) => {
       paymentMethod,
       staffId,
       cashReceived,
+      amountReceived,
+      paymentReference,
       splitPayments,
       invoiceRecordId: invoiceRecord._id,
       billingVersion: billing.version,
@@ -403,7 +416,9 @@ export const checkoutBilling = async (req, res, next) => {
         totalAmount: receiptData.totalAmount,
         amountCollected: receiptData.amountCollected,
         cashReceived: receiptData.cashReceived,
+        amountReceived: receiptData.amountReceived,
         changeGiven: receiptData.changeGiven,
+        paymentReference: receiptData.paymentReference,
         balanceRemaining: receiptData.balanceRemaining,
         splitPayments: receiptData.splitPayments || [],
         staff: receiptData.staff || null,

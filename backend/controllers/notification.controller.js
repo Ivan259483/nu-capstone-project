@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import Notification, {
-  ADMIN_NOTIFICATION_CATEGORIES,
+  NOTIFICATION_CATEGORIES,
   NOTIFICATION_SEVERITIES,
 } from '../models/notification.model.js';
 import NotificationUserState from '../models/notificationUserState.model.js';
@@ -36,9 +36,13 @@ const CATEGORY_ALIASES = Object.freeze({
   admin: 'security',
   audit: 'security',
   notifications: 'system',
+  promo: 'promotion',
+  promotions: 'promotion',
+  important: 'important',
+  service: 'service',
 });
 
-const CATEGORY_SET = new Set(ADMIN_NOTIFICATION_CATEGORIES);
+const CATEGORY_SET = new Set(NOTIFICATION_CATEGORIES);
 const SEVERITY_SET = new Set(NOTIFICATION_SEVERITIES);
 
 function requestError(message, status = 400) {
@@ -87,7 +91,7 @@ function parseCategories(value, field = 'category') {
   if (invalid.length) {
     throw requestError(
       `${field} contains unsupported value(s): ${invalid.join(', ')}. `
-      + `Allowed categories: ${ADMIN_NOTIFICATION_CATEGORIES.join(', ')}.`
+      + `Allowed categories: ${NOTIFICATION_CATEGORIES.join(', ')}.`
     );
   }
   return [...new Set(values.map(normalizeCategory))];
@@ -578,6 +582,11 @@ export const getNotifications = async (req, res, next) => {
               { $match: visibleMatch() },
               { $group: { _id: '$category', count: { $sum: 1 } } },
             ],
+            unreadCategoryCounts: [
+              { $match: visibleMatch() },
+              { $match: { isRead: false } },
+              { $group: { _id: '$category', count: { $sum: 1 } } },
+            ],
             severityCounts: [
               { $match: visibleMatch() },
               { $group: { _id: '$severity', count: { $sum: 1 } } },
@@ -610,6 +619,7 @@ export const getNotifications = async (req, res, next) => {
         actionRequired: summary.actionRequired || 0,
         system: summary.system || 0,
         categories: facetMap(result.categoryCounts),
+        unreadCategories: facetMap(result.unreadCategoryCounts),
         severities: facetMap(result.severityCounts),
       },
     });

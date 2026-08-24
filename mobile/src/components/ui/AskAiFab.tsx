@@ -22,6 +22,7 @@ import Animated, {
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ChatOverlay from '@/components/ChatOverlay';
+import { TabBarContentHeight } from '@/constants/theme';
 
 // ── Orb palette — brand orange / amber (no purple or blue) ───────────────────
 const ORB_COLORS = [
@@ -39,7 +40,8 @@ const DOT_COUNT = 7;
 const ORB_RADIUS = 9;
 const DOT_SIZE = 4;
 
-const ORB_SIZE = 40;
+const ORB_SIZE = 44;
+const FAB_NAV_CLEARANCE = 16;
 
 // ── Spinning dot ─────────────────────────────────────────────────────────────
 function OrbDot({ index, rotation }: { index: number; rotation: SharedValue<number> }) {
@@ -103,7 +105,9 @@ export default function AskAiFab() {
       <Animated.View
         style={[
           styles.fabWrapper,
-          { bottom: 80 + insets.bottom },
+          {
+            bottom: TabBarContentHeight + insets.bottom + FAB_NAV_CLEARANCE,
+          },
         ]}
         entering={FadeIn.delay(500).duration(240)}
       >
@@ -114,6 +118,7 @@ export default function AskAiFab() {
             style={styles.touchable}
             accessibilityRole="button"
             accessibilityLabel="Open AI assistant"
+            accessibilityHint="Opens the AutoSPF AI assistant without leaving booking"
           >
             <SpinningOrb size={ORB_SIZE} />
           </TouchableOpacity>

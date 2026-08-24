@@ -1,59 +1,123 @@
 import { Sparkles } from 'lucide-react';
+import type { ConciergeConversation } from './conciergeTypes';
 
-type AiHandoffSummaryProps = {
-  summary: string;
-  serviceInterest: string;
-};
+type Entry = { label: string; value: string };
+const normalize = (value: string) => value.trim().toLowerCase();
 
-type SummaryEntry = {
-  label: string;
-  value: string;
-};
-
-const normalizeLabel = (label: string) => label.trim().toLowerCase();
-const RESERVED_LABELS = new Set([
-  'service',
-  'service interest',
-  'latest request',
-  'customer concern',
-  'concern',
-  'question',
-  'urgency',
-  'priority',
-]);
-
-function parseSummary(summary: string): SummaryEntry[] {
+function parseSummary(summary: string): Entry[] {
   return summary
     .split('|')
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => {
       const separator = part.indexOf(':');
-      if (separator < 0) return { label: '', value: part };
-      return {
-        label: part.slice(0, separator).trim(),
-        value: part.slice(separator + 1).trim(),
-      };
+      return separator < 0
+        ? { label: '', value: part }
+        : {
+            label: part.slice(0, separator).trim(),
+            value: part.slice(separator + 1).trim(),
+          };
     });
 }
 
 export default function AiHandoffSummary({
-  summary,
-  serviceInterest,
-}: AiHandoffSummaryProps) {
-  const entries = parseSummary(summary);
-  const findEntry = (...labels: string[]) =>
-    entries.find((entry) => labels.includes(normalizeLabel(entry.label)))?.value;
-  const service =
-    findEntry('service', 'service interest') ||
-    (serviceInterest !== 'General inquiry' ? serviceInterest : '');
-  const concern = findEntry('latest request', 'customer concern', 'concern', 'question');
-  const urgency = findEntry('urgency', 'priority');
-  const additionalContext = entries.filter(
-    (entry) => entry.label && !RESERVED_LABELS.has(normalizeLabel(entry.label)),
+  conversation,
+}: {
+  conversation: ConciergeConversation;
+}) {
+  const entries = parseSummary(conversation.aiSummary);
+  const find = (...labels: string[]) =>
+    entries.find((entry) => labels.includes(normalize(entry.label)))?.value;
+  const unstructured =
+    entries.length === 1 && !entries[0].label ? entries[0].value : '';
+  const missing = [
+    conversation.phone === 'Not provided' ? 'Phone/contact' : '',
+    conversation.vehicle === 'Not provided'
+      ? 'Vehicle make, model, and year'
+      : '',
+    !conversation.plate ? 'Plate number' : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const fields = [
+    {
+      label: 'Customer intent',
+      value: find('customer intent', 'intent', 'purpose') || unstructured,
+    },
+    {
+      label: 'Latest customer request',
+      value:
+        find('latest request', 'customer request', 'concern', 'question') ||
+        conversation.lastMessagePreview,
+    },
+    {
+      label: 'Interested service',
+      value:
+        find('service', 'service interest') ||
+        (conversation.serviceInterest === 'General inquiry'
+          ? ''
+          : conversation.serviceInterest),
+    },
+    {
+      label: 'Vehicle information',
+      value:
+        conversation.vehicle === 'Not provided' ? '' : conversation.vehicle,
+    },
+    { label: 'Plate number', value: conversation.plate },
+    {
+      label: 'Preferred schedule',
+      value: find(
+        'preferred schedule',
+        'schedule',
+        'preferred date',
+        'availability',
+      ),
+    },
+    {
+      label: 'Pricing question',
+      value: find('pricing question', 'price question', 'pricing'),
+    },
+    {
+      label: 'Missing information',
+      value:
+        find('missing information', 'missing info') ||
+        missing ||
+        'None identified from the available structured fields',
+    },
+    {
+      label: 'Suggested next action',
+      value: find('suggested next action', 'recommended action', 'next action'),
+    },
+  ];
+  const knownLabels = new Set([
+    'customer intent',
+    'intent',
+    'purpose',
+    'latest request',
+    'customer request',
+    'concern',
+    'question',
+    'service',
+    'service interest',
+    'vehicle',
+    'plate',
+    'plate number',
+    'preferred schedule',
+    'schedule',
+    'preferred date',
+    'availability',
+    'pricing question',
+    'price question',
+    'pricing',
+    'missing information',
+    'missing info',
+    'suggested next action',
+    'recommended action',
+    'next action',
+  ]);
+  const additional = entries.filter(
+    (entry) => entry.label && !knownLabels.has(normalize(entry.label)),
   );
-  const hasStructuredSummary =
-    entries.length > 1 && Boolean(service || concern || urgency || additionalContext.length);
 
   return (
     <section
@@ -66,51 +130,33 @@ export default function AiHandoffSummary({
           AI Handoff Summary
         </h3>
       </div>
-      {hasStructuredSummary ? (
-        <dl className="mt-3 space-y-2.5">
-          {service ? (
-            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
-              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                Service interest
-              </dt>
-              <dd className="mt-1 text-xs font-semibold leading-5 text-slate-700">{service}</dd>
-            </div>
-          ) : null}
-          {concern ? (
-            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
-              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                Customer concern or question
-              </dt>
-              <dd className="mt-1 text-xs font-semibold leading-5 text-slate-700">{concern}</dd>
-            </div>
-          ) : null}
-          {urgency ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2.5">
-              <dt className="text-[10px] font-bold uppercase tracking-wide text-amber-600">
-                Urgency
-              </dt>
-              <dd className="mt-1 text-xs font-semibold leading-5 text-amber-800">{urgency}</dd>
-            </div>
-          ) : null}
-          {additionalContext.map((entry) => (
-            <div
-              key={`${entry.label}-${entry.value}`}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2.5"
+      <dl className="mt-3 divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        {fields.map((field) => (
+          <div key={field.label} className="px-3 py-2.5">
+            <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              {field.label}
+            </dt>
+            <dd
+              className={`mt-1 text-xs font-semibold leading-5 ${field.value ? 'text-slate-700' : 'text-slate-400'}`}
             >
-              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                {entry.label}
-              </dt>
-              <dd className="mt-1 text-xs font-semibold leading-5 text-slate-700">
-                {entry.value}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      ) : (
-        <p className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium leading-5 text-slate-600">
-          {summary}
-        </p>
-      )}
+              {field.value || 'Not provided'}
+            </dd>
+          </div>
+        ))}
+        {additional.map((entry) => (
+          <div key={`${entry.label}-${entry.value}`} className="px-3 py-2.5">
+            <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              {entry.label}
+            </dt>
+            <dd className="mt-1 text-xs font-semibold leading-5 text-slate-700">
+              {entry.value || 'Not provided'}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-2 text-[10px] leading-4 text-slate-400">
+        Only information captured by the chatbot or customer record is shown.
+      </p>
     </section>
   );
 }

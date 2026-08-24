@@ -255,6 +255,7 @@ export const generateGroqGreetingReply = async (
       reply: '',
       source: 'groq_error',
       error: formatGroqApiError(error).message,
+      providerError: error,
     };
   }
 };
@@ -317,6 +318,7 @@ export const generatePrimaryConciergeReply = async (
       reply: '',
       source: 'groq_error',
       error: formatGroqApiError(error).message,
+      providerError: error,
     };
   }
 };

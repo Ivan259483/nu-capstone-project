@@ -8,7 +8,7 @@
  *   1. Profile         → Edit Profile, Saved Vehicles, Address
  *   2. Billing         → Payment History (→ /(screens)/payments)
  *   3. Security        → Change Password, Biometric Lock
- *   4. Preferences     → Preferred Branch/Staff, Notifications, Dark Mode
+ *   4. Preferences     → Notifications, Dark Mode
  *   5. Support & Legal → AI Chat, Help Center, Privacy Policy
  *   6. Session Control → Sign Out, Delete Account
  */
@@ -317,13 +317,6 @@ export default function SettingsScreen() {
 
           {/* ═══ GROUP 3 · PREFERENCES ═══ */}
           <SettingsGroup title="Preferences" delay={250}>
-            <SettingsRow
-              iconName="business-outline"
-              title="Preferred Branch & Staff"
-              subtitle="Set your go-to location and technician"
-              onPress={() => nav('/(screens)/preferred-branch')}
-            />
-            <Div />
             <SettingsRow
               iconName="notifications-outline"
               title="Notification Preferences"

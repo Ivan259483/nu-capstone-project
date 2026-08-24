@@ -10,7 +10,26 @@ const { default: Notification } = await import('../models/notification.model.js'
 const { default: Order } = await import('../models/order.model.js');
 const { default: User } = await import('../models/user.model.js');
 const { default: Customer } = await import('../models/customer.model.js');
+const { default: NotificationUserState } = await import(
+  '../models/notificationUserState.model.js'
+);
+const { createCustomerNotification } = await import(
+  '../services/customerNotification.service.js'
+);
+const { runAppointmentReminderSweep } = await import(
+  '../services/appointmentReminder.service.js'
+);
 const {
+  getNotifications,
+  markAllAsRead,
+  markAsRead,
+} = await import('../controllers/notification.controller.js');
+const { registerPushToken, unregisterPushToken } = await import(
+  '../controllers/user.controller.js'
+);
+const {
+  createCustomerPaymentConfirmedNotification,
+  createCustomerServiceProgressNotification,
   createCustomerStageNotification,
   createCustomerStageMediaNotification,
   setCustomerNotificationEmailSenderForTests,
@@ -36,6 +55,8 @@ async function seedOrder({
   qcCompletedAt = null,
   totalPrice = 1000,
   downPaymentAmount = 300,
+  bookingDate,
+  bookingTime,
 } = {}) {
   const customer = createUser
     ? await User.create({
@@ -63,9 +84,51 @@ async function seedOrder({
     totalPrice,
     totalAmount: totalPrice,
     downPaymentAmount,
+    bookingDate,
+    bookingTime,
   });
 
   return { customer, order };
+}
+
+function invoke(handler, {
+  userId,
+  role = 'customer',
+  query = {},
+  params = {},
+  body = {},
+} = {}) {
+  return new Promise((resolve, reject) => {
+    const req = {
+      user: { id: userId.toString(), role },
+      query,
+      params,
+      body,
+    };
+    const response = {
+      statusCode: 200,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        resolve({ statusCode: this.statusCode, body: payload });
+      },
+    };
+    const next = (error) => (error ? reject(error) : resolve({ statusCode: 200, body: null }));
+    Promise.resolve(handler(req, response, next)).catch(reject);
+  });
+}
+
+function manilaDateString(date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const part = (type) => parts.find((entry) => entry.type === type)?.value;
+  return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
 before(async () => {
@@ -81,6 +144,7 @@ before(async () => {
 beforeEach(async () => {
   await mongoose.connection.db.dropDatabase();
   await Notification.syncIndexes();
+  await NotificationUserState.syncIndexes();
   sentEmails = [];
   process.env.RESEND_API_KEY = 'test_resend_key';
   setCustomerNotificationEmailSenderForTests(async ({ to, spec, idempotencyKey }) => {
@@ -212,4 +276,140 @@ test('email is skipped when no registered customer email exists', async () => {
   assert.equal(notification.metadata.emailStatus, 'skipped');
   assert.equal(notification.metadata.emailSkippedReason, 'missing_customer_email');
   assert.equal(sentEmails.length, 0);
+});
+
+test('email delivery failure does not roll back the in-app notification', async () => {
+  setCustomerNotificationEmailSenderForTests(async () => {
+    throw new Error('Provider unavailable');
+  });
+  const { order } = await seedOrder();
+
+  const notification = await createCustomerStageNotification(order, 'confirmed');
+
+  assert.ok(notification?._id);
+  assert.equal(await Notification.countDocuments({}), 1);
+  assert.equal(notification.metadata.emailStatus, 'failed');
+  assert.match(notification.metadata.emailError, /Provider unavailable/);
+});
+
+test('customer inbox, individual read, and read-all are isolated and persistent', async () => {
+  const customerA = await User.create({
+    name: 'Customer A', email: 'customer-a@example.com', role: 'customer', status: 'active',
+  });
+  const customerB = await User.create({
+    name: 'Customer B', email: 'customer-b@example.com', role: 'customer', status: 'active',
+  });
+
+  const notificationA1 = await createCustomerNotification({
+    userId: customerA._id,
+    event: 'booking_confirmed',
+    category: 'important',
+    title: 'Booking Confirmed',
+    message: 'Customer A booking was confirmed.',
+    eventKey: 'customer-a-booking-confirmed',
+  });
+  await createCustomerNotification({
+    userId: customerA._id,
+    event: 'promotion',
+    category: 'promotion',
+    title: 'Customer A Offer',
+    message: 'A private offer for Customer A.',
+    eventKey: 'customer-a-promotion',
+  });
+  const notificationB = await createCustomerNotification({
+    userId: customerB._id,
+    event: 'vehicle_received',
+    category: 'service',
+    title: 'Vehicle Received',
+    message: 'Customer B vehicle was received.',
+    eventKey: 'customer-b-vehicle-received',
+  });
+
+  const inboxA = await invoke(getNotifications, { userId: customerA._id });
+  assert.equal(inboxA.body.data.length, 2);
+  assert.equal(inboxA.body.unreadCount, 2);
+  assert.equal(inboxA.body.facets.unreadCategories.important, 1);
+  assert.equal(inboxA.body.facets.unreadCategories.promotion, 1);
+  assert.ok(inboxA.body.data.every((row) => String(row.recipientUserId) === String(customerA._id)));
+
+  await assert.rejects(
+    invoke(markAsRead, {
+      userId: customerA._id,
+      params: { id: notificationB._id.toString() },
+    }),
+    (error) => error?.status === 404
+  );
+
+  const marked = await invoke(markAsRead, {
+    userId: customerA._id,
+    params: { id: notificationA1._id.toString() },
+  });
+  assert.equal(marked.body.unreadCount, 1);
+
+  const persisted = await invoke(getNotifications, { userId: customerA._id });
+  assert.equal(
+    persisted.body.data.find((row) => String(row._id) === String(notificationA1._id)).isRead,
+    true
+  );
+
+  const readAll = await invoke(markAllAsRead, { userId: customerA._id });
+  assert.equal(readAll.body.unreadCount, 0);
+  const customerBInbox = await invoke(getNotifications, { userId: customerB._id });
+  assert.equal(customerBInbox.body.unreadCount, 1);
+  assert.equal(String(customerBInbox.body.data[0]._id), String(notificationB._id));
+});
+
+test('identical progress and appointment reminder events are idempotent', async () => {
+  const now = new Date('2026-08-23T02:00:00.000Z');
+  const bookingDate = manilaDateString(new Date(now.getTime() + 24 * 60 * 60 * 1000));
+  const { order } = await seedOrder({ bookingDate, bookingTime: '2:00 PM' });
+
+  await createCustomerServiceProgressNotification(order, 50);
+  await createCustomerServiceProgressNotification(order._id, 50);
+  await createCustomerServiceProgressNotification(order, 75);
+  await createCustomerPaymentConfirmedNotification(order, {
+    paymentId: new mongoose.Types.ObjectId(),
+    amount: 1000,
+  });
+  await createCustomerPaymentConfirmedNotification(order, { amount: 1000 });
+  await runAppointmentReminderSweep(now);
+  await runAppointmentReminderSweep(now);
+
+  assert.equal(await Notification.countDocuments({ event: 'service_progress' }), 2);
+  assert.equal(
+    await Notification.countDocuments({
+      event: 'service_progress',
+      'metadata.progress': 50,
+    }),
+    1
+  );
+  assert.equal(await Notification.countDocuments({ event: 'appointment_reminder' }), 1);
+  assert.equal(await Notification.countDocuments({ event: 'payment_confirmed' }), 1);
+  const reminder = await Notification.findOne({ event: 'appointment_reminder' }).lean();
+  assert.match(reminder.message, /2:00 PM/);
+  assert.equal(reminder.metadata.orderId, order._id.toString());
+});
+
+test('one device push token transfers between accounts and unregisters on logout', async () => {
+  const customerA = await User.create({
+    name: 'Push Customer A', email: 'push-a@example.com', role: 'customer', status: 'active',
+  });
+  const customerB = await User.create({
+    name: 'Push Customer B', email: 'push-b@example.com', role: 'customer', status: 'active',
+  });
+  const token = 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]';
+
+  await invoke(registerPushToken, { userId: customerA._id, body: { token } });
+  await invoke(registerPushToken, { userId: customerB._id, body: { token } });
+
+  const [afterA, afterB] = await Promise.all([
+    User.findById(customerA._id).lean(),
+    User.findById(customerB._id).lean(),
+  ]);
+  assert.deepEqual(afterA.expoPushTokens, []);
+  assert.deepEqual(afterB.expoPushTokens, [token]);
+
+  await invoke(unregisterPushToken, { userId: customerB._id, body: { token } });
+  const loggedOut = await User.findById(customerB._id).lean();
+  assert.deepEqual(loggedOut.expoPushTokens, []);
 });
