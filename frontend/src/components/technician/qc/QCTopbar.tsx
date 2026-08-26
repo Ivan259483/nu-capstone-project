@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, ChevronDown, Search } from 'lucide-react';
+import { ChevronDown, Search } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import type { QCJob } from '@/hooks/useQCData';
 import { filterQCJobsBySearch, formatQCJobSearchResult } from '@/lib/qc-job-search';
-
-// Backend integration point: GET /api/qc/notifications
-const notifications: { id: string; title: string; time: string; unread: boolean }[] = [];
+import type { SystemNotification } from '@/lib/notification-service';
+import AdminNotificationBell from '@/components/Administrator/notifications/AdminNotificationBell';
 
 interface Props {
   sidebarCollapsed: boolean;
@@ -13,6 +12,15 @@ interface Props {
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   onSelectJob: (jobId: string) => void;
+  notifications: SystemNotification[];
+  unreadNotificationsCount: number;
+  notificationsLoading: boolean;
+  notificationsError: string | null;
+  onRefreshNotifications: () => Promise<unknown> | unknown;
+  onSetNotificationRead: (id: string, isRead: boolean) => Promise<unknown> | unknown;
+  onMarkAllNotificationsRead: () => Promise<unknown> | unknown;
+  onOpenNotification: (notification: SystemNotification) => Promise<unknown> | unknown;
+  onViewAllNotifications: () => void;
 }
 
 export default function QCTopbar({
@@ -21,18 +29,27 @@ export default function QCTopbar({
   searchQuery,
   onSearchQueryChange,
   onSelectJob,
+  notifications,
+  unreadNotificationsCount,
+  notificationsLoading,
+  notificationsError,
+  onRefreshNotifications,
+  onSetNotificationRead,
+  onMarkAllNotificationsRead,
+  onOpenNotification,
+  onViewAllNotifications,
 }: Props) {
-  const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const commandListRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
-  const unread = notifications.filter((item) => item.unread).length;
   const initials = user?.name
     ? user.name.split(' ').map((word: string) => word[0]).join('').slice(0, 2).toUpperCase()
     : 'QC';
-  const roleLabel = (user?.role || 'inspector').replace(/_/g, ' ');
+  const roleLabel = user?.role === 'staff_quality_checker'
+    ? 'Quality Checker'
+    : (user?.role || 'Quality Checker').replace(/_/g, ' ');
 
   const commandResults = useMemo(
     () => filterQCJobsBySearch(jobs, searchQuery).slice(0, 8),
@@ -80,10 +97,10 @@ export default function QCTopbar({
   return (
     <header
       data-sidebar-collapsed={sidebarCollapsed}
-      className="qc-dash-topbar z-20 flex h-16 flex-shrink-0 items-center justify-between gap-4 bg-white/92 px-6 backdrop-blur-xl"
+      className="qc-dash-topbar z-20 flex h-[72px] flex-shrink-0 items-center justify-between gap-3 bg-white/95 px-3 backdrop-blur-xl sm:px-5 lg:px-6"
     >
       <div className="flex min-w-0 flex-1 items-center gap-4">
-        <div className="group relative w-full max-w-xl">
+        <div className="group relative w-full max-w-[540px]">
           <Search
             size={16}
             strokeWidth={2.25}
@@ -104,12 +121,12 @@ export default function QCTopbar({
                 pickJob(commandResults[0].id);
               }
             }}
-            placeholder="Search jobs, vehicles, customers"
+            placeholder="Search jobs, vehicles, customers..."
             aria-label="Search jobs, vehicles, and customers"
             aria-expanded={showCommandPanel}
             aria-controls="qc-topbar-command-list"
             autoComplete="off"
-            className="h-11 w-full rounded-xl border border-slate-200/55 bg-white pl-11 pr-20 text-sm font-semibold text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_10px_28px_-24px_rgba(15,23,42,0.4)] outline-none transition placeholder:font-medium placeholder:text-slate-400 hover:border-slate-300/70 focus:border-blue-300 focus:ring-4 focus:ring-blue-500/10"
+            className="qc-command-search h-11 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-20 text-sm font-medium text-slate-800 shadow-[0_8px_24px_-22px_rgba(15,23,42,0.45)] outline-none transition placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-300 focus:ring-4 focus:ring-blue-500/10"
           />
           <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[10px] font-black leading-none text-slate-500 sm:inline">
             {typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform) ? '⌘K' : 'Ctrl K'}
@@ -149,62 +166,31 @@ export default function QCTopbar({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => { setNotifOpen(!notifOpen); setProfileOpen(false); }}
-            className="relative flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-            aria-label="Notifications"
-          >
-            <Bell size={17} />
-            {unread > 0 && (
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white" />
-            )}
-          </button>
-          {notifOpen && (
-            <div className="qc-drop-panel qc-notif-panel absolute right-0 top-12 z-50 flex w-80 flex-col overflow-hidden">
-              <div className="qc-drop-panel__head flex shrink-0 items-center justify-between px-4 py-3">
-                <span className="text-sm font-black tracking-tight text-slate-900">Notifications</span>
-                <button type="button" className="text-xs font-bold text-blue-600 transition hover:text-blue-700">Mark all read</button>
-              </div>
-              <div className="qc-notif-panel__body max-h-72 space-y-1 overflow-y-auto px-2 py-2">
-                {notifications.length > 0 ? notifications.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`flex cursor-pointer items-start gap-3 rounded-xl px-3 py-3 transition hover:bg-slate-50/90 ${item.unread ? 'bg-blue-50/60' : ''}`}
-                  >
-                    <div className={`mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full ${item.unread ? 'bg-blue-500' : 'bg-transparent'}`} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm leading-snug text-slate-700">{item.title}</p>
-                      <p className="mt-0.5 text-xs text-slate-400">{item.time}</p>
-                    </div>
-                  </div>
-                )) : (
-                  <div className="px-4 py-7 text-center">
-                    <div className="mx-auto mb-2.5 flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100/90 text-slate-400 ring-1 ring-slate-200/40">
-                      <Bell size={15} />
-                    </div>
-                    <p className="text-sm font-bold text-slate-600">No notifications</p>
-                    <p className="mt-1 text-xs text-slate-400">You&apos;re all caught up</p>
-                  </div>
-                )}
-              </div>
-              <div className="qc-drop-panel__foot shrink-0 bg-slate-50/55 px-4 py-2.5 text-center">
-                <button type="button" className="text-xs font-bold text-blue-600 transition hover:text-blue-700">View all notifications</button>
-              </div>
-            </div>
-          )}
-        </div>
+        <AdminNotificationBell
+          notifications={notifications}
+          unreadCount={unreadNotificationsCount}
+          loading={notificationsLoading}
+          error={notificationsError}
+          onRetry={onRefreshNotifications}
+          onRefresh={onRefreshNotifications}
+          onSetRead={onSetNotificationRead}
+          onMarkAllRead={onMarkAllNotificationsRead}
+          onOpenNotification={onOpenNotification}
+          onViewAll={onViewAllNotifications}
+          onOpenChange={(open) => { if (open) setProfileOpen(false); }}
+          contentClassName="qc-notification-flyout"
+          className="qc-notification-bell"
+        />
 
         <div className="h-6 w-px bg-gradient-to-b from-transparent via-slate-200/50 to-transparent" />
 
         <div className="relative">
           <button
             type="button"
-            onClick={() => { setProfileOpen(!profileOpen); setNotifOpen(false); }}
+            onClick={() => setProfileOpen(!profileOpen)}
             className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition hover:bg-slate-100"
           >
-            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 text-[11px] font-black text-white shadow-sm shadow-blue-700/20">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white">
               {initials}
             </div>
             <div className="hidden text-left md:block">

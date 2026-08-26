@@ -1,11 +1,7 @@
-import { getSafeUserRole, isAdminDashboardRole, isServiceStaffRole } from '@/services/api/roles';
+import { isCustomerRole } from '@/services/api/roles';
 
-export type RouteTarget = '/(customer)' | '/(staff)' | '/(auth)/login';
+export type RouteTarget = '/(customer)' | '/(auth)/login';
 
 export function resolveRouteForRole(role: string | undefined): RouteTarget {
-  const safeRole = getSafeUserRole(role);
-  if (isAdminDashboardRole(safeRole) || isServiceStaffRole(safeRole)) {
-    return '/(staff)';
-  }
-  return '/(customer)';
+  return isCustomerRole(role) ? '/(customer)' : '/(auth)/login';
 }

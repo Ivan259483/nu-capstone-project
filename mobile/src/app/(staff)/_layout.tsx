@@ -1,77 +1,25 @@
-import React from 'react';
-import { Tabs } from 'expo-router';
+import React, { useEffect } from 'react';
+import { Redirect } from 'expo-router';
+import { View } from 'react-native';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/hooks/useThemeContext';
-import { BlurView } from 'expo-blur';
-import { StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LayoutDashboard, Inbox, ListChecks, CheckSquare, User, Shield } from '@/components/ui/Icons';
+import { isCustomerRole } from '@/services/api/roles';
 
-export default function StaffTabsLayout() {
-  const { colors, isDark } = useTheme();
-  const insets = useSafeAreaInsets();
+/**
+ * Legacy staff screens remain in the tree for now, but the Customer Mobile App
+ * never mounts them. A deep link is handled before any staff child can render.
+ */
+export default function StaffRoutesBlockedLayout() {
+  const { colors } = useTheme();
+  const { initialized, token, profile, signOut } = useAuth();
+  const isAuthorizedCustomer = Boolean(token && profile && isCustomerRole(profile.role));
 
-  return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: '#f97316', // Orange
-        tabBarInactiveTintColor: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)',
-        tabBarStyle: {
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: 60 + insets.bottom,
-          paddingBottom: insets.bottom,
-          backgroundColor: isDark ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)',
-          borderTopColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-          borderTopWidth: StyleSheet.hairlineWidth,
-          elevation: 0,
-        },
-        tabBarBackground: () => (
-          <BlurView
-            tint={isDark ? 'dark' : 'light'}
-            intensity={80}
-            style={StyleSheet.absoluteFill}
-          />
-        ),
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Dashboard',
-          tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} />,
-        }}
-      />
-      <Tabs.Screen
-        name="queue"
-        options={{
-          title: 'Queue',
-          tabBarIcon: ({ color, size }) => <Inbox color={color} size={size} />,
-        }}
-      />
-      <Tabs.Screen
-        name="jobs"
-        options={{
-          title: 'QC Review',
-          tabBarIcon: ({ color, size }) => <Shield color={color} size={size} />,
-        }}
-      />
-      <Tabs.Screen
-        name="checklist"
-        options={{
-          title: 'Checklist',
-          tabBarIcon: ({ color, size }) => <CheckSquare color={color} size={size} />,
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-          tabBarIcon: ({ color, size }) => <User color={color} size={size} />,
-        }}
-      />
-    </Tabs>
-  );
+  useEffect(() => {
+    if (initialized && !isAuthorizedCustomer && (token || profile)) {
+      void signOut();
+    }
+  }, [initialized, isAuthorizedCustomer, profile, signOut, token]);
+
+  if (!initialized) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  return <Redirect href={isAuthorizedCustomer ? '/(customer)' : '/(auth)/login'} />;
 }

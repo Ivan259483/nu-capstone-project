@@ -6,9 +6,9 @@ import {
   handleSocketStreamingMessage,
 } from '../controllers/chatbot.controller.js';
 import {
-  isAdminDashboardRole,
   isBookingManagerRole,
   isPosManagerRole,
+  isSettingsManagerRole,
   migrateLegacyUserRole,
   requiresStaffTwoFactor,
   isCustomerRole,
@@ -146,7 +146,9 @@ export const isSocketRoomAuthorized = (socketUser, room) => {
   if (!socketUser?.id) return false;
 
   if (room === `user:${socketUser.id}`) return true;
-  if (room === 'admin:chat') return isAdminDashboardRole(socketUser.role);
+  if (room === 'admin:chat') return isSettingsManagerRole(socketUser.role);
+  const roleRoom = /^role:([a-z][a-z0-9_]{1,79})$/.exec(room);
+  if (roleRoom) return roleRoom[1] === migrateLegacyUserRole(socketUser.role);
   if (room === 'booking:approvals') {
     return (
       isBookingManagerRole(socketUser.role) || isPosManagerRole(socketUser.role)
@@ -284,8 +286,9 @@ export const initSocket = (httpServer) => {
     }
     if (socket.user?.id) {
       socket.join(`user:${socket.user.id}`);
+      socket.join(`role:${migrateLegacyUserRole(socket.user.role)}`);
     }
-    if (isAdminDashboardRole(socket.user?.role)) {
+    if (isSettingsManagerRole(socket.user?.role)) {
       socket.join('admin:chat');
     }
     if (

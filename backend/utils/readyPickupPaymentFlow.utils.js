@@ -11,7 +11,7 @@ import { notifySalesBalancePickupQueue } from './bookingManagerNotifications.uti
 import { getIO } from './socket.utils.js';
 import {
   captureOrderSlotOccupancy,
-  saveOrderWithSlotTransition,
+  reconcilePersistedOrderSlotTransition,
 } from '../services/slot.service.js';
 
 const DEFAULT_RESERVATION_FALLBACK = 500;
@@ -387,7 +387,11 @@ export async function evaluateReadyForPickupQueueEligibility(orderOrId, options 
     || JSON.stringify(before) !== JSON.stringify(after);
 
   if (persist && result.queueStateChanged) {
-    await saveOrderWithSlotTransition(order, occupancyBefore, { validateBeforeSave: false });
+    // This evaluator reconciles an already-admitted appointment's lifecycle;
+    // it must not reject a QC regression merely because the historical slot is
+    // now closed or an administrator later reduced capacity.
+    await order.save({ validateBeforeSave: false });
+    await reconcilePersistedOrderSlotTransition(occupancyBefore, order);
   }
   if (emit && result.queueStateChanged) {
     emitPosQueueUpdated(order, result);

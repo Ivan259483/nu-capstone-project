@@ -26,6 +26,7 @@ import { migrateLegacyUserRoles } from './utils/migrateLegacyUserRoles.utils.js'
 import { initSocket, initChangeStreams } from './utils/socket.utils.js';
 import { cleanupExpiredReservations } from './utils/inventory.utils.js';
 import { startAppointmentReminderScheduler } from './services/appointmentReminder.service.js';
+import { startQualityNotificationRetryScheduler } from './services/qualityNotification.service.js';
 import { buildStaticArCsp } from './utils/csp.utils.js';
 import { isConfiguredCorsOriginAllowed } from './utils/origin.utils.js';
 import { authenticate, authorize } from './middleware/auth.middleware.js';
@@ -126,7 +127,7 @@ const corsOptionsDelegate = (req, callback) => {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'ngrok-skip-browser-warning'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-Client-Type', 'ngrok-skip-browser-warning'],
     exposedHeaders: ['X-Request-ID', 'Server-Timing'],
   });
 };
@@ -375,6 +376,8 @@ const startServer = async () => {
       console.log(`⏰ Inventory reservation expiry scheduler started (every 60 min, 24h TTL)`);
       startAppointmentReminderScheduler();
       console.log('⏰ Appointment reminder scheduler started (every 15 min)');
+      startQualityNotificationRetryScheduler();
+      console.log('⏰ Quality notification recovery scheduler started (every 1 min)');
     });
 
     server.on('error', (err) => {

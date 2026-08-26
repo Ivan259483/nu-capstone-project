@@ -4,6 +4,15 @@ import { getTrackerPipelineProgressPct } from '@/lib/tracker-pipeline-progress';
 /** Persisted when navigating from Jobs queue → Live Tracker with a pre-selected order. */
 export const QC_LIVE_TRACKER_JOB_KEY = 'autospf_qc_live_tracker_job';
 
+export interface QCLiveTrackerDeepLink {
+  jobId: string;
+  stage?: string;
+  action?: string;
+  slot?: string;
+  evidenceId?: string;
+  qcId?: string;
+}
+
 export type QCJobWorkflowAction = 'live-tracker' | 'sign-off';
 
 /**
@@ -46,19 +55,40 @@ export function getQCJobActionLabel(action: QCJobWorkflowAction): string {
 }
 
 export function readLiveTrackerDeepLinkJobId(): string | null {
+  return readLiveTrackerDeepLink()?.jobId || null;
+}
+
+export function readLiveTrackerDeepLink(): QCLiveTrackerDeepLink | null {
   if (typeof window === 'undefined') return null;
   try {
-    const id = sessionStorage.getItem(QC_LIVE_TRACKER_JOB_KEY);
-    return id?.trim() || null;
+    const raw = sessionStorage.getItem(QC_LIVE_TRACKER_JOB_KEY)?.trim();
+    if (!raw) return null;
+    if (!raw.startsWith('{')) return { jobId: raw };
+    const parsed = JSON.parse(raw) as Partial<QCLiveTrackerDeepLink>;
+    const jobId = String(parsed.jobId || '').trim();
+    if (!jobId) return null;
+    const optional = (value: unknown) => {
+      const normalized = String(value || '').trim();
+      return normalized || undefined;
+    };
+    return {
+      jobId,
+      stage: optional(parsed.stage),
+      action: optional(parsed.action),
+      slot: optional(parsed.slot),
+      evidenceId: optional(parsed.evidenceId),
+      qcId: optional(parsed.qcId),
+    };
   } catch {
     return null;
   }
 }
 
-export function stashLiveTrackerDeepLinkJobId(jobId: string) {
+export function stashLiveTrackerDeepLinkJobId(target: string | QCLiveTrackerDeepLink) {
   if (typeof window === 'undefined') return;
   try {
-    sessionStorage.setItem(QC_LIVE_TRACKER_JOB_KEY, jobId);
+    const payload = typeof target === 'string' ? { jobId: target } : target;
+    sessionStorage.setItem(QC_LIVE_TRACKER_JOB_KEY, JSON.stringify(payload));
   } catch {
     /* ignore */
   }

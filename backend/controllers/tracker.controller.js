@@ -26,6 +26,10 @@ import {
   captureOrderSlotOccupancy,
   saveOrderWithSlotTransition,
 } from '../services/slot.service.js';
+import {
+  notifyQualityEvidenceReplacement,
+  syncQualityEvidenceAttention,
+} from '../services/qualityNotification.service.js';
 
 /** Same coarse stages as QC `service-status`; `confirmed` is optional text-only for customers. */
 const TRACKER_MEDIA_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'];
@@ -353,6 +357,14 @@ export const patchTrackerStagePhoto = async (req, res, next) => {
     await saveOrderWithSlotTransition(order, occupancyBefore, { validateBeforeSave: false });
     emitTrackerStageMediaUpdate(order);
 
+    if (isGateStage(stage)) {
+      try {
+        await syncQualityEvidenceAttention(order, stage);
+      } catch (ne) {
+        console.warn('[tracker] Failed to synchronize Quality evidence notifications:', ne.message);
+      }
+    }
+
     if (stage === 'ready_pickup') {
       try {
         await notifyReadyForPickupIfGateComplete(order);
@@ -482,6 +494,14 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
     await saveOrderWithSlotTransition(order, occupancyBefore, { validateBeforeSave: false });
     emitTrackerStageMediaUpdate(order);
 
+    if (isGateStage(stage)) {
+      try {
+        await syncQualityEvidenceAttention(order, stage);
+      } catch (ne) {
+        console.warn('[tracker] Failed to synchronize Quality evidence notifications:', ne.message);
+      }
+    }
+
     if (stage === 'ready_pickup') {
       try {
         await notifyReadyForPickupIfGateComplete(order);
@@ -588,6 +608,12 @@ export const deleteTrackerStagePhoto = async (req, res, next) => {
 
     await saveOrderWithSlotTransition(order, occupancyBefore, { validateBeforeSave: false });
     emitTrackerStageMediaUpdate(order);
+
+    try {
+      await notifyQualityEvidenceReplacement(order, stage, slot);
+    } catch (ne) {
+      console.warn('[tracker] Failed to create Quality replacement notification:', ne.message);
+    }
 
     logActivity({
       req,

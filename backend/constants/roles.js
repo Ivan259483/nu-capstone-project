@@ -211,7 +211,7 @@ export const getNotificationAudiencesForRole = (role) => {
     audiences.add(canonical);
   }
 
-  if (ADMIN_DASHBOARD_ROLE_SET.has(canonical)) {
+  if (SETTINGS_MANAGER_ROLE_SET.has(canonical)) {
     audiences.add('admin_family');
   }
 

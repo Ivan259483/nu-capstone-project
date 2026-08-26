@@ -48,6 +48,10 @@ import {
   createAdminNotification,
 } from '../services/adminNotification.service.js';
 import { runInBackground, timeOperation } from '../utils/performance.utils.js';
+import {
+  enforceMobileCustomer,
+  getSessionClientClaims,
+} from '../utils/mobileClientAuth.utils.js';
 
 const PASSWORD_SETUP_PURPOSE = 'password_setup';
 const PASSWORD_SETUP_RESEND_COOLDOWN_MS = 60 * 1000;
@@ -277,7 +281,10 @@ const buildAuthTokenClaims = (user, additionalClaims = {}) => ({
 
 async function issueAuthTokenResponse(user, req, additionalClaims = {}) {
   const token = jwt.sign(
-    buildAuthTokenClaims(user, additionalClaims),
+    buildAuthTokenClaims(user, {
+      ...getSessionClientClaims(req),
+      ...additionalClaims,
+    }),
     config.jwtSecret,
     { expiresIn: '7d' }
   );
@@ -1910,6 +1917,11 @@ export const login = async (req, res, next) => {
       });
     }
 
+    // The password establishes identity; the live MongoDB role then decides
+    // whether this identity may start a Mobile OTP challenge. Web requests do
+    // not carry the Mobile marker and retain their existing role flows.
+    if (!enforceMobileCustomer(req, res, user)) return;
+
     if (!user.isVerified && requiresLoginOtp(user.role)) {
       return res.status(403).json({
         success: false,
@@ -2201,7 +2213,7 @@ export const login = async (req, res, next) => {
 
     // ── Any role not configured for login OTP: direct JWT ───────────────────
     const token = jwt.sign(
-      buildAuthTokenClaims(user),
+      buildAuthTokenClaims(user, getSessionClientClaims(req)),
       config.jwtSecret,
       { expiresIn: '7d' }
     );
@@ -2414,6 +2426,10 @@ export const socialLogin = async (req, res, next) => {
       });
     }
 
+    // Firebase proves identity, but the authoritative MongoDB role still
+    // controls whether an existing account can establish a Mobile session.
+    if (user && !enforceMobileCustomer(req, res, user)) return;
+
     // Firebase proves identity but does not satisfy the mandated staff flow of
     // administrator-issued password plus a fresh login OTP. Never mint a staff
     // session (or activate a pending staff account) through social login.
@@ -2468,7 +2484,10 @@ export const socialLogin = async (req, res, next) => {
 
     // Generate token
     const token = jwt.sign(
-      buildAuthTokenClaims(user, { federatedVerified: true }),
+      buildAuthTokenClaims(user, {
+        ...getSessionClientClaims(req),
+        federatedVerified: true,
+      }),
       config.jwtSecret,
       { expiresIn: '7d' }
     );
@@ -2740,6 +2759,10 @@ export const verifyLoginOtp = async (req, res) => {
       return res.status(423).json({ success: false, message: 'Your account is temporarily locked.' });
     }
 
+    // Re-check the current database role after identity + OTP challenge
+    // validation and before comparing/consuming the OTP or minting a JWT.
+    if (!enforceMobileCustomer(req, res, user)) return;
+
     // Check the OTP attempt lock. Exhaustion also locks the live account so a
     // new password login cannot immediately reset the second-factor limit.
     if (otpRecord.attempts >= otpRecord.maxAttempts) {
@@ -2865,6 +2888,7 @@ export const verifyLoginOtp = async (req, res) => {
 
     const token = jwt.sign(
       buildAuthTokenClaims(user, {
+        ...getSessionClientClaims(req),
         authLevel: STAFF_2FA_AUTH_LEVEL,
         otpVerified: true,
         otpVerifiedAt: Math.floor(Date.now() / 1000),
@@ -2945,6 +2969,7 @@ export const resendLoginOtp = async (req, res) => {
     if (user.lockUntil && user.lockUntil > new Date()) {
       return res.status(423).json({ success: false, message: 'Your account is temporarily locked.' });
     }
+    if (!enforceMobileCustomer(req, res, user)) return;
     if (existing.attempts >= existing.maxAttempts) {
       return res.status(429).json({
         success: false,
@@ -3471,14 +3496,6 @@ export const recoverFirebase = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Account not found.' });
     }
 
-    if (requiresStaffTwoFactor(user.role)) {
-      return res.status(403).json({
-        success: false,
-        code: 'STAFF_PASSWORD_LOGIN_REQUIRED',
-        message: 'Firebase recovery is only available to customer accounts. Staff must use password and login OTP.',
-      });
-    }
-
     if (!user.isActive) {
       return res.status(403).json({
         success: false,
@@ -3491,6 +3508,16 @@ export const recoverFirebase = async (req, res) => {
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
       return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+    }
+
+    if (!enforceMobileCustomer(req, res, user)) return;
+
+    if (requiresStaffTwoFactor(user.role)) {
+      return res.status(403).json({
+        success: false,
+        code: 'STAFF_PASSWORD_LOGIN_REQUIRED',
+        message: 'Firebase recovery is only available to customer accounts. Staff must use password and login OTP.',
+      });
     }
 
     // ── Helper: wrap Admin SDK calls with a timeout ─────────────────────────
@@ -3520,7 +3547,7 @@ export const recoverFirebase = async (req, res) => {
 
       // Issue a JWT so after Firebase create the client can call social-login
       const token = jwt.sign(
-        buildAuthTokenClaims(user),
+        buildAuthTokenClaims(user, getSessionClientClaims(req)),
         config.jwtSecret,
         { expiresIn: '7d' }
       );
@@ -3556,7 +3583,7 @@ export const recoverFirebase = async (req, res) => {
             // Admin SDK hung on createUser — fall back to client-side creation
             console.warn(`[recoverFirebase] Admin SDK createUser timed out for ${email} — instructing client-side create`);
             if (!user.isVerified) { user.isVerified = true; await user.save(); }
-            const token = jwt.sign(buildAuthTokenClaims(user), config.jwtSecret, { expiresIn: '7d' });
+            const token = jwt.sign(buildAuthTokenClaims(user, getSessionClientClaims(req)), config.jwtSecret, { expiresIn: '7d' });
             return res.json({ success: true, needsClientCreate: true, message: 'MongoDB credentials valid. Please create Firebase account on device.', data: { token, needsClientCreate: true, userName: user.name } });
           }
           throw createErr;
@@ -3565,7 +3592,7 @@ export const recoverFirebase = async (req, res) => {
         // Admin SDK hung on getUserByEmail — fall back to client-side creation
         console.warn(`[recoverFirebase] Admin SDK getUserByEmail timed out for ${email} — instructing client-side create`);
         if (!user.isVerified) { user.isVerified = true; await user.save(); }
-        const token = jwt.sign(buildAuthTokenClaims(user), config.jwtSecret, { expiresIn: '7d' });
+        const token = jwt.sign(buildAuthTokenClaims(user, getSessionClientClaims(req)), config.jwtSecret, { expiresIn: '7d' });
         return res.json({ success: true, needsClientCreate: true, message: 'MongoDB credentials valid. Please create Firebase account on device.', data: { token, needsClientCreate: true, userName: user.name } });
       } else {
         throw fbErr;
@@ -3582,7 +3609,7 @@ export const recoverFirebase = async (req, res) => {
 
     // Issue a JWT so the client can complete the social-login flow
     const token = jwt.sign(
-      buildAuthTokenClaims(user),
+      buildAuthTokenClaims(user, getSessionClientClaims(req)),
       config.jwtSecret,
       { expiresIn: '7d' }
     );

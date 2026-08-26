@@ -10,6 +10,10 @@ export interface SystemNotification {
     priority?: 'low' | 'normal' | 'high';
     isRead: boolean;
     readAt?: string | null;
+    isResolved?: boolean;
+    resolvedAt?: string | null;
+    resolutionReason?: string;
+    resolvedByEvent?: string;
     isArchived?: boolean;
     archivedAt?: string | null;
     category?: 'appointments' | 'live_tracking' | 'payments' | 'inventory' | 'security' | 'system' | string;
@@ -27,6 +31,9 @@ export interface SystemNotification {
     createdAt: string;
     updatedAt?: string;
     link?: string;
+    event?: string;
+    actionType?: string;
+    actionId?: string;
     metadata?: Record<string, unknown>;
 }
 
@@ -65,6 +72,8 @@ export interface NotificationQuery {
     type?: string;
     severity?: string;
     source?: string;
+    channel?: string;
+    countScope?: 'all' | 'filtered';
     readStatus?: 'all' | 'read' | 'unread';
     actionRequired?: boolean;
     archived?: 'exclude' | 'include' | 'only';
@@ -84,10 +93,17 @@ function getErrorMessage(error: any, fallback: string): string {
 }
 
 export const NotificationService = {
-    getNotifications: async (query: NotificationQuery = {}): Promise<NotificationsResponse> => {
+    getNotifications: async (
+        query: NotificationQuery = {},
+        options: { fresh?: boolean } = {},
+    ): Promise<NotificationsResponse> => {
         try {
             const params = { limit: 20, ...query };
-            return await cachedGet<NotificationsResponse>('/notifications', { params }, TTL.LIVE);
+            return await cachedGet<NotificationsResponse>(
+                '/notifications',
+                { params },
+                options.fresh ? 0 : TTL.LIVE,
+            );
         } catch (error: any) {
             return {
                 success: false,
@@ -96,9 +112,16 @@ export const NotificationService = {
         }
     },
 
-    getUnreadCount: async (): Promise<{ success: boolean; unreadCount: number; message?: string }> => {
+    getUnreadCount: async (
+        query: Pick<NotificationQuery, 'source' | 'channel'> = {},
+        options: { fresh?: boolean } = {},
+    ): Promise<{ success: boolean; unreadCount: number; message?: string }> => {
         try {
-            return await cachedGet('/notifications/unread-count', undefined, TTL.LIVE);
+            return await cachedGet(
+                '/notifications/unread-count',
+                { params: query },
+                options.fresh ? 0 : TTL.LIVE,
+            );
         } catch (error: any) {
             return {
                 success: false,
@@ -108,9 +131,13 @@ export const NotificationService = {
         }
     },
 
-    setReadStatus: async (id: string, isRead: boolean): Promise<NotificationMutationResponse> => {
+    setReadStatus: async (
+        id: string,
+        isRead: boolean,
+        scope: Pick<NotificationQuery, 'source' | 'channel'> = {},
+    ): Promise<NotificationMutationResponse> => {
         try {
-            const response = await api.patch(`/notifications/${id}/read`, { isRead });
+            const response = await api.patch(`/notifications/${id}/read`, { isRead, ...scope });
             invalidate('/notifications');
             return response.data;
         } catch (error: any) {
@@ -121,17 +148,25 @@ export const NotificationService = {
         }
     },
 
-    markAsRead: async (id: string): Promise<NotificationMutationResponse> => (
-        NotificationService.setReadStatus(id, true)
+    markAsRead: async (
+        id: string,
+        scope: Pick<NotificationQuery, 'source' | 'channel'> = {},
+    ): Promise<NotificationMutationResponse> => (
+        NotificationService.setReadStatus(id, true, scope)
     ),
 
-    markAsUnread: async (id: string): Promise<NotificationMutationResponse> => (
-        NotificationService.setReadStatus(id, false)
+    markAsUnread: async (
+        id: string,
+        scope: Pick<NotificationQuery, 'source' | 'channel'> = {},
+    ): Promise<NotificationMutationResponse> => (
+        NotificationService.setReadStatus(id, false, scope)
     ),
 
-    markAllAsRead: async (): Promise<NotificationMutationResponse> => {
+    markAllAsRead: async (
+        scope: Pick<NotificationQuery, 'source' | 'channel'> = {},
+    ): Promise<NotificationMutationResponse> => {
         try {
-            const response = await api.post('/notifications/mark-all-read');
+            const response = await api.post('/notifications/mark-all-read', scope);
             invalidate('/notifications');
             return response.data;
         } catch (error: any) {

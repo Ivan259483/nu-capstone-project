@@ -16,6 +16,7 @@ import {
 import { syncMissingCustomerStageNotifications } from '../utils/customerStageNotifications.utils.js';
 import { syncMissingCustomerReceiptNotifications } from '../utils/customerReceiptNotification.utils.js';
 import { runInBackground, timeOperation } from '../utils/performance.utils.js';
+import { getIO } from '../utils/socket.utils.js';
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
@@ -129,6 +130,37 @@ function parseDate(value, field, endOfDay = false) {
   return date;
 }
 
+function parseSource(value) {
+  const source = String(value || '').trim();
+  if (source.length > 120) throw requestError('source may not exceed 120 characters.');
+  return source;
+}
+
+function parseChannel(value) {
+  const channel = String(value || '').trim().toLowerCase();
+  if (channel.length > 100 || (channel && !/^[a-z0-9_.:-]+$/.test(channel))) {
+    throw requestError('channel contains an invalid notification channel.');
+  }
+  return channel;
+}
+
+function notificationScopeMatch(source, channel) {
+  const clauses = [];
+  if (source) clauses.push({ source: new RegExp(`^${escapeRegex(source)}$`, 'i') });
+  if (channel) clauses.push({ 'metadata.channel': channel });
+  if (!clauses.length) return null;
+  return clauses.length === 1 ? clauses[0] : { $and: clauses };
+}
+
+function emitNotificationState(userId, event, payload) {
+  try {
+    getIO().to(`user:${String(userId)}`).emit(event, payload);
+  } catch (error) {
+    // HTTP persistence remains authoritative when Socket.IO is unavailable
+    // (for example, in isolated controller tests or during process startup).
+  }
+}
+
 function getUserObjectId(req) {
   const id = req.user?._id || req.user?.id;
   if (!mongoose.isValidObjectId(id)) throw requestError('Authenticated user ID is invalid.', 401);
@@ -137,7 +169,18 @@ function getUserObjectId(req) {
 
 export function buildNotificationsQuery(role, userId) {
   if (normalizeToCanonical(role) === 'sales') {
-    return getSalesBookingApprovalNotificationQuery();
+    return {
+      $and: [
+        getSalesBookingApprovalNotificationQuery(),
+        {
+          $or: [
+            { recipientUserId: userId },
+            { recipientUserId: null },
+            { recipientUserId: { $exists: false } },
+          ],
+        },
+      ],
+    };
   }
 
   const recipientRoles = getNotificationAudiencesForRole(role);
@@ -224,6 +267,9 @@ function commonNotificationPipeline(role, userId, extraMatch = null) {
       { $eq: ['$isRead', true] },
     ],
   };
+  const isResolved = {
+    $ne: [{ $ifNull: ['$resolvedAt', null] }, null],
+  };
 
   return [
     { $match: initialMatch },
@@ -254,23 +300,33 @@ function commonNotificationPipeline(role, userId, extraMatch = null) {
         severity: { $ifNull: ['$severity', legacySeverityExpression()] },
         event: { $ifNull: ['$event', '$type'] },
         isRead: {
-          $cond: [hasExplicitReadState, stateReadCoversLatestOccurrence, legacyTargetedRead],
+          $cond: [
+            isResolved,
+            true,
+            { $cond: [hasExplicitReadState, stateReadCoversLatestOccurrence, legacyTargetedRead] },
+          ],
         },
         readAt: {
           $cond: [
-            hasExplicitReadState,
+            isResolved,
+            { $ifNull: ['$readAt', '$resolvedAt'] },
             {
               $cond: [
-                stateReadCoversLatestOccurrence,
-                '$__userState.readAt',
-                null,
-              ],
-            },
-            {
-              $cond: [
-                legacyTargetedRead,
-                { $ifNull: ['$readAt', { $ifNull: ['$updatedAt', '$createdAt'] }] },
-                null,
+                hasExplicitReadState,
+                {
+                  $cond: [
+                    stateReadCoversLatestOccurrence,
+                    '$__userState.readAt',
+                    null,
+                  ],
+                },
+                {
+                  $cond: [
+                    legacyTargetedRead,
+                    { $ifNull: ['$readAt', { $ifNull: ['$updatedAt', '$createdAt'] }] },
+                    null,
+                  ],
+                },
               ],
             },
           ],
@@ -293,10 +349,18 @@ function commonNotificationPipeline(role, userId, extraMatch = null) {
         destination: '$link',
         quickAction: '$action',
         actionRequired: {
-          $or: [
-            { $eq: ['$actionRequired', true] },
-            { $in: ['$severity', ['critical', 'warning']] },
+          $and: [
+            { $eq: [{ $ifNull: ['$resolvedAt', null] }, null] },
+            {
+              $or: [
+                { $eq: ['$actionRequired', true] },
+                { $in: ['$severity', ['critical', 'warning']] },
+              ],
+            },
           ],
+        },
+        isResolved: {
+          $ne: [{ $ifNull: ['$resolvedAt', null] }, null],
         },
         isArchived: {
           $ne: [{ $ifNull: ['$archivedAt', null] }, null],
@@ -358,8 +422,13 @@ function parseListOptions(query = {}) {
     : parseBoolean(query.actionRequired, 'actionRequired');
   if (tab === 'action_required' || tab === 'action') actionRequired = true;
 
-  const source = String(query.source || '').trim();
-  if (source.length > 120) throw requestError('source may not exceed 120 characters.');
+  const source = parseSource(query.source);
+  const channel = parseChannel(query.channel);
+
+  const countScope = String(query.countScope || 'all').trim().toLowerCase();
+  if (!['all', 'filtered'].includes(countScope)) {
+    throw requestError('countScope must be all or filtered.');
+  }
 
   const from = parseDate(query.from, 'from');
   const to = parseDate(query.to, 'to', true);
@@ -383,6 +452,8 @@ function parseListOptions(query = {}) {
     actionRequired,
     systemTab: tab === 'system',
     source,
+    channel,
+    countScope,
     from,
     to,
     sort,
@@ -438,6 +509,10 @@ function listFilterStages(options) {
     stages.push({ $match: { source: new RegExp(`^${escapeRegex(options.source)}$`, 'i') } });
   }
 
+  if (options.channel) {
+    stages.push({ $match: { 'metadata.channel': options.channel } });
+  }
+
   if (options.readStatus !== 'all') {
     stages.push({ $match: { isRead: options.readStatus === 'read' } });
   }
@@ -473,9 +548,9 @@ function facetMap(rows = []) {
   return Object.fromEntries(rows.map((row) => [row._id, row.count]));
 }
 
-async function unreadCountFor(role, userId) {
+async function unreadCountFor(role, userId, extraMatch = null) {
   const rows = await Notification.aggregate([
-    ...commonNotificationPipeline(role, userId),
+    ...commonNotificationPipeline(role, userId, extraMatch),
     { $match: visibleMatch() },
     { $match: { isRead: false } },
     { $count: 'count' },
@@ -556,7 +631,9 @@ export const getNotifications = async (req, res, next) => {
             ],
             total: [...filters, { $count: 'count' }],
             unread: [
-              { $match: visibleMatch() },
+              ...(options.countScope === 'filtered'
+                ? filters
+                : [{ $match: visibleMatch() }]),
               { $match: { isRead: false } },
               { $count: 'count' },
             ],
@@ -636,9 +713,11 @@ export const getNotifications = async (req, res, next) => {
 export const getUnreadCount = async (req, res, next) => {
   try {
     const userId = getUserObjectId(req);
+    const source = parseSource(req.query?.source);
+    const channel = parseChannel(req.query?.channel);
     const unreadCount = await timeOperation(
       { req, res, kind: 'db', name: 'notifications.aggregateUnreadCount' },
-      () => unreadCountFor(req.user.role, userId)
+      () => unreadCountFor(req.user.role, userId, notificationScopeMatch(source, channel))
     );
     res.json({ success: true, unreadCount });
   } catch (error) {
@@ -660,12 +739,14 @@ function normalizeNotificationIds(value) {
   return stringIds.map((id) => new mongoose.Types.ObjectId(id));
 }
 
-async function findAccessibleNotifications(role, userId, notificationIds) {
+async function findAccessibleNotifications(role, userId, notificationIds, extraMatch = null) {
+  const clauses = [
+    buildNotificationsQuery(role, userId),
+    { _id: { $in: notificationIds } },
+  ];
+  if (extraMatch) clauses.push(extraMatch);
   return Notification.find({
-    $and: [
-      buildNotificationsQuery(role, userId),
-      { _id: { $in: notificationIds } },
-    ],
+    $and: clauses,
   })
     .select('_id recipientUserId isRead readAt')
     .lean();
@@ -705,11 +786,15 @@ export const markAsRead = async (req, res, next) => {
     }
     const isRead = req.body?.isRead == null ? true : parseBoolean(req.body.isRead, 'isRead');
     const userId = getUserObjectId(req);
+    const source = parseSource(req.body?.source ?? req.query?.source);
+    const channel = parseChannel(req.body?.channel ?? req.query?.channel);
+    const scopeMatch = notificationScopeMatch(source, channel);
     const notificationId = new mongoose.Types.ObjectId(req.params.id);
     const notifications = await findAccessibleNotifications(
       req.user.role,
       userId,
-      [notificationId]
+      [notificationId],
+      scopeMatch,
     );
     if (!notifications.length) {
       throw requestError('Notification not found.', 404);
@@ -722,8 +807,16 @@ export const markAsRead = async (req, res, next) => {
 
     const [notification, unreadCount] = await Promise.all([
       enrichedNotificationById(req.user.role, userId, notificationId),
-      unreadCountFor(req.user.role, userId),
+      unreadCountFor(req.user.role, userId, scopeMatch),
     ]);
+    emitNotificationState(userId, 'notification:state', {
+      id: String(notificationId),
+      isRead: Boolean(notification?.isRead),
+      readAt: notification?.readAt || null,
+      source: source || notification?.source || null,
+      channel: channel || notification?.metadata?.channel || null,
+      unreadCount,
+    });
     res.json({ success: true, data: notification, unreadCount });
   } catch (error) {
     next(error);
@@ -734,8 +827,11 @@ export const markAsRead = async (req, res, next) => {
 export const markAllAsRead = async (req, res, next) => {
   try {
     const userId = getUserObjectId(req);
+    const source = parseSource(req.body?.source ?? req.query?.source);
+    const channel = parseChannel(req.body?.channel ?? req.query?.channel);
+    const sourceMatch = notificationScopeMatch(source, channel);
     const rows = await Notification.aggregate([
-      ...commonNotificationPipeline(req.user.role, userId),
+      ...commonNotificationPipeline(req.user.role, userId, sourceMatch),
       { $match: visibleMatch() },
       { $match: { isRead: false } },
       { $project: { _id: 1, recipientUserId: 1 } },
@@ -744,7 +840,15 @@ export const markAllAsRead = async (req, res, next) => {
     const readAt = new Date();
     await applyUserState(userId, notificationIds, { readAt, readStateChangedAt: readAt });
     await mirrorTargetedLegacyReadState(userId, rows, true, readAt);
-    const unreadCount = await unreadCountFor(req.user.role, userId);
+    const unreadCount = await unreadCountFor(req.user.role, userId, sourceMatch);
+
+    emitNotificationState(userId, 'notification:read-all', {
+      source: source || null,
+      channel: channel || null,
+      notificationIds: notificationIds.map(String),
+      unreadCount,
+      readAt,
+    });
 
     res.json({
       success: true,

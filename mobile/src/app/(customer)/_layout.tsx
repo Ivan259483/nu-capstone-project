@@ -3,7 +3,7 @@
  * Full-width flush tab bar with safe area inset support.
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Tabs } from 'expo-router';
 import {
   View,
@@ -22,6 +22,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useThemeContext';
 import { Palette, Glass, TabBarContentHeight } from '@/constants/theme';
 import AskAiFab from '@/components/ui/AskAiFab';
+import { useAuth } from '@/context/AuthContext';
+import { isCustomerRole } from '@/services/api/roles';
+
+const SHOW_FLOATING_AI_CHATBOT = false;
 
 const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   index: 'home',
@@ -156,6 +160,19 @@ function CustomTabBar({ state, navigation }: any) {
 
 export default function TabLayout() {
   const { colors } = useTheme();
+  const { initialized, token, profile, signOut } = useAuth();
+  const isAuthorizedCustomer = Boolean(token && profile && isCustomerRole(profile.role));
+
+  useEffect(() => {
+    if (initialized && !isAuthorizedCustomer && (token || profile)) {
+      void signOut();
+    }
+  }, [initialized, isAuthorizedCustomer, profile, signOut, token]);
+
+  if (!initialized) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  // The root auth guard owns navigation to Login. Rendering a second Redirect
+  // here would race that guard while this protected navigator is unmounting.
+  if (!isAuthorizedCustomer) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
 
   return (
     <View style={{ flex: 1 }}>
@@ -175,7 +192,7 @@ export default function TabLayout() {
         <Tabs.Screen name="scan" options={{ title: 'AI Scan' }} />
         <Tabs.Screen name="settings" options={{ title: 'Profile' }} />
       </Tabs>
-      <AskAiFab />
+      {SHOW_FLOATING_AI_CHATBOT && <AskAiFab />}
     </View>
   );
 }

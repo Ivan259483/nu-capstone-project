@@ -1,247 +1,30 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
-  Activity,
   AlertTriangle,
   ArrowRight,
-  BarChart3,
+  Camera,
+  Car,
   CheckCircle2,
-  ClipboardList,
-  Clock,
-  FileWarning,
-  Gauge,
-  ListChecks,
+  ClipboardCheck,
+  Clock3,
+  Flag,
+  Image as ImageIcon,
+  PackageCheck,
   RotateCcw,
-  ScanSearch,
   ShieldCheck,
-  Sparkles,
-  Timer,
-  TrendingDown,
-  TrendingUp,
-  Users,
-  Zap,
+  Trophy,
+  Upload,
+  Wrench,
 } from 'lucide-react';
-import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from 'recharts';
-import { useAuth } from '@/contexts/AuthContext';
-import QCStatusBadge, { type QCStatus } from './QCStatusBadge';
-import type { QCStats, QCJob, QCActivityItem } from '@/hooks/useQCData';
+import type { QCActivityItem, QCJob, QCStats, QCTrackerStageMedia } from '@/hooks/useQCData';
+import { normalizeStaffGateSlot, requiredSlotsCountForGate } from '@/lib/tracker-gate-photo-slots';
 
-type QCView =
-  | 'dashboard'
-  | 'jobs'
-  | 'job-detail'
-  | 'ai-detection'
-  | 'live-tracker';
-
-const BAR_COLORS = ['#2563eb', '#7c3aed', '#0ea5e9', '#10b981', '#f59e0b', '#64748b'];
-const SLA_DUE_WINDOW_MINUTES = 240;
-const DASH_SCOPE_OPTIONS = [
-  { value: 'all' as const, label: 'All Jobs' },
-  { value: 'mine' as const, label: 'My Jobs' },
-];
-const DASH_RANGE_OPTIONS: Array<{ value: 1 | 7 | 30; label: string }> = [
-  { value: 1, label: 'Today' },
-  { value: 7, label: '7 Days' },
-  { value: 30, label: '30 Days' },
-];
-
-const surfaceClass = 'qc-dash-surface rounded-2xl bg-white';
-const dividerClass = 'qc-dash-divider';
-
-const ChartTooltip = ({ active, payload, label }: any) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-xl bg-white/95 px-3.5 py-2.5 text-xs shadow-[0_16px_40px_-20px_rgba(15,23,42,0.35),inset_0_0_0_1px_rgba(148,163,184,0.12)] backdrop-blur">
-      <p className="mb-1.5 font-bold text-slate-800">{label}</p>
-      <div className="space-y-1">
-        {payload.map((entry: any) => (
-          <div key={entry.dataKey || entry.name} className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full" style={{ background: entry.color }} />
-            <span className="min-w-0 flex-1 capitalize text-slate-500">{entry.name}</span>
-            <span className="font-bold tabular-nums text-slate-800">{entry.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-function EmptyState({
-  icon: Icon,
-  title,
-  label,
-  tone = 'blue',
-}: {
-  icon: React.ElementType;
-  title: string;
-  label: string;
-  tone?: 'blue' | 'green' | 'amber' | 'violet' | 'orange';
-}) {
-  const tones = {
-    blue: { gradient: 'from-blue-50 to-white', text: 'text-blue-600', bg: 'bg-blue-100', ring: 'ring-blue-50' },
-    green: { gradient: 'from-emerald-50 to-white', text: 'text-emerald-600', bg: 'bg-emerald-100', ring: 'ring-emerald-50' },
-    amber: { gradient: 'from-amber-50 to-white', text: 'text-amber-600', bg: 'bg-amber-100', ring: 'ring-amber-50' },
-    violet: { gradient: 'from-violet-50 to-white', text: 'text-violet-600', bg: 'bg-violet-100', ring: 'ring-violet-50' },
-    orange: { gradient: 'from-orange-50 to-white', text: 'text-orange-600', bg: 'bg-orange-100', ring: 'ring-orange-50' },
-  }[tone];
-
-  return (
-    <div className={`flex min-h-[176px] flex-col items-center justify-center rounded-lg bg-gradient-to-br ${tones.gradient} px-5 py-10 text-center`}>
-      <div className={`mb-3 flex h-11 w-11 items-center justify-center rounded-lg ${tones.bg} ${tones.ring} ring-4`}>
-        <Icon size={19} className={tones.text} />
-      </div>
-      <p className="text-sm font-bold text-slate-700">{title}</p>
-      <p className="mt-1 max-w-xs text-xs leading-relaxed text-slate-400">{label}</p>
-    </div>
-  );
-}
-
-function LoadingRows() {
-  return (
-    <div className="space-y-3 px-5 pb-5">
-      {[1, 2, 3].map((item) => (
-        <div key={item} className="animate-pulse rounded-xl bg-slate-50/70 p-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.1)]">
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-2">
-              <div className="h-3 w-28 rounded bg-slate-200/70" />
-              <div className="h-3 w-44 rounded bg-slate-100" />
-            </div>
-            <div className="h-8 w-24 rounded-lg bg-slate-100" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-type MetricTone = 'blue' | 'emerald' | 'rose' | 'amber' | 'violet' | 'slate';
-type MetricDelta = {
-  direction: 'up' | 'down' | 'flat';
-  text: string;
-};
-
-type ComparisonFnOptions = {
-  asPercent?: boolean;
-  emptyLabel?: string;
-};
-
-function compareToPrevious(current: number, previous: number, options: ComparisonFnOptions = {}): MetricDelta | null {
-  const { asPercent = true, emptyLabel = 'No change' } = options;
-  if (previous === 0) {
-    if (current === 0) return null;
-    return { direction: 'up', text: asPercent ? 'New' : 'New' };
-  }
-  if (!Number.isFinite(previous) || !Number.isFinite(current)) return null;
-  if (current === previous) return { direction: 'flat', text: emptyLabel };
-  const diff = ((current - previous) / previous) * 100;
-  return {
-    direction: diff >= 0 ? 'up' : 'down',
-    text: `${diff >= 0 ? '+' : ''}${Math.round(diff)}%`,
-  };
-}
-
-function MetricCard({
-  label,
-  value,
-  sub,
-  icon: Icon,
-  tone,
-  badge,
-  delta,
-  action,
-  actionLabel,
-  period,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  icon: React.ElementType;
-  tone: MetricTone;
-  badge?: string;
-  delta?: MetricDelta | null;
-  action?: (() => void) | null;
-  actionLabel?: string;
-  period?: string;
-}) {
-  const toneClass = {
-    blue: 'bg-blue-50 text-blue-700',
-    emerald: 'bg-emerald-50 text-emerald-700',
-    rose: 'bg-rose-50 text-rose-700',
-    amber: 'bg-amber-50 text-amber-700',
-    violet: 'bg-violet-50 text-violet-700',
-    slate: 'bg-slate-100 text-slate-700',
-  }[tone];
-
-  const deltaTone = delta?.direction === 'up'
-    ? 'text-emerald-600'
-    : delta?.direction === 'down'
-      ? 'text-rose-600'
-      : 'text-slate-500';
-  const DeltaIcon = delta?.direction === 'up'
-    ? TrendingUp
-    : delta?.direction === 'down'
-      ? TrendingDown
-      : FileWarning;
-
-  const inner = (
-    <div className="min-h-[132px] space-y-3 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${toneClass}`}>
-          <Icon size={17} />
-        </div>
-        {badge && (
-          <span className="rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-500 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.16)]">
-            {badge}
-          </span>
-        )}
-      </div>
-      <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">{label}</p>
-      <p className="text-3xl font-black tracking-tight text-slate-950 tabular-nums">{value}</p>
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium text-slate-600">{sub}</p>
-        {period && <p className="text-xs text-slate-500">{period}</p>}
-      </div>
-      {delta ? (
-        <p className={`inline-flex items-center gap-1 text-[11px] font-semibold ${deltaTone}`}>
-          <DeltaIcon size={12} />
-          {delta.text} vs previous period
-        </p>
-      ) : null}
-      {action ? (
-        <span className="mt-auto inline-flex text-[11px] font-semibold text-blue-700">
-          {actionLabel || 'Open'} →
-        </span>
-      ) : null}
-    </div>
-  );
-
-  if (!action) {
-    return <div className={`${surfaceClass} overflow-hidden`}>{inner}</div>;
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={action}
-      className={`${surfaceClass} overflow-hidden text-left transition hover:translate-y-[-1px] hover:shadow-[0_26px_55px_-34px_rgba(15,23,42,0.45)]`}
-    >
-      {inner}
-    </button>
-  );
-}
+type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker';
+type DashboardStage = 'received' | 'in_progress' | 'quality_check' | 'ready_pickup' | 'completed';
+type ActiveStage = Exclude<DashboardStage, 'completed'>;
 
 interface Props {
-  onNavigate: (v: QCView) => void;
+  onNavigate: (view: QCView) => void;
   onSelectJob?: (id: string) => void;
   stats: QCStats;
   statsLoading: boolean;
@@ -254,793 +37,332 @@ interface Props {
   onScopeChange: (scope: 'all' | 'mine') => void;
 }
 
-const pct = (value: number) => `${Math.max(0, Math.min(100, Math.round(value)))}%`;
+const STAGES: ActiveStage[] = ['received', 'in_progress', 'quality_check', 'ready_pickup'];
+const STALE_AFTER_MS = 60 * 60 * 1000;
+const QC_SLA_MINUTES = 4 * 60;
 
-function normalizeConfidence(value: unknown) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return 85;
-  return value <= 1 ? Math.round(value * 100) : Math.round(value);
+const RANGE_OPTIONS: Array<{ value: 1 | 7 | 30; label: string }> = [
+  { value: 1, label: 'Today' },
+  { value: 7, label: '7 Days' },
+  { value: 30, label: '30 Days' },
+];
+
+const SCOPE_OPTIONS = [
+  { value: 'all' as const, label: 'All Jobs' },
+  { value: 'mine' as const, label: 'My Jobs' },
+];
+
+const STAGE_META: Record<DashboardStage, { label: string; shortLabel: string }> = {
+  received: { label: 'Arrived', shortLabel: 'Arrived' },
+  in_progress: { label: 'In Service', shortLabel: 'In Service' },
+  quality_check: { label: 'Quality Check', shortLabel: 'QC' },
+  ready_pickup: { label: 'Ready for Pickup', shortLabel: 'Ready' },
+  completed: { label: 'Completed', shortLabel: 'Completed' },
+};
+
+function normalizeValue(value: unknown) {
+  return String(value || '').trim().toLowerCase().replace(/-/g, '_');
 }
 
-export default function QCDashboardView({
-  onNavigate,
-  onSelectJob,
-  stats,
-  statsLoading,
-  jobs,
-  activity = [],
-  activityLoading = false,
-  selectedRangeDays,
-  selectedScope,
-  onRangeChange,
-  onScopeChange,
-}: Props) {
-  const { user } = useAuth();
-  const pendingJobs = jobs.filter((job) => job.status === 'pending-review' || job.status === 'in-review');
-  const pendingCount = pendingJobs.length;
-  const rangeLabel = selectedRangeDays === 1 ? 'Today' : `Last ${selectedRangeDays} Days`;
-  const scopeLabel = selectedScope === 'mine' ? 'My Jobs' : 'All Jobs';
-  const scopeAndPeriod = `${scopeLabel} · ${rangeLabel}`;
-  const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
+function isTerminalJob(job: QCJob) {
+  const stage = normalizeValue((job as QCJob & { serviceTrackingStage?: string }).serviceTrackingStage);
+  const status = normalizeValue(job.orderStatus);
+  return stage === 'completed' || stage === 'released' || status === 'completed' || status === 'released';
+}
+
+function currentDashboardStage(job: QCJob): DashboardStage {
+  if (isTerminalJob(job)) return 'completed';
+  const stage = normalizeValue((job as QCJob & { serviceTrackingStage?: string }).serviceTrackingStage);
+  const status = normalizeValue(job.orderStatus);
+  if (stage === 'ready_pickup' || status === 'ready_for_payment') return 'ready_pickup';
+  if (stage === 'quality_check') return 'ready_pickup';
+  if (stage === 'in_progress') return 'quality_check';
+  if (stage === 'received') return 'in_progress';
+  return 'received';
+}
+
+function mediaRepresentsEvidence(media?: QCTrackerStageMedia | null) {
+  if (!media) return false;
+  if (String(media.photoUrl || '').trim()) return true;
+  if (media.hasPhoto) return true;
+  return Boolean(media.stage && media.stage !== 'confirmed');
+}
+
+function countFilledSlots(job: QCJob, stage: ActiveStage) {
+  const mediaList = (job.trackerStageMedia || []).filter(mediaRepresentsEvidence);
+  if (stage === 'quality_check') {
+    return mediaList.some((media) => normalizeValue(media.stage) === stage) ? 1 : 0;
+  }
+  const slots = new Set<string>();
+  mediaList.forEach((media) => {
+    if (normalizeValue(media.stage) !== stage) return;
+    const slot = normalizeStaffGateSlot(media.slot, stage);
+    slots.add(slot || '__legacy__');
   });
+  return slots.size;
+}
 
-  const v = (value: number) => (statsLoading ? '-' : String(value));
-  const sortedByAge = [...pendingJobs].sort((a, b) => (b.elapsedMinutes ?? 0) - (a.elapsedMinutes ?? 0));
-  const oldestPending = sortedByAge[0];
-  const oldestPendingId = oldestPending?.id;
+function evidenceForCurrentStage(job: QCJob) {
+  const stage = currentDashboardStage(job);
+  if (stage === 'completed') return { stage, complete: 0, required: 0, missing: 0 };
+  const required = requiredSlotsCountForGate(stage, true);
+  const complete = Math.min(required, countFilledSlots(job, stage));
+  return { stage, complete, required, missing: Math.max(0, required - complete) };
+}
 
-  const dueWithinOneHour = pendingJobs.filter((job) => (job.elapsedMinutes ?? 0) <= 60);
-  const dueToday = pendingJobs.filter((job) => (job.elapsedMinutes ?? 0) > 60 && (job.elapsedMinutes ?? 0) <= SLA_DUE_WINDOW_MINUTES);
-  const overdueJobs = pendingJobs.filter((job) => (job.elapsedMinutes ?? 0) > SLA_DUE_WINDOW_MINUTES);
-  const dueInNext4Hours = dueWithinOneHour.length + dueToday.length;
-  const dueInNext4HoursJobs = [...dueWithinOneHour, ...dueToday];
-  const atRiskCount = dueWithinOneHour.length + dueToday.length + overdueJobs.length;
-
-  const userId = String(user?.id || user?._id || '').trim();
-  const assignedToMeJobs = userId
-    ? pendingJobs.filter((job) => {
-      const assignedId = String(job.technicianId || '').trim();
-      return assignedId && assignedId === userId;
-    })
-    : [];
-
-  const reviewedSummary = stats.rangeSummary
-    ? stats.rangeSummary
-    : {
-        days: selectedRangeDays,
-        label: rangeLabel,
-        approved: 0,
-        returned: 0,
-        throughput: 0,
-        reviewedOutcomes: 0,
-        approvalRate: 0,
-        previous: {
-          approved: 0,
-          returned: 0,
-          throughput: 0,
-          reviewedOutcomes: 0,
-          approvalRate: 0,
-        },
-      };
-  const previous = reviewedSummary.previous || {
-    approved: 0,
-    returned: 0,
-    throughput: 0,
-    reviewedOutcomes: 0,
-    approvalRate: 0,
-  };
-
-  const approvedDelta = compareToPrevious(reviewedSummary.approved, previous.approved);
-  const returnedDelta = compareToPrevious(reviewedSummary.returned, previous.returned);
-  const throughputDelta = compareToPrevious(reviewedSummary.throughput, previous.throughput);
-  const approvalDelta = compareToPrevious(reviewedSummary.approvalRate, previous.approvalRate);
-  const throughputLabel = selectedRangeDays === 1 ? "Today's Throughput" : 'Throughput';
-
-  const aiAlerts = jobs
-    .filter((job) => job.aiFlag)
-    .slice(0, 4)
-    .map((job) => {
-      const damage = Array.isArray((job as any).damageAnnotations)
-        ? ((job as any).damageAnnotations as any[])[0]
-        : undefined;
-      return {
-        id: `${job.id}-ai`,
-        jobId: job.jobId,
-        vehicle: job.vehicle,
-        jobGuid: job.id,
-        damage: damage?.type || damage?.label || 'Flagged for inspection',
-        severity: String(damage?.severity || 'moderate').toLowerCase(),
-        confidence: normalizeConfidence(damage?.confidence),
-      };
+function evidenceTotals(jobs: QCJob[]) {
+  let required = 0;
+  let uploaded = 0;
+  let replacement = 0;
+  jobs.forEach((job) => {
+    const current = currentDashboardStage(job);
+    const lastIndex = current === 'completed' ? STAGES.length - 1 : STAGES.indexOf(current);
+    STAGES.slice(0, lastIndex + 1).forEach((stage) => {
+      const gateRequired = requiredSlotsCountForGate(stage, true);
+      required += gateRequired;
+      uploaded += Math.min(gateRequired, countFilledSlots(job, stage));
     });
-
-  const severityClass: Record<string, string> = {
-    critical: 'bg-rose-50/90 text-rose-700 shadow-[inset_0_0_0_1px_rgba(244,63,94,0.2)]',
-    high: 'bg-rose-50/90 text-rose-700 shadow-[inset_0_0_0_1px_rgba(244,63,94,0.2)]',
-    moderate: 'bg-amber-50/90 text-amber-700 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.22)]',
-    medium: 'bg-amber-50/90 text-amber-700 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.22)]',
-    low: 'bg-slate-50/90 text-slate-600 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.16)]',
+    if (job.aiFlag || job.status === 'needs-fix' || job.status === 'resubmitted') replacement += 1;
+  });
+  replacement = Math.min(replacement, uploaded);
+  return {
+    required,
+    complete: Math.max(0, uploaded - replacement),
+    missing: Math.max(0, required - uploaded),
+    replacement,
   };
+}
 
-  const { trendData = [], serviceDistribution = [] } = stats;
-  const topReturnReasons = (stats.topReturnReasons || [])
-    .map((entry) => ({
-      name: entry.reason.trim() || 'Unspecified',
-      value: entry.count || 0,
-    }))
-    .filter((entry) => entry.name)
-    .slice(0, 6);
-  const sortedServices = [...serviceDistribution].sort((a, b) => b.value - a.value).slice(0, 6);
-  const serviceTotal = sortedServices.reduce((sum, item) => sum + item.value, 0);
-  const hasTrend = trendData.some((item) => item.approved > 0 || item.returned > 0);
-  const hasService = sortedServices.length > 0;
-  const hasReturnReasons = topReturnReasons.length > 0;
+function latestUpdateMs(job: QCJob) {
+  const extra = job as QCJob & { serviceTrackingUpdatedAt?: string; updatedAt?: string };
+  const timestamps = [
+    ...(job.trackerStageMedia || []).map((media) => media.uploadedAt),
+    extra.serviceTrackingUpdatedAt,
+    extra.updatedAt,
+    job.submittedAt,
+  ]
+    .map((value) => new Date(String(value || '')).getTime())
+    .filter((value) => Number.isFinite(value) && value > 0);
+  return timestamps.length ? Math.max(...timestamps) : 0;
+}
 
-  const queueAgingBuckets = [
-    {
-      label: 'Due within 1h',
-      value: dueWithinOneHour.length,
-      jobs: dueWithinOneHour,
-      tone: 'rose',
-      color: '#f43f5e',
-    },
-    {
-      label: 'Due today',
-      value: dueToday.length,
-      jobs: dueToday,
-      tone: 'amber',
-      color: '#f59e0b',
-    },
-    {
-      label: 'Overdue',
-      value: overdueJobs.length,
-      jobs: overdueJobs,
-      tone: 'violet',
-      color: '#7c3aed',
-    },
-  ];
+function latestVehicleImage(job: QCJob) {
+  const trackerImage = [...(job.trackerStageMedia || [])]
+    .filter((media) => {
+      const value = String(media.photoUrl || '').trim();
+      return value && !value.startsWith('data:');
+    })
+    .sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime())[0]?.photoUrl;
+  if (trackerImage) return trackerImage;
+  return [...(job.photos?.after || []), ...(job.photos?.before || [])]
+    .find((url) => Boolean(url) && !url.startsWith('data:')) || '';
+}
 
-  const queueAgingChartData = queueAgingBuckets.map((bucket) => ({
-    name: bucket.label,
-    value: bucket.value,
-  }));
+function vehicleLabel(job: QCJob) {
+  const detailed = [job.vehicleYear, job.vehicleMake || job.make, job.vehicleModel].filter(Boolean).join(' ');
+  return detailed || job.vehicle || job.plate || 'Vehicle details pending';
+}
 
-  const handleReview = (id: string) => {
-    if (onSelectJob) {
-      onSelectJob(id);
-      return;
-    }
-    onNavigate('jobs');
-  };
+function relativeTime(timestamp: string | number) {
+  const time = typeof timestamp === 'number' ? timestamp : new Date(timestamp).getTime();
+  if (!Number.isFinite(time) || time <= 0) return 'Recently';
+  const minutes = Math.max(0, Math.floor((Date.now() - time) / 60_000));
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
 
-  const openQueueBucket = (bucket: typeof queueAgingBuckets[number]) => {
-    const target = bucket.jobs[0];
-    if (!target) return;
-    handleReview(target.id);
-  };
+function dueLabel(job: QCJob) {
+  const elapsed = Math.max(0, Number(job.elapsedMinutes || 0));
+  const remaining = QC_SLA_MINUTES - elapsed;
+  if (remaining <= 0) {
+    const overdue = Math.abs(remaining);
+    return `Overdue by ${overdue >= 60 ? `${Math.floor(overdue / 60)}h ${overdue % 60}m` : `${overdue}m`}`;
+  }
+  return `Due in ${remaining >= 60 ? `${Math.floor(remaining / 60)}h ${remaining % 60}m` : `${remaining}m`}`;
+}
+
+function happenedToday(job: QCJob) {
+  if (!isTerminalJob(job)) return false;
+  const extra = job as QCJob & { serviceTrackingUpdatedAt?: string; updatedAt?: string; completedAt?: string };
+  const time = new Date(extra.completedAt || extra.serviceTrackingUpdatedAt || extra.updatedAt || '').getTime();
+  if (!Number.isFinite(time)) return false;
+  const today = new Date();
+  const value = new Date(time);
+  return today.getFullYear() === value.getFullYear()
+    && today.getMonth() === value.getMonth()
+    && today.getDate() === value.getDate();
+}
+
+function DashboardSkeleton({ rows = 1 }: { rows?: number }) {
+  return (
+    <div className="animate-pulse space-y-3 p-5" aria-hidden>
+      {Array.from({ length: rows }).map((_, index) => (
+        <div key={index} className="flex items-center gap-4 rounded-xl bg-slate-50/70 p-3">
+          <div className="h-14 w-24 rounded-lg bg-slate-100" />
+          <div className="flex-1 space-y-2"><div className="h-3 w-32 rounded bg-slate-200" /><div className="h-3 w-48 rounded bg-slate-100" /></div>
+          <div className="h-9 w-28 rounded-lg bg-slate-100" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MetricCard({ label, value, detail, icon: Icon, tone, onClick, loading }: {
+  label: string;
+  value: number;
+  detail: string;
+  icon: React.ElementType;
+  tone: 'blue' | 'green' | 'amber';
+  onClick: () => void;
+  loading: boolean;
+}) {
+  const toneClasses = {
+    blue: 'bg-blue-50 text-blue-600',
+    green: 'bg-emerald-50 text-emerald-600',
+    amber: 'bg-amber-50 text-amber-600',
+  }[tone];
+  return (
+    <button type="button" onClick={onClick} className="qc-command-kpi group relative min-h-[122px] overflow-hidden rounded-2xl bg-white p-4 text-left transition-[transform,box-shadow] hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-blue-100">
+      <div className="flex items-start gap-3.5">
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${toneClasses}`}><Icon size={20} strokeWidth={1.9} /></span>
+        <span className="min-w-0">
+          <span className="block text-[13px] font-semibold text-slate-600">{label}</span>
+          {loading ? <span className="mt-2 block h-8 w-12 animate-pulse rounded bg-slate-100" /> : <span className="mt-0.5 block text-[30px] font-semibold leading-none tracking-[-0.04em] text-[#0b1020] tabular-nums">{value}</span>}
+          <span className="mt-2 block text-[12px] font-medium text-slate-400">{detail}</span>
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function PriorityThumbnail({ job }: { job: QCJob }) {
+  const src = latestVehicleImage(job);
+  return (
+    <div className="qc-command-thumbnail flex h-[66px] w-[108px] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100">
+      {src ? <img src={src} alt={vehicleLabel(job)} className="h-full w-full object-cover" /> : <Car size={28} strokeWidth={1.4} className="text-slate-400" aria-hidden />}
+    </div>
+  );
+}
+
+export default function QCDashboardView({ onNavigate, onSelectJob, statsLoading, jobs, activity = [], activityLoading = false, selectedRangeDays, selectedScope, onRangeChange, onScopeChange }: Props) {
+  const activeJobs = useMemo(() => jobs.filter((job) => !isTerminalJob(job)), [jobs]);
+  const periodJobs = useMemo(() => {
+    const now = new Date();
+    const start = selectedRangeDays === 1
+      ? new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+      : now.getTime() - selectedRangeDays * 24 * 60 * 60 * 1000;
+    return activeJobs.filter((job) => latestUpdateMs(job) >= start);
+  }, [activeJobs, selectedRangeDays]);
+  const summaries = useMemo(() => new Map(activeJobs.map((job) => [job.id, evidenceForCurrentStage(job)])), [activeJobs]);
+  const needEvidenceJobs = useMemo(() => activeJobs.filter((job) => (summaries.get(job.id)?.missing || 0) > 0), [activeJobs, summaries]);
+  const readyForQcJobs = useMemo(() => activeJobs.filter((job) => { const summary = summaries.get(job.id); return summary?.stage === 'quality_check' && summary.missing === 0; }), [activeJobs, summaries]);
+  const qcIssueJobs = useMemo(() => activeJobs.filter((job) => { const summary = summaries.get(job.id); return job.aiFlag || job.status === 'needs-fix' || job.status === 'resubmitted' || (summary?.stage === 'quality_check' && summary.missing > 0); }), [activeJobs, summaries]);
+  const readyForPickupJobs = useMemo(() => activeJobs.filter((job) => currentDashboardStage(job) === 'ready_pickup'), [activeJobs]);
+  const completedToday = useMemo(() => jobs.filter(happenedToday), [jobs]);
+
+  const priorityQueue = useMemo(() => activeJobs.map((job) => {
+    const evidence = summaries.get(job.id)!;
+    const lastUpdate = latestUpdateMs(job);
+    const stale = !lastUpdate || Date.now() - lastUpdate > STALE_AFTER_MS;
+    const qcIssue = job.aiFlag || job.status === 'needs-fix' || job.status === 'resubmitted';
+    let score = 0;
+    if (evidence.missing > 0) score += 700 + evidence.missing * 12;
+    if (evidence.stage === 'quality_check') score += 560;
+    if (qcIssue) score += 640;
+    if (stale) score += 280;
+    score += Math.min(240, Math.max(0, job.elapsedMinutes || 0));
+    let issue = 'Needs attention';
+    let issueDetail = 'Open job';
+    let action = 'Review Job';
+    let issueTone = 'text-amber-600';
+    if (job.status === 'needs-fix' || job.status === 'resubmitted') { issue = 'Rework Required'; issueDetail = 'QC decision unresolved'; issueTone = 'text-rose-600'; }
+    else if (job.aiFlag) { issue = 'Evidence Flagged'; issueDetail = 'Automated check needs review'; issueTone = 'text-rose-600'; }
+    else if (evidence.stage === 'quality_check' && evidence.missing > 0) { issue = 'QC Evidence Required'; issueDetail = `${evidence.missing} required`; action = 'Start QC'; issueTone = 'text-rose-600'; }
+    else if (evidence.missing > 0) { issue = 'Missing Evidence'; issueDetail = `${evidence.missing} required`; action = 'Upload Evidence'; issueTone = 'text-rose-600'; }
+    else if (evidence.stage === 'quality_check') { issue = 'Ready for QC'; issueDetail = 'Evidence complete'; action = 'Start QC'; issueTone = 'text-emerald-600'; }
+    else if (stale) { issue = 'No Recent Update'; issueDetail = lastUpdate ? relativeTime(lastUpdate) : 'No update recorded'; }
+    return { job, evidence, score, issue, issueDetail, action, issueTone };
+  }).filter((item) => item.score >= 280).sort((a, b) => b.score - a.score || (b.job.elapsedMinutes || 0) - (a.job.elapsedMinutes || 0)).slice(0, 5), [activeJobs, summaries]);
+
+  const totals = useMemo(() => evidenceTotals(periodJobs), [periodJobs]);
+  const evidenceTotal = totals.complete + totals.missing + totals.replacement;
+  const completePct = evidenceTotal ? Math.round((totals.complete / evidenceTotal) * 100) : 0;
+  const missingPct = evidenceTotal ? Math.round((totals.missing / evidenceTotal) * 100) : 0;
+  const replacementPct = evidenceTotal ? Math.max(0, 100 - completePct - missingPct) : 0;
+  const donutStyle = { background: evidenceTotal ? `conic-gradient(#10b981 0 ${completePct}%, #f59e0b ${completePct}% ${completePct + missingPct}%, #ef4444 ${completePct + missingPct}% 100%)` : '#e2e8f0' };
+  const workflow = STAGES.map((stage) => ({ stage, count: activeJobs.filter((job) => currentDashboardStage(job) === stage).length }));
+  const completedCount = completedToday.length;
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const openJob = (job?: QCJob) => { if (job && onSelectJob) onSelectJob(job.id); else onNavigate('live-tracker'); };
+  const workflowIcons: Record<DashboardStage, React.ElementType> = { received: Car, in_progress: Wrench, quality_check: ShieldCheck, ready_pickup: PackageCheck, completed: Flag };
 
   return (
-    <div className="space-y-5">
-      <section className="qc-dash-surface overflow-hidden rounded-2xl bg-white">
-        <div className="flex flex-col gap-5 bg-gradient-to-br from-white via-slate-50 to-blue-50/70 p-5 sm:flex-row sm:items-start sm:justify-between">
+    <div className="qc-command-center mx-auto max-w-[1560px] space-y-5 pb-4">
+      <section className="qc-command-hero overflow-hidden rounded-[20px] bg-white">
+        <div className="flex flex-col gap-5 px-5 py-5 sm:px-7 lg:flex-row lg:items-start lg:justify-between lg:py-6">
           <div className="min-w-0">
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-[0.12em] text-blue-700 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.16)]">
-              <Activity size={13} />
-              Quality Command Center
-            </div>
-            <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
-              What needs attention right now?
-            </h1>
-            <p className="mt-1 text-sm font-medium text-slate-500">
-              {today} — live queue health and risk watchlist.
-            </p>
+            <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-blue-700">Quality Command Center</span>
+            <h1 className="mt-3 text-[28px] font-semibold leading-[1.08] tracking-[-0.04em] text-[#0b1020] sm:text-[34px]">What needs attention right now?</h1>
+            <p className="mt-2 text-[13px] font-medium text-slate-500 sm:text-sm">{today} — live queue health, evidence status, and detailing progress.</p>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <span
-              className={`inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-black ring-1 ${
-                statsLoading
-                  ? 'bg-amber-50 text-amber-700 ring-amber-100'
-                  : 'bg-emerald-50 text-emerald-700 ring-emerald-100'
-              }`}
-            >
-              <span className={`h-2 w-2 rounded-full ${statsLoading ? 'bg-amber-400' : 'bg-emerald-500'} animate-pulse`} />
-              {statsLoading ? 'Syncing' : 'Live'}
-            </span>
-            <span className="inline-flex h-9 items-center gap-2 rounded-xl bg-slate-50 px-3 text-xs font-semibold text-slate-600 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.14)]">
-              <ClipboardList size={14} className="text-blue-600" />
-              {pendingCount} pending
-            </span>
+          <div className="flex shrink-0 flex-wrap items-center gap-2.5">
+            <span className="inline-flex h-10 items-center gap-2 rounded-full bg-emerald-50 px-3.5 text-sm font-semibold text-emerald-700"><span className="h-2 w-2 rounded-full bg-emerald-500" />Live</span>
+            <button type="button" onClick={() => onNavigate('jobs')} className="inline-flex h-10 items-center gap-2 rounded-[10px] border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-600 transition hover:border-blue-200 hover:text-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-100"><ClipboardCheck size={15} className="text-blue-600" />{activeJobs.length} pending</button>
           </div>
         </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100/80 px-5 py-3 sm:px-6">
-          <div className="flex items-center gap-2">
-            <span className="hidden text-xs font-semibold text-slate-500 sm:inline">Period</span>
-            <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
-              {DASH_RANGE_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => onRangeChange(option.value)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                    selectedRangeDays === option.value
-                      ? 'bg-blue-600 text-white shadow-[0_8px_20px_-14px_rgba(37,99,235,0.55)]'
-                      : 'text-slate-600 hover:text-slate-800'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="hidden text-xs font-semibold text-slate-500 sm:inline">Scope</span>
-            <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
-              {DASH_SCOPE_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => onScopeChange(option.value)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                    selectedScope === option.value
-                      ? 'bg-blue-600 text-white shadow-[0_8px_20px_-14px_rgba(37,99,235,0.55)]'
-                      : 'text-slate-600 hover:text-slate-800'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
+        <div className="qc-command-hero-divider flex flex-col gap-3 border-t border-slate-100 px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+          <div className="flex items-center gap-3"><span className="text-xs font-semibold text-slate-500">Period</span><div className="qc-command-filter-group flex rounded-xl border border-slate-200 bg-slate-50 p-1">{RANGE_OPTIONS.map((option) => <button key={option.value} type="button" onClick={() => onRangeChange(option.value)} aria-pressed={selectedRangeDays === option.value} className={`qc-command-filter-pill rounded-lg px-3.5 py-1.5 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${selectedRangeDays === option.value ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>{option.label}</button>)}</div></div>
+          <div className="flex items-center gap-3"><span className="text-xs font-semibold text-slate-500">Scope</span><div className="qc-command-filter-group flex rounded-xl border border-slate-200 bg-slate-50 p-1">{SCOPE_OPTIONS.map((option) => <button key={option.value} type="button" onClick={() => onScopeChange(option.value)} aria-pressed={selectedScope === option.value} className={`qc-command-filter-pill rounded-lg px-3.5 py-1.5 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${selectedScope === option.value ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>{option.label}</button>)}</div></div>
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-        <MetricCard
-          label="Awaiting Validation"
-          value={v(pendingCount)}
-          sub={scopeAndPeriod}
-          icon={ClipboardList}
-          tone="blue"
-          badge={scopeLabel}
-          period={scopeAndPeriod}
-        />
-        <MetricCard
-          label="Approved"
-          value={v(reviewedSummary.approved)}
-          sub="Outcomes completed"
-          icon={CheckCircle2}
-          tone="emerald"
-          badge={rangeLabel}
-          period={rangeLabel}
-          delta={approvedDelta}
-        />
-        <MetricCard
-          label="Returned"
-          value={v(reviewedSummary.returned)}
-          sub="Rework outcomes"
-          icon={RotateCcw}
-          tone="rose"
-          badge={rangeLabel}
-          period={rangeLabel}
-          delta={returnedDelta}
-        />
-        <MetricCard
-          label={throughputLabel}
-          value={v(reviewedSummary.throughput)}
-          sub="Total reviewed"
-          icon={Gauge}
-          tone="violet"
-          badge={rangeLabel}
-          period={rangeLabel}
-          delta={throughputDelta}
-        />
-        <MetricCard
-          label="Approval Rate"
-          value={statsLoading ? '-' : pct(reviewedSummary.approvalRate)}
-          sub={`In period: ${rangeLabel}`}
-          icon={Activity}
-          tone="blue"
-          badge={rangeLabel}
-          period={rangeLabel}
-          delta={approvalDelta}
-        />
-        <MetricCard
-          label="Overall Approval Rate"
-          value={statsLoading ? '-' : pct(stats.qcApprovalRatePct || 0)}
-          sub="Lifetime outcome quality"
-          icon={ShieldCheck}
-          tone="slate"
-          badge="All time"
-          period="All time"
-        />
-        <MetricCard
-          label="SLA Risk"
-          value={v(atRiskCount)}
-          sub={`1h ${dueWithinOneHour.length} · Today ${dueToday.length} · Overdue ${overdueJobs.length}`}
-          icon={FileWarning}
-          tone={atRiskCount > 0 ? 'rose' : 'slate'}
-          badge="Attention"
-          period="Live"
-          action={atRiskCount > 0 ? () => openQueueBucket(queueAgingBuckets[0]) : null}
-          actionLabel="Open queue"
-        />
-        <MetricCard
-          label="Due in Next 4 Hours"
-          value={v(dueInNext4Hours)}
-          sub="Pending jobs approaching SLA"
-          icon={Clock}
-          tone={dueInNext4Hours > 0 ? 'amber' : 'slate'}
-          badge="Live"
-          period={scopeLabel}
-          action={dueInNext4Hours > 0 ? () => openQueueBucket({
-            label: 'Due in Next 4 Hours',
-            value: dueInNext4Hours,
-            jobs: dueInNext4HoursJobs,
-            tone: 'amber',
-            color: '#f59e0b',
-          }) : null}
-          actionLabel="Open jobs"
-        />
-        <MetricCard
-          label="Overdue Jobs"
-          value={v(overdueJobs.length)}
-          sub="Above SLA target"
-          icon={AlertTriangle}
-          tone={overdueJobs.length > 0 ? 'rose' : 'slate'}
-          badge={rangeLabel}
-          period={scopeLabel}
-          action={overdueJobs.length > 0 ? () => openQueueBucket(queueAgingBuckets[2]) : null}
-          actionLabel="Open oldest"
-        />
-        <MetricCard
-          label="Assigned to Me"
-          value={v(assignedToMeJobs.length)}
-          sub="Currently queued for you"
-          icon={Users}
-          tone={assignedToMeJobs.length > 0 ? 'blue' : 'slate'}
-          badge={scopeLabel}
-          period={scopeLabel}
-          action={assignedToMeJobs.length > 0 ? () => openQueueBucket({
-            label: 'Assigned to me',
-            value: assignedToMeJobs.length,
-            jobs: assignedToMeJobs,
-            tone: 'blue',
-            color: '#3b82f6',
-          }) : null}
-          actionLabel="Open first"
-        />
-        <MetricCard
-          label="Oldest Pending Job"
-          value={oldestPending ? oldestPending.elapsed : '-'}
-          sub={oldestPending ? `${oldestPending.jobId} · ${oldestPending.vehicle}` : 'No pending jobs'}
-          icon={Timer}
-          tone="violet"
-          badge="Live"
-          period="Now"
-          action={oldestPendingId ? () => handleReview(oldestPendingId) : null}
-          actionLabel={oldestPendingId ? 'Open job' : undefined}
-        />
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <MetricCard label="Need Evidence" value={needEvidenceJobs.length} detail="Missing or incomplete" icon={Camera} tone="blue" loading={statsLoading && jobs.length === 0} onClick={() => openJob(needEvidenceJobs[0])} />
+        <MetricCard label="Ready for QC" value={readyForQcJobs.length} detail="Awaiting quality check" icon={CheckCircle2} tone="green" loading={statsLoading && jobs.length === 0} onClick={() => openJob(readyForQcJobs[0])} />
+        <MetricCard label="QC Issues" value={qcIssueJobs.length} detail="Requires attention" icon={AlertTriangle} tone="amber" loading={statsLoading && jobs.length === 0} onClick={() => openJob(qcIssueJobs[0])} />
+        <MetricCard label="Ready for Pickup" value={readyForPickupJobs.length} detail="Waiting for release" icon={Car} tone="blue" loading={statsLoading && jobs.length === 0} onClick={() => openJob(readyForPickupJobs[0])} />
+        <MetricCard label="Completed Today" value={completedCount} detail="Officially released" icon={Trophy} tone="green" loading={statsLoading && jobs.length === 0} onClick={() => onNavigate('jobs')} />
       </section>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <div className={`${surfaceClass} p-6`}>
-          <div className="mb-4 flex flex-col gap-2">
-            <h2 className="text-base font-black tracking-tight text-slate-950">Queue Aging</h2>
-            <p className="text-xs font-medium text-slate-500">Pending job aging split by SLA urgency</p>
-          </div>
-          {queueAgingBuckets.some((b) => b.value > 0) ? (
-            <>
-              <ResponsiveContainer width="100%" height={210}>
-                <BarChart data={queueAgingChartData} margin={{ top: 4, right: 10, left: 4, bottom: 0 }}>
-                  <CartesianGrid stroke="rgba(226,232,240,0.55)" strokeDasharray="4 6" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} allowDecimals={false} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Bar
-                    dataKey="value"
-                    name="Jobs"
-                    radius={[6, 6, 0, 0]}
-                    onClick={(data: any) => {
-                      const clicked = queueAgingBuckets.find((bucket) => bucket.label === data.name);
-                      if (clicked) openQueueBucket(clicked);
-                    }}
-                  >
-                    {queueAgingBuckets.map((bucket, index) => (
-                      <Cell key={bucket.label} fill={bucket.color || BAR_COLORS[index % BAR_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                {queueAgingBuckets.map((bucket) => {
-                  const deltaTarget = bucket.jobs[0]?.id;
-                  const buttonText = `${bucket.value} job${bucket.value === 1 ? '' : 's'}`;
-                  return (
-                    <button
-                      key={bucket.label}
-                      type="button"
-                      onClick={() => deltaTarget ? handleReview(deltaTarget) : null}
-                      className={`rounded-xl border border-slate-100 p-3 text-left text-xs transition ${
-                        bucket.value > 0
-                          ? 'bg-slate-50 hover:bg-slate-100'
-                          : 'bg-slate-50/40'
-                      }`}
-                    >
-                      <p className={`font-bold ${bucket.tone === 'rose' ? 'text-rose-700' : bucket.tone === 'amber' ? 'text-amber-700' : 'text-violet-700'}`}>
-                        {bucket.label}
-                      </p>
-                      <p className="mt-1 font-black text-slate-900">{buttonText}</p>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          ) : (
-            <EmptyState icon={Clock} title="No queue aging risk" label="Jobs are not currently waiting in the queue." tone="green" />
-          )}
-        </div>
-
-        <div className={`${surfaceClass} p-6`}>
-          <div className="mb-4 flex flex-col gap-2">
-            <h2 className="text-base font-black tracking-tight text-slate-950">Approval / Return Trend</h2>
-            <p className="text-xs font-medium text-slate-500">Decision trend for {rangeLabel.toLowerCase()}</p>
-          </div>
-          {hasTrend ? (
-            <ResponsiveContainer width="100%" height={210}>
-              <AreaChart data={trendData} margin={{ top: 6, right: 12, left: -16, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="qcApprovedGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="qcReturnedGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.16} />
-                    <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="rgba(226,232,240,0.55)" strokeDasharray="4 6" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip content={<ChartTooltip />} />
-                <Area
-                  type="monotone"
-                  dataKey="approved"
-                  name="Approved"
-                  stroke="#10b981"
-                  strokeWidth={2.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="url(#qcApprovedGradient)"
-                  dot={false}
-                  activeDot={{ r: 4, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="returned"
-                  name="Returned"
-                  stroke="#f43f5e"
-                  strokeWidth={2.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="url(#qcReturnedGradient)"
-                  dot={false}
-                  activeDot={{ r: 4, fill: '#f43f5e', stroke: '#fff', strokeWidth: 2 }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <EmptyState icon={BarChart3} title="No trend data yet" label="Trend builds when approvals or returns are recorded." />
-          )}
-        </div>
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <div className={`${surfaceClass} overflow-hidden`}>
-          <div className={`flex items-center justify-between gap-3 px-5 py-4 ${dividerClass}`}>
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                <Sparkles size={16} />
-              </div>
-              <div className="min-w-0">
-                <h2 className="truncate text-sm font-black text-slate-950">Jobs by Service Type</h2>
-                <p className="text-xs font-medium text-slate-500">Current quality-control mix</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigate('jobs')}
-              className="text-xs font-black text-blue-600 transition hover:text-blue-700"
-            >
-              View all
-              <ArrowRight size={14} className="inline-block" />
-            </button>
-          </div>
-          {hasService ? (
-            <div className="space-y-5 p-5">
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={sortedServices} margin={{ top: 4, right: 4, left: 4, bottom: 0 }} barSize={22}>
-                  <CartesianGrid stroke="rgba(238,242,247,0.7)" strokeDasharray="4 6" vertical={false} />
-                  <XAxis dataKey="name" hide />
-                  <YAxis hide allowDecimals={false} />
-                  <Tooltip content={<ChartTooltip />} cursor={{ fill: '#f8fafc' }} />
-                  <Bar dataKey="value" name="Jobs" radius={[6, 6, 0, 0]}>
-                    {sortedServices.map((_, index) => (
-                      <Cell key={index} fill={BAR_COLORS[index % BAR_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="space-y-3">
-                {sortedServices.map((service, index) => {
-                  const width = serviceTotal > 0 ? (service.value / serviceTotal) * 100 : 0;
-                  return (
-                    <div key={service.name} className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-3 text-xs">
-                        <span className="truncate font-bold text-slate-700">{service.name}</span>
-                        <span className="shrink-0 font-black text-slate-900 tabular-nums">{service.value}</span>
-                      </div>
-                      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-                        <div
-                          className="h-full rounded-full"
-                          style={{ width: `${width}%`, backgroundColor: BAR_COLORS[index % BAR_COLORS.length] }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <EmptyState icon={BarChart3} title="No jobs by service yet" label="Service mix appears once QC jobs are active." tone="blue" />
-          )}
-        </div>
-
-        <div className={`${surfaceClass} overflow-hidden`}>
-          <div className={`flex items-center justify-between gap-3 px-5 py-4 ${dividerClass}`}>
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
-                <FileWarning size={16} />
-              </div>
-              <div className="min-w-0">
-                <h2 className="truncate text-sm font-black text-slate-950">Top Return Reasons</h2>
-                <p className="text-xs font-medium text-slate-500">Most frequent return triggers</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigate('jobs')}
-              className="text-xs font-black text-blue-600 transition hover:text-blue-700"
-            >
-              Investigate
-              <ArrowRight size={14} className="inline-block" />
-            </button>
-          </div>
-          {hasReturnReasons ? (
-            <div className="space-y-4 p-5">
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={topReturnReasons} margin={{ top: 4, right: 4, left: 4, bottom: 0 }} barSize={18}>
-                  <CartesianGrid stroke="rgba(238,242,247,0.7)" strokeDasharray="4 6" vertical={false} />
-                  <XAxis dataKey="name" hide />
-                  <YAxis hide allowDecimals={false} />
-                  <Tooltip content={<ChartTooltip />} cursor={{ fill: '#f8fafc' }} />
-                  <Bar dataKey="value" name="Occurrences" radius={[6, 6, 0, 0]} fill={BAR_COLORS[1]}>
-                    {topReturnReasons.map((_, index) => (
-                      <Cell key={index} fill={BAR_COLORS[(index + 2) % BAR_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="space-y-2">
-                {topReturnReasons.map((item, index) => {
-                  const width = topReturnReasons[0].value > 0 ? (item.value / topReturnReasons[0].value) * 100 : 0;
-                  return (
-                    <div key={`${item.name}-${index}`} className="space-y-1">
-                      <div className="flex items-center justify-between gap-2 text-xs">
-                        <span className="truncate font-bold text-slate-700">{item.name}</span>
-                        <span className="font-black text-slate-900">{item.value}</span>
-                      </div>
-                      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-                        <div className="h-full rounded-full bg-blue-500/85" style={{ width: `${width}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <EmptyState icon={FileWarning} title="No return reason data" label="Returned jobs with reasons will populate this view." tone="amber" />
-          )}
-        </div>
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <div className={`${surfaceClass} overflow-hidden xl:col-span-2`}>
-          <div className={`flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between ${dividerClass}`}>
-            <div>
-              <h2 className="text-base font-black tracking-tight text-slate-950">Urgent Review Queue</h2>
-              <p className="mt-0.5 text-xs font-medium text-slate-500">Sorted by elapsed review time</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigate('jobs')}
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white shadow-[0_8px_20px_-12px_rgba(37,99,235,0.55)] transition hover:bg-blue-700"
-            >
-              View all
-              <ArrowRight size={14} />
-            </button>
-          </div>
-          {statsLoading && jobs.length === 0 ? (
-            <LoadingRows />
-          ) : sortedByAge.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="qc-dash-table w-full min-w-[720px]">
-                <thead>
-                  <tr>
-                    {['Job', 'Customer', 'Service', 'Elapsed', 'Status', 'Action'].map((heading) => (
-                      <th key={heading} className="px-5 py-3 text-left text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedByAge.slice(0, 5).map((job) => {
-                    const isOverdue = (job.elapsedMinutes ?? 0) > SLA_DUE_WINDOW_MINUTES;
-                    return (
-                      <tr
-                        key={job.id}
-                        className="group cursor-pointer transition-colors"
-                        onClick={() => handleReview(job.id)}
-                      >
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-2">
-                            <span className="font-black text-slate-900 tabular-nums">{job.jobId}</span>
-                            {job.aiFlag && <AlertTriangle size={13} className="text-orange-500" />}
-                          </div>
-                          <p className="mt-0.5 text-xs font-medium text-slate-400">{job.vehicle || job.plate || 'Vehicle pending'}</p>
-                        </td>
-                        <td className="px-5 py-4 text-sm font-bold text-slate-700">{job.customer}</td>
-                        <td className="max-w-[190px] px-5 py-4 text-xs font-semibold text-slate-500">
-                          <span className="block truncate">{job.service || job.serviceType || '-'}</span>
-                        </td>
-                        <td className="px-5 py-4">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black tabular-nums ring-1 ${
-                              isOverdue
-                                ? 'bg-rose-50 text-rose-700 ring-rose-100'
-                                : 'bg-amber-50 text-amber-700 ring-amber-100'
-                            }`}
-                          >
-                            {job.elapsed || '-'}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4"><QCStatusBadge status={job.status as QCStatus} /></td>
-                        <td className="px-5 py-4">
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleReview(job.id);
-                            }}
-                            className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-blue-600 px-3 text-xs font-black text-white shadow-[0_8px_20px_-12px_rgba(37,99,235,0.55)] transition hover:bg-blue-700"
-                          >
-                            Review
-                            <ArrowRight size={13} />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="p-5">
-              <EmptyState icon={ShieldCheck} title="No urgent reviews" label="The priority lane is clear. New QC work will appear here automatically." tone="green" />
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-6">
-          <div className={`${surfaceClass} overflow-hidden`}>
-            <div className={`flex items-center justify-between gap-3 px-5 py-4 ${dividerClass}`}>
-              <div className="flex min-w-0 items-center gap-2">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
-                  <ScanSearch size={16} />
-                </div>
-                <div className="min-w-0">
-                  <h2 className="truncate text-sm font-black text-slate-950">AI Detection Alerts</h2>
-                  <p className="text-xs font-medium text-slate-500">{stats.aiPending} pending flags</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => onNavigate('ai-detection')}
-                className="text-xs font-black text-blue-600 transition hover:text-blue-700"
-              >
-                View all
+      <section className="grid grid-cols-1 gap-4 min-[1400px]:grid-cols-[1.12fr_0.88fr]">
+        <div className="qc-command-panel qc-command-priority overflow-hidden rounded-[18px] bg-white">
+          <div className="qc-command-panel-header flex items-center justify-between border-b border-slate-100 px-5 py-4"><div className="flex items-center gap-2.5"><h2 className="text-base font-semibold tracking-[-0.02em] text-[#0b1020]">Priority Queue</h2><span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-600">{priorityQueue.length}</span></div><button type="button" onClick={() => onNavigate('live-tracker')} className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 transition hover:text-blue-800 focus:outline-none focus:underline">View all <ArrowRight size={13} /></button></div>
+          {statsLoading && jobs.length === 0 ? <DashboardSkeleton rows={4} /> : priorityQueue.length > 0 ? (
+            <div className="qc-command-queue-list">{priorityQueue.map(({ job, evidence, issue, issueDetail, action, issueTone }) => (
+              <button key={job.id} type="button" onClick={() => openJob(job)} className="qc-command-queue-row group grid w-full grid-cols-1 gap-3 px-4 py-3.5 text-left transition hover:bg-slate-50 focus:outline-none focus-visible:bg-blue-50/60 sm:grid-cols-[108px_minmax(130px,1.2fr)_minmax(95px,0.8fr)_minmax(95px,0.8fr)_auto] sm:items-center sm:px-5">
+                <PriorityThumbnail job={job} />
+                <span className="min-w-0"><span className="block truncate text-sm font-semibold text-slate-950">{job.jobId || job.id}</span><span className="mt-0.5 block truncate text-xs font-medium text-slate-600">{job.customerName || job.customer}</span><span className="mt-0.5 block truncate text-[11px] text-slate-400">{vehicleLabel(job)}</span></span>
+                <span className="min-w-0"><span className="block text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">Current Stage</span><span className="mt-1 block truncate text-xs font-semibold text-slate-700">{STAGE_META[evidence.stage].label}</span></span>
+                <span className="min-w-0"><span className={`block truncate text-xs font-semibold ${issueTone}`}>{issue}</span><span className="mt-1 block truncate text-[11px] text-slate-500">{issueDetail}</span></span>
+                <span className="flex items-center justify-between gap-3 sm:block sm:text-right"><span className="qc-command-primary-action inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 text-[11px] font-semibold text-white transition group-hover:bg-blue-700">{action === 'Upload Evidence' ? <Upload size={13} /> : <ArrowRight size={13} />}{action}</span><span className={`mt-0 block text-[10px] font-semibold sm:mt-1.5 ${(job.elapsedMinutes || 0) >= QC_SLA_MINUTES ? 'text-rose-600' : 'text-amber-600'}`}>{dueLabel(job)}</span></span>
               </button>
-            </div>
-            {aiAlerts.length > 0 ? (
-              <div className="qc-dash-list">
-                {aiAlerts.map((alert) => (
-                  <button
-                    key={alert.id}
-                    type="button"
-                    onClick={() => onNavigate('ai-detection')}
-                    className="flex w-full items-start gap-3 px-5 py-4 text-left transition hover:bg-orange-50/40"
-                  >
-                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
-                      <Zap size={15} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-xs font-black text-slate-900">{alert.jobId}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${severityClass[alert.severity] || severityClass.moderate}`}>
-                          {alert.severity}
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate text-xs font-semibold text-slate-500">{alert.vehicle || 'Vehicle pending'}</p>
-                      <p className="mt-0.5 truncate text-xs text-slate-400">{alert.damage}</p>
-                    </div>
-                    <span className="shrink-0 text-xs font-black text-slate-700 tabular-nums">{alert.confidence}%</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4">
-                <EmptyState icon={Zap} title="No AI detections" label="Automated scan issues will land here for quick review." tone="orange" />
-              </div>
-            )}
+            ))}</div>
+          ) : <div className="flex min-h-[280px] flex-col items-center justify-center px-6 py-12 text-center"><span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600"><ShieldCheck size={22} /></span><h3 className="mt-4 text-sm font-semibold text-slate-900">Everything looks good</h3><p className="mt-1 text-xs text-slate-500">No active jobs currently require your attention.</p></div>}
+        </div>
+
+        <div className="space-y-4">
+          <div className="qc-command-panel qc-command-workflow rounded-[18px] bg-white px-5 py-4">
+            <h2 className="text-base font-semibold tracking-[-0.02em] text-[#0b1020]">Today's Workflow</h2>
+            <div className="mt-5 overflow-x-auto pb-1"><div className="relative grid min-w-[560px] grid-cols-5 gap-2"><div className="qc-command-workflow-connector absolute left-[10%] right-[10%] top-5 h-px bg-slate-200" />{[...workflow, { stage: 'completed' as const, count: completedCount }].map(({ stage, count }) => { const Icon = workflowIcons[stage]; const target = stage === 'completed' ? completedToday[0] : activeJobs.find((job) => currentDashboardStage(job) === stage); const active = count > 0; return <button key={stage} type="button" onClick={() => stage === 'completed' ? onNavigate('jobs') : openJob(target)} className="qc-command-workflow-step relative z-[1] flex flex-col items-center rounded-xl px-1 py-1 text-center transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100"><span className={`qc-command-workflow-icon ${active ? 'is-active' : ''} flex h-10 w-10 items-center justify-center rounded-full border bg-white ${active ? 'border-blue-500 text-blue-600 shadow-[0_0_0_4px_#eff6ff]' : 'border-slate-200 text-slate-400'}`}><Icon size={17} strokeWidth={1.9} /></span><span className="mt-3 min-h-8 text-[11px] font-semibold leading-tight text-slate-600">{STAGE_META[stage].shortLabel}</span><span className="mt-0.5 text-lg font-semibold text-slate-950 tabular-nums">{count}</span></button>; })}</div></div>
           </div>
 
-          <div className={`${surfaceClass} overflow-hidden`}>
-            <div className={`flex items-center justify-between gap-3 px-5 py-4 ${dividerClass}`}>
-              <div className="flex min-w-0 items-center gap-2">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                  <Clock size={16} />
-                </div>
-                <div className="min-w-0">
-                  <h2 className="truncate text-sm font-black text-slate-950">Recent Activity</h2>
-                  <p className="text-xs font-medium text-slate-500">{activity.length} latest actions</p>
-                </div>
-              </div>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="qc-command-panel qc-command-evidence rounded-[18px] bg-white p-4">
+              <h2 className="text-base font-semibold tracking-[-0.02em] text-[#0b1020]">Evidence Health</h2>
+              {evidenceTotal > 0 ? <><div className="mt-5 flex items-center gap-3"><div className="relative flex h-[88px] w-[88px] shrink-0 items-center justify-center rounded-full" style={donutStyle}><div className="flex h-[58px] w-[58px] flex-col items-center justify-center rounded-full bg-white"><span className="text-lg font-semibold tracking-tight text-slate-950">{completePct}%</span><span className="text-[9px] font-medium text-slate-500">Complete</span></div></div><div className="min-w-0 flex-1 space-y-2.5">{[
+                { label: 'Complete', pct: completePct, count: totals.complete, dot: 'bg-emerald-500' },
+                { label: 'Missing', pct: missingPct, count: totals.missing, dot: 'bg-amber-500' },
+                { label: 'Needs Replacement', pct: replacementPct, count: totals.replacement, dot: 'bg-rose-500' },
+              ].map((item) => <div key={item.label} className="grid grid-cols-[10px_1fr_auto] items-center gap-2 text-[11px]"><span className={`h-2 w-2 rounded-full ${item.dot}`} /><span className="truncate font-medium text-slate-600">{item.label}</span><span className="font-semibold text-slate-900 tabular-nums">{item.pct}% <span className="ml-1 text-slate-400">{item.count}</span></span></div>)}</div></div><div className="qc-command-soft-divider mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-[11px]"><span className="font-medium text-slate-500">Total Evidence Items</span><span className="font-semibold text-slate-900 tabular-nums">{evidenceTotal}</span></div></> : <div className="qc-command-empty-state flex min-h-[180px] flex-col items-center justify-center text-center"><ImageIcon size={22} className="text-slate-300" /><p className="mt-3 text-xs font-semibold text-slate-700">No evidence recorded for this period</p></div>}
             </div>
 
-            {activityLoading ? (
-              <LoadingRows />
-            ) : activity.length > 0 ? (
-              <div className="qc-dash-list max-h-72 overflow-y-auto">
-                {activity.slice(0, 8).map((item) => {
-                  const approved = item.type === 'approved';
-                  return (
-                    <div key={item.id} className="flex items-start gap-3 px-5 py-3.5 transition hover:bg-slate-50">
-                      <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${approved ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                        {approved ? <CheckCircle2 size={15} /> : <RotateCcw size={15} />}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-black text-slate-900">
-                          {approved ? 'Approved' : 'Returned'} <span className="font-semibold text-slate-500">{item.jobId}</span>
-                        </p>
-                        <p className="mt-0.5 truncate text-xs text-slate-500">{item.vehicle} - {item.customer}</p>
-                        {item.note && <p className="mt-0.5 truncate text-xs font-medium italic text-rose-500">"{item.note}"</p>}
-                      </div>
-                      <span className="shrink-0 text-[10px] font-bold text-slate-400 tabular-nums">
-                        {new Date(item.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="p-4">
-                <EmptyState icon={ListChecks} title="No recent activity" label="Approvals and returns will create an audit trail here." tone="violet" />
-              </div>
-            )}
+            <div className="qc-command-panel qc-command-activity overflow-hidden rounded-[18px] bg-white">
+              <div className="flex items-center justify-between px-5 pb-2 pt-5"><h2 className="text-base font-semibold tracking-[-0.02em] text-[#0b1020]">Recent Activity</h2><button type="button" onClick={() => onNavigate('jobs')} className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 focus:outline-none focus:underline">View all</button></div>
+              {activityLoading ? <DashboardSkeleton rows={3} /> : activity.length > 0 ? <div className="qc-command-activity-list px-3 pb-3">{activity.slice(0, 4).map((item) => { const approved = item.type === 'approved'; return <button key={item.id} type="button" onClick={() => openJob(jobs.find((job) => job.id === item.jobId || job.jobId === item.jobId))} className="qc-command-activity-row flex w-full items-start gap-3 rounded-xl px-2 py-2.5 text-left transition hover:bg-slate-50 focus:outline-none focus:bg-blue-50"><span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${approved ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{approved ? <ShieldCheck size={15} /> : <RotateCcw size={15} />}</span><span className="min-w-0 flex-1"><span className="block truncate text-[11px] font-semibold text-slate-900">{approved ? 'QC approved' : 'Returned for rework'}</span><span className="mt-0.5 block truncate text-[10px] text-slate-500">{item.jobId} · {item.customer}</span></span><span className="shrink-0 text-[10px] font-medium text-slate-400">{relativeTime(item.timestamp)}</span></button>; })}</div> : <div className="flex min-h-[190px] flex-col items-center justify-center text-center"><Clock3 size={22} className="text-slate-300" /><p className="mt-3 text-xs font-semibold text-slate-700">No recent activity</p><p className="mt-1 text-[11px] text-slate-400">QC decisions will appear here.</p></div>}
+            </div>
           </div>
         </div>
       </section>

@@ -83,6 +83,15 @@ const notificationSchema = new mongoose.Schema(
     actionId: { type: String, trim: true, maxlength: 200, default: undefined },
     metadata: mongoose.Schema.Types.Mixed,
 
+    // Stable idempotency key for domain conditions that must exist at most once
+    // per recipient (for example EVIDENCE_REQUIRED for one order/stage). This is
+    // intentionally separate from groupingKey: grouping records activity in a
+    // time window, while dedupeKey models one durable condition lifecycle.
+    dedupeKey: { type: String, trim: true, maxlength: 240, default: undefined },
+    resolvedAt: { type: Date, default: null },
+    resolutionReason: { type: String, trim: true, maxlength: 500, default: undefined },
+    resolvedByEvent: { type: String, trim: true, maxlength: 100, default: undefined },
+
     // Repeated operational events may update a recent group instead of creating
     // a noisy activity-feed row. The service owns the grouping time window.
     groupingKey: { type: String, trim: true, maxlength: 240, default: undefined },
@@ -106,6 +115,15 @@ notificationSchema.index({ recipientRole: 1, category: 1, severity: 1, createdAt
 notificationSchema.index({ recipientRole: 1, category: 1, event: 1, createdAt: -1 });
 notificationSchema.index({ recipientRole: 1, recipientUserId: 1, groupingKey: 1, lastOccurredAt: -1 });
 notificationSchema.index({ recipientUserId: 1, 'metadata.orderId': 1, 'metadata.kind': 1, 'metadata.stage': 1 });
+notificationSchema.index({ recipientRole: 1, recipientUserId: 1, resolvedAt: 1, lastOccurredAt: -1 });
+notificationSchema.index({ 'metadata.channel': 1, recipientRole: 1, recipientUserId: 1, lastOccurredAt: -1 });
+notificationSchema.index({
+  'metadata.channel': 1,
+  'metadata.orderId': 1,
+  'metadata.notificationType': 1,
+  'metadata.stage': 1,
+  resolvedAt: 1,
+});
 notificationSchema.index(
   { recipientRole: 1, recipientUserId: 1, groupingKey: 1, groupingBucket: 1 },
   {
@@ -124,6 +142,17 @@ notificationSchema.index(
     partialFilterExpression: {
       recipientUserId: { $type: 'objectId' },
       'metadata.idempotencyKey': { $type: 'string' },
+    },
+  }
+);
+// Race-safe idempotency for staff/domain notifications. Null/missing recipient
+// IDs are deliberate role broadcasts and therefore share one key per role.
+notificationSchema.index(
+  { recipientRole: 1, recipientUserId: 1, dedupeKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      dedupeKey: { $type: 'string' },
     },
   }
 );

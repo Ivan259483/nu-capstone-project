@@ -35,6 +35,7 @@ import {
   buildAdminGroupingKey,
   createAdminNotification,
 } from '../services/adminNotification.service.js';
+import { reconcileQualityJobRecipient } from '../services/qualityNotification.service.js';
 import { runInBackground } from '../utils/performance.utils.js';
 import { Expo } from 'expo-server-sdk';
 
@@ -622,6 +623,10 @@ export const deleteUser = async (req, res, next) => {
 
     const userId = user._id;
     const userEmail = user.email;
+    const affectedQualityOrderIds = await Order.find({ assignedDetailer: userId })
+      .select('_id')
+      .lean()
+      .then((rows) => rows.map((row) => row._id));
 
     user.isDeleted = true;
     user.deletedAt = new Date();
@@ -681,6 +686,19 @@ export const deleteUser = async (req, res, next) => {
         ? (result.value.deletedCount ?? result.value.modifiedCount ?? 0)
         : result.reason?.message,
     }));
+
+    if (affectedQualityOrderIds.length > 0) {
+      runInBackground({ req, kind: 'background', name: 'users.qualityNotificationRetarget' }, async () => {
+        const survivingOrders = await Order.find({ _id: { $in: affectedQualityOrderIds } });
+        for (const order of survivingOrders) {
+          try {
+            await reconcileQualityJobRecipient(order);
+          } catch (notificationError) {
+            console.warn('[users] Failed to retarget Quality notification:', notificationError.message);
+          }
+        }
+      });
+    }
 
     console.log(`🗑️ User ${userEmail} (${userId}) deleted. Cascade cleanup:`, cleanupSummary);
 

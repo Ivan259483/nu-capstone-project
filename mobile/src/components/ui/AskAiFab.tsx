@@ -2,7 +2,7 @@
  * AskAiFab — compact premium chat entry that stays clear of navigation.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -21,7 +21,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import ChatOverlay from '@/components/ChatOverlay';
+import { useRouter } from 'expo-router';
 import { TabBarContentHeight } from '@/constants/theme';
 
 // ── Orb palette — brand orange / amber (no purple or blue) ───────────────────
@@ -92,41 +92,37 @@ function SpinningOrb({ size = ORB_SIZE }: { size?: number }) {
 
 // ── Main FAB ─────────────────────────────────────────────────────────────────
 export default function AskAiFab() {
-  const [chatVisible, setChatVisible] = useState(false);
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   const handlePress = () => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setChatVisible(true);
+    router.push('/(screens)/ai-chat');
   };
 
   return (
-    <>
-      <Animated.View
-        style={[
-          styles.fabWrapper,
-          {
-            bottom: TabBarContentHeight + insets.bottom + FAB_NAV_CLEARANCE,
-          },
-        ]}
-        entering={FadeIn.delay(500).duration(240)}
-      >
-        <Animated.View style={styles.fab}>
-          <TouchableOpacity
-            onPress={handlePress}
-            activeOpacity={0.82}
-            style={styles.touchable}
-            accessibilityRole="button"
-            accessibilityLabel="Open AI assistant"
-            accessibilityHint="Opens the AutoSPF AI assistant without leaving booking"
-          >
-            <SpinningOrb size={ORB_SIZE} />
-          </TouchableOpacity>
-        </Animated.View>
+    <Animated.View
+      style={[
+        styles.fabWrapper,
+        {
+          bottom: TabBarContentHeight + insets.bottom + FAB_NAV_CLEARANCE,
+        },
+      ]}
+      entering={FadeIn.delay(500).duration(240)}
+    >
+      <Animated.View style={styles.fab}>
+        <TouchableOpacity
+          onPress={handlePress}
+          activeOpacity={0.82}
+          style={styles.touchable}
+          accessibilityRole="button"
+          accessibilityLabel="Open AI assistant"
+          accessibilityHint="Opens the AutoSPF AI assistant"
+        >
+          <SpinningOrb size={ORB_SIZE} />
+        </TouchableOpacity>
       </Animated.View>
-
-      <ChatOverlay visible={chatVisible} onClose={() => setChatVisible(false)} />
-    </>
+    </Animated.View>
   );
 }
 

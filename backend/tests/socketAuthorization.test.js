@@ -14,6 +14,7 @@ test('anonymous sockets cannot join staff, admin, booking, or customer rooms', (
   assert.equal(isSocketRoomAuthorized(undefined, 'booking:approvals'), false);
   assert.equal(isSocketRoomAuthorized(undefined, 'user:victim-id'), false);
   assert.equal(isSocketRoomAuthorized(undefined, 'staff:victim-id'), false);
+  assert.equal(isSocketRoomAuthorized(undefined, 'role:staff_quality_checker'), false);
   assert.equal(isSocketRoomAuthorized(undefined, 'chat:public_session_123'), true);
 });
 
@@ -26,7 +27,9 @@ test('authenticated sockets can join only rooms authorized by live identity and 
   assert.equal(isSocketRoomAuthorized(sales, 'user:customer-id'), false);
   assert.equal(isSocketRoomAuthorized(sales, 'booking:approvals'), true);
   assert.equal(isSocketRoomAuthorized(sales, 'admin:chat'), false);
-  assert.equal(isSocketRoomAuthorized(qualityChecker, 'admin:chat'), true);
+  assert.equal(isSocketRoomAuthorized(qualityChecker, 'admin:chat'), false);
+  assert.equal(isSocketRoomAuthorized(qualityChecker, 'role:staff_quality_checker'), true);
+  assert.equal(isSocketRoomAuthorized(qualityChecker, 'role:administrator'), false);
   assert.equal(isSocketRoomAuthorized(qualityChecker, 'staff:qc-id'), true);
   assert.equal(isSocketRoomAuthorized(customer, 'staff:customer-id'), false);
   assert.equal(isSocketRoomAuthorized(customer, 'booking:approvals'), false);

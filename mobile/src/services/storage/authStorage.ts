@@ -23,6 +23,7 @@ import { APP_STORAGE_KEYS } from '@/config/env';
 import type { BackendUser } from '@/services/api/types';
 
 export type PendingLoginOtp = {
+  clientType: 'mobile';
   userId: string;
   challengeToken: string;
   maskedEmail: string;
@@ -52,7 +53,8 @@ const parsePendingLoginOtp = (raw: string | null): PendingLoginOtp | null => {
   try {
     const value = JSON.parse(raw) as Partial<PendingLoginOtp>;
     if (
-      typeof value.userId !== 'string'
+      value.clientType !== 'mobile'
+      || typeof value.userId !== 'string'
       || typeof value.challengeToken !== 'string'
       || typeof value.maskedEmail !== 'string'
       || typeof value.codeExpiresAt !== 'number'

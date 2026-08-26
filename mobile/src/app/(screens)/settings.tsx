@@ -28,6 +28,7 @@ import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
 import { getRoleLabel } from '@/services/api/roles';
 import { useTheme } from '@/hooks/useThemeContext';
+import { Toast } from '@/components/ui/PremiumToast';
 
 // ─── Design Tokens ───────────────────────────────────────────────────────────
 const ACCENT = '#FF6B35';
@@ -135,9 +136,9 @@ export default function SettingsScreen() {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             try {
               await signOut();
-            } catch (error) {
+            } catch {
               setLoggingOut(false);
-              Alert.alert('Error', 'Failed to sign out. Please try again.');
+              Toast.show('Unable to sign out. Please try again.', 'error');
             }
           },
         },

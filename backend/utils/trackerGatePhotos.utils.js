@@ -157,6 +157,6 @@ export function gatePhotoStageToValidateForAdvance(targetStage) {
   const s = String(targetStage || '').trim();
   if (!TRACKER_GATE_STAGES.includes(s)) return null;
   const idx = TRACKER_GATE_STAGES.indexOf(s);
-  if (idx <= 0) return 'received';
+  if (idx <= 0) return null;
   return TRACKER_GATE_STAGES[idx - 1];
 }

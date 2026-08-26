@@ -558,10 +558,12 @@ export default function DetailerDashboard() {
             setInventoryUsage(inventoryUsageStorage.getAll());
             // local legacy notes sync is now fully handled in NotesTab backend integration
 
-            const notifyRes = await NotificationService.getNotifications();
-            if (notifyRes.success) {
-                setNotifications(notifyRes.data);
-                setUnreadNotificationsCount(notifyRes.unreadCount || 0);
+            if (activeTabRef.current !== 'qc_review') {
+                const notifyRes = await NotificationService.getNotifications();
+                if (notifyRes.success) {
+                    setNotifications(notifyRes.data || []);
+                    setUnreadNotificationsCount(notifyRes.unreadCount || 0);
+                }
             }
 
         } catch (error) {
@@ -659,9 +661,10 @@ export default function DetailerDashboard() {
 
         // Keep notification polling distinct as it might be a different service
         const pollInterval = window.setInterval(() => {
+            if (activeTabRef.current === 'qc_review' || document.visibilityState !== 'visible') return;
             NotificationService.getNotifications().then(res => {
                 if (res.success) {
-                    setNotifications(res.data);
+                    setNotifications(res.data || []);
                     setUnreadNotificationsCount(res.unreadCount || 0);
                 }
             });

@@ -590,6 +590,35 @@ export function useQCData({
     }
   }, [jobsRequestKey, requestScope]);
 
+  const ensureJobLoaded = useCallback(async (orderId: string): Promise<boolean> => {
+    const id = String(orderId || '').trim();
+    if (!id) return false;
+    if (jobsRef.current.some((job) => String(job.id) === id)) return true;
+    try {
+      const response = await api.get('/qc/jobs', {
+        // Notification deep links may point to the shared/unassigned QC queue
+        // even while the dashboard presentation filter is set to "Mine".
+        params: { page: 1, limit: 1, scope: 'all', orderId: id },
+        meta: { suppressErrorToast: true, suppressCancelLog: true },
+      } as any);
+      const rows: QCJob[] = response.data?.success
+        ? (response.data.jobs ?? response.data.data ?? [])
+        : [];
+      const job = rows[0];
+      if (!job) return false;
+      setJobs((current) => {
+        if (current.some((row) => String(row.id) === id)) return current;
+        const next = [job, ...current];
+        jobsRef.current = next;
+        rememberNonEmptyQcJobs(next);
+        return next;
+      });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }, []);
+
   const fetchStats = useCallback(async (silent = false) => {
     if (!silent) setStatsLoading(true);
     try {
@@ -1034,6 +1063,7 @@ export function useQCData({
     technicianData,
     techLoading,
     refetchJobs: () => fetchJobs(false),
+    ensureJobLoaded,
     refetchStats: async () => {
       await fetchStats(false);
       resetSummaryPoll();

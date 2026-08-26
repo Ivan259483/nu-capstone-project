@@ -33,6 +33,11 @@ import {
   createAdminNotification,
 } from '../services/adminNotification.service.js';
 import {
+  handleQualityStageTransition,
+  notifyQualityQcFailed,
+  notifyQualityReadyForPickup,
+} from '../services/qualityNotification.service.js';
+import {
   invalidateResponseCache,
 } from '../utils/responseCache.utils.js';
 
@@ -284,6 +289,13 @@ export const getQCJobs = async (req, res, next) => {
       archived: false,
       ...resolveQcScopeFilter(req),
     };
+    const requestedOrderId = String(req.query.orderId || '').trim();
+    if (requestedOrderId) {
+      if (!mongoose.isValidObjectId(requestedOrderId)) {
+        return res.status(400).json({ success: false, message: 'orderId is invalid' });
+      }
+      filter._id = new mongoose.Types.ObjectId(requestedOrderId);
+    }
 
     const rows = await Order.find(filter)
       .select(QC_JOBS_PROJECTION)
@@ -860,6 +872,12 @@ export const approveJob = async (req, res, next) => {
     await saveOrderWithSlotTransition(order, occupancyBefore);
     invalidateQcReadCaches();
 
+    try {
+      await notifyQualityReadyForPickup(order);
+    } catch (ne) {
+      console.warn('[QC] Failed to create Quality pickup notification:', ne.message);
+    }
+
     // ── Emit real-time update to customer ───────────────────────────
     try {
       const io = getIO();
@@ -975,6 +993,13 @@ export const returnJob = async (req, res, next) => {
     await saveOrderWithSlotTransition(order, occupancyBefore);
     invalidateQcReadCaches();
 
+    try {
+      const returnEntry = order.staffNotes?.[order.staffNotes.length - 1];
+      await notifyQualityQcFailed(order, reason || note, returnEntry?._id);
+    } catch (ne) {
+      console.warn('[QC] Failed to create Quality return notification:', ne.message);
+    }
+
     // Emit socket update
     try {
       getIO().to('realtime:staff').emit('orderUpdated', { orderId: order._id, status: order.status, qcReturned: true });
@@ -1063,20 +1088,23 @@ export const updateServiceStatus = async (req, res, next) => {
     const occupancyBefore = captureOrderSlotOccupancy(order);
 
     const previousStatus = order.status;
+    const previousTrackingStage = order.serviceTrackingStage || order.status;
     const gateMediaStages = new Set(TRACKER_GATE_STAGES);
     const actorRole = normalizeToCanonical(req.user?.role);
     if (gateMediaStages.has(stage)) {
       const validateStage = gatePhotoStageToValidateForAdvance(stage);
-      const uploaded = countGatePhotos(order, validateStage);
-      const requiredPhotos = requiredGatePhotosForValidation(validateStage, actorRole);
-      if (uploaded < requiredPhotos) {
-        return res.status(400).json({
-          success: false,
-          message: `${requiredPhotos} photos required before advancing`,
-          error: `${requiredPhotos} photos required before advancing`,
-          uploaded,
-          required: requiredPhotos,
-        });
+      if (validateStage) {
+        const uploaded = countGatePhotos(order, validateStage);
+        const requiredPhotos = requiredGatePhotosForValidation(validateStage, actorRole);
+        if (uploaded < requiredPhotos) {
+          return res.status(400).json({
+            success: false,
+            message: `${requiredPhotos} photos required before advancing`,
+            error: `${requiredPhotos} photos required before advancing`,
+            uploaded,
+            required: requiredPhotos,
+          });
+        }
       }
     }
 
@@ -1134,6 +1162,12 @@ export const updateServiceStatus = async (req, res, next) => {
 
     await saveOrderWithSlotTransition(order, occupancyBefore);
     invalidateQcReadCaches();
+
+    try {
+      await handleQualityStageTransition(order, previousTrackingStage, stage);
+    } catch (ne) {
+      console.warn('[QC] Failed to synchronize Quality stage notifications:', ne.message);
+    }
 
     // ── Emit real-time updates ──────────────────────────────────
     try {

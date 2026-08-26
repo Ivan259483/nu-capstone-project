@@ -68,6 +68,27 @@ async function createAdminNotification(overrides = {}) {
   });
 }
 
+async function createQualityNotification(overrides = {}) {
+  return Notification.create({
+    title: 'Quality action required',
+    message: 'Review the service evidence for this job.',
+    type: 'EVIDENCE_REQUIRED',
+    event: 'evidence_required',
+    category: 'live_tracking',
+    severity: 'warning',
+    source: 'Quality Command Center',
+    actionRequired: true,
+    recipientRole: 'staff_quality_checker',
+    metadata: {
+      channel: 'quality_control',
+      notificationType: 'EVIDENCE_REQUIRED',
+      orderId: new mongoose.Types.ObjectId().toString(),
+      stage: 'in_progress',
+    },
+    ...overrides,
+  });
+}
+
 before(async () => {
   mongo = await MongoMemoryServer.create({
     binary: {
@@ -375,4 +396,198 @@ test('an administrator cannot mutate a notification outside their audience', asy
     (error) => error.status === 404
   );
   assert.equal(await NotificationUserState.countDocuments({}), 0);
+});
+
+test('sales users cannot read or mutate another sales user\'s targeted booking alert', async () => {
+  const salesA = new mongoose.Types.ObjectId();
+  const salesB = new mongoose.Types.ObjectId();
+  const own = await Notification.create({
+    title: 'Own booking approval',
+    message: 'Booking Approvals item for the current salesperson.',
+    type: 'booking',
+    recipientRole: 'sales',
+    recipientUserId: salesA,
+    metadata: { kind: 'booking', orderId: new mongoose.Types.ObjectId() },
+  });
+  const privateForB = await Notification.create({
+    title: 'Other booking approval',
+    message: 'Booking Approvals item for a different salesperson.',
+    type: 'booking',
+    recipientRole: 'sales',
+    recipientUserId: salesB,
+    metadata: { kind: 'booking', orderId: new mongoose.Types.ObjectId() },
+  });
+
+  const list = await invoke(getNotifications, { userId: salesA, role: 'sales' });
+  assert.deepEqual(list.body.data.map((row) => row.id), [String(own._id)]);
+  await assert.rejects(
+    () => invoke(markAsRead, {
+      userId: salesA,
+      role: 'sales',
+      params: { id: String(privateForB._id) },
+    }),
+    (error) => error.status === 404,
+  );
+});
+
+test('QC channel scope isolates targeted rows, badge counts, and mark-all receipts', async () => {
+  const qcA = new mongoose.Types.ObjectId();
+  const qcB = new mongoose.Types.ObjectId();
+  const targetedA = await createQualityNotification({ recipientUserId: qcA });
+  const broadcast = await createQualityNotification({
+    title: 'Shared Quality reminder',
+    recipientUserId: null,
+  });
+  await createQualityNotification({
+    title: 'QC B only',
+    recipientUserId: qcB,
+  });
+  const generic = await Notification.create({
+    title: 'Generic staff notice',
+    message: 'This is not a Quality Control notification.',
+    type: 'system_update',
+    category: 'system',
+    severity: 'info',
+    source: 'System',
+    recipientRole: 'all',
+  });
+
+  const scoped = await invoke(getNotifications, {
+    userId: qcA,
+    role: 'staff_quality_checker',
+    query: { channel: 'quality_control', countScope: 'filtered' },
+  });
+  assert.equal(scoped.body.pagination.total, 2);
+  assert.equal(scoped.body.unreadCount, 2);
+  assert.deepEqual(
+    new Set(scoped.body.data.map((row) => row.id)),
+    new Set([String(targetedA._id), String(broadcast._id)]),
+  );
+
+  const count = await invoke(getUnreadCount, {
+    userId: qcA,
+    role: 'staff_quality_checker',
+    query: { channel: 'quality_control' },
+  });
+  assert.equal(count.body.unreadCount, 2);
+
+  await assert.rejects(
+    () => invoke(markAsRead, {
+      userId: qcB,
+      role: 'staff_quality_checker',
+      params: { id: targetedA._id.toString() },
+      body: { channel: 'quality_control' },
+    }),
+    (error) => error.status === 404,
+  );
+
+  await assert.rejects(
+    () => invoke(markAsRead, {
+      userId: qcA,
+      role: 'staff_quality_checker',
+      params: { id: generic._id.toString() },
+      body: { channel: 'quality_control' },
+    }),
+    (error) => error.status === 404,
+    'a scoped mutation cannot change an accessible notification from another channel',
+  );
+
+  const marked = await invoke(markAllAsRead, {
+    userId: qcA,
+    role: 'staff_quality_checker',
+    body: { channel: 'quality_control' },
+  });
+  assert.equal(marked.body.modifiedCount, 2);
+  assert.equal(marked.body.unreadCount, 0);
+
+  const [unscopedA, scopedB, receipts] = await Promise.all([
+    invoke(getNotifications, { userId: qcA, role: 'staff_quality_checker' }),
+    invoke(getUnreadCount, {
+      userId: qcB,
+      role: 'staff_quality_checker',
+      query: { channel: 'quality_control' },
+    }),
+    NotificationUserState.find({ userId: qcA }).lean(),
+  ]);
+  assert.equal(unscopedA.body.unreadCount, 1);
+  assert.equal(
+    unscopedA.body.data.find((row) => row.id === String(generic._id)).isRead,
+    false,
+  );
+  assert.equal(scopedB.body.unreadCount, 2, 'QC B keeps its own broadcast receipt state');
+  assert.equal(receipts.length, 2);
+  assert.equal(await Notification.countDocuments({}), 4, 'mark-all never deletes source rows');
+});
+
+test('resolved QC broadcasts remain history but are read and non-actionable for every recipient', async () => {
+  const resolvedAt = new Date();
+  const notification = await createQualityNotification({
+    title: 'Resolved evidence reminder',
+    recipientUserId: null,
+    resolvedAt,
+    resolutionReason: 'All evidence was uploaded.',
+    resolvedByEvent: 'evidence_completed',
+  });
+  const qcA = new mongoose.Types.ObjectId();
+  const qcB = new mongoose.Types.ObjectId();
+
+  const [forA, forB] = await Promise.all([
+    invoke(getNotifications, {
+      userId: qcA,
+      role: 'staff_quality_checker',
+      query: { channel: 'quality_control', countScope: 'filtered' },
+    }),
+    invoke(getNotifications, {
+      userId: qcB,
+      role: 'staff_quality_checker',
+      query: { channel: 'quality_control', countScope: 'filtered' },
+    }),
+  ]);
+
+  for (const result of [forA, forB]) {
+    assert.equal(result.body.unreadCount, 0);
+    assert.equal(result.body.data.length, 1);
+    assert.equal(result.body.data[0].id, String(notification._id));
+    assert.equal(result.body.data[0].isResolved, true);
+    assert.equal(result.body.data[0].isRead, true);
+    assert.equal(result.body.data[0].actionRequired, false);
+    assert.equal(result.body.data[0].resolutionReason, 'All evidence was uploaded.');
+  }
+  assert.equal(await NotificationUserState.countDocuments({}), 0);
+});
+
+test('mark-all applies the source and channel scopes as an intersection', async () => {
+  const qcId = new mongoose.Types.ObjectId();
+  const matching = await createQualityNotification({ recipientUserId: qcId });
+  const otherSource = await createQualityNotification({
+    recipientUserId: qcId,
+    source: 'Another Quality Source',
+  });
+  const otherChannel = await createQualityNotification({
+    recipientUserId: qcId,
+    metadata: {
+      channel: 'another_channel',
+      notificationType: 'EVIDENCE_REQUIRED',
+      orderId: new mongoose.Types.ObjectId().toString(),
+      stage: 'in_progress',
+    },
+  });
+
+  const result = await invoke(markAllAsRead, {
+    userId: qcId,
+    role: 'staff_quality_checker',
+    body: {
+      source: 'Quality Command Center',
+      channel: 'quality_control',
+    },
+  });
+  assert.equal(result.body.modifiedCount, 1);
+  assert.equal(result.body.unreadCount, 0);
+
+  const states = await NotificationUserState.find({ userId: qcId }).lean();
+  assert.deepEqual(states.map((row) => String(row.notificationId)), [String(matching._id)]);
+  assert.equal(await Notification.countDocuments({
+    _id: { $in: [otherSource._id, otherChannel._id] },
+    isRead: false,
+  }), 2);
 });

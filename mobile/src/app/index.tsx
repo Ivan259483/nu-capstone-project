@@ -9,19 +9,13 @@
 import { Redirect } from 'expo-router';
 import { View, ActivityIndicator, Text } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
-import { getSafeUserRole, isAdminDashboardRole, isServiceStaffRole } from '@/services/api/roles';
+import { isCustomerRole } from '@/services/api/roles';
 
 /** Set true to verify Expo Router + Metro (pure RN). Set false to continue normal flow. */
 const SHOW_DEBUG_BOOT_SCREEN = false;
 
-function resolveRoute(role: string | undefined): '/(customer)' | '/(staff)' {
-  const safeRole = getSafeUserRole(role);
-  if (isAdminDashboardRole(safeRole) || isServiceStaffRole(safeRole)) return '/(staff)';
-  return '/(customer)';
-}
-
 export default function RootIndex() {
-  const { session, profile, initialized } = useAuth();
+  const { session, token, profile, initialized, loginOtpVerified } = useAuth();
 
   if (SHOW_DEBUG_BOOT_SCREEN) {
     return (
@@ -56,12 +50,13 @@ export default function RootIndex() {
     );
   }
 
-  // Not logged in → login screen
-  if (!session) {
+  const isAuthorizedCustomer = Boolean(token && profile && isCustomerRole(profile.role));
+  const hasCompletedIdentityFlow = Boolean(session || loginOtpVerified);
+
+  // Unknown, missing, and non-Customer roles all fail closed to Login.
+  if (!isAuthorizedCustomer || !hasCompletedIdentityFlow) {
     return <Redirect href="/(auth)/login" />;
   }
 
-  // Logged in → correct dashboard based on role
-  const target = resolveRoute(profile?.role);
-  return <Redirect href={target} />;
+  return <Redirect href="/(customer)" />;
 }

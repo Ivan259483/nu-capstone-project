@@ -20,6 +20,7 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  ActivityIndicator,
   TouchableOpacity,
   Switch,
 } from 'react-native';
@@ -35,7 +36,6 @@ import { authService } from '@/services/api/authService';
 import { useTheme } from '@/hooks/useThemeContext';
 import { Palette, TabBarHeight } from '@/constants/theme';
 import AnimatedHeader from '@/components/ui/AnimatedHeader';
-import ChatOverlay from '@/components/ChatOverlay';
 import { Toast } from '@/components/ui/PremiumToast';
 
 // ── Shared Profile Header ──
@@ -120,7 +120,7 @@ export default function SettingsScreen() {
   const router = useRouter();
 
   const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   // ── Security ──
   const [appLockEnabled, setAppLockEnabled] = useState(false);
@@ -198,15 +198,25 @@ export default function SettingsScreen() {
 
   // ── Logout ──
   const handleLogout = () => {
+    if (isSigningOut) return;
+
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Log Out',
         style: 'destructive',
         onPress: async () => {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          await signOut();
-          router.replace('/');
+          if (isSigningOut) return;
+          setIsSigningOut(true);
+          try {
+            await signOut();
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            // AuthContext publishes the unauthenticated state; the root auth
+            // guard is the sole owner of the replacement to /(auth)/login.
+          } catch {
+            setIsSigningOut(false);
+            Toast.show('Unable to sign out. Please try again.', 'error');
+          }
         },
       },
     ]);
@@ -349,10 +359,7 @@ export default function SettingsScreen() {
               iconName="chatbubbles-outline"
               title="Talk to AutoSPF AI"
               subtitle="24/7 intelligent assistant"
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setChatOpen(true);
-              }}
+              onPress={() => nav('/(screens)/ai-chat')}
             />
             <Div />
             <SettingsRow
@@ -378,9 +385,10 @@ export default function SettingsScreen() {
           <SettingsGroup title="Session Control" delay={350}>
             <SettingsRow
               iconName="log-out-outline"
-              title="Sign Out"
+              title={isSigningOut ? 'Signing Out…' : 'Sign Out'}
               danger
-              onPress={() => {
+              rightElement={isSigningOut ? <ActivityIndicator size="small" color="#EF4444" /> : undefined}
+              onPress={isSigningOut ? undefined : () => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
                 handleLogout();
               }}
@@ -412,8 +420,6 @@ export default function SettingsScreen() {
         </Animated.View>
       </ScrollView>
 
-      {/* ── AI Chat Overlay ── */}
-      <ChatOverlay visible={chatOpen} onClose={() => setChatOpen(false)} />
     </View>
   );
 }

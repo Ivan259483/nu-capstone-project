@@ -1,41 +1,53 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   TextInput,
-  Dimensions,
+  type LayoutChangeEvent,
   ViewStyle,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
-import { Toast } from '@/components/ui/PremiumToast';
 import { Validation } from '@/utils/validation';
 import PremiumButton from '@/components/ui/PremiumButton';
+import AuthFeedback, { type AuthFeedbackData } from '@/components/auth/AuthFeedback';
 
-const SCREEN_H = Dimensions.get('window').height;
+type AuthButtonState = 'idle' | 'loading' | 'success';
+type PostAuthDestination = 'root' | 'verify' | null;
+type FocusedField = 'email' | 'password' | null;
+
+// Below this height the keyboard (including an AutoFill suggestion bar) leaves
+// too little room for the full header. The logo and heading remain, while the
+// lower-priority header copy yields space to the authentication controls.
+const CONSTRAINED_KEYBOARD_VIEWPORT = 400;
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
-  const insets = useSafeAreaInsets();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [keepSignedIn, setKeepSignedIn] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [emailFocused, setEmailFocused] = useState(false);
-  const [passwordFocused, setPasswordFocused] = useState(false);
-  const [authError, setAuthError] = useState('');
+  const [buttonState, setButtonState] = useState<AuthButtonState>('idle');
+  const [focusedField, setFocusedField] = useState<FocusedField>(null);
+  const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
+  const [availableViewportHeight, setAvailableViewportHeight] = useState(0);
+  const [feedback, setFeedback] = useState<AuthFeedbackData | null>(null);
+  const emailInputRef = useRef<TextInput>(null);
+  const passwordInputRef = useRef<TextInput>(null);
+  const requestInFlightRef = useRef(false);
+  const postAuthDestinationRef = useRef<PostAuthDestination>(null);
 
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
@@ -44,12 +56,68 @@ export default function LoginScreen() {
   const [lockCountdown, setLockCountdown] = useState('');
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [credentialsRejected, setCredentialsRejected] = useState(false);
+
+  const isSigningIn = buttonState === 'loading';
+  const compactMode = keyboardVisible;
+  const constrainedMode = compactMode
+    && availableViewportHeight > 0
+    && availableViewportHeight < CONSTRAINED_KEYBOARD_VIEWPORT;
+  const emailFocused = focusedField === 'email';
+  const passwordFocused = focusedField === 'password';
+
+  const handleFieldFocus = useCallback((field: Exclude<FocusedField, null>) => {
+    setFocusedField(field);
+    // Android has no keyboardWillShow event, so prepare its compact layout at
+    // focus time. iOS changes mode from keyboardWillShow, allowing the reflow
+    // to use the keyboard's native animation curve.
+    if (Platform.OS === 'android' || Keyboard.isVisible()) setKeyboardVisible(true);
+  }, []);
+
+  const handleFieldBlur = useCallback((field: Exclude<FocusedField, null>) => {
+    setFocusedField(current => current === field ? null : current);
+  }, []);
+
+  const handleViewportLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextHeight = Math.round(event.nativeEvent.layout.height);
+    setAvailableViewportHeight(current => current === nextHeight ? current : nextHeight);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSubscription = Keyboard.addListener(showEvent, event => {
+      // On iOS, keep compact spacing on the same animation curve as the
+      // keyboard. Android's resized window supplies the native transition.
+      if (Platform.OS === 'ios') Keyboard.scheduleLayoutAnimation(event);
+      setKeyboardVisible(true);
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, event => {
+      if (Platform.OS === 'ios') Keyboard.scheduleLayoutAnimation(event);
+      setKeyboardVisible(false);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isLocked || !lockUntilMs) return;
     const tick = () => {
       const diff = lockUntilMs - Date.now();
-      if (diff <= 0) { setIsLocked(false); setLockUntilMs(null); setLockCountdown(''); return; }
+      if (diff <= 0) {
+        setIsLocked(false);
+        setLockUntilMs(null);
+        setLockCountdown('');
+        setLoginAttempts(0);
+        setRemainingAttempts(null);
+        setFeedback(null);
+        return;
+      }
       const mins = Math.floor(diff / 60000);
       const secs = Math.floor((diff % 60000) / 1000);
       setLockCountdown(`${mins}:${secs.toString().padStart(2, '0')}`);
@@ -65,11 +133,47 @@ export default function LoginScreen() {
     setIsLocked(false);
     setLockUntilMs(null);
     setLockCountdown('');
+    setCredentialsRejected(false);
+    setFeedback(null);
   }
 
+  const triggerOutcomeHaptic = (type: 'success' | 'warning' | 'error') => {
+    if (Platform.OS === 'web') return;
+    void Haptics.notificationAsync(
+      type === 'success'
+        ? Haptics.NotificationFeedbackType.Success
+        : type === 'warning'
+          ? Haptics.NotificationFeedbackType.Warning
+          : Haptics.NotificationFeedbackType.Error,
+    );
+  };
+
+  const handleSuccessAnimationComplete = useCallback(() => {
+    const destination = postAuthDestinationRef.current;
+    postAuthDestinationRef.current = null;
+    if (destination === 'verify') router.push('/(auth)/verify');
+    if (destination === 'root') router.replace('/');
+  }, []);
+
   async function handleLogin() {
-    if (isLocked) { Toast.show(`Locked. Try again in ${lockCountdown}.`, 'error'); return; }
-    setEmailError(''); setPasswordError(''); setAuthError('');
+    Keyboard.dismiss();
+
+    // State updates are not synchronous, so this ref protects the request even
+    // when two taps land before React can paint the disabled button.
+    if (requestInFlightRef.current || isSigningIn) return;
+    if (isLocked) {
+      setFeedback({
+        type: 'error',
+        title: 'Sign-in temporarily locked',
+        message: `Try again in ${lockCountdown || '15:00'}.`,
+      });
+      return;
+    }
+
+    setEmailError('');
+    setPasswordError('');
+    setCredentialsRejected(false);
+    setFeedback(null);
     const normalizedEmail = email.trim().toLowerCase();
     let hasError = false;
     if (!normalizedEmail) { setEmailError('Email is required'); hasError = true; }
@@ -77,84 +181,160 @@ export default function LoginScreen() {
     if (!password) { setPasswordError('Password is required'); hasError = true; }
     if (hasError) return;
 
-    setLoading(true);
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const result = await signIn(normalizedEmail, password);
-    if (result.success) {
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setIsLocked(false); setLockUntilMs(null);
-      router.replace('/');
-    } else if (result.requiresEmailOtp && result.verifyEmail) {
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      Toast.show(result.message || 'Verify your email first.', 'warning');
-      router.push(`/(auth)/verify?email=${encodeURIComponent(result.verifyEmail)}`);
-    } else if (result.requiresLoginOtp && result.userId && result.challengeToken) {
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Toast.show(result.message || 'Enter the code sent to your email.', 'success');
-      // The opaque challenge is held in encrypted storage by AuthContext. Do
-      // not put it (or the raw email) in navigation URLs/history.
-      router.push('/(auth)/verify');
-    } else {
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      if (result.data?.locked || result.data?.lockUntilMs) {
-        setIsLocked(true);
-        setLockUntilMs(result.data.lockUntilMs ?? Date.now() + 15 * 60 * 1000);
-        setRemainingAttempts(0);
-        Toast.show(result.message || 'Account locked for 15 minutes.', 'error');
-      } else if (result.data?.remainingAttempts !== undefined) {
-        setLoginAttempts(previous => result.data?.loginAttempts ?? previous + 1);
-        setRemainingAttempts(result.data.remainingAttempts);
-        setPasswordError('Invalid email or password.');
+    requestInFlightRef.current = true;
+    setButtonState('loading');
+
+    try {
+      const result = await signIn(normalizedEmail, password);
+
+      if (result.success) {
+        triggerOutcomeHaptic('success');
+        setIsLocked(false);
+        setLockUntilMs(null);
+        postAuthDestinationRef.current = 'root';
+        setButtonState('success');
+      } else if (result.requiresEmailOtp && result.verifyEmail) {
+        triggerOutcomeHaptic('warning');
+        setButtonState('idle');
+        router.push(`/(auth)/verify?email=${encodeURIComponent(result.verifyEmail)}`);
+      } else if (result.requiresLoginOtp && result.userId && result.challengeToken) {
+        triggerOutcomeHaptic('success');
+        // The opaque challenge is held in encrypted storage by AuthContext. Do
+        // not put it (or the raw email) in navigation URLs/history.
+        postAuthDestinationRef.current = 'verify';
+        setButtonState('success');
       } else {
-        setAuthError(result.message || 'Invalid email or password.');
-        Toast.show(result.message || 'Invalid credentials. Please try again.', 'error');
+        triggerOutcomeHaptic('error');
+        setButtonState('idle');
+
+        if (result.data?.locked || result.data?.lockUntilMs) {
+          setIsLocked(true);
+          setLockUntilMs(result.data.lockUntilMs ?? Date.now() + 15 * 60 * 1000);
+          setRemainingAttempts(0);
+          setFeedback({
+            type: 'error',
+            title: 'Sign-in temporarily locked',
+            message: result.message || 'Try again in 15 minutes.',
+          });
+        } else if (result.data?.remainingAttempts !== undefined) {
+          setLoginAttempts(previous => result.data?.loginAttempts ?? previous + 1);
+          setRemainingAttempts(result.data.remainingAttempts);
+          setCredentialsRejected(true);
+          setFeedback(null);
+        } else {
+          const message = result.message || 'Check your details and try again.';
+          const isNetworkError = /network|offline|timeout|connect/i.test(message);
+          setCredentialsRejected(/invalid|credential|password|email/i.test(message));
+          setFeedback({
+            type: 'error',
+            title: isNetworkError ? 'Network unavailable' : 'Unable to sign in',
+            message: isNetworkError
+              ? 'Check your connection and try again.'
+              : message,
+          });
+        }
       }
+    } catch {
+      triggerOutcomeHaptic('error');
+      setButtonState('idle');
+      setFeedback({
+        type: 'error',
+        title: 'Unable to sign in',
+        message: 'Something went wrong. Please try again.',
+      });
+    } finally {
+      requestInFlightRef.current = false;
+      setButtonState(current => current === 'loading' ? 'idle' : current);
     }
-    setLoading(false);
   }
 
+  const displayedFeedback: AuthFeedbackData | null = isLocked
+    ? {
+        type: 'error',
+        title: 'Sign-in temporarily locked',
+        message: `Try again in ${lockCountdown || '15:00'}.`,
+      }
+    : loginAttempts > 0 && remainingAttempts !== null
+      ? {
+          type: 'warning',
+          title: 'Sign-in unsuccessful',
+          message: `${remainingAttempts} attempt${remainingAttempts === 1 ? '' : 's'} remaining`,
+        }
+      : feedback;
+
   return (
-    <View style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={[
-            styles.scrollContent,
-            { minHeight: SCREEN_H - insets.top - insets.bottom },
-          ]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
-          <View style={styles.centeredContent}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.keyboardAvoidingView}
+      >
+        <View style={styles.availableViewport} onLayout={handleViewportLayout}>
+          <ScrollView
+            contentContainerStyle={[
+              styles.scrollContent,
+              compactMode && styles.scrollContentCompact,
+            ]}
+            scrollEnabled={!compactMode}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="none"
+            contentInsetAdjustmentBehavior="never"
+            automaticallyAdjustKeyboardInsets={false}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+            alwaysBounceVertical={false}
+            overScrollMode="never"
+          >
+          <View style={[
+            styles.centeredContent,
+            compactMode && styles.centeredContentCompact,
+            constrainedMode && styles.centeredContentConstrained,
+          ]}>
           {/* Card */}
           <Animated.View entering={FadeIn.duration(400)} style={styles.card}>
 
             {/* Logo + Header */}
-            <Animated.View entering={FadeInDown.delay(80).duration(350)} style={styles.headerBlock}>
+            <Animated.View
+              entering={FadeInDown.delay(80).duration(350)}
+              style={[
+                styles.headerBlock,
+                compactMode && styles.headerBlockCompact,
+                constrainedMode && styles.headerBlockConstrained,
+              ]}
+            >
               <Image
                 source={require('../../../assets/images/autospf-logo.png')}
-                style={styles.logo}
+                style={[
+                  styles.logo,
+                  compactMode && styles.logoCompact,
+                  constrainedMode && styles.logoConstrained,
+                ]}
                 contentFit="contain"
                 accessibilityLabel="AutoSPF+ Logo"
               />
-              <Text style={styles.brandLabel}>Premium Automotive Care Platform</Text>
-              <Text style={styles.heading}>Welcome back</Text>
-              <Text style={styles.subheading}>Sign in to continue to your account</Text>
+              {!constrainedMode ? (
+                <Text style={[
+                  styles.brandLabel,
+                  compactMode && styles.brandLabelCompact,
+                ]}>
+                  Premium Automotive Care Platform
+                </Text>
+              ) : null}
+              <Text style={[styles.heading, compactMode && styles.headingCompact]}>Welcome back</Text>
+              {!constrainedMode ? (
+                <Text style={[styles.subheading, compactMode && styles.subheadingCompact]}>
+                  Sign in to continue to your account
+                </Text>
+              ) : null}
             </Animated.View>
 
-            {/* Lock / Attempt Banner */}
-            {isLocked && (
-              <Animated.View entering={FadeInDown.duration(200)} style={styles.alertBox}>
-                <Ionicons name="lock-closed" size={14} color="#FCA5A5" />
-                <Text style={styles.alertText}> Locked — try again in {lockCountdown || '15:00'}</Text>
-              </Animated.View>
-            )}
-            {!isLocked && loginAttempts > 0 && remainingAttempts !== null && (
-              <Animated.View entering={FadeInDown.duration(200)} style={[styles.alertBox, styles.alertWarn]}>
-                <Ionicons name="warning-outline" size={14} color="#FCD34D" />
-                <Text style={[styles.alertText, { color: '#FCD34D' }]}> {loginAttempts} failed attempt{loginAttempts !== 1 ? 's' : ''} · {remainingAttempts} remaining</Text>
-              </Animated.View>
-            )}
+            {/* Persistent security status / single feedback slot */}
+            {!compactMode && displayedFeedback ? (
+              <AuthFeedback
+                {...displayedFeedback}
+                style={styles.feedbackCard}
+                testID="login-auth-feedback"
+              />
+            ) : null}
 
             {/* Form */}
             <Animated.View entering={FadeInDown.delay(160).duration(350)}>
@@ -163,10 +343,12 @@ export default function LoginScreen() {
               <View style={[
                 styles.inputWrap,
                 styles.inputWrapFirst,
+                compactMode && styles.inputWrapCompact,
                 emailFocused && !emailError ? styles.inputWrapFocused : null,
                 emailError ? styles.inputWrapError : null,
               ]}>
                 <TextInput
+                  ref={emailInputRef}
                   style={styles.input}
                   placeholder="Email address"
                   placeholderTextColor="rgba(255,255,255,0.28)"
@@ -175,14 +357,19 @@ export default function LoginScreen() {
                     setEmail(t);
                     setEmailError('');
                     setPasswordError('');
-                    setAuthError('');
                     clearAttemptState();
                   }}
-                  onFocus={() => setEmailFocused(true)}
-                  onBlur={() => setEmailFocused(false)}
+                  onFocus={() => handleFieldFocus('email')}
+                  onBlur={() => handleFieldBlur('email')}
                   autoCapitalize="none"
                   keyboardType="email-address"
                   autoCorrect={false}
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  onSubmitEditing={() => passwordInputRef.current?.focus()}
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  accessibilityLabel="Email address"
                 />
               </View>
               {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
@@ -191,18 +378,32 @@ export default function LoginScreen() {
               <View style={[
                 styles.inputWrap,
                 styles.inputWrapSpaced,
-                passwordFocused && !passwordError ? styles.inputWrapFocused : null,
-                passwordError ? styles.inputWrapError : null,
+                compactMode && styles.inputWrapSpacedCompact,
+                compactMode && styles.inputWrapCompact,
+                passwordFocused && !passwordError && !credentialsRejected ? styles.inputWrapFocused : null,
+                passwordError || credentialsRejected ? styles.inputWrapError : null,
               ]}>
                 <TextInput
+                  ref={passwordInputRef}
                   style={[styles.input, { flex: 1 }]}
                   placeholder="Password"
                   placeholderTextColor="rgba(255,255,255,0.28)"
                   value={password}
-                  onChangeText={t => { setPassword(t); setPasswordError(''); setAuthError(''); }}
-                  onFocus={() => setPasswordFocused(true)}
-                  onBlur={() => setPasswordFocused(false)}
+                  onChangeText={t => {
+                    setPassword(t);
+                    setPasswordError('');
+                    setCredentialsRejected(false);
+                    setFeedback(null);
+                  }}
+                  onFocus={() => handleFieldFocus('password')}
+                  onBlur={() => handleFieldBlur('password')}
                   secureTextEntry={!showPassword}
+                  returnKeyType="done"
+                  submitBehavior="blurAndSubmit"
+                  onSubmitEditing={Keyboard.dismiss}
+                  autoComplete="current-password"
+                  textContentType="password"
+                  accessibilityLabel="Password"
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
@@ -212,17 +413,19 @@ export default function LoginScreen() {
                   <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={18} color="rgba(255,255,255,0.40)" />
                 </TouchableOpacity>
               </View>
-              <View style={styles.forgotOnlyRow}>
+              <View style={[
+                styles.forgotOnlyRow,
+                compactMode && styles.forgotOnlyRowCompact,
+              ]}>
                 <TouchableOpacity onPress={() => router.push('/(auth)/forgot-password')}>
                   <Text style={styles.forgotLink}>Forgot password?</Text>
                 </TouchableOpacity>
               </View>
-              {authError ? <Text style={styles.authErrorText}>{authError}</Text> : null}
               {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
 
               {/* Keep signed in */}
               <TouchableOpacity
-                style={styles.checkRow}
+                style={[styles.checkRow, compactMode && styles.checkRowCompact]}
                 onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); setKeepSignedIn(!keepSignedIn); }}
                 activeOpacity={0.7}
               >
@@ -234,34 +437,42 @@ export default function LoginScreen() {
 
               {/* Sign In */}
               <PremiumButton
-                title={loading ? 'Signing in...' : isLocked ? `Locked — ${lockCountdown}` : 'Sign in'}
-                icon={loading || isLocked ? undefined : 'arrow-forward'}
+                title={isSigningIn ? 'Signing in…' : isLocked ? `Locked — ${lockCountdown}` : 'Sign in'}
+                icon={isSigningIn || isLocked ? undefined : 'arrow-forward'}
                 onPress={handleLogin}
-                disabled={loading || isLocked}
-                loading={loading}
+                disabled={isLocked}
+                loading={isSigningIn}
+                success={buttonState === 'success'}
+                successTitle="Verified"
+                onSuccessAnimationComplete={handleSuccessAnimationComplete}
                 premiumAuth
                 style={styles.signInBtn}
               />
-              <View style={styles.trustRow}>
-                <Ionicons name="lock-closed" size={13} color="rgba(255,255,255,0.42)" />
-                <Text style={styles.trustText}>Secure authentication powered by AutoSPF+</Text>
-              </View>
+              {!compactMode ? (
+                <Animated.View entering={FadeIn.duration(180)} style={styles.trustRow}>
+                  <Ionicons name="lock-closed" size={13} color="rgba(255,255,255,0.42)" />
+                  <Text style={styles.trustText}>Secure authentication powered by AutoSPF+</Text>
+                </Animated.View>
+              ) : null}
 
             </Animated.View>
 
             {/* Footer */}
-            <Animated.View entering={FadeInDown.delay(300).duration(350)} style={styles.footer}>
-              <Text style={styles.footerText}>New to AutoSPF+? </Text>
-              <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
-                <Text style={styles.footerLink}>Create an account</Text>
-              </TouchableOpacity>
-            </Animated.View>
+            {!compactMode ? (
+              <Animated.View entering={FadeInDown.duration(250)} style={styles.footer}>
+                <Text style={styles.footerText}>New to AutoSPF+? </Text>
+                <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
+                  <Text style={styles.footerLink}>Create an account</Text>
+                </TouchableOpacity>
+              </Animated.View>
+            ) : null}
 
           </Animated.View>
           </View>
-        </ScrollView>
+          </ScrollView>
+        </View>
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -270,15 +481,31 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0A0A0A',
   },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  availableViewport: {
+    flex: 1,
+  },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 28,
+  },
+  scrollContentCompact: {
+    paddingBottom: 12,
   },
   centeredContent: {
     flex: 1,
     justifyContent: 'center',
     width: '100%',
     paddingVertical: 24,
+  },
+  centeredContentCompact: {
+    paddingTop: 8,
+    paddingBottom: 0,
+  },
+  centeredContentConstrained: {
+    paddingTop: 4,
   },
   card: {
     width: '100%',
@@ -288,11 +515,25 @@ const styles = StyleSheet.create({
   headerBlock: {
     marginBottom: 28,
   },
+  headerBlockCompact: {
+    marginBottom: 10,
+  },
+  headerBlockConstrained: {
+    marginBottom: 6,
+  },
   logo: {
     width: 140,
     aspectRatio: 604 / 413,
     alignSelf: 'center',
     marginBottom: 10,
+  },
+  logoCompact: {
+    width: 84,
+    marginBottom: 2,
+  },
+  logoConstrained: {
+    width: 60,
+    marginBottom: 0,
   },
   brandLabel: {
     color: 'rgba(255,255,255,0.44)',
@@ -304,6 +545,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     textTransform: 'uppercase',
   },
+  brandLabelCompact: {
+    marginBottom: 6,
+  },
   heading: {
     fontSize: 32,
     fontWeight: '800',
@@ -312,6 +556,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
     marginBottom: 6,
   },
+  headingCompact: {
+    fontSize: 28,
+    lineHeight: 32,
+    marginBottom: 2,
+  },
   subheading: {
     fontSize: 14,
     color: 'rgba(255,255,255,0.50)',
@@ -319,27 +568,14 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: 'center',
   },
-
-  // Alert banners — dark variants
-  alertBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(220,38,38,0.10)',
-    borderWidth: 1,
-    borderColor: 'rgba(220,38,38,0.25)',
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 18,
-  },
-  alertWarn: {
-    backgroundColor: 'rgba(180,83,9,0.10)',
-    borderColor: 'rgba(180,83,9,0.25)',
-  },
-  alertText: {
+  subheadingCompact: {
     fontSize: 13,
-    color: '#FCA5A5',
-    fontWeight: '500',
+    lineHeight: 18,
+  },
+
+  // Persistent security feedback
+  feedbackCard: {
+    marginBottom: 18,
   },
 
   // Form
@@ -349,12 +585,19 @@ const styles = StyleSheet.create({
   inputWrapSpaced: {
     marginTop: 18,
   },
+  inputWrapSpacedCompact: {
+    marginTop: 8,
+  },
   forgotOnlyRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
     marginTop: 8,
     marginBottom: 4,
+  },
+  forgotOnlyRowCompact: {
+    marginTop: 5,
+    marginBottom: 2,
   },
   forgotLink: {
     fontSize: 13,
@@ -370,6 +613,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     height: 50,
     backgroundColor: '#111111',
+  },
+  inputWrapCompact: {
+    height: 48,
   },
   inputWrapFocused: {
     borderColor: '#FF7A1A',
@@ -399,25 +645,16 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontWeight: '500',
   },
-  authErrorText: {
-    fontSize: 12,
-    color: '#EF4444',
-    marginTop: 4,
-    marginBottom: 4,
-    fontWeight: '500',
-  },
-  signInLoadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-
   // Checkbox
   checkRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 14,
     marginBottom: 22,
+  },
+  checkRowCompact: {
+    marginTop: 8,
+    marginBottom: 10,
   },
   checkbox: {
     width: 19,

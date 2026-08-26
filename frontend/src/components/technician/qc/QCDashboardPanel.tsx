@@ -10,11 +10,14 @@ import QCJobDetailView from './QCJobDetailView';
 import QCChecklistPanel from './QCChecklistPanel';
 import QCAIDetectionCard from './QCAIDetectionCard';
 import QCLiveTrackerView from './QCLiveTrackerView';
+import QCNotificationCenter from './QCNotificationCenter';
 import {
   getQCJobWorkflowAction,
   stashLiveTrackerDeepLinkJobId,
 } from '@/lib/qc-job-workflow';
 import { useQCData } from '@/hooks/useQCData';
+import { useQualityNotifications } from '@/hooks/useQualityNotifications';
+import type { SystemNotification } from '@/lib/notification-service';
 
 type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker';
 
@@ -464,7 +467,9 @@ export default function QCDashboardPanel() {
   });
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
+  const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const loadQcSummary = activeView === 'dashboard';
+  const qualityNotifications = useQualityNotifications();
 
   const {
     jobs,
@@ -482,6 +487,7 @@ export default function QCDashboardPanel() {
     assignServiceStaff,
     saveQCHandoffSheet,
     addStaffNote,
+    ensureJobLoaded,
   } = useQCData({
     loadSummary: loadQcSummary,
     statsRangeDays,
@@ -493,6 +499,87 @@ export default function QCDashboardPanel() {
     try { sessionStorage.setItem(QC_VIEW_KEY, view); } catch { /* ignore */ }
     setActiveView(view);
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedView = params.get('qcv');
+    const orderId = params.get('orderId');
+    if (!orderId || !['live-tracker', 'job-detail'].includes(requestedView || '')) return;
+    setSelectedJobId(orderId);
+    void ensureJobLoaded(orderId);
+    if (requestedView === 'job-detail') {
+      navigateTo('job-detail');
+      return;
+    }
+    stashLiveTrackerDeepLinkJobId({
+      jobId: orderId,
+      stage: params.get('stage') || undefined,
+      action: params.get('action') || undefined,
+      evidenceId: params.get('evidenceId') || undefined,
+      qcId: params.get('qcId') || undefined,
+    });
+    navigateTo('live-tracker');
+  }, [ensureJobLoaded, navigateTo]);
+
+  const handleOpenQualityNotification = useCallback(async (notification: SystemNotification) => {
+    const notificationId = notification.id || notification._id || '';
+    if (!notification.isRead && notificationId) {
+      void qualityNotifications.setRead(notificationId, true);
+    }
+
+    const metadata = notification.metadata || {};
+    const actionTarget = metadata.actionTarget && typeof metadata.actionTarget === 'object'
+      ? metadata.actionTarget as Record<string, unknown>
+      : {};
+    const orderId = String(metadata.orderId || notification.actionId || actionTarget.orderId || '').trim();
+    let targetView = String(actionTarget.view || '').trim();
+    let stage = String(actionTarget.stage || metadata.stage || '').trim();
+    let action = String(actionTarget.action || notification.actionType || '').trim();
+    let slot = String(metadata.slot || '').trim();
+    let evidenceId = String(metadata.evidenceId || '').trim();
+    let qcId = String(metadata.qcId || '').trim();
+    const link = notification.action?.link || notification.link;
+    let safeLink = '';
+    if (link) {
+      try {
+        const target = new URL(link, window.location.origin);
+        if (target.origin === window.location.origin && target.pathname === '/detailer/dashboard') {
+          safeLink = `${target.pathname}${target.search}${target.hash}`;
+          targetView ||= target.searchParams.get('qcv') || '';
+          stage ||= target.searchParams.get('stage') || '';
+          action ||= target.searchParams.get('action') || '';
+          evidenceId ||= target.searchParams.get('evidenceId') || '';
+          qcId ||= target.searchParams.get('qcId') || '';
+        }
+      } catch {
+        // Ignore malformed legacy links; structured metadata remains authoritative.
+      }
+    }
+
+    if (!orderId) return false;
+    const loaded = await ensureJobLoaded(orderId);
+    if (!loaded) {
+      toast.error('This job is no longer available in your Quality queue.');
+      return false;
+    }
+    if (safeLink) window.history.pushState({}, '', safeLink);
+    setNotificationCenterOpen(false);
+    setSelectedJobId(orderId);
+    if (targetView === 'job-detail') {
+      navigateTo('job-detail');
+      return true;
+    }
+    stashLiveTrackerDeepLinkJobId({
+      jobId: orderId,
+      stage: stage || undefined,
+      action: action || undefined,
+      slot: slot || undefined,
+      evidenceId: evidenceId || undefined,
+      qcId: qcId || undefined,
+    });
+    navigateTo('live-tracker');
+    return true;
+  }, [ensureJobLoaded, navigateTo, qualityNotifications.setRead]);
 
   // Pending count for sidebar badge — only jobs not yet approved
   const pendingCount = jobs.filter((j) => j.status === 'pending-review' || j.status === 'in-review').length;
@@ -617,7 +704,7 @@ export default function QCDashboardPanel() {
   return (
     <div
       className="qc-dashboard-root flex h-screen min-h-screen overflow-hidden"
-      style={{ background: '#FAFAFA', colorScheme: 'light' }}
+      style={{ background: '#F5F7FA', colorScheme: 'light' }}
     >
       <QCSidebar
         collapsed={sidebarCollapsed}
@@ -634,11 +721,38 @@ export default function QCDashboardPanel() {
           searchQuery={globalSearch}
           onSearchQueryChange={setGlobalSearch}
           onSelectJob={handleSelectJob}
+          notifications={qualityNotifications.notifications}
+          unreadNotificationsCount={qualityNotifications.unreadCount}
+          notificationsLoading={qualityNotifications.loading}
+          notificationsError={qualityNotifications.error}
+          onRefreshNotifications={() => qualityNotifications.refresh(false)}
+          onSetNotificationRead={qualityNotifications.setRead}
+          onMarkAllNotificationsRead={qualityNotifications.markAllRead}
+          onOpenNotification={handleOpenQualityNotification}
+          onViewAllNotifications={() => setNotificationCenterOpen(true)}
         />
-        <main className="flex-1 overflow-y-auto px-7 py-6" style={{ background: '#FAFAFA' }}>
+        <main
+          className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 lg:px-6 lg:py-5"
+          style={{ background: activeView === 'dashboard' ? '#F5F7FA' : activeView === 'live-tracker' ? '#F7F9FB' : '#F7F8FA' }}
+        >
           {renderContent()}
         </main>
       </div>
+      <QCNotificationCenter
+        open={notificationCenterOpen}
+        onOpenChange={setNotificationCenterOpen}
+        notifications={qualityNotifications.notifications}
+        unreadCount={qualityNotifications.unreadCount}
+        pagination={qualityNotifications.pagination}
+        loading={qualityNotifications.loading}
+        loadingMore={qualityNotifications.loadingMore}
+        error={qualityNotifications.error}
+        onRefresh={() => qualityNotifications.refresh(false)}
+        onLoadMore={qualityNotifications.loadMore}
+        onSetRead={qualityNotifications.setRead}
+        onMarkAllRead={qualityNotifications.markAllRead}
+        onOpenNotification={handleOpenQualityNotification}
+      />
     </div>
   );
 }

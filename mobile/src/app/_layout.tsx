@@ -5,10 +5,8 @@
  * │  Responsibilities:                                                   │
  * │  1. Wrap the app in ThemeProvider + AuthProvider (global state)     │
  * │  2. Listen for auth state changes via AuthContext                   │
- * │  3. Route to the correct dashboard based on user role:             │
- * │     - customer        → (customer) Customer Dashboard               │
- * │     - service_staff   → (staff) Staff Dashboard                     │
- * │     - admin-family    → (staff) Admin Dashboard                     │
+ * │  3. Admit only an authoritatively verified Customer session         │
+ * │     into the Customer application                                  │
  * │  4. Redirect unauthenticated users to (auth)/welcome              │
  * │  5. Show a premium cinematic splash screen on cold start          │
  * │                                                                      │
@@ -34,6 +32,7 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { processQueue } from '@/services/offlineQueue';
 import { apiClient, getApiStatusCode } from '@/services/api/client';
+import { isCustomerRole } from '@/services/api/roles';
 
 // Prevent the native splash from auto-hiding until our custom one is ready.
 SplashScreen.preventAutoHideAsync();
@@ -48,8 +47,10 @@ function InnerLayout() {
   const segments = useSegments();
   const router = useRouter();
 
-  // isAuthed: Firebase session (Google/Apple) OR a stored JWT (email/password users)
-  const isAuthed = Boolean(session || (token && loginOtpVerified));
+  // Role resolution is part of authentication. AuthContext only initializes
+  // after /auth/me has validated restored sessions against the live DB role.
+  const isAuthorizedCustomer = Boolean(token && profile && isCustomerRole(profile.role));
+  const isAuthed = isAuthorizedCustomer && Boolean(session || loginOtpVerified);
   const inAuthGroup = segments[0] === '(auth)';
   const inLoginOtpScreen = inAuthGroup && segments[1] === 'verify';
 
@@ -62,7 +63,7 @@ function InnerLayout() {
   useEffect(() => {
     if (!initialized) return;
     if (isAuthed && inAuthGroup) {
-      // Authenticated but still on auth screens → route by role
+      // Authenticated Customer still on auth screens → enter Customer app.
       const target = resolveRouteForRole(profile?.role);
       router.replace(target);
     }
@@ -91,6 +92,9 @@ function InnerLayout() {
     return (
       <>
         <Stack screenOptions={{ headerShown: false }}>
+          {/* Keep the root gate registered because successful login/OTP flows
+              replace to "/" before RootIndex performs the final redirect. */}
+          <Stack.Screen name="index" />
           <Stack.Screen name="(auth)" />
         </Stack>
         {redirectTarget ? <Redirect href={redirectTarget} /> : null}
@@ -109,8 +113,8 @@ function InnerLayout() {
           freezeOnBlur: true,
         }}
       >
+        <Stack.Screen name="index" options={{ animation: 'fade' }} />
         <Stack.Screen name="(customer)" options={{ animation: 'fade' }} />
-        <Stack.Screen name="(staff)" options={{ animation: 'fade' }} />
         <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
         <Stack.Screen
           name="(screens)/payments"
@@ -155,6 +159,15 @@ function InnerLayout() {
         <Stack.Screen
           name="(screens)/notification-preferences"
           options={{ animation: 'ios_from_right' }}
+        />
+        <Stack.Screen
+          name="(screens)/ai-chat"
+          options={{
+            animation: 'ios_from_right',
+            presentation: 'card',
+            gestureEnabled: true,
+            contentStyle: { backgroundColor: '#050506' },
+          }}
         />
       </Stack>
     </>

@@ -14,12 +14,19 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import { chatbotService } from '@/services/api/chatbotService';
 import { auth } from '@/config/firebase';
 import { apiClient, getApiErrorMessage } from '@/services/api/client';
-import type { ApiEnvelope, BackendUser, UserRole } from '@/services/api/types';
-import { CUSTOMER_ROLE, getSafeUserRole } from '@/services/api/roles';
+import type { ApiEnvelope, BackendUser } from '@/services/api/types';
+import { CUSTOMER_ROLE, isCustomerRole, normalizeToCanonical } from '@/services/api/roles';
 import { authStorage } from '@/services/storage/authStorage';
 import type { PendingLoginOtp } from '@/services/storage/authStorage';
 
-const DEFAULT_ROLE: UserRole = CUSTOMER_ROLE;
+export const MOBILE_CUSTOMER_ONLY_MESSAGE =
+  'This account is not authorized to access the Customer Mobile App. Please use the appropriate web portal for your account role.';
+
+const mobileAccessError = (): Error & { code: string } => {
+  const error = new Error(MOBILE_CUSTOMER_ONLY_MESSAGE) as Error & { code: string };
+  error.code = 'MOBILE_CUSTOMER_ONLY';
+  return error;
+};
 
 /**
  * Converts Firebase Auth error codes into user-friendly messages.
@@ -67,6 +74,11 @@ const parseServerTime = (value: unknown, fallback: number): number => {
 
 const normalizeBackendUser = (raw: any, firebaseUid?: string): BackendUser => {
   const mongoId = raw?._id || raw?.id || '';
+  const role = normalizeToCanonical(raw?.role);
+
+  // Auth responses and cached profiles are authorization inputs. Never turn a
+  // missing, unknown, or staff role into Customer through a fallback value.
+  if (role !== CUSTOMER_ROLE) throw mobileAccessError();
 
   return {
     id: mongoId || firebaseUid || '',
@@ -74,7 +86,7 @@ const normalizeBackendUser = (raw: any, firebaseUid?: string): BackendUser => {
     firebaseUid: raw?.firebaseUid || firebaseUid,
     name: raw?.name || safeNameFromEmail(raw?.email || ''),
     email: raw?.email || '',
-    role: getSafeUserRole(raw?.role, DEFAULT_ROLE),
+    role,
     avatar: raw?.avatar,
     phone: raw?.phone,
     createdAt: raw?.createdAt,
@@ -99,6 +111,7 @@ const getAuthPayload = (response: any, firebaseUid?: string): { token: string; u
 };
 
 const persistSession = async (token: string, user: BackendUser): Promise<void> => {
+  if (!token || !isCustomerRole(user?.role)) throw mobileAccessError();
   await Promise.all([
     authStorage.setToken(token),
     authStorage.setUser(user),
@@ -106,11 +119,44 @@ const persistSession = async (token: string, user: BackendUser): Promise<void> =
 };
 
 const clearLocalSession = async (): Promise<void> => {
-  await Promise.allSettled([
-    chatbotService.clearSession(),
-    firebaseSignOut(auth),
-  ]);
-  await authStorage.clearAll();
+  let criticalError: unknown;
+
+  // Delete the JWT before Firebase emits its signed-out event. Otherwise the
+  // auth listener can observe the old cached token and restore the session
+  // while logout is still in progress.
+  try {
+    await authStorage.clearAll();
+  } catch (error) {
+    criticalError = error;
+  }
+
+  try {
+    await firebaseSignOut(auth);
+  } catch (error) {
+    criticalError ??= error;
+  }
+
+  // Chat session cleanup is account-bound, but a storage failure here must not
+  // undo an otherwise successful authentication logout.
+  try {
+    await chatbotService.clearSession();
+  } catch (error) {
+    if (__DEV__) console.warn('[Auth] Chat session cleanup failed during sign-out.', error);
+  }
+
+  if (criticalError) throw criticalError;
+};
+
+const restoreStoredSession = async (): Promise<{ token: string; user: BackendUser }> => {
+  const token = await authStorage.getToken();
+  if (!token) throw new Error('No stored session is available.');
+
+  // The backend authenticate middleware reloads the current MongoDB account,
+  // validates its status and live role, and requires a Mobile-bound JWT.
+  const response = await apiClient.get('/auth/me');
+  const user = normalizeBackendUser(response.data?.data);
+  await persistSession(token, user);
+  return { token, user };
 };
 
 const socialLogin = async (firebaseUser: FirebaseUser): Promise<{ token: string; user: BackendUser }> => {
@@ -155,7 +201,6 @@ const syncUserWithMongo = async (
   const response = await apiClient.put<ApiEnvelope<any>>(`/users/${firebaseUser.uid}`, {
     name: fallbackUser?.name || firebaseUser.displayName || safeNameFromEmail(email),
     email,
-    role: fallbackUser?.role || DEFAULT_ROLE,
     avatar: firebaseUser.photoURL || fallbackUser?.avatar,
   });
 
@@ -198,7 +243,6 @@ const exchangeTokenForRegistration = async (
       name,
       email,
       password,
-      role: DEFAULT_ROLE,
       firebaseUid: firebaseUser.uid,
     });
   } catch (regErr: any) {
@@ -339,7 +383,8 @@ export const authService = {
   }> {
     const { token, user } = await loginEmailDirect(email, password);
     await persistSession(token, user);
-    return { token, backendUser: user };
+    const authorized = await restoreStoredSession();
+    return { token: authorized.token, backendUser: authorized.user };
   },
 
   async verifyLoginOtp(
@@ -354,7 +399,8 @@ export const authService = {
     });
     const { token, user } = getAuthPayload(response);
     await persistSession(token, user);
-    return { token, backendUser: user };
+    const authorized = await restoreStoredSession();
+    return { token: authorized.token, backendUser: authorized.user };
   },
 
   async resendLoginOtp(
@@ -385,7 +431,7 @@ export const authService = {
   }> {
     // Step 1: Create backend account
     try {
-      await apiClient.post('/auth/register', { name, email, password, role: DEFAULT_ROLE });
+      await apiClient.post('/auth/register', { name, email, password });
     } catch (err: any) {
       // 409 = user already exists (OTP re-verification race) — safe to continue
       if (err?.response?.status !== 409) throw err;
@@ -396,7 +442,8 @@ export const authService = {
     if (__DEV__) console.log('[Auth] Registration complete → logging in directly');
     const { token, user } = await loginEmailDirect(email, password);
     await persistSession(token, user);
-    return { token, backendUser: user };
+    const authorized = await restoreStoredSession();
+    return { token: authorized.token, backendUser: authorized.user };
   },
 
   async preFlightLogin(email: string, password: string): Promise<{ success: boolean; message?: string }> {
@@ -544,23 +591,31 @@ export const authService = {
       throw new Error(getFirebaseAuthErrorMessage(firebaseError));
     }
 
-    // Exchange Firebase session for backend JWT via social-login
-    const authPayload = await socialLogin(firebaseUser);
-    await persistSession(authPayload.token, authPayload.user);
-
-    let syncedUser = authPayload.user;
     try {
-      syncedUser = await syncUserWithMongo(firebaseUser, authPayload.user);
-      await persistSession(authPayload.token, syncedUser);
-    } catch (error) {
-      console.warn('Mongo user sync failed during Google login:', getApiErrorMessage(error));
-    }
+      // Exchange Firebase identity for a Mobile-bound backend JWT. A rejected
+      // authoritative role check must also tear down the Firebase session.
+      const authPayload = await socialLogin(firebaseUser);
+      await persistSession(authPayload.token, authPayload.user);
 
-    return {
-      firebaseUser,
-      token: authPayload.token,
-      backendUser: syncedUser,
-    };
+      let syncedUser = authPayload.user;
+      try {
+        syncedUser = await syncUserWithMongo(firebaseUser, authPayload.user);
+        await persistSession(authPayload.token, syncedUser);
+      } catch (error) {
+        console.warn('Mongo user sync failed during Google login:', getApiErrorMessage(error));
+      }
+
+      const authorized = await restoreStoredSession();
+
+      return {
+        firebaseUser,
+        token: authorized.token,
+        backendUser: authorized.user,
+      };
+    } catch (error) {
+      await clearLocalSession();
+      throw error;
+    }
   },
 
   async bootstrapFromFirebaseUser(firebaseUser: FirebaseUser): Promise<{
@@ -581,8 +636,9 @@ export const authService = {
     const uidMatches = currentUser?.firebaseUid === firebaseUser.uid;
     const emailMatches = !!(currentUser?.email && currentUser.email === firebaseUser.email);
     if (currentToken && currentUser && (uidMatches || emailMatches)) {
-      if (__DEV__) console.log('[Auth] Bootstrap: using cached session');
-      return { token: currentToken, backendUser: currentUser };
+      if (__DEV__) console.log('[Auth] Bootstrap: validating cached session with backend');
+      const restored = await restoreStoredSession();
+      return { token: restored.token, backendUser: restored.user };
     }
 
     if (__DEV__) console.log('[Auth] Bootstrap: no valid cache, calling socialLogin...');
@@ -597,12 +653,22 @@ export const authService = {
       console.warn('[Auth] Mongo user sync failed during bootstrap (non-fatal):', getApiErrorMessage(error));
     }
 
-    if (__DEV__) console.log('[Auth] Bootstrap complete | role:', syncedUser.role);
+    const authorized = await restoreStoredSession();
+
+    if (__DEV__) console.log('[Auth] Bootstrap complete | role:', authorized.user.role);
 
     return {
-      token: authPayload.token,
-      backendUser: syncedUser,
+      token: authorized.token,
+      backendUser: authorized.user,
     };
+  },
+
+  async restoreStoredSession(): Promise<{
+    token: string;
+    backendUser: BackendUser;
+  }> {
+    const restored = await restoreStoredSession();
+    return { token: restored.token, backendUser: restored.user };
   },
 
   async signOut(): Promise<void> {

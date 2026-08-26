@@ -69,6 +69,10 @@ import {
   buildAdminGroupingKey,
   createAdminNotification,
 } from '../services/adminNotification.service.js';
+import {
+  handleQualityStageTransition,
+  notifyQualityJobAssignment,
+} from '../services/qualityNotification.service.js';
 import { timeOperation } from '../utils/performance.utils.js';
 import { normalizePosPaymentMethod } from '../utils/paymentMethod.utils.js';
 
@@ -81,6 +85,26 @@ const DEFAULT_SERVICE_STEPS = [
 ];
 
 const LOW_STOCK_THRESHOLD = 10;
+
+const syncQualityStageNotifications = async (order, previousStage, nextStage) => {
+  try {
+    await handleQualityStageTransition(order, previousStage, nextStage);
+  } catch (error) {
+    console.warn('[orders] Quality notification synchronization failed:', error.message);
+  }
+};
+
+const findAssignableQualityChecker = async (userId) => {
+  const id = String(userId || '').trim();
+  if (!mongoose.isValidObjectId(id)) return null;
+  return User.findOne({
+    _id: id,
+    role: 'staff_quality_checker',
+    isActive: true,
+    isVerified: true,
+    isDeleted: { $ne: true },
+  }).select('_id name email role').lean();
+};
 
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
 const SAFE_IMAGE_DATA_URL = /^data:image\/(jpeg|jpg|png|webp);base64,([a-z0-9+/=\s]+)$/i;
@@ -2304,8 +2328,8 @@ export const updateOrder = async (req, res, next) => {
       if ((isAssignedDetailer || isClaimingUnassigned) && !isAdmin && detailerId !== String(req.user.id)) {
         return res.status(403).json({ success: false, message: 'Quality staff may only claim a job for themselves.' });
       }
-      const detailer = await User.findById(detailerId).select('role isActive isDeleted').lean();
-      if (!detailer || detailer.isDeleted || !detailer.isActive || !isServiceStaffRole(detailer.role)) {
+      const detailer = await findAssignableQualityChecker(detailerId);
+      if (!detailer || !isServiceStaffRole(detailer.role)) {
         return res.status(400).json({ success: false, message: 'Assigned user must be an active Quality Checker.' });
       }
       update.assignedDetailer = detailerId;
@@ -2406,6 +2430,10 @@ export const updateOrder = async (req, res, next) => {
     Object.assign(order, update);
     await order.save();
     reservedSlot = null;
+
+    if (previousStatus !== order.status) {
+      await syncQualityStageNotifications(order, previousStatus, order.status);
+    }
 
     if (
       previousConsumedSlot &&
@@ -2624,6 +2652,11 @@ export const updateOrder = async (req, res, next) => {
       } catch (notificationError) {
         console.warn('[live-tracking] Assignment notification failed:', notificationError.message);
       }
+      try {
+        await notifyQualityJobAssignment(order, previousAssignedDetailerId);
+      } catch (notificationError) {
+        console.warn('[live-tracking] Quality assignment notification failed:', notificationError.message);
+      }
     }
 
     if (previousStatus !== order.status && ['in_progress', 'ready_for_payment', 'completed'].includes(order.status)) {
@@ -2760,6 +2793,14 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
       });
     }
 
+    const assignableDetailer = await findAssignableQualityChecker(detailerId);
+    if (!assignableDetailer) {
+      return res.status(400).json({
+        success: false,
+        message: 'Assigned user must be an active, verified Quality Checker.',
+      });
+    }
+
     // (Restriction removed: Detailers can have multiple scheduled active bookings)
 
     const order = await Order.findById(req.params.id).populate('customer', 'name email avatar');
@@ -2775,7 +2816,7 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
       : null;
 
     // Perform assignment
-    order.assignedDetailer = detailerId;
+    order.assignedDetailer = assignableDetailer._id;
     if (['pending', 'confirmed'].includes(order.status)) {
       order.status = 'assigned';
     }
@@ -2808,6 +2849,12 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
 
     await order.save();
     await order.populate('assignedDetailer', 'name email');
+
+    try {
+      await notifyQualityJobAssignment(order, previousAssignedDetailerId);
+    } catch (notificationError) {
+      console.warn('[live-tracking] Quality assignment notification failed:', notificationError.message);
+    }
 
     const assignmentLink = buildAdminDeepLink('live_tracking', {
       orderId: order._id.toString(),
@@ -2918,6 +2965,13 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
 export const assignDetailer = async (req, res, next) => {
   try {
     const { detailerId } = req.body;
+    const assignableDetailer = await findAssignableQualityChecker(detailerId);
+    if (!assignableDetailer) {
+      return res.status(400).json({
+        success: false,
+        message: 'Assigned user must be an active, verified Quality Checker.',
+      });
+    }
     
     // (Restriction removed: Detailers can have multiple scheduled active bookings)
 
@@ -2933,7 +2987,10 @@ export const assignDetailer = async (req, res, next) => {
 
     // 2. Perform assignment
     const previousStatus = order.status;
-    order.assignedDetailer = detailerId;
+    const previousAssignedDetailerId = order.assignedDetailer
+      ? String(order.assignedDetailer?._id || order.assignedDetailer)
+      : null;
+    order.assignedDetailer = assignableDetailer._id;
     if (['pending', 'confirmed'].includes(order.status)) {
       order.status = 'assigned';
     }
@@ -2947,6 +3004,12 @@ export const assignDetailer = async (req, res, next) => {
 
     // Populate for return
     await order.populate('assignedDetailer', 'name email');
+
+    try {
+      await notifyQualityJobAssignment(order, previousAssignedDetailerId);
+    } catch (notificationError) {
+      console.warn('[live-tracking] Quality assignment notification failed:', notificationError.message);
+    }
 
     // Fire workflow orchestrator for status transition (handles inventory, notifications)
     if (previousStatus !== order.status) {
@@ -3229,6 +3292,10 @@ export const updateOrderProgress = async (req, res, next) => {
       order,
       captureOrderOccupancyWithStatus(order, previousStatus)
     );
+
+    if (previousStatus !== order.status) {
+      await syncQualityStageNotifications(order, previousStatus, order.status);
+    }
 
     if (normalizedStepIndex !== undefined || shouldComplete) {
       const completedSteps = (order.serviceSteps || []).filter((step) => step.status === 'completed').length;
@@ -3999,6 +4066,8 @@ export const operateCheckIn = async (req, res, next) => {
     order.status = 'received';
     await order.save();
     reservedSlot = null;
+
+    await syncQualityStageNotifications(order, previousStatusForWorkflow, order.status);
     emitBookingApprovalQueueUpdate(order);
 
     const io = getIO();
@@ -4280,9 +4349,21 @@ export const confirmBooking = async (req, res, next) => {
     }
 
     const previousStatus = order.status;
+    const previousAssignedDetailerId = order.assignedDetailer
+      ? String(order.assignedDetailer?._id || order.assignedDetailer)
+      : null;
 
     // If admin assigns a technician during confirmation, go straight to 'assigned'
     const { assignedDetailer } = req.body || {};
+    const assignableDetailer = assignedDetailer
+      ? await findAssignableQualityChecker(assignedDetailer)
+      : null;
+    if (assignedDetailer && !assignableDetailer) {
+      return res.status(400).json({
+        success: false,
+        message: 'Assigned user must be an active, verified Quality Checker.',
+      });
+    }
     const confirmedStatus = assignedDetailer ? 'assigned' : 'confirmed';
     if (!orderOccupiesSlot(previousStatus, order.archived, order.isWalkIn)
       && orderOccupiesSlot(confirmedStatus, order.archived, order.isWalkIn)
@@ -4297,7 +4378,7 @@ export const confirmBooking = async (req, res, next) => {
     }
 
     if (assignedDetailer) {
-      order.assignedDetailer = assignedDetailer;
+      order.assignedDetailer = assignableDetailer._id;
       order.status = confirmedStatus;
     } else {
       order.status = confirmedStatus;
@@ -4309,6 +4390,14 @@ export const confirmBooking = async (req, res, next) => {
     }
 
     await order.save();
+
+    if (assignedDetailer) {
+      try {
+        await notifyQualityJobAssignment(order, previousAssignedDetailerId);
+      } catch (notificationError) {
+        console.warn('[orders] Quality assignment notification failed:', notificationError.message);
+      }
+    }
     reservedSlot = null;
 
     // Push live status update
@@ -4556,8 +4645,22 @@ export const approveBooking = async (req, res, next) => {
     // capacity below the occupancy of existing appointments.
 
     const previousStatus = order.status;
+    const previousAssignedDetailerId = order.assignedDetailer
+      ? String(order.assignedDetailer?._id || order.assignedDetailer)
+      : null;
     const { assignedDetailer: manualDetailerId } = req.body || {};
     let detailerId = manualDetailerId;
+
+    if (manualDetailerId) {
+      const assignableDetailer = await findAssignableQualityChecker(manualDetailerId);
+      if (!assignableDetailer) {
+        return res.status(400).json({
+          success: false,
+          message: 'Assigned user must be an active, verified Quality Checker.',
+        });
+      }
+      detailerId = assignableDetailer._id;
+    }
 
     if (!detailerId) {
       // Priority: staff_quality_checker (Technician - Quality Checker) → technician → service_staff
@@ -4565,7 +4668,12 @@ export const approveBooking = async (req, res, next) => {
       const ASSIGNABLE_ROLES = ['staff_quality_checker'];
       let detailers = [];
       for (const role of ASSIGNABLE_ROLES) {
-        detailers = await User.find({ role, isActive: true }).select('_id name role');
+        detailers = await User.find({
+          role,
+          isActive: true,
+          isVerified: true,
+          isDeleted: { $ne: true },
+        }).select('_id name role');
         if (detailers.length > 0) break; // Use highest-priority role that has active staff
       }
       for (const d of detailers) {
@@ -4591,6 +4699,14 @@ export const approveBooking = async (req, res, next) => {
     order.serviceTrackingUpdatedBy = req.user?.name || 'Sales';
 
     await order.save();
+
+    if (detailerId) {
+      try {
+        await notifyQualityJobAssignment(order, previousAssignedDetailerId);
+      } catch (notificationError) {
+        console.warn('[orders] Quality assignment notification failed:', notificationError.message);
+      }
+    }
 
     // ── Clean up GCash proof images from DB after approval ────────────
     // Base64 images can be 200–500KB each. Once approved, the proof is no

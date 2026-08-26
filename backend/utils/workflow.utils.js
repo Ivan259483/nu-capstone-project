@@ -29,6 +29,7 @@ import {
   buildAdminGroupingKey,
   createAdminNotification,
 } from '../services/adminNotification.service.js';
+import { handleQualityStageTransition } from '../services/qualityNotification.service.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -75,6 +76,14 @@ export const onOrderStatusChange = async (order, prevStatus, actor = null) => {
   const orderRef = order.bookingReference || order.orderNumber || order._id?.toString();
 
   console.log(`[WORKFLOW] ${orderRef}: ${prevStatus} → ${newStatus}`);
+
+  // Keep the internal Quality inbox consistent for every canonical order path
+  // (including POS/legacy endpoints that do not use the QC controller).
+  try {
+    await handleQualityStageTransition(order, prevStatus, newStatus);
+  } catch (err) {
+    console.warn('[WORKFLOW] Quality notification synchronization failed:', err.message);
+  }
 
   // ── pending → confirmed / assigned ──────────────────────────────
   if (prevStatus === 'pending' && (newStatus === 'confirmed' || newStatus === 'assigned')) {

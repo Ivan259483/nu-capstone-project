@@ -6,6 +6,7 @@ import {
   CheckCheck,
   ExternalLink,
   LoaderCircle,
+  RefreshCw,
   Settings2,
 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -39,6 +40,11 @@ interface AdminNotificationBellProps {
   onOpenSettings?: () => void;
   className?: string;
   theme?: 'light' | 'dark';
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => Promise<unknown> | unknown;
+  contentClassName?: string;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const FLYOUT_TABS: Array<{ id: NotificationFlyoutTab; label: string }> = [
@@ -65,6 +71,11 @@ export default function AdminNotificationBell({
   onOpenSettings,
   className = '',
   theme = 'light',
+  loading = false,
+  error = null,
+  onRetry,
+  contentClassName = '',
+  onOpenChange,
 }: AdminNotificationBellProps) {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<NotificationFlyoutTab>('all');
@@ -96,6 +107,7 @@ export default function AdminNotificationBell({
 
   const handleOpenChange = async (nextOpen: boolean) => {
     setOpen(nextOpen);
+    onOpenChange?.(nextOpen);
     if (!nextOpen || !onRefresh) return;
     setIsRefreshing(true);
     try {
@@ -126,7 +138,8 @@ export default function AdminNotificationBell({
   };
 
   const handleOpenNotification = async (notification: SystemNotification) => {
-    await onOpenNotification(notification);
+    const result = await onOpenNotification(notification);
+    if (result === false) return;
     setOpen(false);
   };
 
@@ -175,7 +188,7 @@ export default function AdminNotificationBell({
         align="end"
         sideOffset={10}
         collisionPadding={12}
-        className={`anc-flyout anc-theme--${theme}`}
+        className={`anc-flyout anc-theme--${theme} ${contentClassName}`.trim()}
         role="dialog"
         aria-labelledby="anc-flyout-title"
         aria-describedby="anc-flyout-summary"
@@ -230,11 +243,46 @@ export default function AdminNotificationBell({
           aria-labelledby={`anc-tab-${activeTab}`}
           className="anc-flyout-list"
         >
-          {visibleNotifications.length === 0 ? (
+          {error && notifications.length > 0 ? (
+            <div className="mx-3 mt-3 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="status">
+              <span>Showing saved updates. Refresh failed.</span>
+              {onRetry ? (
+                <button type="button" className="font-bold text-amber-900 underline" onClick={() => { void onRetry(); }}>
+                  Retry
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {loading && notifications.length === 0 ? (
+            <div className="space-y-3 p-4" role="status" aria-label="Loading notifications">
+              {[0, 1, 2, 3].map((item) => (
+                <div key={item} className="flex animate-pulse gap-3 rounded-xl border border-slate-100 p-3">
+                  <span className="h-9 w-9 shrink-0 rounded-xl bg-slate-100" />
+                  <span className="min-w-0 flex-1 space-y-2">
+                    <span className="block h-3 w-2/3 rounded bg-slate-100" />
+                    <span className="block h-2.5 w-full rounded bg-slate-100" />
+                    <span className="block h-2.5 w-1/3 rounded bg-slate-100" />
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : error && notifications.length === 0 ? (
+            <div className="anc-empty anc-empty--flyout" role="alert">
+              <span className="anc-empty-icon"><Bell size={22} aria-hidden /></span>
+              <strong>Notifications couldn&apos;t be loaded</strong>
+              <p>{error}</p>
+              {onRetry ? (
+                <button type="button" className="anc-quick-action" onClick={() => { void onRetry(); }}>
+                  <RefreshCw size={13} aria-hidden />
+                  Try again
+                </button>
+              ) : null}
+            </div>
+          ) : visibleNotifications.length === 0 ? (
             <div className="anc-empty anc-empty--flyout">
               <span className="anc-empty-icon"><Check size={22} aria-hidden /></span>
-              <strong>No notifications here</strong>
-              <p>{activeTab === 'all' ? 'Meaningful operational updates will appear here.' : `There are no ${FLYOUT_TABS.find((tab) => tab.id === activeTab)?.label.toLowerCase()} notifications.`}</p>
+              <strong>{activeTab === 'all' ? 'You’re all caught up' : 'No notifications here'}</strong>
+              <p>{activeTab === 'all' ? 'No notifications need your attention right now.' : `There are no ${FLYOUT_TABS.find((tab) => tab.id === activeTab)?.label.toLowerCase()} notifications.`}</p>
             </div>
           ) : (
             NOTIFICATION_TIME_GROUPS.map((group) => {
@@ -290,20 +338,22 @@ export default function AdminNotificationBell({
                               </button>
                             </div>
                           </div>
-                          <button
-                            type="button"
-                            className="anc-read-toggle"
-                            onClick={() => handleSetRead(notification, !notification.isRead)}
-                            disabled={isPending}
-                            aria-label={`Mark “${notification.title}” as ${notification.isRead ? 'unread' : 'read'}`}
-                            title={notification.isRead ? 'Mark as unread' : 'Mark as read'}
-                          >
-                            {isPending
-                              ? <LoaderCircle className="anc-spin" size={14} aria-hidden />
-                              : notification.isRead
-                                ? <span className="anc-read-hollow" aria-hidden />
-                                : <Check size={14} aria-hidden />}
-                          </button>
+                          {!notification.isResolved ? (
+                            <button
+                              type="button"
+                              className="anc-read-toggle"
+                              onClick={() => handleSetRead(notification, !notification.isRead)}
+                              disabled={isPending}
+                              aria-label={`Mark “${notification.title}” as ${notification.isRead ? 'unread' : 'read'}`}
+                              title={notification.isRead ? 'Mark as unread' : 'Mark as read'}
+                            >
+                              {isPending
+                                ? <LoaderCircle className="anc-spin" size={14} aria-hidden />
+                                : notification.isRead
+                                  ? <span className="anc-read-hollow" aria-hidden />
+                                  : <Check size={14} aria-hidden />}
+                            </button>
+                          ) : <span className="anc-read-toggle" aria-label="Resolved notification"><Check size={14} aria-hidden /></span>}
                         </article>
                       );
                     })}

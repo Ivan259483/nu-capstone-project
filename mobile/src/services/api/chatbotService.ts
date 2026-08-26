@@ -411,10 +411,14 @@ export const chatbotService = {
 
   /**
    * Reset session (call on logout so the next user gets a clean session)
-   * The in-memory _sessionId is also cleared.
+   * Both in-memory identifiers and their durable copies are account-bound.
    */
   async clearSession(): Promise<void> {
     _sessionId = null;
-    await AsyncStorage.removeItem(CHAT_SESSION_STORAGE_KEY);
+    _guestKey = null;
+    await AsyncStorage.multiRemove([
+      CHAT_SESSION_STORAGE_KEY,
+      CHAT_GUEST_KEY_STORAGE_KEY,
+    ]);
   },
 };

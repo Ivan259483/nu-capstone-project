@@ -4,18 +4,25 @@ import type { LucideIcon } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import {
   AlertTriangle,
+  ArrowUpRight,
   Car,
   CheckCircle2,
   ClipboardCheck,
+  Clock3,
+  Filter,
   FileCheck,
+  Grid2X2,
   ImageIcon,
   Info,
+  List,
   Loader2,
   Lock,
   PackageCheck,
   Plus,
   Radio,
+  RefreshCw,
   ShieldCheck,
+  SlidersHorizontal,
   UploadCloud,
   UserCheck,
   Wifi,
@@ -39,7 +46,11 @@ import {
   TRACKER_QC_FORM_SLOT_KEY,
   QC_FORM_SLOT_SHORT,
 } from '@/lib/tracker-gate-photo-slots';
-import { clearLiveTrackerDeepLinkJobId, readLiveTrackerDeepLinkJobId } from '@/lib/qc-job-workflow';
+import {
+  clearLiveTrackerDeepLinkJobId,
+  readLiveTrackerDeepLink,
+  type QCLiveTrackerDeepLink,
+} from '@/lib/qc-job-workflow';
 import { pauseQcJobsRefetchForUpload } from '@/hooks/useQCData';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSafeUserRole, STAFF_QC_ROLE } from '@/lib/roles';
@@ -283,6 +294,10 @@ const TRACKED_ORDER_STATUSES = ['approved', 'confirmed', 'assigned', 'received',
 const CUSTOMER_UPDATE_STALE_MS = 24 * 60 * 60 * 1000;
 const QC_LIVE_MODAL_PERSIST_KEY = 'autospf:qc-live-modal:v1';
 
+type LiveOrderFilter = 'all' | 'needs-evidence' | 'received' | 'in_progress' | 'quality_check' | 'ready_pickup';
+type LiveOrderSort = 'priority' | 'latest' | 'oldest' | 'customer' | 'stage';
+type LiveOrderDensity = 'grid' | 'compact';
+
 function relTime(iso?: string) {
   if (!iso) return 'Recently';
   try {
@@ -487,7 +502,7 @@ function getTrackerState(job: QCJob) {
     statusComplete ? TRACKER_GATES.length - 1 : -1
   );
   const isComplete = stageComplete || statusComplete || completedIndex >= TRACKER_GATES.length - 1;
-  const isReleased = rawStage === 'released' || rawStatus === 'released';
+  const isReleased = ['completed', 'released'].includes(String(rawStage || '')) || ['completed', 'released'].includes(rawStatus);
   const activeIndex = isComplete ? TRACKER_GATES.length - 1 : Math.min(Math.max(completedIndex + 1, 0), TRACKER_GATES.length - 1);
   const progressPct = getTrackerPipelineProgressPct({
     serviceTrackingStage: (job as any).serviceTrackingStage,
@@ -640,85 +655,263 @@ function sheetFromJob(job: QCJob): QCHandoffFormState {
   };
 }
 
-function MiniProgressBar({ job }: { job: QCJob }) {
+function isTerminalOrder(job: QCJob): boolean {
+  const stage = String((job as any).serviceTrackingStage || '').toLowerCase();
+  const status = String((job as any).orderStatus || '').toLowerCase();
+  return stage === 'completed' || stage === 'released' || status === 'completed' || status === 'released';
+}
+
+function trackerSlotLabel(slot: StaffGateSlotKey): string {
+  if (slot === TRACKER_PREASSESSMENT_SLOT_KEY) return 'Checklist';
+  if (slot === TRACKER_QC_FORM_SLOT_KEY) return 'QC form';
+  return toTitleCase(TRACKER_PHOTO_SLOT_SHORT[slot as TrackerPhotoSlotKey].toLowerCase());
+}
+
+function mostRecentOrderUpdateMs(job: QCJob): number {
+  const evidenceTimes = getMediaList(job).map((item) => {
+    const time = item.uploadedAt ? new Date(item.uploadedAt).getTime() : 0;
+    return Number.isFinite(time) ? time : 0;
+  });
+  const candidates = [
+    ...evidenceTimes,
+    new Date(String((job as any).serviceTrackingUpdatedAt || '')).getTime(),
+    new Date(String((job as any).updatedAt || '')).getTime(),
+    new Date(String(job.submittedAt || '')).getTime(),
+  ].filter((time) => Number.isFinite(time) && time > 0);
+  return candidates.length ? Math.max(...candidates) : 0;
+}
+
+type LiveEvidenceSummary = {
+  stage: ServiceStage;
+  slots: { key: StaffGateSlotKey; label: string; complete: boolean }[];
+  completed: number;
+  required: number;
+  missing: number;
+  nextMissing: string | null;
+  lastUpdateMs: number;
+  stale: boolean;
+  needsAttention: boolean;
+  reason: string;
+  actionLabel: string;
+};
+
+function getLiveEvidenceSummary(job: QCJob, viewerIsQualityChecker: boolean): LiveEvidenceSummary {
+  const tracker = getTrackerState(job);
+  const stage = tracker.currentGate.id;
+  const media = getMediaList(job);
+  const stageSlots = orderedStaffGateSlots(stage, viewerIsQualityChecker);
+  const slots = stageSlots.map((key) => ({
+    key,
+    label: trackerSlotLabel(key),
+    complete: Boolean(getMediaForSlot(media, stage, key)),
+  }));
+  const required = requiredSlotsCountForGate(stage, viewerIsQualityChecker);
+  const completed = Math.min(required, slots.filter((slot) => slot.complete).length);
+  const missing = Math.max(0, required - completed);
+  const nextMissing = slots.find((slot) => !slot.complete)?.label || null;
+  const lastUpdateMs = mostRecentOrderUpdateMs(job);
+  const stale = Boolean(lastUpdateMs && Date.now() - lastUpdateMs > CUSTOMER_UPDATE_STALE_MS);
+  const qcPassed = qcChecklistPassedCount((job as any).qcChecklist);
+  const qcChecklistMissing = stage === 'quality_check' && qcPassed < QC_CHECKLIST_ITEMS.length;
+
+  let reason = '';
+  if (missing > 0) {
+    if (stage === 'received') reason = completed === 0 ? 'Arrival photos required' : `${missing} arrival photo${missing === 1 ? '' : 's'} missing`;
+    else if (stage === 'quality_check') reason = 'QC photo required';
+    else if (stage === 'ready_pickup') reason = `${missing} final photo${missing === 1 ? '' : 's'} missing`;
+    else reason = `${missing} service photo${missing === 1 ? '' : 's'} missing`;
+  } else if (qcChecklistMissing) {
+    const remaining = Math.max(0, QC_CHECKLIST_ITEMS.length - qcPassed);
+    reason = `${remaining} QC check${remaining === 1 ? '' : 's'} incomplete`;
+  } else if (stale) {
+    reason = `No update for ${formatDistanceToNow(new Date(lastUpdateMs))}`;
+  }
+
+  let actionLabel = 'View / verify';
+  if (stage === 'received') actionLabel = missing > 0 ? 'Upload arrival photos' : 'View / verify';
+  if (stage === 'in_progress') actionLabel = missing > 0 ? 'Upload evidence' : 'View / upload';
+  if (stage === 'quality_check') actionLabel = missing > 0 || qcChecklistMissing ? 'Upload QC photos' : 'View / verify';
+  if (stage === 'ready_pickup') actionLabel = missing > 0 ? 'Upload final evidence' : 'View / verify';
+
+  return {
+    stage,
+    slots,
+    completed,
+    required,
+    missing,
+    nextMissing,
+    lastUpdateMs,
+    stale,
+    needsAttention: missing > 0 || qcChecklistMissing || stale,
+    reason,
+    actionLabel,
+  };
+}
+
+function latestEvidencePhoto(job: QCJob): string {
+  const fromTracker = getMediaList(job)
+    .filter((item) => mediaHasRenderablePhotoUrl(item))
+    .sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime())[0]?.photoUrl;
+  if (fromTracker) return sanitizeInlineTrackerPhotoUrl(fromTracker);
+  const legacy = [...(job.photos?.after || []), ...(job.photos?.before || [])]
+    .map(sanitizeInlineTrackerPhotoUrl)
+    .find(Boolean);
+  return legacy || '';
+}
+
+function EvidenceThumbnail({ job, compact = false }: { job: QCJob; compact?: boolean }) {
+  const [failed, setFailed] = useState(false);
+  const photoUrl = latestEvidencePhoto(job);
+
+  if (!photoUrl || failed) {
+    return (
+      <div className={`qc-live-evidence-media flex items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-slate-100 to-slate-200/70 text-slate-400 ${compact ? 'h-16 w-24 shrink-0' : 'aspect-[16/7] w-full'}`}>
+        <div className="flex flex-col items-center gap-1">
+          <Car className={compact ? 'h-5 w-5' : 'h-8 w-8'} strokeWidth={1.5} />
+          {!compact ? <span className="text-[10px] font-bold uppercase tracking-[0.12em]">No evidence photo</span> : null}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="grid grid-cols-4 gap-1">
-      {TRACKER_GATES.map((gate, index) => {
-        const state = getGateState(job, index);
-        return (
-          <span
-            key={gate.id}
-            className={`h-1.5 rounded-full transition-colors ${
-              state === 'done'
-                ? 'bg-emerald-500'
-                : state === 'active'
-                  ? 'bg-slate-900'
-                  : 'bg-slate-200'
-            }`}
-          />
-        );
-      })}
-    </div>
+    <img
+      src={photoUrl}
+      alt={`Latest evidence for ${formatVehicle(job)}`}
+      onError={() => setFailed(true)}
+      className={`qc-live-evidence-media rounded-xl object-cover ${compact ? 'h-16 w-24 shrink-0' : 'aspect-[16/7] w-full'}`}
+    />
   );
 }
 
-function OrderSidebarCard({
+function stageBadgeClasses(stage: ServiceStage) {
+  if (stage === 'ready_pickup') return 'bg-emerald-50 text-emerald-700 ring-emerald-200/70';
+  if (stage === 'quality_check') return 'bg-violet-50 text-violet-700 ring-violet-200/70';
+  if (stage === 'in_progress') return 'bg-blue-50 text-blue-700 ring-blue-200/70';
+  return 'bg-sky-50 text-sky-700 ring-sky-200/70';
+}
+
+function stageDisplayLabel(stage: ServiceStage) {
+  if (stage === 'received') return 'Arrived';
+  if (stage === 'in_progress') return 'In progress';
+  if (stage === 'quality_check') return 'QC ready';
+  if (stage === 'ready_pickup') return 'Ready';
+  return displayNameForPipelineStage(stage);
+}
+
+function OperationalOrderCard({
   job,
-  selected,
-  onSelect,
+  summary,
+  compact,
+  highlighted,
+  onOpen,
 }: {
   job: QCJob;
-  selected: boolean;
-  onSelect: () => void;
+  summary: LiveEvidenceSummary;
+  compact?: boolean;
+  highlighted?: boolean;
+  onOpen: () => void;
 }) {
   const tracker = getTrackerState(job);
-  const vehicleDisplay = formatVehicle(job);
-  const serviceDisplay = formatService(job);
-  const warning = needsCustomerUpdate(job);
+  const updateLabel = summary.lastUpdateMs ? relTime(new Date(summary.lastUpdateMs).toISOString()) : 'No update yet';
+  const completionPct = summary.required > 0 ? Math.round((summary.completed / summary.required) * 100) : 100;
+
+  if (compact) {
+    return (
+      <article
+        id={`live-order-${job.id}`}
+        className={`qc-live-order-card group rounded-2xl border bg-white p-4 transition duration-200 hover:-translate-y-0.5 hover:shadow-lg ${summary.needsAttention ? 'qc-live-order-card--attention' : ''} ${highlighted ? 'qc-live-order-card--selected border-blue-400 ring-4 ring-blue-100' : 'border-slate-200/80 shadow-sm'}`}
+      >
+        <button type="button" onClick={onOpen} className="w-full text-left focus:outline-none" aria-label={`Open ${job.jobId}`}>
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">{truncateOrderId(job.jobId)}</p>
+                <span className="text-[11px] font-black tabular-nums text-slate-500">{tracker.progressPct}%</span>
+              </div>
+              <h3 className="mt-1 truncate text-sm font-black text-slate-950">{formatCustomer(job.customerName || job.customer)}</h3>
+              <p className="mt-1 truncate text-xs font-semibold text-slate-600">{formatVehicle(job)}</p>
+              <p className="truncate text-[11px] font-medium text-slate-400">{formatService(job)}</p>
+            </div>
+            <EvidenceThumbnail job={job} compact />
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] ring-1 ${stageBadgeClasses(summary.stage)}`}>
+              <span className="h-1.5 w-1.5 rounded-full bg-current" />
+              {stageDisplayLabel(summary.stage)}
+            </span>
+            <span className="text-[10px] font-semibold text-slate-400">{updateLabel}</span>
+          </div>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <span className="block h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${completionPct}%` }} />
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+            <span className="font-semibold text-slate-500">Evidence {summary.completed} / {summary.required}</span>
+            <span className="font-black text-blue-600">{summary.actionLabel}</span>
+          </div>
+        </button>
+      </article>
+    );
+  }
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`group w-full rounded-[30px] p-5 text-left transition-all duration-200 ${
-        selected
-          ? 'bg-blue-50/80 shadow-[0_14px_40px_-10px_rgba(37,99,235,0.24)]'
-          : 'bg-white shadow-[0_10px_32px_-8px_rgba(15,23,42,0.08)] hover:bg-white hover:shadow-[0_16px_44px_-10px_rgba(37,99,235,0.15)]'
-      } ${tracker.isComplete ? 'opacity-60' : ''}`}
+    <article
+      id={`live-order-${job.id}`}
+      className={`qc-live-order-card group flex min-h-[430px] flex-col rounded-2xl border bg-white p-4 transition duration-200 hover:-translate-y-0.5 hover:shadow-xl ${summary.needsAttention ? 'qc-live-order-card--attention' : ''} ${highlighted ? 'qc-live-order-card--selected border-blue-400 ring-4 ring-blue-100' : 'border-slate-200/80 shadow-sm'}`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate font-mono text-xs font-black uppercase tracking-[0.08em] text-slate-500">
-            {truncateOrderId(job.jobId)}
-          </p>
-          <p className="mt-1.5 truncate text-base font-black text-slate-950">{formatCustomer(job.customer)}</p>
+      <button type="button" onClick={onOpen} className="flex flex-1 flex-col text-left focus:outline-none" aria-label={`Open ${job.jobId}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">{truncateOrderId(job.jobId)}</p>
+            <h3 className="mt-1.5 truncate text-[15px] font-black text-slate-950">{formatCustomer(job.customerName || job.customer)}</h3>
+          </div>
+          <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black tabular-nums text-slate-600">{tracker.progressPct}%</span>
         </div>
-        <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black tabular-nums text-slate-600">
-          {tracker.progressPct}%
-        </span>
-      </div>
+        <p className="mt-2 truncate text-[13px] font-bold text-slate-700">{formatVehicle(job)}</p>
+        <p className="truncate text-xs font-semibold text-slate-500">{formatService(job)}</p>
 
-      <p className="mt-3 line-clamp-2 text-sm font-semibold leading-snug text-slate-500">
-        {vehicleDisplay} + {serviceDisplay}
-      </p>
-
-      <div className="mt-4 flex items-center justify-between gap-2">
-        <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-[0.08em] text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.06)]">
-          <span className={`h-2 w-2 shrink-0 rounded-full ${tracker.currentGate.dotClass}`} />
-          <span className="truncate">{tracker.currentGate.shortLabel}</span>
-        </span>
-        {warning ? (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.08em] text-amber-700 shadow-[0_4px_14px_-6px_rgba(245,158,11,0.35)]">
-            <AlertTriangle className="h-3 w-3" />
-            Update
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] ring-1 ${stageBadgeClasses(summary.stage)}`}>
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            {stageDisplayLabel(summary.stage)}
           </span>
-        ) : null}
-      </div>
+          <span className={`inline-flex items-center gap-1 text-[10px] font-bold ${summary.stale ? 'text-amber-700' : 'text-slate-400'}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${summary.stale ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+            {updateLabel}
+          </span>
+        </div>
 
-      <div className="mt-4">
-        <MiniProgressBar job={job} />
-      </div>
-    </button>
+        <div className="mt-3"><EvidenceThumbnail job={job} /></div>
+
+        <div className="mt-3 flex items-center justify-between gap-2 text-[11px]">
+          <span className="font-black text-slate-700">Evidence progress</span>
+          <span className="font-black tabular-nums text-slate-950">{summary.completed} / {summary.required}</span>
+        </div>
+        <div className="mt-2 grid grid-cols-6 gap-1.5">
+          {summary.slots.map((slot) => (
+            <div key={slot.key} className="min-w-0 text-center">
+              <span className={`qc-live-evidence-dot mx-auto flex h-6 w-6 items-center justify-center rounded-full border ${slot.complete ? 'is-complete border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-transparent'}`}>
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              </span>
+              <span className="mt-1 block truncate text-[8px] font-semibold text-slate-500" title={slot.label}>{slot.label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className={`mt-3 rounded-lg px-2.5 py-2 text-[10px] font-semibold ${summary.needsAttention ? 'bg-amber-50 text-amber-800' : 'bg-slate-50 text-slate-600'}`}>
+          {summary.reason || (summary.nextMissing ? `Next: ${summary.nextMissing}` : summary.stage === 'ready_pickup' ? 'Evidence complete — waiting for release' : 'Evidence is up to date')}
+        </div>
+      </button>
+
+      <button
+        type="button"
+        onClick={onOpen}
+        className={`qc-live-primary-action mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl px-3 text-[11px] font-black uppercase tracking-[0.04em] transition focus:outline-none focus:ring-4 ${summary.stage === 'ready_pickup' && !summary.needsAttention ? 'is-success bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-100' : 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-100'}`}
+      >
+        {summary.missing > 0 ? <UploadCloud className="h-3.5 w-3.5" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
+        {summary.actionLabel}
+      </button>
+    </article>
   );
 }
 
@@ -809,7 +1002,7 @@ function CompletedGateEvidenceCard({
   const GateIcon = gate.Icon;
 
   return (
-    <section className="qc-live-panel rounded-[32px] bg-white/95 p-5 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
+    <section id={`qc-evidence-${job.id}`} className="qc-live-panel scroll-mt-5 rounded-[32px] bg-white/95 p-5 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-blue-600">
@@ -1679,7 +1872,7 @@ function CurrentGateCard({
               : 'flex flex-col overflow-hidden rounded-[24px] bg-white shadow-[0_10px_32px_-14px_rgba(15,23,42,0.1),inset_0_1px_0_rgba(255,255,255,0.95)]';
           const qcTileWidth = currentStage === 'quality_check' && isQcForm ? ' w-full max-w-md' : '';
           return (
-            <div key={slot} className={`${shellClass}${qcTileWidth}`}>
+            <div id={`qc-evidence-${job.id}-${slot}`} key={slot} className={`${shellClass}${qcTileWidth} scroll-mt-5`}>
               <div
                 className={`flex items-center justify-between gap-1 px-2.5 py-1.5 ${
                   isChecklist ? 'bg-amber-50/95' : isQcForm ? 'bg-violet-50/95' : 'bg-slate-50/95'
@@ -2050,6 +2243,7 @@ type SelectedOrderPanelProps = {
   ) => Promise<boolean>;
   onClose?: () => void;
   onUploadInteractionChange?: (active: boolean) => void;
+  notificationTarget?: QCLiveTrackerDeepLink | null;
   titleId?: string;
 };
 
@@ -2069,6 +2263,7 @@ function SelectedOrderPanel({
   onPersistQcChecklist,
   onClose,
   onUploadInteractionChange,
+  notificationTarget,
   titleId,
 }: SelectedOrderPanelProps) {
   const tracker = getTrackerState(job);
@@ -2098,6 +2293,25 @@ function SelectedOrderPanel({
   useEffect(() => {
     setReviewedGateId(tracker.currentGate.id);
   }, [job.id, tracker.currentGate.id]);
+
+  useEffect(() => {
+    if (!notificationTarget || notificationTarget.jobId !== job.id) return;
+    const requestedStage = String(notificationTarget.stage || '').trim() as ServiceStage;
+    const targetIndex = TRACKER_GATES.findIndex((gate) => gate.id === requestedStage);
+    if (
+      targetIndex >= 0
+      && (targetIndex <= tracker.completedIndex || targetIndex === tracker.activeIndex)
+    ) {
+      setReviewedGateId(requestedStage);
+    }
+    const focusId = notificationTarget.slot
+      ? `qc-evidence-${job.id}-${notificationTarget.slot}`
+      : `qc-evidence-${job.id}`;
+    const timer = window.setTimeout(() => {
+      document.getElementById(focusId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [job.id, notificationTarget, tracker.activeIndex, tracker.completedIndex]);
 
   const handleSelectGate = useCallback(
     (gateId: ServiceStage) => {
@@ -2391,8 +2605,16 @@ export default function QCLiveTrackerView({
   const [localJobs, setLocalJobs] = useState<QCJob[]>(jobs);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+  const [notificationTarget, setNotificationTarget] = useState<QCLiveTrackerDeepLink | null>(null);
   const [isUploadInteractionActive, setIsUploadInteractionActive] = useState(false);
   const [selectedOrderDetailsLoading, setSelectedOrderDetailsLoading] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<LiveOrderFilter>('all');
+  const [urgencyFilter, setUrgencyFilter] = useState<'all' | 'attention' | 'up-to-date'>('all');
+  const [sortBy, setSortBy] = useState<LiveOrderSort>('priority');
+  const [density, setDensity] = useState<LiveOrderDensity>('grid');
+  const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
+  const [showCompletedToday, setShowCompletedToday] = useState(false);
+  const [showAllActivity, setShowAllActivity] = useState(false);
   const lastSelectedJobRef = useRef<QCJob | null>(null);
   const selectedJobIdRef = useRef<string | null>(null);
   const isOrderModalOpenRef = useRef(false);
@@ -2471,7 +2693,7 @@ export default function QCLiveTrackerView({
 
   const trackedOrders = useMemo(() => {
     return localJobs
-      .filter((job) => TRACKED_ORDER_STATUSES.includes(String((job as any).orderStatus || '')))
+      .filter((job) => TRACKED_ORDER_STATUSES.includes(String((job as any).orderStatus || '')) && !isTerminalOrder(job))
       .sort((a, b) => {
         const aState = getTrackerState(a);
         const bState = getTrackerState(b);
@@ -2482,15 +2704,126 @@ export default function QCLiveTrackerView({
       });
   }, [localJobs]);
 
-  const displayedOrders = useMemo(
-    () => filterQCJobsBySearch(trackedOrders, searchQuery),
-    [trackedOrders, searchQuery],
+  const evidenceByJobId = useMemo(() => {
+    const summaries = new Map<string, LiveEvidenceSummary>();
+    trackedOrders.forEach((job) => summaries.set(job.id, getLiveEvidenceSummary(job, viewerIsQualityChecker)));
+    return summaries;
+  }, [trackedOrders, viewerIsQualityChecker]);
+
+  const completedToday = useMemo(() => {
+    const today = new Date();
+    return localJobs.filter((job) => {
+      if (!isTerminalOrder(job)) return false;
+      const raw = String(
+        (job as any).releasedAt ||
+        (job as any).completedAt ||
+        (job as any).serviceTrackingUpdatedAt ||
+        (job as any).updatedAt ||
+        ''
+      );
+      if (!raw) return false;
+      const date = new Date(raw);
+      return !Number.isNaN(date.getTime())
+        && date.getFullYear() === today.getFullYear()
+        && date.getMonth() === today.getMonth()
+        && date.getDate() === today.getDate();
+    });
+  }, [localJobs]);
+
+  const filterCounts = useMemo(() => {
+    const counts: Record<LiveOrderFilter, number> = {
+      all: trackedOrders.length,
+      'needs-evidence': 0,
+      received: 0,
+      in_progress: 0,
+      quality_check: 0,
+      ready_pickup: 0,
+    };
+    trackedOrders.forEach((job) => {
+      const summary = evidenceByJobId.get(job.id);
+      if (!summary) return;
+      if (summary.needsAttention) counts['needs-evidence'] += 1;
+      if (summary.stage in counts) counts[summary.stage as LiveOrderFilter] += 1;
+    });
+    return counts;
+  }, [evidenceByJobId, trackedOrders]);
+
+  const displayedOrders = useMemo(() => {
+    const searched = filterQCJobsBySearch(trackedOrders, searchQuery);
+    const filtered = searched.filter((job) => {
+      const summary = evidenceByJobId.get(job.id);
+      if (!summary) return false;
+      if (activeFilter === 'needs-evidence' && !summary.needsAttention) return false;
+      if (!['all', 'needs-evidence'].includes(activeFilter) && summary.stage !== activeFilter) return false;
+      if (urgencyFilter === 'attention' && !summary.needsAttention) return false;
+      if (urgencyFilter === 'up-to-date' && summary.needsAttention) return false;
+      return true;
+    });
+
+    return [...filtered].sort((a, b) => {
+      const aSummary = evidenceByJobId.get(a.id)!;
+      const bSummary = evidenceByJobId.get(b.id)!;
+      if (sortBy === 'latest') return bSummary.lastUpdateMs - aSummary.lastUpdateMs;
+      if (sortBy === 'oldest') return aSummary.lastUpdateMs - bSummary.lastUpdateMs;
+      if (sortBy === 'customer') return formatCustomer(a.customerName || a.customer).localeCompare(formatCustomer(b.customerName || b.customer));
+      if (sortBy === 'stage') return TRACKER_GATES.findIndex((gate) => gate.id === aSummary.stage) - TRACKER_GATES.findIndex((gate) => gate.id === bSummary.stage);
+      if (aSummary.needsAttention !== bSummary.needsAttention) return aSummary.needsAttention ? -1 : 1;
+      if (aSummary.stale !== bSummary.stale) return aSummary.stale ? -1 : 1;
+      if (aSummary.missing !== bSummary.missing) return bSummary.missing - aSummary.missing;
+      return aSummary.lastUpdateMs - bSummary.lastUpdateMs;
+    });
+  }, [activeFilter, evidenceByJobId, searchQuery, sortBy, trackedOrders, urgencyFilter]);
+
+  const needsActionOrders = useMemo(
+    () => displayedOrders.filter((job) => evidenceByJobId.get(job.id)?.needsAttention),
+    [displayedOrders, evidenceByJobId]
+  );
+  const otherLiveOrders = useMemo(
+    () => displayedOrders.filter((job) => !evidenceByJobId.get(job.id)?.needsAttention),
+    [displayedOrders, evidenceByJobId]
+  );
+  const actionCenterOrders = useMemo(
+    () => [...trackedOrders]
+      .filter((job) => evidenceByJobId.get(job.id)?.needsAttention)
+      .sort((a, b) => {
+        const av = evidenceByJobId.get(a.id)!;
+        const bv = evidenceByJobId.get(b.id)!;
+        if (av.stale !== bv.stale) return av.stale ? -1 : 1;
+        if (av.missing !== bv.missing) return bv.missing - av.missing;
+        return av.lastUpdateMs - bv.lastUpdateMs;
+      })
+      .slice(0, 4),
+    [evidenceByJobId, trackedOrders]
   );
 
-  const activeCount = useMemo(
-    () => displayedOrders.filter((job) => !getTrackerState(job).isComplete).length,
-    [displayedOrders]
-  );
+  const recentActivity = useMemo(() => {
+    const rows: { id: string; title: string; subtitle: string; timestamp: number }[] = [];
+    localJobs.forEach((job) => {
+      getMediaList(job).forEach((media, index) => {
+        const timestamp = media.uploadedAt ? new Date(media.uploadedAt).getTime() : 0;
+        if (!timestamp || !Number.isFinite(timestamp)) return;
+        const slot = normalizeStaffGateSlot(media.slot, media.stage);
+        rows.push({
+          id: `${job.id}-photo-${index}-${timestamp}`,
+          title: 'Photo uploaded',
+          subtitle: `${truncateOrderId(job.jobId)}${slot ? ` — ${trackerSlotLabel(slot)}` : ''}`,
+          timestamp,
+        });
+      });
+      const stageUpdatedAt = new Date(String((job as any).serviceTrackingUpdatedAt || '')).getTime();
+      if (Number.isFinite(stageUpdatedAt) && stageUpdatedAt > 0) {
+        rows.push({
+          id: `${job.id}-stage-${stageUpdatedAt}`,
+          title: `${stageDisplayLabel(getTrackerState(job).currentGate.id)} stage updated`,
+          subtitle: truncateOrderId(job.jobId),
+          timestamp: stageUpdatedAt,
+        });
+      }
+    });
+    return rows.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20);
+  }, [localJobs]);
+
+  const activeCount = trackedOrders.length;
 
   const searchActive = Boolean(searchQuery.trim());
 
@@ -2510,17 +2843,28 @@ export default function QCLiveTrackerView({
     }
   }, [selectedJob]);
 
-  const openSelectedOrder = useCallback((job: QCJob) => {
+  const openSelectedOrder = useCallback((job: QCJob, target: QCLiveTrackerDeepLink | null = null) => {
     lastSelectedJobRef.current = job;
     selectedJobIdRef.current = job.id;
     isOrderModalOpenRef.current = true;
     setSelectedJobId(job.id);
+    setNotificationTarget(target);
     setIsOrderModalOpen(true);
     try {
       sessionStorage.setItem(QC_LIVE_MODAL_PERSIST_KEY, JSON.stringify({ jobId: job.id }));
     } catch {
       /* ignore quota errors */
     }
+  }, []);
+
+  const focusOrderFromActionCenter = useCallback((job: QCJob) => {
+    setActiveFilter('all');
+    setUrgencyFilter('all');
+    setHighlightedJobId(job.id);
+    window.setTimeout(() => {
+      document.getElementById(`live-order-${job.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+    window.setTimeout(() => setHighlightedJobId((current) => current === job.id ? null : current), 2400);
   }, []);
 
   useEffect(() => {
@@ -2532,10 +2876,10 @@ export default function QCLiveTrackerView({
     }
 
     if (trackedOrders.length === 0) return;
-    const deepLinkId = readLiveTrackerDeepLinkJobId();
-    const deepLinkedJob = deepLinkId ? trackedOrders.find((job) => job.id === deepLinkId) : null;
+    const deepLink = readLiveTrackerDeepLink();
+    const deepLinkedJob = deepLink ? trackedOrders.find((job) => job.id === deepLink.jobId) : null;
     if (deepLinkedJob) {
-      openSelectedOrder(deepLinkedJob);
+      openSelectedOrder(deepLinkedJob, deepLink);
       clearLiveTrackerDeepLinkJobId();
       return;
     }
@@ -2770,6 +3114,7 @@ export default function QCLiveTrackerView({
     selectedJobIdRef.current = null;
     lastSelectedJobRef.current = null;
     setIsOrderModalOpen(false);
+    setNotificationTarget(null);
     setIsUploadInteractionActive(false);
     setSelectedJobId(null);
     try {
@@ -2784,102 +3129,194 @@ export default function QCLiveTrackerView({
 
   if (loading && !modalPinned) {
     return (
-      <div className="qc-live-shell h-[calc(100vh-96px)] w-full overflow-hidden rounded-[40px] bg-white/95 p-3 shadow-[0_24px_70px_-16px_rgba(15,23,42,0.14)]">
-        <div className="flex h-full flex-col overflow-hidden rounded-[36px] bg-slate-50/85">
-          <div className="flex items-center justify-between gap-3 px-6 py-6">
-            <div>
-              <div className="h-7 w-32 animate-pulse rounded-lg bg-slate-100" />
-              <div className="mt-2 h-4 w-28 animate-pulse rounded-md bg-slate-100" />
-            </div>
-            <div className="h-7 w-12 animate-pulse rounded-full bg-slate-100" />
-          </div>
-          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 pb-5 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
-            {[1, 2, 3, 4, 5, 6].map((item) => (
-              <div key={item} className="h-40 animate-pulse rounded-[30px] bg-white shadow-[0_10px_32px_-8px_rgba(15,23,42,0.08)]" />
-            ))}
-          </div>
+      <div className="qc-live-shell w-full animate-pulse">
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-36 rounded-lg bg-slate-200" />
+          <div className="h-6 w-16 rounded-full bg-emerald-100" />
         </div>
-      </div>
-    );
-  }
-
-  if (trackedOrders.length === 0 && !modalPinned) {
-    return (
-      <div className="qc-live-panel flex h-[calc(100vh-96px)] flex-col items-center justify-center rounded-[40px] bg-white/95 text-center shadow-[0_20px_60px_-14px_rgba(15,23,42,0.12)]">
-        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100/90 text-slate-400 shadow-[0_8px_24px_-8px_rgba(15,23,42,0.1)]">
-          <Radio size={26} strokeWidth={1.5} />
+        <div className="mt-2 h-4 w-80 max-w-full rounded bg-slate-100" />
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[1, 2, 3, 4].map((item) => <div key={item} className="h-24 rounded-2xl border border-slate-100 bg-white" />)}
         </div>
-        <p className="text-lg font-black text-slate-900">No active orders</p>
-        <p className="mt-2 max-w-sm text-sm font-semibold text-slate-500">
-          Approved bookings appear here for live tracking and QC handoffs.
-        </p>
+        <div className="mt-4 h-14 rounded-2xl border border-slate-100 bg-white" />
+        <div className="mt-4 grid gap-5 xl:grid-cols-[minmax(0,1fr)_270px]">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+            {[1, 2, 3, 4].map((item) => <div key={item} className="h-[420px] rounded-2xl border border-slate-100 bg-white" />)}
+          </div>
+          <div className="h-96 rounded-2xl border border-slate-100 bg-white" />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="qc-live-shell h-[calc(100vh-96px)] w-full overflow-hidden rounded-[40px] bg-white/95 p-3 shadow-[0_24px_70px_-16px_rgba(15,23,42,0.14)]">
-      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[36px] bg-slate-50/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]">
-        <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex items-center justify-between gap-3 px-6 py-6">
-            <div>
-              <p className="text-xl font-black tracking-tight text-slate-950">Live Orders</p>
-              <p className="text-sm font-semibold text-slate-400">
-                {searchActive
-                  ? `${displayedOrders.length} of ${trackedOrders.length} orders`
-                  : 'Today active lane'}
-              </p>
-            </div>
-            <span className="rounded-full bg-emerald-50 px-3.5 py-1.5 text-xs font-black tabular-nums text-emerald-700 shadow-[0_4px_14px_-6px_rgba(16,185,129,0.3)]">
-              {activeCount}
+    <div className="qc-live-shell w-full text-slate-900">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-black tracking-tight text-slate-950">Live Orders</h1>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-emerald-700 ring-1 ring-emerald-200/60">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              Live
             </span>
           </div>
+          <p className="mt-1 text-sm font-medium text-slate-500">Real-time overview of all detailing jobs and evidence updates</p>
+        </div>
+        {searchActive ? (
+          <span className="text-xs font-bold text-slate-500">Showing {displayedOrders.length} of {trackedOrders.length} matching live orders</span>
+        ) : null}
+      </header>
 
-          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 pb-5 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
-            {displayedOrders.length === 0 && searchActive ? (
-              <div className="col-span-full flex flex-col items-center justify-center rounded-3xl bg-white/80 px-6 py-16 text-center shadow-[inset_0_0_0_1px_rgba(148,163,184,0.12)]">
-                <p className="text-base font-black text-slate-800">No matching orders</p>
-                <p className="mt-2 max-w-sm text-sm font-medium text-slate-500">
-                  Try a job ID, customer name, vehicle, or plate from the search bar above.
-                </p>
-              </div>
-            ) : (
-              displayedOrders.map((job) => (
-                <OrderSidebarCard
-                  key={job.id}
-                  job={job}
-                  selected={job.id === selectedJobId}
-                  onSelect={() => openSelectedOrder(job)}
-                />
-              ))
-            )}
+      <section className="qc-live-kpi-grid mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Live order summary">
+        <button type="button" onClick={() => setActiveFilter('all')} className="qc-live-kpi group flex min-h-24 items-center gap-4 rounded-2xl border border-blue-200/70 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-blue-100">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><Radio className="h-5 w-5" /></span>
+          <span className="min-w-0"><strong className="block text-2xl font-black tabular-nums text-blue-700">{activeCount}</strong><span className="block text-xs font-black text-slate-900">Live Orders</span><span className="block text-[11px] font-medium text-slate-400">In progress today</span></span>
+        </button>
+        <button type="button" onClick={() => setActiveFilter('needs-evidence')} className="qc-live-kpi group flex min-h-24 items-center gap-4 rounded-2xl border border-amber-200/70 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-amber-100">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600"><AlertTriangle className="h-5 w-5" /></span>
+          <span className="min-w-0"><strong className="block text-2xl font-black tabular-nums text-amber-600">{filterCounts['needs-evidence']}</strong><span className="block text-xs font-black text-slate-900">Needs Evidence</span><span className="block text-[11px] font-medium text-slate-400">Require your action</span></span>
+        </button>
+        <button type="button" onClick={() => setActiveFilter('ready_pickup')} className="qc-live-kpi group flex min-h-24 items-center gap-4 rounded-2xl border border-emerald-200/70 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><PackageCheck className="h-5 w-5" /></span>
+          <span className="min-w-0"><strong className="block text-2xl font-black tabular-nums text-emerald-600">{filterCounts.ready_pickup}</strong><span className="block text-xs font-black text-slate-900">Ready for Pickup</span><span className="block text-[11px] font-medium text-slate-400">Waiting for release</span></span>
+        </button>
+        <button type="button" onClick={() => setShowCompletedToday(true)} className="qc-live-kpi group flex min-h-24 items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-slate-100">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600"><CheckCircle2 className="h-5 w-5" /></span>
+          <span className="min-w-0"><strong className="block text-2xl font-black tabular-nums text-slate-700">{completedToday.length}</strong><span className="block text-xs font-black text-slate-900">Completed Today</span><span className="block text-[11px] font-medium text-slate-400">View released jobs</span></span>
+        </button>
+      </section>
+
+      <section className="qc-live-toolbar mt-4 flex min-w-0 flex-col gap-3 rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between" aria-label="Live order filters">
+        <div className="min-w-0 overflow-x-auto pb-1 lg:pb-0">
+          <div className="flex min-w-max items-center gap-1.5">
+            {([
+              ['all', 'All', filterCounts.all],
+              ['needs-evidence', 'Needs Evidence', filterCounts['needs-evidence']],
+              ['received', 'Arrived', filterCounts.received],
+              ['in_progress', 'In Progress', filterCounts.in_progress],
+              ['quality_check', 'QC', filterCounts.quality_check],
+              ['ready_pickup', 'Ready', filterCounts.ready_pickup],
+            ] as [LiveOrderFilter, string, number][]).map(([value, label, count]) => (
+              <button key={value} type="button" onClick={() => setActiveFilter(value)} aria-pressed={activeFilter === value} className={`qc-live-filter-pill rounded-full px-3 py-2 text-[11px] font-black transition focus:outline-none focus:ring-4 focus:ring-blue-100 ${activeFilter === value ? value === 'needs-evidence' ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' : 'bg-blue-600 text-white shadow-sm' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}>
+                {label} <span className="tabular-nums">({count})</span>
+              </button>
+            ))}
           </div>
-        </section>
+        </div>
 
-        {isOrderModalOpen && modalJob
-          ? createPortal(
-              <LiveTrackerOrderModal
-                job={modalJob}
-                detailsLoading={selectedOrderDetailsLoading}
-                viewerIsQualityChecker={viewerIsQualityChecker}
-                isUploadInteractionActive={isUploadInteractionActive}
-                onAdvance={handleAdvance}
-                onUploadStagePhoto={handleUploadStagePhoto}
-                onDeleteTrackerStagePhoto={handleDeleteTrackerStagePhoto}
-                onAddStaffNote={handleAddStaffNote}
-                onLocalStageUpdate={updateLocalStage}
-                onLocalStageMedia={upsertLocalMedia}
-                onLocalStaffNote={addLocalStaffNote}
-                onSaveQCHandoffSheet={handleSaveQCHandoffSheet}
-                onLocalHandoffPatch={patchLocalHandoff}
-                onPersistQcChecklist={onPersistQcChecklist}
-                onUploadInteractionChange={handleUploadInteractionChange}
-                onClose={closeSelectedOrder}
-              />,
-              document.body
-            )
-          : null}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <label className="relative">
+            <Filter className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+            <select value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value as typeof urgencyFilter)} aria-label="Filter by attention status" className="qc-live-control h-9 rounded-xl border border-slate-200 bg-white pl-8 pr-8 text-[11px] font-bold text-slate-700 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100">
+              <option value="all">All urgency</option><option value="attention">Needs attention</option><option value="up-to-date">Up to date</option>
+            </select>
+          </label>
+          <label className="relative">
+            <SlidersHorizontal className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value as LiveOrderSort)} aria-label="Sort live orders" className="qc-live-control h-9 rounded-xl border border-slate-200 bg-white pl-8 pr-8 text-[11px] font-bold text-slate-700 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100">
+              <option value="priority">Priority</option><option value="latest">Latest update</option><option value="oldest">Oldest update</option><option value="customer">Customer name</option><option value="stage">Current stage</option>
+            </select>
+          </label>
+          <div className="qc-live-view-toggle flex rounded-xl border border-slate-200 bg-slate-50 p-0.5" aria-label="Order view">
+            <button type="button" onClick={() => setDensity('grid')} aria-label="Grid view" aria-pressed={density === 'grid'} className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${density === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-700'}`}><Grid2X2 className="h-4 w-4" /></button>
+            <button type="button" onClick={() => setDensity('compact')} aria-label="Compact view" aria-pressed={density === 'compact'} className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${density === 'compact' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-700'}`}><List className="h-4 w-4" /></button>
+          </div>
+        </div>
+      </section>
+
+      <div className="mt-4 grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_270px]">
+        <main className="min-w-0 space-y-4">
+          {displayedOrders.length === 0 ? (
+            <section className="qc-live-empty-state flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400"><Radio className="h-6 w-6" /></span>
+              <h2 className="mt-4 text-base font-black text-slate-900">{trackedOrders.length === 0 ? 'No live orders' : 'No matching orders'}</h2>
+              <p className="mt-1 max-w-md text-sm font-medium text-slate-500">{trackedOrders.length === 0 ? 'New active detailing jobs will appear here. Released jobs remain available in completed records.' : 'Adjust the search, status, or attention filters to see other active jobs.'}</p>
+            </section>
+          ) : null}
+
+          {needsActionOrders.length > 0 ? (
+            <section className="qc-live-section rounded-2xl border border-slate-200/80 bg-white/60 p-3 sm:p-4" aria-labelledby="needs-action-heading">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div><h2 id="needs-action-heading" className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.08em] text-slate-900"><AlertTriangle className="h-4 w-4 text-amber-500" />Needs Action ({needsActionOrders.length})</h2><p className="mt-1 pl-6 text-[11px] font-medium text-slate-500">Orders that need evidence or updates</p></div>
+              </div>
+              <div className={density === 'grid' ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4' : 'grid gap-3 md:grid-cols-2'}>
+                {needsActionOrders.map((job) => <OperationalOrderCard key={job.id} job={job} summary={evidenceByJobId.get(job.id)!} compact={density === 'compact'} highlighted={highlightedJobId === job.id} onOpen={() => openSelectedOrder(job)} />)}
+              </div>
+            </section>
+          ) : activeFilter === 'needs-evidence' && displayedOrders.length > 0 ? (
+            <section className="qc-live-success-state rounded-2xl border border-emerald-200 bg-emerald-50/50 px-6 py-10 text-center"><CheckCircle2 className="mx-auto h-8 w-8 text-emerald-500" /><h2 className="mt-3 text-sm font-black text-slate-900">All evidence is up to date</h2><p className="mt-1 text-xs font-medium text-slate-500">No active jobs currently require evidence.</p></section>
+          ) : null}
+
+          {otherLiveOrders.length > 0 ? (
+            <section className="qc-live-section rounded-2xl border border-slate-200/80 bg-white/60 p-3 sm:p-4" aria-labelledby="other-orders-heading">
+              <div className="mb-3"><h2 id="other-orders-heading" className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.08em] text-slate-900"><RefreshCw className="h-3.5 w-3.5 text-slate-500" />All Other Live Orders ({otherLiveOrders.length})</h2><p className="mt-1 pl-5 text-[11px] font-medium text-slate-500">Other active jobs</p></div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {otherLiveOrders.map((job) => <OperationalOrderCard key={job.id} job={job} summary={evidenceByJobId.get(job.id)!} compact highlighted={highlightedJobId === job.id} onOpen={() => openSelectedOrder(job)} />)}
+              </div>
+            </section>
+          ) : null}
+        </main>
+
+        <aside className="space-y-4 xl:sticky xl:top-0">
+          <section className="qc-live-side-panel rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="action-center-heading">
+            <div className="flex items-start justify-between gap-2"><div><h2 id="action-center-heading" className="text-sm font-black text-slate-950">Action Center</h2><p className="mt-0.5 text-[11px] font-medium text-slate-500">What needs your attention</p></div><span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black tabular-nums text-amber-700">{filterCounts['needs-evidence']}</span></div>
+            <div className="mt-4 space-y-2">
+              {actionCenterOrders.length > 0 ? actionCenterOrders.map((job) => {
+                const summary = evidenceByJobId.get(job.id)!;
+                return <button key={job.id} type="button" onClick={() => focusOrderFromActionCenter(job)} className="qc-live-action-item flex w-full items-start gap-3 rounded-xl bg-slate-50 p-3 text-left transition hover:bg-blue-50 focus:outline-none focus:ring-4 focus:ring-blue-100"><span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${summary.stale ? 'bg-amber-100 text-amber-600' : 'bg-blue-100 text-blue-600'}`}>{summary.stale ? <Clock3 className="h-3.5 w-3.5" /> : <ImageIcon className="h-3.5 w-3.5" />}</span><span className="min-w-0 flex-1"><span className="block truncate font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-slate-600">{truncateOrderId(job.jobId)}</span><span className="mt-0.5 block truncate text-[11px] font-black text-slate-900">{formatCustomer(job.customerName || job.customer)}</span><span className={`mt-1 block text-[10px] font-bold leading-snug ${summary.stale ? 'text-amber-700' : 'text-blue-600'}`}>{summary.reason}</span><span className="mt-0.5 block text-[9px] font-medium text-slate-400">{summary.lastUpdateMs ? relTime(new Date(summary.lastUpdateMs).toISOString()) : 'No update yet'}</span></span><ArrowUpRight className="mt-1 h-3.5 w-3.5 shrink-0 text-slate-400" /></button>;
+              }) : <div className="rounded-xl bg-emerald-50 px-4 py-6 text-center"><CheckCircle2 className="mx-auto h-6 w-6 text-emerald-500" /><p className="mt-2 text-xs font-black text-slate-800">All caught up</p><p className="mt-1 text-[10px] text-slate-500">No live orders need immediate attention.</p></div>}
+            </div>
+            {filterCounts['needs-evidence'] > 0 ? <button type="button" onClick={() => { setActiveFilter('needs-evidence'); setUrgencyFilter('all'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="qc-live-secondary-button mt-3 h-9 w-full rounded-xl border border-blue-200 text-[10px] font-black uppercase tracking-[0.06em] text-blue-600 transition hover:bg-blue-50 focus:outline-none focus:ring-4 focus:ring-blue-100">View all ({filterCounts['needs-evidence']})</button> : null}
+          </section>
+
+          <section className="qc-live-side-panel rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="recent-activity-heading">
+            <h2 id="recent-activity-heading" className="text-xs font-black uppercase tracking-[0.08em] text-slate-900">Recent Activity</h2>
+            <div className="mt-3 space-y-1">
+              {recentActivity.length > 0 ? recentActivity.slice(0, showAllActivity ? 20 : 5).map((item) => <div key={item.id} className="qc-live-activity-item flex items-start gap-2.5 px-1 py-2.5"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><ImageIcon className="h-3.5 w-3.5" /></span><span className="min-w-0 flex-1"><span className="block text-[10px] font-black text-slate-800">{item.title}</span><span className="mt-0.5 block truncate text-[9px] font-medium text-slate-500">{item.subtitle}</span></span><time className="shrink-0 text-[9px] font-medium text-slate-400">{new Date(item.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div>) : <p className="rounded-xl bg-slate-50 px-3 py-5 text-center text-[10px] font-medium text-slate-500">Activity will appear as real evidence and stage updates are recorded.</p>}
+            </div>
+            {recentActivity.length > 5 ? <button type="button" onClick={() => setShowAllActivity((value) => !value)} className="qc-live-secondary-button mt-2 h-9 w-full rounded-xl border border-blue-200 text-[10px] font-black uppercase tracking-[0.06em] text-blue-600 transition hover:bg-blue-50 focus:outline-none focus:ring-4 focus:ring-blue-100">{showAllActivity ? 'Show recent' : 'View all activity'}</button> : null}
+          </section>
+        </aside>
       </div>
+
+      {showCompletedToday ? createPortal(
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="completed-today-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowCompletedToday(false); }}>
+          <div className="qc-live-dialog max-h-[80vh] w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-6 py-5"><div><h2 id="completed-today-title" className="text-lg font-black text-slate-950">Completed Today</h2><p className="mt-1 text-xs font-medium text-slate-500">Released jobs are kept out of Live Orders and remain available as records.</p></div><button type="button" onClick={() => setShowCompletedToday(false)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 transition hover:bg-slate-200" aria-label="Close completed jobs"><X className="h-4 w-4" /></button></div>
+            <div className="max-h-[60vh] overflow-y-auto p-4">
+              {completedToday.length > 0 ? <div className="space-y-2">{completedToday.map((job) => <button key={job.id} type="button" onClick={() => { setShowCompletedToday(false); openSelectedOrder(job); }} className="qc-live-completed-row flex w-full items-center gap-3 rounded-2xl border border-slate-200 p-4 text-left transition hover:border-blue-200 hover:bg-blue-50"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><CheckCircle2 className="h-5 w-5" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-black text-slate-900">{formatCustomer(job.customerName || job.customer)}</span><span className="mt-0.5 block truncate text-xs font-medium text-slate-500">{truncateOrderId(job.jobId)} · {formatVehicle(job)}</span></span><span className="text-[10px] font-black uppercase text-blue-600">View record</span></button>)}</div> : <div className="px-6 py-14 text-center"><CheckCircle2 className="mx-auto h-10 w-10 text-slate-300" /><p className="mt-3 text-sm font-black text-slate-800">No completed jobs today</p><p className="mt-1 text-xs font-medium text-slate-500">Jobs appear here only after they are officially released or completed.</p></div>}
+            </div>
+          </div>
+        </div>, document.body
+      ) : null}
+
+      {isOrderModalOpen && modalJob
+        ? createPortal(
+            <LiveTrackerOrderModal
+              job={modalJob}
+              detailsLoading={selectedOrderDetailsLoading}
+              viewerIsQualityChecker={viewerIsQualityChecker}
+              isUploadInteractionActive={isUploadInteractionActive}
+              notificationTarget={notificationTarget}
+              onAdvance={handleAdvance}
+              onUploadStagePhoto={handleUploadStagePhoto}
+              onDeleteTrackerStagePhoto={handleDeleteTrackerStagePhoto}
+              onAddStaffNote={handleAddStaffNote}
+              onLocalStageUpdate={updateLocalStage}
+              onLocalStageMedia={upsertLocalMedia}
+              onLocalStaffNote={addLocalStaffNote}
+              onSaveQCHandoffSheet={handleSaveQCHandoffSheet}
+              onLocalHandoffPatch={patchLocalHandoff}
+              onPersistQcChecklist={onPersistQcChecklist}
+              onUploadInteractionChange={handleUploadInteractionChange}
+              onClose={closeSelectedOrder}
+            />,
+            document.body
+          )
+        : null}
     </div>
   );
 }

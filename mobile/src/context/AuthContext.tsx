@@ -1,14 +1,26 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useQueryClient } from '@tanstack/react-query';
 import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { auth } from '@/config/firebase';
-import { getApiErrorMessage, apiClient, setAuthInvalidHandler } from '@/services/api/client';
-import { CUSTOMER_ROLE, getSafeUserRole } from '@/services/api/roles';
+import {
+  clearApiCache,
+  getApiErrorMessage,
+  apiClient,
+  setAuthInvalidHandler,
+} from '@/services/api/client';
+import { CUSTOMER_ROLE, isCustomerRole } from '@/services/api/roles';
 import { authService } from '@/services/api/authService';
 import { authStorage } from '@/services/storage/authStorage';
 import type { PendingLoginOtp } from '@/services/storage/authStorage';
 import type { BackendUser, MobileProfile } from '@/services/api/types';
 import { clearQueue } from '@/services/offlineQueue';
+import { aiScanStore } from '@/features/ai-scan/scanStore';
 
+const SENSITIVE_CUSTOMER_STORAGE_KEYS = [
+  '@autospf_addresses',
+  '@autospf_latest_scan_context',
+];
 
 type AuthResult = {
   success: boolean;
@@ -81,7 +93,7 @@ const toProfile = (
   firebaseUser: FirebaseUser | null,
   backendUser: BackendUser | null
 ): MobileProfile | null => {
-  if (!firebaseUser && !backendUser) {
+  if (!backendUser || !isCustomerRole(backendUser.role)) {
     return null;
   }
 
@@ -97,7 +109,7 @@ const toProfile = (
     full_name: fullName,
     email,
     phone: backendUser?.phone || '',
-    role: getSafeUserRole(backendUser?.role, CUSTOMER_ROLE),
+    role: CUSTOMER_ROLE,
     avatar_url: backendUser?.avatar || firebaseUser?.photoURL || null,
     backend_id: backendUser?._id || backendUser?.id,
     firebase_uid: firebaseUser?.uid,
@@ -107,6 +119,7 @@ const toProfile = (
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const [session, setSession] = useState<FirebaseUser | null>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [backendUser, setBackendUser] = useState<BackendUser | null>(null);
@@ -115,32 +128,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [initialized, setInitialized] = useState(false);
   const [pendingLoginOtp, setPendingLoginOtp] = useState<PendingLoginOtp | null>(null);
   const [loginOtpVerified, setLoginOtpVerified] = useState(false);
+  const signOutPromiseRef = useRef<Promise<void> | null>(null);
+
+  const clearCustomerRuntimeState = useCallback(() => {
+    queryClient.clear();
+    clearApiCache();
+    aiScanStore.reset();
+  }, [queryClient]);
 
   useEffect(() => {
     setAuthInvalidHandler(async ({ path, message }) => {
       if (__DEV__) {
         console.warn(`[AuthContext] Invalid session detected from ${path}: ${message}`);
       }
-      try {
-        await authService.clearLocalSession();
-        await clearQueue();
-      } catch (error) {
-        console.warn('[AuthContext] Forced sign-out warning:', getApiErrorMessage(error));
-      } finally {
-        setSession(null);
-        setUser(null);
-        setToken(null);
-        setBackendUser(null);
-        setProfile(null);
-        setPendingLoginOtp(null);
-        setLoginOtpVerified(false);
-      }
+      const cleanupResults = await Promise.allSettled([
+        authService.clearLocalSession(),
+        clearQueue(),
+        AsyncStorage.multiRemove(SENSITIVE_CUSTOMER_STORAGE_KEYS),
+      ]);
+      cleanupResults.forEach((result) => {
+        if (result.status === 'rejected' && __DEV__) {
+          console.warn(
+            '[AuthContext] Forced sign-out cleanup warning:',
+            getApiErrorMessage(result.reason)
+          );
+        }
+      });
+
+      clearCustomerRuntimeState();
+      setSession(null);
+      setUser(null);
+      setToken(null);
+      setBackendUser(null);
+      setProfile(null);
+      setPendingLoginOtp(null);
+      setLoginOtpVerified(false);
     });
 
     return () => {
       setAuthInvalidHandler(null);
     };
-  }, []);
+  }, [clearCustomerRuntimeState]);
 
   const applyState = (
     firebaseUser: FirebaseUser | null,
@@ -161,21 +189,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Email-registered users never have a Firebase account; their session
         // lives only in SecureStore (token + backendUser).
         try {
-          const [cachedToken, cachedUser, cachedChallenge, cachedOtpVerified] = await Promise.all([
+          const [cachedToken, cachedChallenge, cachedOtpVerified] = await Promise.all([
             authStorage.getToken(),
-            authStorage.getUser(),
             authStorage.getPendingLoginOtp(),
             authStorage.isLoginOtpVerified(),
           ]);
-          if (cachedToken && cachedUser && cachedOtpVerified) {
-            if (__DEV__) console.log('[AuthContext] No Firebase session, restoring email user from cache');
+          if (cachedToken && cachedOtpVerified) {
+            if (__DEV__) console.log('[AuthContext] Validating stored email session with backend');
+            const restored = await authService.restoreStoredSession();
             setPendingLoginOtp(null);
             setLoginOtpVerified(true);
             await authStorage.clearPendingLoginOtp();
-            applyState(null, cachedToken, cachedUser);
+            applyState(null, restored.token, restored.backendUser);
           } else {
-            if (cachedToken || cachedUser) {
-              await Promise.all([authStorage.clearToken(), authStorage.clearUser()]);
+            if (cachedToken) {
+              await authService.clearLocalSession();
             }
             applyState(null, null, null);
             setLoginOtpVerified(false);
@@ -186,8 +214,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (cachedChallenge) await authStorage.clearPendingLoginOtp();
             }
           }
-        } catch {
+        } catch (error) {
+          if (__DEV__) console.warn('[AuthContext] Stored session rejected:', getApiErrorMessage(error));
+          await authService.clearLocalSession().catch(() => {});
+          await clearQueue().catch(() => {});
           applyState(null, null, null);
+          setPendingLoginOtp(null);
+          setLoginOtpVerified(false);
         }
         setInitialized(true);
         return;
@@ -202,27 +235,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         const msg = getApiErrorMessage(error);
         console.warn('[AuthContext] Bootstrap failed:', msg);
-
-        // ── Graceful fallback: try cached token/user from SecureStore ───────
-        // Do NOT sign out just because the backend is temporarily unreachable.
-        // This prevents demo-breaking logouts on slow networks or backend hiccups.
-        try {
-          const { authStorage } = await import('@/services/storage/authStorage');
-          const cachedToken = await authStorage.getToken();
-          const cachedUser = await authStorage.getUser();
-          if (cachedToken && cachedUser) {
-            console.log('[AuthContext] Bootstrap failed but cached session found — continuing offline');
-            applyState(firebaseUser, cachedToken, cachedUser);
-          } else {
-            // No cached session at all — must sign out
-            console.warn('[AuthContext] No cached session, signing out');
-            applyState(null, null, null);
-            authService.signOut().catch(() => {});
-          }
-        } catch {
-          applyState(null, null, null);
-          authService.signOut().catch(() => {});
-        }
+        // Session restoration is fail-closed: protected routes never render
+        // from cached role data when the authoritative check did not succeed.
+        await authService.clearLocalSession().catch(() => {});
+        await clearQueue().catch(() => {});
+        applyState(null, null, null);
       } finally {
         setInitialized(true);
       }
@@ -266,6 +283,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           };
         }
         const challenge: PendingLoginOtp = {
+          clientType: 'mobile',
           userId: error.userId,
           challengeToken: error.challengeToken,
           maskedEmail: error.maskedEmail,
@@ -321,6 +339,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .catch(() => {});
       return { success: true };
     } catch (error: any) {
+      if (error?.response?.data?.code === 'MOBILE_CUSTOMER_ONLY') {
+        await authService.clearLocalSession().catch(() => {});
+        await clearQueue().catch(() => {});
+        setPendingLoginOtp(null);
+        setLoginOtpVerified(false);
+        applyState(null, null, null);
+      }
       return {
         success: false,
         message: getApiErrorMessage(error, 'Verification failed. Please try again.'),
@@ -343,6 +368,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return { success: true };
     } catch (error: any) {
+      if (error?.response?.data?.code === 'MOBILE_CUSTOMER_ONLY') {
+        await authService.clearLocalSession().catch(() => {});
+        setPendingLoginOtp(null);
+        setLoginOtpVerified(false);
+        applyState(null, null, null);
+      }
       return {
         success: false,
         message: getApiErrorMessage(error, 'Unable to resend code.'),
@@ -390,13 +421,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = async (): Promise<void> => {
     if (!user) {
-      // Email/password user — no Firebase user to bootstrap from; restore from cache.
+      // Email/password user — validate the stored JWT and current DB role.
       try {
-        const cachedToken = await authStorage.getToken();
-        const cachedUser  = await authStorage.getUser();
-        if (cachedToken && cachedUser) applyState(null, cachedToken, cachedUser);
+        const restored = await authService.restoreStoredSession();
+        applyState(null, restored.token, restored.backendUser);
       } catch (error) {
         console.warn('Failed to refresh email user profile:', getApiErrorMessage(error));
+        await signOut();
       }
       return;
     }
@@ -409,21 +440,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signOut = async (): Promise<void> => {
-    try {
-      const { unregisterCurrentPushToken } = await import('@/hooks/usePushNotifications');
-      await unregisterCurrentPushToken();
-      await authService.signOut();
-      // Clear any stuck offline-queued requests so they aren't
-      // replayed with a stale token in the next session.
-      await clearQueue();
-    } catch (error) {
-      console.warn('Sign-out warning:', getApiErrorMessage(error));
-    } finally {
+  const signOut = useCallback((): Promise<void> => {
+    if (signOutPromiseRef.current) return signOutPromiseRef.current;
+
+    const operation = (async () => {
+      try {
+        const { unregisterCurrentPushToken } = await import('@/hooks/usePushNotifications');
+        await unregisterCurrentPushToken();
+      } catch (error) {
+        // Push-token detachment is best-effort; it must not strand a customer
+        // in an authenticated session when the auth provider can sign out.
+        if (__DEV__) console.warn('[AuthContext] Push cleanup warning:', getApiErrorMessage(error));
+      }
+
+      try {
+        await authService.signOut();
+      } catch (error) {
+        console.warn('[AuthContext] Sign-out failed:', getApiErrorMessage(error));
+        throw new Error('Unable to sign out. Please try again.');
+      }
+
+      // Clear in-memory data before publishing the unauthenticated state, so a
+      // subsequent account can never render the previous customer's results.
+      clearCustomerRuntimeState();
+
+      const cleanupResults = await Promise.allSettled([
+        clearQueue(),
+        AsyncStorage.multiRemove(SENSITIVE_CUSTOMER_STORAGE_KEYS),
+      ]);
+      cleanupResults.forEach((result) => {
+        if (result.status === 'rejected' && __DEV__) {
+          console.warn('[AuthContext] Customer data cleanup warning:', result.reason);
+        }
+      });
+
       applyState(null, null, null);
+      setPendingLoginOtp(null);
       setLoginOtpVerified(false);
-    }
-  };
+    })();
+
+    signOutPromiseRef.current = operation;
+    operation.then(
+      () => {
+        if (signOutPromiseRef.current === operation) signOutPromiseRef.current = null;
+      },
+      () => {
+        if (signOutPromiseRef.current === operation) signOutPromiseRef.current = null;
+      }
+    );
+    return operation;
+  }, [clearCustomerRuntimeState]);
 
   const deleteAccount = async (password: string): Promise<{ success: boolean; message?: string }> => {
     try {

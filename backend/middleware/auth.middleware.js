@@ -11,6 +11,13 @@ import User from '../models/user.model.js';
 import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
 import { authVersionMatches } from '../utils/authVersion.utils.js';
 import { timeOperation } from '../utils/performance.utils.js';
+import {
+  MOBILE_CLIENT_TYPE,
+  MOBILE_CUSTOMER_ONLY_CODE,
+  MOBILE_CUSTOMER_ONLY_MESSAGE,
+  MOBILE_SESSION_REQUIRED_CODE,
+  isMobileClientRequest,
+} from '../utils/mobileClientAuth.utils.js';
 
 // Collapse only concurrent reads for the same account. Results are removed as
 // soon as the query settles, so account deactivation/role changes are never
@@ -96,6 +103,20 @@ export const authenticate = async (req, res, next) => {
       const liveRole = migrateLegacyUserRole(userDoc.role);
       if (!liveRole || !isValidUserRole(liveRole)) {
         return res.status(401).json({ success: false, message: 'Invalid account role.' });
+      }
+      if (isMobileClientRequest(req) && !isCustomerRole(liveRole)) {
+        return res.status(403).json({
+          success: false,
+          code: MOBILE_CUSTOMER_ONLY_CODE,
+          message: MOBILE_CUSTOMER_ONLY_MESSAGE,
+        });
+      }
+      if (isMobileClientRequest(req) && decoded.clientType !== MOBILE_CLIENT_TYPE) {
+        return res.status(401).json({
+          success: false,
+          code: MOBILE_SESSION_REQUIRED_CODE,
+          message: 'This session is not valid for the Customer Mobile App. Please sign in again.',
+        });
       }
       if (requiresStaffTwoFactor(liveRole) && !userDoc.isVerified) {
         return res.status(403).json({
@@ -244,8 +265,18 @@ export const optionalAuthenticate = async (req, res, next) => {
             || decoded.emailLinkVerified === true
           )
         );
+      const liveMobileSessionValid = !isMobileClientRequest(req)
+        || (
+          isCustomerRole(liveRole)
+          && decoded.clientType === MOBILE_CLIENT_TYPE
+        );
 
-      if (liveAccountUsable && liveStaffSessionValid && liveCustomerSessionValid) {
+      if (
+        liveAccountUsable
+        && liveStaffSessionValid
+        && liveCustomerSessionValid
+        && liveMobileSessionValid
+      ) {
         req.user = {
           ...decoded,
           role: liveRole,

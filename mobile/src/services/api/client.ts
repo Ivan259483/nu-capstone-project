@@ -42,13 +42,22 @@ const AUTH_INVALID_MESSAGE_HINTS = [
   'email verification is required to complete sign-in',
 ];
 
+const AUTH_INVALID_CODES = new Set([
+  'MOBILE_CUSTOMER_ONLY',
+  'MOBILE_SESSION_REQUIRED',
+  'ACCOUNT_INACTIVE',
+  'USER_DELETED',
+]);
+
 const shouldInvalidateAuthSession = (
   status: number | undefined,
   path: string,
-  message: string
+  message: string,
+  code?: string,
 ): boolean => {
-  if (status !== 401) return false;
   if (AUTH_EXEMPT_PATHS.some((authPath) => path.includes(authPath))) return false;
+  if (code && AUTH_INVALID_CODES.has(code)) return true;
+  if (status !== 401) return false;
 
   const lowered = message.toLowerCase();
   return AUTH_INVALID_MESSAGE_HINTS.some((hint) => lowered.includes(hint));
@@ -60,6 +69,9 @@ export const apiClient = axios.create({
   timeout: 20000,
   headers: {
     'Content-Type': 'application/json',
+    // The backend binds JWTs issued through this client to the Customer Mobile
+    // App and applies a live, Customer-only role check to protected requests.
+    'X-Client-Type': 'mobile',
     // ngrok free tier HTML interstitial breaks non-browser clients; skip it for API calls
     'ngrok-skip-browser-warning': 'true',
   },
@@ -79,16 +91,17 @@ apiClient.interceptors.request.use(async (config) => {
 
 apiClient.interceptors.response.use(
   (response) => response,
-  async (error: AxiosError<{ message?: string }>) => {
+  async (error: AxiosError<{ message?: string; code?: string }>) => {
     const config = error.config as AxiosRequestConfig & { _retryCount?: number };
     const status = error.response?.status;
     const path = config?.url || '';
     const message = (error.response?.data as any)?.message || error.message || 'Unknown API error';
+    const code = (error.response?.data as any)?.code;
     // Authentication bodies can contain passwords, OTPs, or opaque challenges.
     // They must never be retried into a second challenge or persisted in the
     // plaintext offline mutation queue.
     const isSensitiveAuthRequest = path.includes('/auth/');
-    const invalidatesAuthSession = shouldInvalidateAuthSession(status, path, message);
+    const invalidatesAuthSession = shouldInvalidateAuthSession(status, path, message, code);
     const suppressExpectedErrorLog =
       Boolean((config as any)?.meta?.suppressExpectedErrorLog) && status === 404;
 
@@ -224,6 +237,7 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<any>>();
+let cacheGeneration = 0;
 
 /** TTL presets (milliseconds) */
 export const TTL = {
@@ -262,11 +276,16 @@ export async function cachedGet<T = any>(
   if (existing) return existing as Promise<T>;
 
   // 3. Fire request
+  const requestGeneration = cacheGeneration;
   const request = apiClient.get(url, config).then((res) => {
-    cache.set(key, { data: res.data, expiresAt: Date.now() + ttl });
+    // A response started for a signed-out customer must never repopulate the
+    // shared cache after the next customer has begun a session.
+    if (requestGeneration === cacheGeneration) {
+      cache.set(key, { data: res.data, expiresAt: Date.now() + ttl });
+    }
     return res.data;
   }).finally(() => {
-    inflight.delete(key);
+    if (inflight.get(key) === request) inflight.delete(key);
   });
 
   inflight.set(key, request);
@@ -278,6 +297,13 @@ export function invalidateCache(prefix: string): void {
   for (const key of cache.keys()) {
     if (key.startsWith(prefix)) cache.delete(key);
   }
+}
+
+/** Drop every account-bound GET result and detach requests from the old session. */
+export function clearApiCache(): void {
+  cacheGeneration += 1;
+  cache.clear();
+  inflight.clear();
 }
 
 // ── Error helpers (unchanged) ────────────────────────────────────────

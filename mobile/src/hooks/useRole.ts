@@ -18,14 +18,13 @@ import { useAuth } from '@/context/AuthContext';
 import type { UserRole } from '@/services/api/types';
 import {
   CUSTOMER_ROLE,
-  getSafeUserRole,
   isAdminDashboardRole,
   isServiceStaffRole,
 } from '@/services/api/roles';
 
 interface RoleInfo {
   /** The canonical role string from the backend RBAC model. */
-  role: UserRole;
+  role: UserRole | null;
 
   /** True if the current user has admin-dashboard privileges */
   isAdmin: boolean;
@@ -47,14 +46,14 @@ export function useRole(): RoleInfo {
   const { profile } = useAuth();
 
   return useMemo(() => {
-    const role: UserRole = getSafeUserRole(profile?.role, CUSTOMER_ROLE);
+    const role = profile?.role ?? null;
 
     return {
       role,
-      isAdmin: isAdminDashboardRole(role),
-      isStaff: isServiceStaffRole(role),
+      isAdmin: role ? isAdminDashboardRole(role) : false,
+      isStaff: role ? isServiceStaffRole(role) : false,
       isCustomer: role === CUSTOMER_ROLE,
-      hasRole: (...roles: UserRole[]) => roles.includes(role),
+      hasRole: (...roles: UserRole[]) => Boolean(role && roles.includes(role)),
     };
   }, [profile?.role]);
 }

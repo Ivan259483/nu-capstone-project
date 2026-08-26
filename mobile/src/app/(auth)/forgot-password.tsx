@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   StyleSheet,
   ScrollView,
 } from 'react-native';
@@ -22,6 +21,7 @@ import PremiumButton from '@/components/ui/PremiumButton';
 import { Validation } from '@/utils/validation';
 import { authService } from '@/services/api/authService';
 import { apiClient, getApiErrorMessage } from '@/services/api/client';
+import AuthFeedback, { type AuthFeedbackData } from '@/components/auth/AuthFeedback';
 
 type Step = 'email' | 'otp' | 'newPassword' | 'success';
 const OTP_LENGTH = 6;
@@ -41,16 +41,14 @@ export default function ForgotPasswordScreen() {
   const [confirmError, setConfirmError] = useState('');
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [feedback, setFeedback] = useState<AuthFeedbackData | null>(null);
 
   const otpRefs = React.useRef<(TextInput | null)[]>([]);
 
-  const haptic = (type: 'light' | 'success' | 'error' = 'light') => {
+  const haptic = (type: 'success' | 'error') => {
     if (Platform.OS === 'web') return;
     if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    else if (type === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    else Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    else Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
   };
 
   function startCountdown() {
@@ -65,26 +63,36 @@ export default function ForgotPasswordScreen() {
 
   // ── Step 1: Send OTP ─────────────────────────────────────────────────────────
   async function handleSendOtp() {
+    if (loading) return;
     setEmailError('');
+    setFeedback(null);
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail) { setEmailError('Email is required'); return; }
     if (!Validation.isValidEmail(normalizedEmail)) { setEmailError('Please enter a valid email address'); return; }
 
     setLoading(true);
-    haptic();
     try {
       const res = await apiClient.post('/auth/forgot-password', { email: normalizedEmail });
       if (res.data?.success) {
         setEmail(normalizedEmail);
         haptic('success');
         setStep('otp');
+        setFeedback({
+          type: 'success',
+          title: 'Verification code sent',
+          message: 'Check your email for the 6-digit reset code.',
+        });
         startCountdown();
       } else {
         throw new Error(res.data?.message || 'Unable to send reset code.');
       }
     } catch (err: any) {
       haptic('error');
-      Alert.alert('Error', getApiErrorMessage(err, 'Failed to send reset code.'));
+      setFeedback({
+        type: 'error',
+        title: 'Unable to send code',
+        message: getApiErrorMessage(err, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }
@@ -92,22 +100,40 @@ export default function ForgotPasswordScreen() {
 
   // ── Step 2: Verify OTP ────────────────────────────────────────────────────────
   async function handleVerifyOtp() {
+    if (loading) return;
     const code = normalizeOtp(otp.join(''));
-    if (code.length < OTP_LENGTH) { Alert.alert('Invalid', 'Please enter the full 6-digit code.'); return; }
+    setFeedback(null);
+    if (code.length < OTP_LENGTH) {
+      haptic('error');
+      setFeedback({
+        type: 'error',
+        title: 'Complete the code',
+        message: 'Enter all 6 digits to continue.',
+      });
+      return;
+    }
 
     setLoading(true);
-    haptic();
     try {
       const res = await apiClient.post('/auth/verify-reset-otp', { email: normalizeEmail(email), otp: code });
       if (res.data?.success) {
         haptic('success');
         setStep('newPassword');
+        setFeedback({
+          type: 'success',
+          title: 'Code verified',
+          message: 'Choose a new password for your account.',
+        });
       } else {
         throw new Error(res.data?.message || 'Incorrect code. Please try again.');
       }
     } catch (err: any) {
       haptic('error');
-      Alert.alert('Verification Failed', getApiErrorMessage(err));
+      setFeedback({
+        type: 'error',
+        title: 'Incorrect verification code',
+        message: getApiErrorMessage(err, 'Check the code and try again.'),
+      });
       setOtp(['', '', '', '', '', '']);
       otpRefs.current[0]?.focus();
     } finally {
@@ -117,8 +143,10 @@ export default function ForgotPasswordScreen() {
 
   // ── Step 3: Set new password ──────────────────────────────────────────────────
   async function handleResetPassword() {
+    if (loading) return;
     setPasswordError('');
     setConfirmError('');
+    setFeedback(null);
 
     if (!newPassword) { setPasswordError('Password is required'); return; }
     if (!Validation.isStrongPassword(newPassword)) {
@@ -128,7 +156,6 @@ export default function ForgotPasswordScreen() {
     if (newPassword !== confirmPassword) { setConfirmError('Passwords do not match'); return; }
 
     setLoading(true);
-    haptic();
     try {
       const res = await apiClient.post('/auth/reset-password', {
         email: normalizeEmail(email),
@@ -145,7 +172,11 @@ export default function ForgotPasswordScreen() {
       }
     } catch (err: any) {
       haptic('error');
-      Alert.alert('Reset Failed', getApiErrorMessage(err));
+      setFeedback({
+        type: 'error',
+        title: 'Unable to reset password',
+        message: getApiErrorMessage(err, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }
@@ -202,6 +233,8 @@ export default function ForgotPasswordScreen() {
                 <Text style={styles.subtitle}>Enter your email and we&apos;ll send a verification code to reset your password.</Text>
               </Animated.View>
 
+              {feedback ? <AuthFeedback {...feedback} style={styles.feedbackCard} /> : null}
+
               <Animated.View entering={FadeInUp.delay(200).duration(200)}>
                 <PremiumInput
                   label="EMAIL ADDRESS"
@@ -217,10 +250,12 @@ export default function ForgotPasswordScreen() {
 
               <Animated.View entering={FadeInUp.delay(300).duration(200)} style={{ marginTop: 32 }}>
                 <PremiumButton
-                  title={loading ? 'SENDING CODE...' : 'SEND RESET CODE'}
+                  title={loading ? 'Sending code…' : 'SEND RESET CODE'}
                   icon={loading ? undefined : 'paper-plane-outline'}
                   onPress={handleSendOtp}
                   disabled={loading}
+                  loading={loading}
+                  premiumAuth
                 />
               </Animated.View>
             </>
@@ -239,6 +274,8 @@ export default function ForgotPasswordScreen() {
                   <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>{email}</Text>
                 </Text>
               </Animated.View>
+
+              {feedback ? <AuthFeedback {...feedback} style={styles.feedbackCard} /> : null}
 
               <Animated.View entering={FadeInUp.delay(200).duration(200)}>
                 <View style={styles.otpRow}>
@@ -262,10 +299,12 @@ export default function ForgotPasswordScreen() {
 
               <Animated.View entering={FadeInUp.delay(300).duration(200)} style={{ marginTop: 32 }}>
                 <PremiumButton
-                  title={loading ? 'VERIFYING...' : 'VERIFY CODE'}
+                  title={loading ? 'Verifying…' : 'VERIFY CODE'}
                   icon={loading ? undefined : 'checkmark-circle-outline'}
                   onPress={handleVerifyOtp}
                   disabled={loading || normalizeOtp(otp.join('')).length < OTP_LENGTH}
+                  loading={loading}
+                  premiumAuth
                 />
               </Animated.View>
 
@@ -294,6 +333,8 @@ export default function ForgotPasswordScreen() {
                 <Text style={styles.subtitle}>Choose a strong password for your account.</Text>
               </Animated.View>
 
+              {feedback ? <AuthFeedback {...feedback} style={styles.feedbackCard} /> : null}
+
               <Animated.View entering={FadeInUp.delay(200).duration(200)}>
                 <PremiumInput
                   label="NEW PASSWORD"
@@ -320,10 +361,12 @@ export default function ForgotPasswordScreen() {
 
               <Animated.View entering={FadeInUp.delay(360).duration(200)} style={{ marginTop: 32 }}>
                 <PremiumButton
-                  title={loading ? 'SAVING...' : 'RESET PASSWORD'}
+                  title={loading ? 'Saving…' : 'RESET PASSWORD'}
                   icon={loading ? undefined : 'checkmark-done-outline'}
                   onPress={handleResetPassword}
                   disabled={loading}
+                  loading={loading}
+                  premiumAuth
                 />
               </Animated.View>
             </>
@@ -383,6 +426,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 32, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.5, marginBottom: 10 },
   subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.50)', textAlign: 'center', lineHeight: 22 },
+  feedbackCard: { marginTop: -16, marginBottom: 24 },
 
   otpRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 8 },
   otpBox: {
