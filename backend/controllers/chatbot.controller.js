@@ -113,7 +113,7 @@ import {
 } from '../services/chatConciergeReasoning.service.js';
 
 const GROQ_MODEL = GROQ_CHAT_MODEL;
-const GROQ_MAX_COMPLETION_TOKENS = Number(process.env.GROQ_CHAT_MAX_TOKENS || 190);
+const GROQ_MAX_COMPLETION_TOKENS = Number(process.env.GROQ_CHAT_MAX_TOKENS || 320);
 const CHAT_SESSION_CACHE_TTL_MS = 5 * 60 * 1000;
 const CHAT_KNOWLEDGE_CACHE_TTL_MS = 5 * 60 * 1000;
 const CHAT_HISTORY_LIMIT = 4;
