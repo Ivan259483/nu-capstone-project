@@ -15,9 +15,10 @@ import { useNotifications } from '@/context/NotificationsContext';
 
 interface AnimatedHeaderProps {
   notifCount?: number;
+  compact?: boolean;
 }
 
-export default function AnimatedHeader({ notifCount }: AnimatedHeaderProps) {
+export default function AnimatedHeader({ notifCount, compact = false }: AnimatedHeaderProps) {
   const { colors, isDark } = useTheme();
   const { profile } = useAuth();
   const insets = useSafeAreaInsets();
@@ -39,17 +40,17 @@ export default function AnimatedHeader({ notifCount }: AnimatedHeaderProps) {
         ]}
       />
 
-      <View style={styles.inner}>
+      <View style={[styles.inner, compact && styles.innerCompact]}>
         {/* Logo */}
         <View style={styles.logoRow}>
-          <View style={styles.logoIcon}>
-            <Text style={styles.logoLetter}>A</Text>
+          <View style={[styles.logoIcon, compact && styles.logoIconCompact]}>
+            <Text style={[styles.logoLetter, compact && styles.logoLetterCompact]}>A</Text>
           </View>
           <View>
-            <Text style={[styles.logoTitle, { color: colors.text }]}>
+            <Text style={[styles.logoTitle, compact && styles.logoTitleCompact, { color: colors.text }]}>
               AutoSPF<Text style={{ color: Palette.accent }}>+</Text>
             </Text>
-            <Text style={[styles.logoSub, { color: colors.textMuted }]}>
+            <Text style={[styles.logoSub, compact && styles.logoSubCompact, { color: colors.textMuted }]}>
               CUSTOMER PORTAL
             </Text>
           </View>
@@ -61,7 +62,7 @@ export default function AnimatedHeader({ notifCount }: AnimatedHeaderProps) {
             onPress={() => router.push('/(screens)/notifications')}
             style={styles.bellBtn}
           >
-            <Ionicons name="notifications-outline" size={22} color={colors.text} />
+            <Ionicons name="notifications-outline" size={compact ? 20 : 22} color={colors.text} />
             {badgeCount > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
@@ -70,8 +71,8 @@ export default function AnimatedHeader({ notifCount }: AnimatedHeaderProps) {
           </TouchableOpacity>
 
           <View style={styles.avatarTouchTarget}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
+            <View style={[styles.avatar, compact && styles.avatarCompact]}>
+              <Text style={[styles.avatarText, compact && styles.avatarTextCompact]}>
                 {profile?.full_name ? profile.full_name.substring(0, 2).toUpperCase() : 'U'}
               </Text>
             </View>
@@ -95,6 +96,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 7,
   },
+  innerCompact: {
+    paddingVertical: 0,
+  },
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -108,20 +112,37 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: Palette.accent,
   },
+  logoIconCompact: {
+    width: 27,
+    height: 27,
+    borderRadius: 9,
+  },
   logoLetter: {
     fontSize: 14,
     fontWeight: '800',
     color: '#fff',
+  },
+  logoLetterCompact: {
+    fontSize: 13,
   },
   logoTitle: {
     fontSize: 15,
     fontWeight: '800',
     lineHeight: 17,
   },
+  logoTitleCompact: {
+    fontSize: 14,
+    lineHeight: 16,
+  },
   logoSub: {
     fontSize: 9,
     fontWeight: '500',
     letterSpacing: 0.6,
+  },
+  logoSubCompact: {
+    fontSize: 8,
+    lineHeight: 10,
+    letterSpacing: 0.55,
   },
   rightRow: {
     flexDirection: 'row',
@@ -159,10 +180,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: Palette.accent,
   },
+  avatarCompact: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
   avatarText: {
     fontSize: 12,
     fontWeight: '800',
     color: '#fff',
+  },
+  avatarTextCompact: {
+    fontSize: 11,
   },
   avatarTouchTarget: {
     width: 44,

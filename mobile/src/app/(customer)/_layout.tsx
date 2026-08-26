@@ -115,6 +115,10 @@ function CustomTabBar({ state, navigation }: any) {
   );
   const activeRouteName = (state.routes as any[])[state.index]?.name as string;
 
+  // Booking is a focused transaction. Its own Back / Continue controls replace
+  // the global destinations until the user leaves the booking route.
+  if (activeRouteName === 'book') return null;
+
   return (
     <View
       style={[

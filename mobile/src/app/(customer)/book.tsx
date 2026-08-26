@@ -32,6 +32,7 @@ import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   FadeInDown,
+  FadeInRight,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -47,7 +48,7 @@ import { serviceService } from '@/services/api/serviceService';
 import { vehicleService } from '@/services/api/vehicleService';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import type { ServiceOption, Vehicle } from '@/services/api/types';
-import { Palette, TabBarContentHeight, TabBarHeight } from '@/constants/theme';
+import { Palette } from '@/constants/theme';
 import AnimatedHeader from '@/components/ui/AnimatedHeader';
 import GlassCard from '@/components/ui/GlassCard';
 import Badge from '@/components/ui/Badge';
@@ -311,7 +312,7 @@ function StepIndicator({ current }: { current: number }) {
   );
 }
 
-/** Schedule-only progress treatment: editorial hierarchy with a quiet 2px track. */
+/** Schedule-only progress treatment: editorial hierarchy with six quiet ticks. */
 function ScheduleProgressHeader() {
   return (
     <View
@@ -320,13 +321,22 @@ function ScheduleProgressHeader() {
       accessibilityValue={{ min: 1, max: STEP_LABELS.length, now: 3 }}
       accessibilityLabel="Schedule, step 3 of 6"
     >
-      <View style={scheduleProgress.titleRow}>
-        <Text style={scheduleProgress.title}>Schedule</Text>
-        <Text style={scheduleProgress.count}>03 / 06</Text>
+      <View style={scheduleProgress.metaRow}>
+        <Text style={scheduleProgress.count}>03 <Text style={scheduleProgress.countQuiet}>of 06</Text></Text>
+        <View style={scheduleProgress.ticks} accessibilityElementsHidden>
+          {STEP_LABELS.map((label, index) => (
+            <View
+              key={label}
+              style={[
+                scheduleProgress.tick,
+                index < 2 && scheduleProgress.tickComplete,
+                index === 2 && scheduleProgress.tickCurrent,
+              ]}
+            />
+          ))}
+        </View>
       </View>
-      <View style={scheduleProgress.track}>
-        <View style={scheduleProgress.fill} />
-      </View>
+      <Text style={scheduleProgress.title}>Schedule</Text>
     </View>
   );
 }
@@ -334,40 +344,50 @@ function ScheduleProgressHeader() {
 const scheduleProgress = StyleSheet.create({
   container: {
     paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 10,
+    paddingTop: 11,
+    paddingBottom: 8,
     backgroundColor: SURFACE_LOW,
   },
-  titleRow: {
+  metaRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 3,
   },
   title: {
     color: '#F7F7F8',
-    fontSize: 22,
-    lineHeight: 27,
-    fontWeight: '700',
-    letterSpacing: -0.45,
+    fontSize: 29,
+    lineHeight: 34,
+    fontWeight: '600',
+    letterSpacing: -0.8,
   },
   count: {
-    color: '#8B8B94',
+    color: '#D4D4D8',
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '600',
-    letterSpacing: 0.7,
+    letterSpacing: 0.25,
   },
-  track: {
-    height: 2,
-    overflow: 'hidden',
-    borderRadius: 1,
-    backgroundColor: 'rgba(255,255,255,0.07)',
+  countQuiet: {
+    color: '#71717A',
+    fontSize: 10,
+    fontWeight: '500',
   },
-  fill: {
-    width: '50%',
+  ticks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  tick: {
+    width: 16,
     height: 2,
     borderRadius: 1,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  tickComplete: {
+    backgroundColor: 'rgba(255,255,255,0.28)',
+  },
+  tickCurrent: {
     backgroundColor: Palette.accent,
   },
 });
@@ -672,18 +692,6 @@ const formatIsoDateForDisplay = (value: string | null, includeWeekday = false) =
   });
 };
 
-const formatIsoDateCompact = (value: string | null) => {
-  if (!value) return '—';
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return value;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  return date.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-};
-
 const getSlotStartMinutes = (value: string): number | null => {
   const raw = String(value || '').trim();
   const twentyFour = raw.match(/^(\d{1,2}):(\d{2})$/);
@@ -706,6 +714,184 @@ const getSlotStartMinutes = (value: string): number | null => {
   }
   return hour * 60 + minute;
 };
+
+const getSelectedDateParts = (value: string | null) => {
+  if (!value) return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return {
+    day: String(date.getDate()).padStart(2, '0'),
+    weekday: date.toLocaleDateString('en-US', { weekday: 'long' }),
+    monthYear: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).toUpperCase(),
+  };
+};
+
+type CalendarGridItem = {
+  day: number;
+  isCurrentMonth: boolean;
+  dateKey: string;
+  iso: string;
+  isPast: boolean;
+};
+
+function CalendarDay({
+  item,
+  selectedDate,
+  todayKey,
+  monthAvailability,
+  loading,
+  onSelectDate,
+}: {
+  item: CalendarGridItem;
+  selectedDate: string | null;
+  todayKey: string;
+  monthAvailability: DayAvailabilityMap;
+  loading: boolean;
+  onSelectDate: (dateKey: string, iso: string) => void;
+}) {
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const isSelected = item.isCurrentMonth && selectedDate === item.dateKey;
+  const isStaticDisabled = !item.isCurrentMonth || item.isPast;
+  const dayInfo = item.isCurrentMonth && !item.isPast ? monthAvailability[item.iso] : undefined;
+  const availStatus = dayInfo?.status;
+  const isUnavailable = loading || !dayInfo || !!dayInfo.unavailable || availStatus === 'closed' || availStatus === 'full';
+  const isToday = item.isCurrentMonth && item.iso === todayKey;
+  const statusColor = dayInfo
+    ? dayInfo.errorCode === 'EMERGENCY_CLOSED'
+      ? CALENDAR_STATUS_COLORS.full
+      : CALENDAR_STATUS_COLORS[dayInfo.status]
+    : null;
+  const statusMarkerStyle = dayInfo?.errorCode === 'EMERGENCY_CLOSED'
+    ? cal.statusIndicatorBooked
+    : dayInfo?.status === 'full'
+      ? cal.statusIndicatorBooked
+      : dayInfo?.status === 'closed'
+        ? cal.statusIndicatorClosed
+        : null;
+
+  return (
+    <Animated.View style={[cal.dayCell, animatedStyle]}>
+      <TouchableOpacity
+        activeOpacity={isStaticDisabled || isUnavailable ? 1 : 0.82}
+        disabled={isStaticDisabled}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: isStaticDisabled || isUnavailable, selected: isSelected }}
+        accessibilityLabel={dayInfo && !item.isPast
+          ? `${item.iso}: ${availStatus === 'closed'
+            ? dayInfo.errorCode === 'EMERGENCY_CLOSED' || dayInfo.closureType === 'emergency'
+              ? 'Emergency Closed'
+              : 'Closed'
+            : availStatus === 'full'
+              ? 'Fully Booked'
+              : `${dayInfo.remaining ?? 0} appointment${dayInfo.remaining === 1 ? '' : 's'} available`}`
+          : undefined}
+        onPressIn={() => {
+          if (!isStaticDisabled && !isUnavailable) scale.value = withTiming(0.985, { duration: 90 });
+        }}
+        onPressOut={() => { scale.value = withTiming(1, { duration: 140 }); }}
+        onPress={() => {
+          if (isStaticDisabled) return;
+          if (isUnavailable) {
+            Toast.show(
+              loading
+                ? 'Checking live availability…'
+                : dayInfo?.reason || 'Live availability could not be confirmed for this date.',
+              'info',
+            );
+            return;
+          }
+          onSelectDate(item.dateKey, item.iso);
+          Haptics.selectionAsync();
+        }}
+        style={cal.dayTouchTarget}
+      >
+        <Text style={[
+          cal.dayText,
+          !item.isCurrentMonth && cal.dayTextAdjacent,
+          item.isCurrentMonth && item.isPast && cal.dayTextPast,
+          item.isCurrentMonth && !item.isPast && isUnavailable && cal.dayTextUnavailable,
+          isToday && cal.dayTextToday,
+          isSelected && cal.dayTextSelected,
+        ]}>
+          {item.day}
+        </Text>
+        <View style={cal.statusIndicatorTrack}>
+          {statusColor && !item.isPast && !isSelected ? (
+            <View style={[
+              cal.statusIndicator,
+              { backgroundColor: statusColor },
+              statusMarkerStyle,
+            ]} />
+          ) : null}
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+function TimeSlotButton({
+  time,
+  status,
+  selected,
+  onSelect,
+}: {
+  time: string;
+  status: 'AVAILABLE' | 'FULL' | 'CLOSED';
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const isFull = status === 'FULL';
+  const isClosed = status === 'CLOSED';
+  const disabled = isFull || isClosed;
+  const statusLabel = isFull ? 'Booked' : isClosed ? 'Closed' : 'Available';
+
+  return (
+    <Animated.View style={[s2.timeSlotWrapper, animatedStyle]}>
+      <TouchableOpacity
+        onPress={() => {
+          if (disabled) return;
+          onSelect();
+        }}
+        onPressIn={() => {
+          if (!disabled) scale.value = withTiming(0.985, { duration: 90 });
+        }}
+        onPressOut={() => { scale.value = withTiming(1, { duration: 140 }); }}
+        activeOpacity={disabled ? 1 : 0.88}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`${time}, ${statusLabel}`}
+        accessibilityState={{ disabled, selected }}
+        style={[
+          s2.timePill,
+          selected && s2.timePillSelected,
+          isFull && s2.timePillFull,
+          isClosed && s2.timePillClosed,
+        ]}
+      >
+        {selected ? (
+          <View style={s2.timePillSelectedContent}>
+            <Text style={s2.timeTextSelected}>{time}</Text>
+            <Ionicons name="checkmark" size={15} color="#09090A" />
+          </View>
+        ) : (
+          <View style={s2.timePillContent}>
+            <Text style={[
+              s2.timeText,
+              isFull && s2.timeTextFull,
+              isClosed && s2.timeTextClosed,
+            ]}>{time}</Text>
+            {isFull && <Text style={s2.timeStatusBooked}>Booked</Text>}
+            {isClosed && <Text style={s2.timeStatusClosed}>Closed</Text>}
+          </View>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
 
 /** Month Calendar Grid Component — mirrors web CustomerDashboard calendar */
 function MonthCalendar({
@@ -760,10 +946,7 @@ function MonthCalendar({
   const blanks         = firstDay;
   const daysInPrevMonth = new Date(year, month, 0).getDate();
 
-  const grid: Array<{
-    day: number; isCurrentMonth: boolean;
-    dateKey: string; iso: string; isPast: boolean;
-  }> = [];
+  const grid: CalendarGridItem[] = [];
 
   for (let i = 0; i < blanks; i++) {
     grid.push({ day: daysInPrevMonth - blanks + i + 1, isCurrentMonth: false, dateKey: '', iso: '', isPast: true });
@@ -784,7 +967,10 @@ function MonthCalendar({
     <View style={cal.container}>
       {/* Month is the hero; controls stay visually quiet inside 44pt targets. */}
       <View style={cal.header}>
-        <Text style={cal.monthTitle}>{MONTH_NAMES_FULL[month]} {year}</Text>
+        <View style={cal.monthLockup}>
+          <Text style={cal.monthTitle}>{MONTH_NAMES_FULL[month]}</Text>
+          <Text style={cal.yearTitle}>{year}</Text>
+        </View>
         <View style={cal.monthControls}>
           <TouchableOpacity
             onPress={prevMonth}
@@ -807,92 +993,27 @@ function MonthCalendar({
         </View>
       </View>
 
-      {/* Weekday headers */}
-      <View style={cal.weekdays}>
-        {WEEKDAYS.map((d, i) => (
-          <Text key={i} style={cal.weekdayText}>{d}</Text>
-        ))}
-      </View>
+      <Animated.View key={`${year}-${month}`} entering={FadeInRight.duration(160)}>
+        <View style={cal.weekdays}>
+          {WEEKDAYS.map((d, i) => (
+            <Text key={i} style={cal.weekdayText}>{d}</Text>
+          ))}
+        </View>
 
-      {/* Day grid */}
-      <View style={cal.grid}>
-        {grid.map((item, idx) => {
-          const isSelected = item.isCurrentMonth && selectedDate === item.dateKey;
-          const isStaticDisabled = !item.isCurrentMonth || item.isPast;
-          const dayInfo = item.isCurrentMonth && !item.isPast ? monthAvailability[item.iso] : undefined;
-          const availStatus = dayInfo?.status;
-          const isUnavailable = loading || !dayInfo || !!dayInfo.unavailable || availStatus === 'closed' || availStatus === 'full';
-          const isToday = item.isCurrentMonth && item.iso === todayKey;
-          const statusColor = dayInfo
-            ? dayInfo.errorCode === 'EMERGENCY_CLOSED'
-              ? CALENDAR_STATUS_COLORS.full
-              : CALENDAR_STATUS_COLORS[dayInfo.status]
-            : null;
-          const statusMarkerStyle = dayInfo?.errorCode === 'EMERGENCY_CLOSED'
-            ? cal.statusIndicatorBooked
-            : dayInfo?.status === 'full'
-              ? cal.statusIndicatorBooked
-              : dayInfo?.status === 'closed'
-                ? cal.statusIndicatorClosed
-                : null;
-
-          return (
-            <TouchableOpacity
-              key={idx}
-              activeOpacity={isStaticDisabled || isUnavailable ? 1 : 0.8}
-              disabled={isStaticDisabled}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: isStaticDisabled || isUnavailable, selected: isSelected }}
-              accessibilityLabel={dayInfo && !item.isPast
-                ? `${item.iso}: ${availStatus === 'closed'
-                  ? dayInfo.errorCode === 'EMERGENCY_CLOSED' || dayInfo.closureType === 'emergency'
-                    ? 'Emergency Closed'
-                    : 'Closed'
-                  : availStatus === 'full'
-                    ? 'Fully Booked'
-                    : `${dayInfo.remaining ?? 0} appointment${dayInfo.remaining === 1 ? '' : 's'} available`}`
-                : undefined}
-              onPress={() => {
-                if (isStaticDisabled) return;
-                if (isUnavailable) {
-                  Toast.show(
-                    loading
-                      ? 'Checking live availability…'
-                      : dayInfo?.reason || 'Live availability could not be confirmed for this date.',
-                    'info',
-                  );
-                  return;
-                }
-                onSelectDate(item.dateKey, item.iso);
-                Haptics.selectionAsync();
-              }}
-              style={[
-                cal.dayCell,
-              ]}
-            >
-              <Text style={[
-                cal.dayText,
-                !item.isCurrentMonth && cal.dayTextAdjacent,
-                item.isCurrentMonth && item.isPast && cal.dayTextPast,
-                item.isCurrentMonth && !item.isPast && isUnavailable && cal.dayTextUnavailable,
-                isToday && cal.dayTextToday,
-                isSelected && cal.dayTextSelected,
-              ]}>
-                {item.day}
-              </Text>
-              <View style={cal.statusIndicatorTrack}>
-                {statusColor && !item.isPast && !isSelected ? (
-                  <View style={[
-                    cal.statusIndicator,
-                    { backgroundColor: statusColor },
-                    statusMarkerStyle,
-                  ]} />
-                ) : null}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+        <View style={cal.grid}>
+          {grid.map((item, idx) => (
+            <CalendarDay
+              key={`${item.iso || 'adjacent'}-${idx}`}
+              item={item}
+              selectedDate={selectedDate}
+              todayKey={todayKey}
+              monthAvailability={monthAvailability}
+              loading={loading}
+              onSelectDate={onSelectDate}
+            />
+          ))}
+        </View>
+      </Animated.View>
 
       <View style={cal.legend} accessibilityLabel="Calendar availability legend">
         {[
@@ -912,23 +1033,33 @@ function MonthCalendar({
 
 const cal = StyleSheet.create({
   container: {
-    paddingTop: 2,
-    paddingBottom: 2,
+    paddingTop: 4,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 10,
+    marginBottom: 9,
+  },
+  monthLockup: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
   },
   monthTitle: {
-    flex: 1,
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: '700',
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '600',
     color: '#F7F7F8',
-    letterSpacing: -0.7,
+    letterSpacing: -0.85,
+  },
+  yearTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+    color: '#71717A',
   },
   monthControls: {
     flexDirection: 'row',
@@ -938,10 +1069,8 @@ const cal = StyleSheet.create({
   arrowBtn: {
     width: 44,
     height: 44,
-    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.035)',
   },
   weekdays: {
     flexDirection: 'row',
@@ -960,21 +1089,23 @@ const cal = StyleSheet.create({
   },
   dayCell: {
     width: '14.28%',
-    minHeight: 46,
-    paddingVertical: 2,
+    height: 44,
+  },
+  dayTouchTarget: {
+    flex: 1,
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 1,
   },
   dayText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: '#E4E4E7',
-    width: 34,
-    height: 34,
+    width: 30,
+    height: 30,
     textAlign: 'center',
-    lineHeight: 34,
-    borderRadius: 17,
+    lineHeight: 30,
+    borderRadius: 15,
     overflow: 'hidden',
   },
   dayTextAdjacent: {
@@ -990,34 +1121,34 @@ const cal = StyleSheet.create({
     fontWeight: '500',
   },
   dayTextToday: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.55)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,107,53,0.60)',
   },
   dayTextSelected: {
     backgroundColor: Palette.accent,
     borderColor: Palette.accent,
     color: '#FFFFFF',
-    fontWeight: '800',
+    fontWeight: '700',
   },
   statusIndicatorTrack: {
-    height: 4,
+    height: 3,
     alignItems: 'center',
     justifyContent: 'center',
   },
   statusIndicator: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+  },
+  statusIndicatorBooked: {
     width: 4,
     height: 4,
     borderRadius: 2,
   },
-  statusIndicatorBooked: {
+  statusIndicatorClosed: {
     width: 5,
     height: 5,
     borderRadius: 2.5,
-  },
-  statusIndicatorClosed: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
     backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: CALENDAR_STATUS_COLORS.closed,
@@ -1027,12 +1158,10 @@ const cal = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'flex-start',
-    columnGap: 18,
+    columnGap: 14,
     rowGap: 6,
-    marginTop: 8,
-    paddingTop: 11,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+    marginTop: 6,
+    paddingTop: 2,
   },
   legendItem: {
     flexDirection: 'row',
@@ -1040,13 +1169,13 @@ const cal = StyleSheet.create({
     gap: 6,
   },
   legendDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   legendText: {
-    fontSize: 12,
-    color: '#8B8B94',
+    fontSize: 11,
+    color: '#71717A',
     fontWeight: '500',
   },
 });
@@ -1713,24 +1842,14 @@ export default function BookScreen() {
   };
 
   const availableTimeOptionCount = slotStatuses.filter((slot) => slot.status === 'AVAILABLE').length;
-  const selectedDateCapacityLabel = !selectedDate
-    ? ''
-    : selectedDayAvailability?.status === 'full'
-      ? 'Fully Booked'
-      : selectedDayAvailability?.status === 'closed'
-        ? selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED'
-          ? 'Emergency Closed'
-          : 'Closed'
-        : typeof selectedDayAvailability?.remaining === 'number'
-          ? `${selectedDayAvailability.remaining} slot${selectedDayAvailability.remaining === 1 ? '' : 's'} available`
-          : 'Checking daily availability';
+  const selectedDateParts = getSelectedDateParts(selectedDate);
   const timeOptionCountLabel = !selectedDate
     ? 'Select a date first'
     : slotsLoading
-      ? 'Checking available times'
+      ? 'Checking availability'
       : selectedDayAvailability?.status === 'full' || selectedDayAvailability?.status === 'closed'
-        ? 'No time options available'
-        : `${availableTimeOptionCount} slot${availableTimeOptionCount === 1 ? '' : 's'} available`;
+        ? 'No appointments available'
+        : `${availableTimeOptionCount} appointment${availableTimeOptionCount === 1 ? '' : 's'} available`;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Success screen
@@ -1749,10 +1868,10 @@ export default function BookScreen() {
 
     return (
       <View style={[ss.screen, { backgroundColor: SURFACE_LOW }]}>
-        <AnimatedHeader />
+        <AnimatedHeader compact />
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: TabBarHeight + 40 }}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
           showsVerticalScrollIndicator={false}
         >
           {/* ── Success Hero ── */}
@@ -1918,7 +2037,7 @@ export default function BookScreen() {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <View style={[ss.screen, { backgroundColor: SURFACE_LOW }]}>
-      <AnimatedHeader />
+      <AnimatedHeader compact />
       {step === 2 ? <ScheduleProgressHeader /> : <StepIndicator current={step} />}
 
       <KeyboardAvoidingView
@@ -1933,7 +2052,7 @@ export default function BookScreen() {
               paddingBottom:
                 step === 2
                   ? 32
-                  : TabBarContentHeight + insets.bottom + (step === 0 ? 116 : 32),
+                  : insets.bottom + (step === 0 ? 116 : 32),
             },
           ]}
           showsVerticalScrollIndicator={false}
@@ -2368,46 +2487,38 @@ export default function BookScreen() {
                 }}
               />
 
-              {/* ── Preferred Time ── */}
+              {/* ── Selected appointment → preferred time ── */}
               <View style={sch.sectionCard}>
-                <View style={sch.timeSectionHeader}>
-                  <Text style={sch.timeSectionLabel}>Preferred Time</Text>
-                  {selectedDate ? (
-                    <Text style={sch.timeOptionCount}>{timeOptionCountLabel}</Text>
-                  ) : null}
-                </View>
-
-                {selectedDate ? (
-                  <View style={sch.dateSummary}>
-                    <View style={sch.dateSummaryBlock}>
-                      <Text style={sch.dateSummaryDate}>{formatIsoDateCompact(selectedDate)}</Text>
-                      <Text style={sch.dateSummaryHint}>Choose your arrival time</Text>
-                    </View>
-                    <View style={[sch.dateSummaryBlock, sch.dateSummaryCapacityBlock]}>
+                {selectedDate && selectedDateParts ? (
+                  <View style={sch.selectedAppointment}>
+                    <View style={sch.selectedAppointmentMeta}>
+                      <Text style={sch.selectedAppointmentLabel}>Selected appointment</Text>
                       <View style={sch.availabilityRow}>
                         <View style={[
                           sch.availabilityDot,
-                          !selectedDayAvailability && sch.availabilityDotPending,
+                          (!selectedDayAvailability || slotsLoading) && sch.availabilityDotPending,
                           selectedDayAvailability?.status === 'full' && sch.availabilityDotFull,
                           selectedDayAvailability?.status === 'closed' && sch.availabilityDotClosed,
                         ]} />
-                        <Text style={[
-                          sch.dateSummaryCapacity,
-                          selectedDayAvailability?.status === 'full' && sch.dateSummaryCapacityFull,
-                          selectedDayAvailability?.status === 'closed' && sch.dateSummaryCapacityClosed,
-                        ]}>
-                          {selectedDateCapacityLabel}
-                        </Text>
+                        <Text style={sch.timeOptionCount}>{timeOptionCountLabel}</Text>
                       </View>
-                      {typeof selectedDayAvailability?.booked === 'number'
-                        && typeof selectedDayAvailability?.capacity === 'number' ? (
-                          <Text style={sch.dateSummaryMeta}>
-                            {selectedDayAvailability.booked} of {selectedDayAvailability.capacity} booked
-                          </Text>
-                        ) : null}
+                    </View>
+                    <View style={sch.dateLockup}>
+                      <Text style={sch.dateDay}>{selectedDateParts.day}</Text>
+                      <View style={sch.dateIdentity}>
+                        <Text style={sch.dateWeekday}>{selectedDateParts.weekday}</Text>
+                        <Text style={sch.dateMonthYear}>{selectedDateParts.monthYear}</Text>
+                      </View>
                     </View>
                   </View>
                 ) : null}
+
+                <View style={sch.timeSectionHeader}>
+                  <View>
+                    <Text style={sch.timeSectionLabel}>Preferred time</Text>
+                    <Text style={sch.timeSectionHint}>Choose your arrival window</Text>
+                  </View>
+                </View>
 
                 {!!scheduleMessage && (
                   <View style={sch.scheduleMessage}>
@@ -2476,50 +2587,18 @@ export default function BookScreen() {
                 ) : (
                   <Animated.View entering={FadeInDown.delay(80).duration(200)}>
                     <View style={s2.timeGrid}>
-                      {slotStatuses.map(({ time: t, status }) => {
-                        const isActive   = selectedTime === t;
-                        const isFull     = status === 'FULL';
-                        const isClosed   = status === 'CLOSED';
-                        const isDisabled = isFull || isClosed;
-                        const slotStatusLabel = isFull ? 'Booked' : isClosed ? 'Closed' : 'Available';
-                        return (
-                          <TouchableOpacity
-                            key={t}
-                            onPress={() => {
-                              if (isDisabled) return;
-                              setSelectedTime(t);
-                              Haptics.selectionAsync();
-                            }}
-                            activeOpacity={isDisabled ? 1 : 0.85}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${t}, ${slotStatusLabel}`}
-                            accessibilityState={{ disabled: isDisabled, selected: isActive }}
-                            style={[
-                              s2.timePill,
-                              isActive   && s2.timePillSelected,
-                              isFull     && s2.timePillFull,
-                              isClosed   && s2.timePillClosed,
-                            ]}
-                          >
-                            {isActive ? (
-                              <View style={s2.timePillGradient}>
-                                <Text style={s2.timeTextSelected}>{t}</Text>
-                                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                              </View>
-                            ) : (
-                              <View style={s2.timePillContent}>
-                                <Text style={[
-                                  s2.timeText,
-                                  isFull   && s2.timeTextFull,
-                                  isClosed && s2.timeTextClosed,
-                                ]}>{t}</Text>
-                                {isFull   && <Text style={s2.timeStatusBooked}>Booked</Text>}
-                                {isClosed && <Text style={s2.timeStatusClosed}>Closed</Text>}
-                              </View>
-                            )}
-                          </TouchableOpacity>
-                        );
-                      })}
+                      {slotStatuses.map(({ time: t, status }) => (
+                        <TimeSlotButton
+                          key={t}
+                          time={t}
+                          status={status}
+                          selected={selectedTime === t}
+                          onSelect={() => {
+                            setSelectedTime(t);
+                            Haptics.selectionAsync();
+                          }}
+                        />
+                      ))}
                     </View>
                   </Animated.View>
                 )}
@@ -2528,10 +2607,8 @@ export default function BookScreen() {
               {/* ── Notes ── */}
               <View style={sch.sectionCard}>
                 <View style={sch.notesHeader}>
-                  <Text style={sch.sectionLabel}>
-                    Notes <Text style={sch.optional}>Optional</Text>
-                  </Text>
-                  <Text style={[sch.counter, notes.length > 180 && { color: '#EF4444' }]}>{notes.length}/200</Text>
+                  <Text style={sch.sectionLabel}>Notes</Text>
+                  <Text style={[sch.counter, notes.length > 180 && { color: '#EF4444' }]}>Optional · {notes.length}/200</Text>
                 </View>
                 <TextInput
                   style={sch.notesInput}
@@ -2943,7 +3020,7 @@ export default function BookScreen() {
           <View
             style={[
               sch.actionDock,
-              { marginBottom: TabBarContentHeight + insets.bottom },
+              { paddingBottom: Math.max(insets.bottom, 8) },
             ]}
           >
             <TouchableOpacity
@@ -2959,7 +3036,10 @@ export default function BookScreen() {
             <TouchableOpacity
               activeOpacity={0.82}
               disabled={!canProceedStep2}
-              onPress={goNext}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setStep(3);
+              }}
               style={[
                 sch.dockContinueButton,
                 !canProceedStep2 && sch.dockContinueButtonDisabled,
@@ -2975,7 +3055,7 @@ export default function BookScreen() {
               <Ionicons
                 name="arrow-forward"
                 size={18}
-                color={canProceedStep2 ? '#FFFFFF' : '#71717A'}
+                color={canProceedStep2 ? '#09090A' : '#71717A'}
               />
             </TouchableOpacity>
           </View>
@@ -2986,7 +3066,7 @@ export default function BookScreen() {
         <View
           style={[
             bookingCta.container,
-            { bottom: TabBarContentHeight + insets.bottom },
+            { bottom: insets.bottom },
           ]}
         >
           <View style={bookingCta.summaryRow}>
@@ -3622,44 +3702,45 @@ const s2 = StyleSheet.create({
     columnGap: 10,
     rowGap: 10,
   },
-  timePill: {
+  timeSlotWrapper: {
     width: '48%',
-    minHeight: 54,
-    borderRadius: 15,
+  },
+  timePill: {
+    width: '100%',
+    height: 50,
+    borderRadius: 13,
     overflow: 'hidden',
-    backgroundColor: SURFACE_HIGH,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#121214',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.06)',
     justifyContent: 'center',
   },
   timePillSelected: {
+    backgroundColor: Palette.accent,
     borderColor: Palette.accent,
   },
-  timePillGradient: {
-    minHeight: 54,
-    paddingVertical: 12,
+  timePillSelectedContent: {
+    flex: 1,
     flexDirection: 'row',
-    gap: 7,
+    gap: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
-    backgroundColor: Palette.accent,
   },
   timePillContent: {
-    minHeight: 54,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
+    gap: 1,
   },
   timeText: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#E4E4E7',
     textAlign: 'center',
   },
   timeTextSelected: {
-    color: '#FFFFFF',
-    fontWeight: '700',
+    color: '#09090A',
+    fontWeight: '600',
     fontSize: 15,
   },
   timeTextFull: { color: '#F87171' },
@@ -3669,14 +3750,14 @@ const s2 = StyleSheet.create({
 
   /* ── Time slot status variants ── */
   timePillFull: {
-    backgroundColor: SURFACE_HIGH,
-    borderColor: 'rgba(239,68,68,0.12)',
-    opacity: 0.5,
+    backgroundColor: '#0D0D0F',
+    borderColor: 'rgba(239,68,68,0.08)',
+    opacity: 0.46,
   },
   timePillClosed: {
-    backgroundColor: SURFACE_HIGH,
-    borderColor: 'rgba(148,163,184,0.12)',
-    opacity: 0.45,
+    backgroundColor: '#0D0D0F',
+    borderColor: 'rgba(148,163,184,0.08)',
+    opacity: 0.42,
   },
 
   /* ── "Select a date" empty state ── */
@@ -4610,10 +4691,10 @@ const s1 = StyleSheet.create({
   },
 });
 
-// ── Schedule step styles (mirrors web layout) ──────────────────────────────
+// ── Schedule step — quiet automotive cockpit composition ──────────────────
 const sch = StyleSheet.create({
   scheduleWrap: {
-    gap: 30,
+    gap: 28,
   },
   sectionCard: {
     backgroundColor: 'transparent',
@@ -4621,56 +4702,69 @@ const sch = StyleSheet.create({
   sectionLabel: {
     fontSize: 20,
     lineHeight: 25,
-    fontWeight: '700',
+    fontWeight: '600',
     letterSpacing: -0.35,
     color: '#F4F4F5',
   },
-  dateSummary: {
+  selectedAppointment: {
+    paddingBottom: 18,
+    marginBottom: 20,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  selectedAppointmentMeta: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginBottom: 14,
-    paddingBottom: 13,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.09)',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 9,
   },
-  dateSummaryBlock: {
-    flex: 1,
-    gap: 3,
-  },
-  dateSummaryCapacityBlock: {
-    alignItems: 'flex-end',
-  },
-  dateSummaryDate: {
-    color: '#F4F4F5',
-    fontSize: 17,
-    fontWeight: '700',
-    lineHeight: 21,
-  },
-  dateSummaryHint: {
-    color: '#8B8B94',
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  dateSummaryCapacity: {
-    color: '#D4D4D8',
+  selectedAppointmentLabel: {
+    color: '#71717A',
     fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '500',
+  },
+  dateLockup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  dateDay: {
+    color: '#F5F5F7',
+    fontSize: 34,
+    lineHeight: 38,
     fontWeight: '600',
-    lineHeight: 16,
-    textAlign: 'right',
-    flexShrink: 1,
+    letterSpacing: -1,
+    fontVariant: ['tabular-nums'],
+  },
+  dateIdentity: {
+    gap: 1,
+  },
+  dateWeekday: {
+    color: '#F5F5F7',
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  dateMonthYear: {
+    color: '#71717A',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '600',
+    letterSpacing: 0.6,
   },
   availabilityRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: 6,
+    flexShrink: 1,
   },
   availabilityDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
     backgroundColor: '#22C55E',
     flexShrink: 0,
   },
@@ -4685,45 +4779,35 @@ const sch = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#94A3B8',
   },
-  dateSummaryCapacityFull: {
-    color: '#D4D4D8',
-  },
-  dateSummaryCapacityClosed: {
-    color: MUTED,
-  },
-  dateSummaryMeta: {
-    color: '#8B8B94',
-    fontSize: 10,
-    fontWeight: '500',
-    textAlign: 'right',
-  },
   timeSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 14,
+    marginBottom: 13,
   },
   timeSectionLabel: {
     color: '#F4F4F5',
     fontSize: 20,
     lineHeight: 25,
-    fontWeight: '700',
+    fontWeight: '600',
     letterSpacing: -0.35,
   },
+  timeSectionHint: {
+    color: '#71717A',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
   timeOptionCount: {
-    flex: 1,
+    flexShrink: 1,
     color: '#A1A1AA',
     fontSize: 11,
-    fontWeight: '600',
+    lineHeight: 15,
+    fontWeight: '500',
     textAlign: 'right',
   },
   scheduleMessage: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 8,
-    marginBottom: 14,
-    paddingVertical: 2,
+    marginBottom: 13,
   },
   scheduleMessageText: {
     flex: 1,
@@ -4732,11 +4816,11 @@ const sch = StyleSheet.create({
     lineHeight: 18,
   },
   inlineState: {
-    minHeight: 64,
+    minHeight: 60,
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   inlineStateCopy: {
     flex: 1,
@@ -4751,7 +4835,7 @@ const sch = StyleSheet.create({
   inlineStateText: {
     fontSize: 12,
     lineHeight: 18,
-    color: '#8B8B94',
+    color: '#71717A',
   },
   slotSkeletonGrid: {
     flexDirection: 'row',
@@ -4761,85 +4845,79 @@ const sch = StyleSheet.create({
   },
   slotSkeleton: {
     width: '48%',
-    minHeight: 54,
-    borderRadius: 15,
-    backgroundColor: 'rgba(255,255,255,0.055)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.045)',
+    height: 50,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.045)',
   },
   notesHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
-  },
-  optional: {
-    fontSize: 12,
-    fontWeight: '400',
-    letterSpacing: 0,
-    color: '#A1A1AA',
+    marginBottom: 9,
   },
   counter: {
     fontSize: 11,
-    color: '#A1A1AA',
+    color: '#71717A',
   },
   notesInput: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.09)',
-    borderRadius: 17,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 14,
-    fontSize: 15,
-    lineHeight: 21,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 15,
+    paddingHorizontal: 15,
+    paddingTop: 13,
+    paddingBottom: 13,
+    fontSize: 14,
+    lineHeight: 20,
     color: '#F4F4F5',
-    backgroundColor: SURFACE_HIGH,
-    minHeight: 104,
+    backgroundColor: '#121214',
+    minHeight: 94,
     textAlignVertical: 'top',
   },
   actionDock: {
-    minHeight: 78,
+    minHeight: 70,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
     paddingHorizontal: 20,
-    paddingVertical: 11,
-    backgroundColor: '#09090B',
+    paddingTop: 8,
+    backgroundColor: '#09090A',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.09)',
+    borderTopColor: 'rgba(255,255,255,0.06)',
   },
   dockBackButton: {
-    minWidth: 78,
-    minHeight: 54,
+    minWidth: 74,
+    minHeight: 50,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
+    justifyContent: 'flex-start',
+    gap: 2,
   },
   dockBackText: {
     color: '#A1A1AA',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   dockContinueButton: {
-    flex: 1,
-    minHeight: 56,
+    width: '62%',
+    maxWidth: 210,
+    minHeight: 52,
+    marginLeft: 'auto',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    borderRadius: 17,
+    borderRadius: 15,
     backgroundColor: Palette.accent,
   },
   dockContinueButtonDisabled: {
-    backgroundColor: SURFACE_HIGH,
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.07)',
   },
   dockContinueText: {
-    color: '#FFFFFF',
+    color: '#09090A',
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   dockContinueTextDisabled: {
     color: '#71717A',
