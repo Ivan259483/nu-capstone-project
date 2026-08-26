@@ -2,7 +2,35 @@ import axios from 'axios';
 import { config } from '../config/environment.js';
 
 export const GROQ_CHAT_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-export const GROQ_CHAT_MODEL = (process.env.GROQ_CHAT_MODEL || 'llama-3.1-8b-instant').trim();
+export const DEFAULT_GROQ_CHAT_MODEL = 'openai/gpt-oss-20b';
+
+const GROQ_MODEL_REPLACEMENTS = Object.freeze({
+  // Groq retired this model. Keep the alias so older Render/local environment
+  // values continue working after deployment instead of returning model_not_found.
+  'llama-3.1-8b-instant': DEFAULT_GROQ_CHAT_MODEL,
+});
+
+export const resolveGroqModel = (model) => {
+  const configured = String(model || '').trim();
+  if (!configured) return DEFAULT_GROQ_CHAT_MODEL;
+  return GROQ_MODEL_REPLACEMENTS[configured] || configured;
+};
+
+const configuredGroqChatModel = String(process.env.GROQ_CHAT_MODEL || '').trim();
+export const GROQ_CHAT_MODEL = resolveGroqModel(configuredGroqChatModel);
+const configuredReasoningEffort = String(
+  process.env.GROQ_CHAT_REASONING_EFFORT || 'low'
+).trim().toLowerCase();
+export const GROQ_CHAT_REASONING_EFFORT = ['low', 'medium', 'high'].includes(
+  configuredReasoningEffort
+)
+  ? configuredReasoningEffort
+  : 'low';
+
+export const getGroqReasoningOptions = (model) =>
+  String(model || '').startsWith('openai/gpt-oss-')
+    ? { reasoning_effort: GROQ_CHAT_REASONING_EFFORT }
+    : {};
 export const GROQ_CHAT_TIMEOUT_MS = Math.max(
   10_000,
   Number(process.env.GROQ_CHAT_TIMEOUT_MS || 30_000)
@@ -215,14 +243,16 @@ export const callGroqChatCompletions = async (payload, options = {}) => {
 
   const context = options.context || 'chat';
   const timeout = options.timeout ?? GROQ_CHAT_TIMEOUT_MS;
+  const model = resolveGroqModel(payload?.model || GROQ_CHAT_MODEL);
 
   try {
     return await runGroqWithRetry(async (_attempt, remainingMs) => {
       const response = await axios.post(
         GROQ_CHAT_ENDPOINT,
         {
-          model: GROQ_CHAT_MODEL,
+          ...getGroqReasoningOptions(model),
           ...payload,
+          model,
         },
         {
           headers: {

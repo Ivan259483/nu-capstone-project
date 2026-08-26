@@ -132,7 +132,6 @@ export default function AiScanEntry() {
       <ScannerHeader
         eyebrow="Vehicle Intelligence"
         title="AI Inspection"
-        onBack={() => router.back()}
         right={<Ionicons name="shield-checkmark-outline" size={20} color={scannerColors.orangeSoft} />}
       />
       <PipelineStepper currentIndex={0} />

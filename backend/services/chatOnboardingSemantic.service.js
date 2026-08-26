@@ -1,6 +1,8 @@
 import {
   callGroqChatCompletions,
   formatGroqApiError,
+  GROQ_CHAT_MODEL,
+  resolveGroqModel,
 } from '../utils/groqChat.utils.js';
 import {
   normalizeLeadPhone,
@@ -11,7 +13,9 @@ import {
 } from './chatConciergeReasoning.service.js';
 
 export const ONBOARDING_SEMANTIC_CONFIDENCE_THRESHOLD = 0.85;
-export const GROQ_ONBOARDING_MODEL = (process.env.GROQ_ONBOARDING_MODEL || 'llama-3.1-8b-instant').trim();
+export const GROQ_ONBOARDING_MODEL = resolveGroqModel(
+  process.env.GROQ_ONBOARDING_MODEL || GROQ_CHAT_MODEL
+);
 export const GROQ_ONBOARDING_TIMEOUT_MS = Number(process.env.GROQ_ONBOARDING_TIMEOUT_MS || 4500);
 
 export const ONBOARDING_SEMANTIC_INTENTS = Object.freeze([

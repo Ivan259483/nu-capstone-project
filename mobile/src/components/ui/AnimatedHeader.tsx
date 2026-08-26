@@ -18,7 +18,7 @@ interface AnimatedHeaderProps {
 }
 
 export default function AnimatedHeader({ notifCount }: AnimatedHeaderProps) {
-  const { colors, isDark, toggleTheme } = useTheme();
+  const { colors, isDark } = useTheme();
   const { profile } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -58,17 +58,6 @@ export default function AnimatedHeader({ notifCount }: AnimatedHeaderProps) {
         {/* Right actions */}
         <View style={styles.rightRow}>
           <TouchableOpacity
-            onPress={toggleTheme}
-            style={[styles.themeBtn, { backgroundColor: colors.cardAlt, borderColor: colors.border }]}
-          >
-            <Ionicons
-              name={isDark ? 'sunny' : 'moon'}
-              size={14}
-              color={isDark ? Palette.accent : colors.text}
-            />
-          </TouchableOpacity>
-
-          <TouchableOpacity
             onPress={() => router.push('/(screens)/notifications')}
             style={styles.bellBtn}
           >
@@ -80,10 +69,12 @@ export default function AnimatedHeader({ notifCount }: AnimatedHeaderProps) {
             )}
           </TouchableOpacity>
 
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {profile?.full_name ? profile.full_name.substring(0, 2).toUpperCase() : 'U'}
-            </Text>
+          <View style={styles.avatarTouchTarget}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>
+                {profile?.full_name ? profile.full_name.substring(0, 2).toUpperCase() : 'U'}
+              </Text>
+            </View>
           </View>
         </View>
       </View>
@@ -102,7 +93,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 7,
   },
   logoRow: {
     flexDirection: 'row',
@@ -137,18 +128,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  themeBtn: {
-    padding: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
   bellBtn: {
     position: 'relative',
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   badge: {
     position: 'absolute',
-    top: -3,
-    right: -3,
+    top: 4,
+    right: 3,
     width: 16,
     height: 16,
     borderRadius: 8,
@@ -173,5 +163,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#fff',
+  },
+  avatarTouchTarget: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

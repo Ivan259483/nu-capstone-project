@@ -145,19 +145,19 @@ export function ScannerHeader({
 }) {
   return (
     <View style={styles.header}>
-      <Pressable
-        onPress={onBack}
-        disabled={!onBack}
-        hitSlop={10}
-        style={[styles.headerBtn, !onBack && styles.headerBtnGhost]}
+      {onBack ? (
+        <Pressable onPress={onBack} hitSlop={10} style={styles.headerBtn}>
+          <Ionicons name="chevron-back" size={22} color={scannerColors.text} />
+        </Pressable>
+      ) : null}
+      <View
+        pointerEvents={onBack ? 'auto' : 'none'}
+        style={[styles.headerCenter, !onBack && styles.headerCenterWithoutBack]}
       >
-        {onBack ? <Ionicons name="chevron-back" size={22} color={scannerColors.text} /> : null}
-      </Pressable>
-      <View style={styles.headerCenter}>
         {eyebrow ? <Text style={styles.headerEyebrow}>{eyebrow}</Text> : null}
         <Text style={styles.headerTitle}>{title}</Text>
       </View>
-      <View style={styles.headerBtn}>{right}</View>
+      <View style={[styles.headerBtn, !onBack && styles.headerRightWithoutBack]}>{right}</View>
     </View>
   );
 }
@@ -516,13 +516,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: scannerColors.border,
   },
-  headerBtnGhost: {
-    opacity: 0,
-  },
   headerCenter: {
     alignItems: 'center',
     flex: 1,
     paddingHorizontal: 12,
+  },
+  headerCenterWithoutBack: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    paddingHorizontal: 64,
+  },
+  headerRightWithoutBack: {
+    marginLeft: 'auto',
   },
   headerEyebrow: {
     color: scannerColors.orange,

@@ -31,11 +31,11 @@ import * as ImagePicker from 'expo-image-picker';
 import * as LocalAuthentication from 'expo-local-authentication';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { authService } from '@/services/api/authService';
 import { useTheme } from '@/hooks/useThemeContext';
 import { Palette, TabBarHeight } from '@/constants/theme';
-import AnimatedHeader from '@/components/ui/AnimatedHeader';
 import { Toast } from '@/components/ui/PremiumToast';
 
 // ── Shared Profile Header ──
@@ -118,6 +118,7 @@ export default function SettingsScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const { profile, user, signOut, refreshProfile } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -249,12 +250,23 @@ export default function SettingsScreen() {
 
   return (
     <View style={[s.screen, { backgroundColor: colors.background }]}>
-      <AnimatedHeader />
-
       <ScrollView
-        contentContainerStyle={[s.content, { paddingBottom: TabBarHeight + 60 }]}
+        contentContainerStyle={[
+          s.content,
+          {
+            paddingTop: insets.top + 16,
+            paddingBottom: TabBarHeight + 60,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
       >
+        <View style={s.pageIdentity}>
+          <Text style={[s.pageTitle, { color: colors.text }]}>PROFILE</Text>
+          <Text style={[s.pageSubtitle, { color: colors.textMuted }]}>
+            {'Manage your account & preferences'}
+          </Text>
+        </View>
+
         {/* ── Avatar + Name + Badges ── */}
         <ProfileHeader
           profile={profile}
@@ -262,7 +274,7 @@ export default function SettingsScreen() {
           onPickImage={handlePickImage}
         />
 
-        <View style={{ marginTop: 12 }}>
+        <View>
           {/* ═══ GROUP 1 · PROFILE ═══ */}
           <SettingsGroup title="Profile" delay={150}>
             <SettingsRow
@@ -430,7 +442,20 @@ export default function SettingsScreen() {
 
 const s = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 24, paddingTop: 60 },
+  content: { paddingHorizontal: 24 },
+  pageIdentity: {
+    marginBottom: 22,
+  },
+  pageTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1.8,
+  },
+  pageSubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginTop: 4,
+  },
 
   // List Group UI
   groupContainer: {

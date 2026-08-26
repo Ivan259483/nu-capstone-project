@@ -53,6 +53,7 @@ import {
 import { extractActionChipsFromReply, sanitizeChatReply } from '../utils/chatReplyFormat.utils.js';
 import {
   formatGroqApiError,
+  getGroqReasoningOptions,
   GROQ_CHAT_MAX_RETRIES,
   GROQ_CHAT_MODEL,
   GROQ_CHAT_TOTAL_TIMEOUT_MS,
@@ -2334,6 +2335,7 @@ const callGroq = async (messages, { onToken } = {}) => {
 
   const request = {
     model: GROQ_MODEL,
+    ...getGroqReasoningOptions(GROQ_MODEL),
     messages,
     temperature: 0.15,
     max_completion_tokens: GROQ_MAX_COMPLETION_TOKENS,

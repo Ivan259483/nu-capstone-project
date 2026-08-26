@@ -9,12 +9,13 @@ import {
   Platform,
   ScrollView,
   TextInput,
+  type KeyboardEvent,
   type LayoutChangeEvent,
   ViewStyle,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -27,13 +28,31 @@ type AuthButtonState = 'idle' | 'loading' | 'success';
 type PostAuthDestination = 'root' | 'verify' | null;
 type FocusedField = 'email' | 'password' | null;
 
-// Below this height the keyboard (including an AutoFill suggestion bar) leaves
-// too little room for the full header. The logo and heading remain, while the
-// lower-priority header copy yields space to the authentication controls.
-const CONSTRAINED_KEYBOARD_VIEWPORT = 400;
+const MIN_KEYBOARD_GAP = 24;
+const MAX_KEYBOARD_GAP = 48;
+const MIN_COMPACT_TOP_SPACING = 8;
+
+function getKeyboardOpenContentTop(viewportHeight: number, contentHeight: number) {
+  const freeSpace = Math.max(0, viewportHeight - contentHeight);
+  const preferredKeyboardGap = Math.min(
+    MAX_KEYBOARD_GAP,
+    Math.max(MIN_KEYBOARD_GAP, Math.round(viewportHeight * 0.07)),
+  );
+  const preferredTop = freeSpace - preferredKeyboardGap;
+  const maximumTopWithMinimumGap = Math.max(0, freeSpace - MIN_KEYBOARD_GAP);
+
+  // Large viewports spend their extra space above the group, keeping the CTA
+  // close to the keyboard. Small viewports reduce top spacing first while
+  // preserving the minimum keyboard gap whenever the content fits.
+  return Math.min(
+    maximumTopWithMinimumGap,
+    Math.max(MIN_COMPACT_TOP_SPACING, preferredTop),
+  );
+}
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -42,12 +61,16 @@ export default function LoginScreen() {
   const [buttonState, setButtonState] = useState<AuthButtonState>('idle');
   const [focusedField, setFocusedField] = useState<FocusedField>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
-  const [availableViewportHeight, setAvailableViewportHeight] = useState(0);
   const [feedback, setFeedback] = useState<AuthFeedbackData | null>(null);
   const emailInputRef = useRef<TextInput>(null);
   const passwordInputRef = useRef<TextInput>(null);
   const requestInFlightRef = useRef(false);
   const postAuthDestinationRef = useRef<PostAuthDestination>(null);
+  const fullViewportHeightRef = useRef(0);
+  const keyboardSessionViewportHeightRef = useRef<number | null>(null);
+  const compactContentHeightRef = useRef(0);
+  const compactContentTopRef = useRef<number | null>(null);
+  const [compactContentTop, setCompactContentTop] = useState<number | null>(null);
 
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
@@ -60,9 +83,6 @@ export default function LoginScreen() {
 
   const isSigningIn = buttonState === 'loading';
   const compactMode = keyboardVisible;
-  const constrainedMode = compactMode
-    && availableViewportHeight > 0
-    && availableViewportHeight < CONSTRAINED_KEYBOARD_VIEWPORT;
   const emailFocused = focusedField === 'email';
   const passwordFocused = focusedField === 'password';
 
@@ -78,24 +98,81 @@ export default function LoginScreen() {
     setFocusedField(current => current === field ? null : current);
   }, []);
 
-  const handleViewportLayout = useCallback((event: LayoutChangeEvent) => {
-    const nextHeight = Math.round(event.nativeEvent.layout.height);
-    setAvailableViewportHeight(current => current === nextHeight ? current : nextHeight);
+  const updateCompactContentTop = useCallback(() => {
+    const viewportHeight = keyboardSessionViewportHeightRef.current;
+    const contentHeight = compactContentHeightRef.current;
+    if (!viewportHeight || !contentHeight) return;
+
+    const nextTop = getKeyboardOpenContentTop(viewportHeight, contentHeight);
+    const currentTop = compactContentTopRef.current;
+
+    // Latch one bottom-aware position per keyboard session. If content grows it
+    // may move upward to remain visible, but keyboard accessory/frame changes
+    // never move it during the Email → Password handoff.
+    if (currentTop !== null && nextTop >= currentTop) return;
+    compactContentTopRef.current = nextTop;
+    setCompactContentTop(nextTop);
   }, []);
+
+  const setKeyboardSessionViewport = useCallback((event?: KeyboardEvent) => {
+    if (keyboardSessionViewportHeightRef.current !== null) return;
+
+    const fullViewportHeight = fullViewportHeightRef.current;
+    const keyboardTop = event?.endCoordinates?.screenY;
+    const coordinateHeight = typeof keyboardTop === 'number'
+      ? keyboardTop - insets.top
+      : 0;
+    const viewportHeight = coordinateHeight > 0
+      ? Math.min(fullViewportHeight || coordinateHeight, coordinateHeight)
+      : fullViewportHeight;
+
+    if (viewportHeight <= 0) return;
+    keyboardSessionViewportHeightRef.current = viewportHeight;
+    updateCompactContentTop();
+  }, [insets.top, updateCompactContentTop]);
+
+  const handleViewportLayout = useCallback((event: LayoutChangeEvent) => {
+    const viewportHeight = Math.round(event.nativeEvent.layout.height);
+    if (!compactMode) {
+      fullViewportHeightRef.current = viewportHeight;
+      return;
+    }
+
+    // Android resize mode and an already-visible keyboard can reach this path
+    // without a usable show-event coordinate. Capture only once per session.
+    if (
+      keyboardSessionViewportHeightRef.current === null
+      && viewportHeight > 0
+      && Keyboard.isVisible()
+    ) {
+      keyboardSessionViewportHeightRef.current = viewportHeight;
+      updateCompactContentTop();
+    }
+  }, [compactMode, updateCompactContentTop]);
+
+  const handleCompactContentLayout = useCallback((event: LayoutChangeEvent) => {
+    if (!compactMode) return;
+    compactContentHeightRef.current = Math.round(event.nativeEvent.layout.height);
+    updateCompactContentTop();
+  }, [compactMode, updateCompactContentTop]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
 
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSubscription = Keyboard.addListener(showEvent, event => {
-      // On iOS, keep compact spacing on the same animation curve as the
-      // keyboard. Android's resized window supplies the native transition.
-      if (Platform.OS === 'ios') Keyboard.scheduleLayoutAnimation(event);
+    const showSubscription = Keyboard.addListener(showEvent, () => {
       setKeyboardVisible(true);
     });
-    const hideSubscription = Keyboard.addListener(hideEvent, event => {
-      if (Platform.OS === 'ios') Keyboard.scheduleLayoutAnimation(event);
+
+    // Use the completed hide event on both platforms. iOS can emit a transient
+    // will-hide while swapping from the email keyboard to the password/AutoFill
+    // keyboard. Collapsing compact mode at that point produces a one-frame jump.
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      // A keyboard implementation can still finish the old keyboard's hide
+      // after the next login field has focused. In that handoff, the following
+      // show/frame event belongs to the same keyboard session, so retain the
+      // single compact layout.
+      if (emailInputRef.current?.isFocused() || passwordInputRef.current?.isFocused()) return;
       setKeyboardVisible(false);
     });
 
@@ -104,6 +181,27 @@ export default function LoginScreen() {
       hideSubscription.remove();
     };
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    // Keep viewport measurement separate from the keyboard-visibility effect
+    // above so the proven focus/handoff behavior remains unchanged.
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const showSubscription = Keyboard.addListener(showEvent, setKeyboardSessionViewport);
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      if (emailInputRef.current?.isFocused() || passwordInputRef.current?.isFocused()) return;
+      keyboardSessionViewportHeightRef.current = null;
+      compactContentHeightRef.current = 0;
+      compactContentTopRef.current = null;
+      setCompactContentTop(null);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [setKeyboardSessionViewport]);
 
   useEffect(() => {
     if (!isLocked || !lockUntilMs) return;
@@ -287,10 +385,16 @@ export default function LoginScreen() {
           <View style={[
             styles.centeredContent,
             compactMode && styles.centeredContentCompact,
-            constrainedMode && styles.centeredContentConstrained,
+            compactMode && compactContentTop !== null
+              ? { paddingTop: compactContentTop }
+              : null,
           ]}>
           {/* Card */}
-          <Animated.View entering={FadeIn.duration(400)} style={styles.card}>
+          <Animated.View
+            entering={FadeIn.duration(400)}
+            style={styles.card}
+            onLayout={handleCompactContentLayout}
+          >
 
             {/* Logo + Header */}
             <Animated.View
@@ -298,7 +402,6 @@ export default function LoginScreen() {
               style={[
                 styles.headerBlock,
                 compactMode && styles.headerBlockCompact,
-                constrainedMode && styles.headerBlockConstrained,
               ]}
             >
               <Image
@@ -306,25 +409,20 @@ export default function LoginScreen() {
                 style={[
                   styles.logo,
                   compactMode && styles.logoCompact,
-                  constrainedMode && styles.logoConstrained,
                 ]}
                 contentFit="contain"
                 accessibilityLabel="AutoSPF+ Logo"
               />
-              {!constrainedMode ? (
-                <Text style={[
-                  styles.brandLabel,
-                  compactMode && styles.brandLabelCompact,
-                ]}>
-                  Premium Automotive Care Platform
-                </Text>
-              ) : null}
+              <Text style={[
+                styles.brandLabel,
+                compactMode && styles.brandLabelCompact,
+              ]}>
+                Premium Automotive Care Platform
+              </Text>
               <Text style={[styles.heading, compactMode && styles.headingCompact]}>Welcome back</Text>
-              {!constrainedMode ? (
-                <Text style={[styles.subheading, compactMode && styles.subheadingCompact]}>
-                  Sign in to continue to your account
-                </Text>
-              ) : null}
+              <Text style={[styles.subheading, compactMode && styles.subheadingCompact]}>
+                Sign in to continue to your account
+              </Text>
             </Animated.View>
 
             {/* Persistent security status / single feedback slot */}
@@ -501,11 +599,11 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
   },
   centeredContentCompact: {
-    paddingTop: 8,
+    // The measured session padding overrides this fallback once the keyboard
+    // viewport and compact group have both completed their first layout.
+    justifyContent: 'flex-start',
+    paddingTop: MIN_COMPACT_TOP_SPACING,
     paddingBottom: 0,
-  },
-  centeredContentConstrained: {
-    paddingTop: 4,
   },
   card: {
     width: '100%',
@@ -516,9 +614,6 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
   headerBlockCompact: {
-    marginBottom: 10,
-  },
-  headerBlockConstrained: {
     marginBottom: 6,
   },
   logo: {
@@ -528,12 +623,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   logoCompact: {
-    width: 84,
-    marginBottom: 2,
-  },
-  logoConstrained: {
-    width: 60,
-    marginBottom: 0,
+    width: 72,
+    marginBottom: 1,
   },
   brandLabel: {
     color: 'rgba(255,255,255,0.44)',
@@ -546,7 +637,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   brandLabelCompact: {
-    marginBottom: 6,
+    marginBottom: 3,
   },
   heading: {
     fontSize: 32,
@@ -557,9 +648,9 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   headingCompact: {
-    fontSize: 28,
-    lineHeight: 32,
-    marginBottom: 2,
+    fontSize: 26,
+    lineHeight: 30,
+    marginBottom: 1,
   },
   subheading: {
     fontSize: 14,
@@ -569,8 +660,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   subheadingCompact: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
   },
 
   // Persistent security feedback
@@ -586,7 +677,7 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   inputWrapSpacedCompact: {
-    marginTop: 8,
+    marginTop: 6,
   },
   forgotOnlyRow: {
     flexDirection: 'row',
@@ -596,8 +687,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   forgotOnlyRowCompact: {
-    marginTop: 5,
-    marginBottom: 2,
+    marginTop: 4,
+    marginBottom: 1,
   },
   forgotLink: {
     fontSize: 13,
@@ -615,7 +706,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#111111',
   },
   inputWrapCompact: {
-    height: 48,
+    height: 46,
   },
   inputWrapFocused: {
     borderColor: '#FF7A1A',
@@ -653,8 +744,8 @@ const styles = StyleSheet.create({
     marginBottom: 22,
   },
   checkRowCompact: {
-    marginTop: 8,
-    marginBottom: 10,
+    marginTop: 6,
+    marginBottom: 8,
   },
   checkbox: {
     width: 19,

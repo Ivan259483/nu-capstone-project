@@ -40,7 +40,7 @@ export default function ProfileHeader({ profile, isUpdatingAvatar, onPickImage }
       -1,
       true
     );
-  }, []);
+  }, [glowOpacity]);
 
   const glowStyle = useAnimatedStyle(() => ({
     opacity: glowOpacity.value,
@@ -94,16 +94,6 @@ export default function ProfileHeader({ profile, isUpdatingAvatar, onPickImage }
 
       {/* Badges row */}
       <View style={s.badgeRow}>
-        <LinearGradient
-          colors={['rgba(255,107,53,0.15)', 'rgba(255,107,53,0.05)']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={s.badge}
-        >
-          <Ionicons name="diamond" size={10} color={ACCENT} />
-          <Text style={s.badgeText}>Premium Member</Text>
-        </LinearGradient>
-
         <View style={[s.badge, s.badgeSilver]}>
           <Ionicons name="shield-checkmark" size={10} color="#94A3B8" />
           <Text style={[s.badgeText, { color: '#94A3B8' }]}>Silver Tier</Text>
@@ -124,17 +114,17 @@ const s = StyleSheet.create({
     marginBottom: 32,
   },
   avatarOuter: {
-    width: 116,
-    height: 116,
+    width: 104,
+    height: 104,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 18,
   },
   glowRing: {
     position: 'absolute',
-    width: 116,
-    height: 116,
-    borderRadius: 58,
+    width: 104,
+    height: 104,
+    borderRadius: 52,
     backgroundColor: 'transparent',
     borderWidth: 2,
     borderColor: ACCENT,
@@ -144,9 +134,9 @@ const s = StyleSheet.create({
     shadowRadius: 20,
   },
   avatarRing: {
-    width: 104,
-    height: 104,
-    borderRadius: 52,
+    width: 94,
+    height: 94,
+    borderRadius: 47,
     borderWidth: 1.5,
     borderColor: 'rgba(255,107,53,0.25)',
     justifyContent: 'center',
@@ -154,26 +144,26 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(255,107,53,0.04)',
   },
   avatarInner: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     overflow: 'hidden',
     backgroundColor: 'rgba(255,107,53,0.12)',
   },
   avatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 44,
+    borderRadius: 40,
   },
   avatarFallback: {
     width: '100%',
     height: '100%',
-    borderRadius: 44,
+    borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarInitials: {
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: '800',
     color: ACCENT,
     letterSpacing: 1,
@@ -181,14 +171,14 @@ const s = StyleSheet.create({
   avatarLoading: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 44,
+    borderRadius: 40,
     justifyContent: 'center',
     alignItems: 'center',
   },
   editBadge: {
     position: 'absolute',
-    bottom: 4,
-    right: 8,
+    bottom: 2,
+    right: 5,
     backgroundColor: ACCENT,
     width: 30,
     height: 30,

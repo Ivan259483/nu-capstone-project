@@ -25,7 +25,6 @@ import {
   Platform,
   Alert,
   Image,
-  Dimensions,
   Modal,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -36,14 +35,11 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
-  withSpring,
-  withSequence,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // expo-blur available if needed for future glassmorphism enhancements
-import { useTheme } from '@/hooks/useThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { getApiErrorMessage, invalidateCache } from '@/services/api/client';
 import { bookingService } from '@/services/api/bookingService';
@@ -51,7 +47,7 @@ import { serviceService } from '@/services/api/serviceService';
 import { vehicleService } from '@/services/api/vehicleService';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import type { ServiceOption, Vehicle } from '@/services/api/types';
-import { Palette, BorderRadius, Shadows, TabBarContentHeight, TabBarHeight, Spacing } from '@/constants/theme';
+import { Palette, TabBarContentHeight, TabBarHeight } from '@/constants/theme';
 import AnimatedHeader from '@/components/ui/AnimatedHeader';
 import GlassCard from '@/components/ui/GlassCard';
 import Badge from '@/components/ui/Badge';
@@ -72,8 +68,6 @@ import {
 } from '@/constants/spfPricing';
 
 // ─── Kinetic Gallery Design Tokens ───────────────────────────────────────────
-
-const { width: SCREEN_W } = Dimensions.get('window');
 
 // Surface tiers aligned exactly with global theme.ts colors for UI consistency
 const VOID           = '#040405';   // deepest layer (theme.dark.background)
@@ -111,6 +105,12 @@ interface SPFPackage {
   features: string[];
   popular: boolean;
   flagship: boolean;
+  socialProof?: string;
+  insights?: {
+    icon: keyof typeof Ionicons.glyphMap;
+    heading: string;
+    body: string;
+  }[];
 }
 
 const SPF_PACKAGES: SPFPackage[] = [
@@ -151,6 +151,24 @@ const SPF_PACKAGES: SPFPackage[] = [
     ],
     popular: true,
     flagship: false,
+    socialProof: '78% of AutoSPF+ customers choose this package',
+    insights: [
+      {
+        icon: 'shield-checkmark-outline',
+        heading: 'Best balance of cost vs protection',
+        body: '5-year graphene coating at a price point that makes financial sense for most vehicle owners.',
+      },
+      {
+        icon: 'repeat-outline',
+        heading: 'Free annual reboost included',
+        body: 'One Reboost/Maintenance visit (₱1,500 value) keeps your coating performing like new — at no extra cost.',
+      },
+      {
+        icon: 'trending-up-outline',
+        heading: 'Highest resale value boost',
+        body: 'Professionally coated cars retain 8–12% more resale value than uncoated — this package is the minimum threshold.',
+      },
+    ],
   },
   {
     key: 'spf99',
@@ -215,6 +233,45 @@ const PKG_DURATIONS: Record<string, string> = {
   spf101: 'The complete transformation experience',
 };
 
+type PackageFeatureParts = {
+  title: string;
+  detail?: string;
+  savings?: string;
+};
+
+/**
+ * Turns the existing package feature strings into presentation-only sections.
+ * The source copy remains unchanged in SPF_PACKAGES; this only separates its
+ * title, supporting detail, and genuine savings metadata for mobile scanning.
+ */
+const getPackageFeatureParts = (feature: string): PackageFeatureParts => {
+  const savingsMatch = feature.match(/\(save\s+(₱[\d,]+)\)/i);
+  let content = feature
+    .replace(/\(save\s+₱[\d,]+\)/i, '')
+    .replace(/^FREE\s+/i, '')
+    .trim();
+
+  const colonIndex = content.indexOf(':');
+  if (colonIndex >= 0) {
+    return {
+      title: content.slice(0, colonIndex).trim(),
+      detail: content.slice(colonIndex + 1).trim(),
+      savings: savingsMatch?.[1],
+    };
+  }
+
+  const detailMatches = [...content.matchAll(/\(([^)]+)\)/g)].map((match) => match[1].trim());
+  if (detailMatches.length > 0) {
+    content = content.replace(/\s*\([^)]+\)/g, '').trim();
+  }
+
+  return {
+    title: content,
+    detail: detailMatches.length > 0 ? detailMatches.join(' · ') : undefined,
+    savings: savingsMatch?.[1],
+  };
+};
+
 // Maps any vehicle-type string (from garage) to the price-key used in SPF_PACKAGES
 const getVehiclePriceKey = (type: string): VehicleTypeKey => {
   const map: Record<string, VehicleTypeKey> = {
@@ -232,23 +289,134 @@ const getVehiclePriceKey = (type: string): VehicleTypeKey => {
 
 // ─── Sub-Components ───────────────────────────────────────────────────────────
 
-/** Thin progress bar — mirrors the web booking modal's 2px amber bar */
+/** Compact, meaningful booking progress treatment shared by every step. */
 function StepIndicator({ current }: { current: number }) {
   const total = STEP_LABELS.length; // 6
   const pct = Math.round(((current + 1) / total) * 100);
   return (
-    <View style={{ width: '100%', height: 2, backgroundColor: '#1a1a1a' }}>
-      <View
-        style={{
-          height: 2,
-          width: `${pct}%`,
-          backgroundColor: PRIMARY,
-          borderRadius: 999,
-        }}
-      />
+    <View
+      style={progress.container}
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 1, max: total, now: current + 1 }}
+    >
+      <View style={progress.metaRow}>
+        <Text style={progress.stepText}>STEP {current + 1} OF {total}</Text>
+        <View style={progress.metaDot} />
+        <Text style={progress.stepName}>{STEP_LABELS[current]}</Text>
+      </View>
+      <View style={progress.track}>
+        <View style={[progress.fill, { width: `${pct}%` }]} />
+      </View>
     </View>
   );
 }
+
+/** Schedule-only progress treatment: editorial hierarchy with a quiet 2px track. */
+function ScheduleProgressHeader() {
+  return (
+    <View
+      style={scheduleProgress.container}
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 1, max: STEP_LABELS.length, now: 3 }}
+      accessibilityLabel="Schedule, step 3 of 6"
+    >
+      <View style={scheduleProgress.titleRow}>
+        <Text style={scheduleProgress.title}>Schedule</Text>
+        <Text style={scheduleProgress.count}>03 / 06</Text>
+      </View>
+      <View style={scheduleProgress.track}>
+        <View style={scheduleProgress.fill} />
+      </View>
+    </View>
+  );
+}
+
+const scheduleProgress = StyleSheet.create({
+  container: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 10,
+    backgroundColor: SURFACE_LOW,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  title: {
+    color: '#F7F7F8',
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: '700',
+    letterSpacing: -0.45,
+  },
+  count: {
+    color: '#8B8B94',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+    letterSpacing: 0.7,
+  },
+  track: {
+    height: 2,
+    overflow: 'hidden',
+    borderRadius: 1,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+  },
+  fill: {
+    width: '50%',
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: Palette.accent,
+  },
+});
+
+const progress = StyleSheet.create({
+  container: {
+    width: '100%',
+    paddingHorizontal: 20,
+    paddingTop: 7,
+    paddingBottom: 6,
+    backgroundColor: SURFACE_LOW,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 6,
+  },
+  stepText: {
+    color: '#8B8B94',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+  },
+  metaDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: Palette.accent,
+  },
+  stepName: {
+    color: '#D4D4D8',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+  },
+  track: {
+    height: 2,
+    overflow: 'hidden',
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+  },
+  fill: {
+    height: 2,
+    borderRadius: 999,
+    backgroundColor: Palette.accent,
+  },
+});
 
 /** Vehicle card — tonal depth, no borders, ambient glow on select */
 function VehicleCard({
@@ -504,6 +672,18 @@ const formatIsoDateForDisplay = (value: string | null, includeWeekday = false) =
   });
 };
 
+const formatIsoDateCompact = (value: string | null) => {
+  if (!value) return '—';
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+};
+
 const getSlotStartMinutes = (value: string): number | null => {
   const raw = String(value || '').trim();
   const twentyFour = raw.match(/^(\d{1,2}):(\d{2})$/);
@@ -543,7 +723,6 @@ function MonthCalendar({
   businessDate?: string | null;
   onMonthChange?: (year: number, month: number) => void;
 }) {
-  const { colors } = useTheme();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const appliedBusinessDateRef = useRef<string | null>(null);
 
@@ -602,28 +781,30 @@ function MonthCalendar({
   }
 
   return (
-    <View style={[cal.container, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, ...Shadows.sm }]}>
-      {/* Header — arrows on sides, title centered */}
+    <View style={cal.container}>
+      {/* Month is the hero; controls stay visually quiet inside 44pt targets. */}
       <View style={cal.header}>
-        <TouchableOpacity
-          onPress={prevMonth}
-          activeOpacity={0.7}
-          style={cal.arrowBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Show previous month"
-        >
-          <Ionicons name="chevron-back" size={20} color={SECONDARY} />
-        </TouchableOpacity>
         <Text style={cal.monthTitle}>{MONTH_NAMES_FULL[month]} {year}</Text>
-        <TouchableOpacity
-          onPress={nextMonth}
-          activeOpacity={0.7}
-          style={cal.arrowBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Show next month"
-        >
-          <Ionicons name="chevron-forward" size={20} color={SECONDARY} />
-        </TouchableOpacity>
+        <View style={cal.monthControls}>
+          <TouchableOpacity
+            onPress={prevMonth}
+            activeOpacity={0.65}
+            style={cal.arrowBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Show previous month"
+          >
+            <Ionicons name="chevron-back" size={19} color={SECONDARY} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={nextMonth}
+            activeOpacity={0.65}
+            style={cal.arrowBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Show next month"
+          >
+            <Ionicons name="chevron-forward" size={19} color={SECONDARY} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Weekday headers */}
@@ -700,7 +881,7 @@ function MonthCalendar({
                 {item.day}
               </Text>
               <View style={cal.statusIndicatorTrack}>
-                {statusColor && !item.isPast ? (
+                {statusColor && !item.isPast && !isSelected ? (
                   <View style={[
                     cal.statusIndicator,
                     { backgroundColor: statusColor },
@@ -731,39 +912,47 @@ function MonthCalendar({
 
 const cal = StyleSheet.create({
   container: {
-    borderRadius: BorderRadius.xxl,
-    padding: 16,
+    paddingTop: 2,
+    paddingBottom: 2,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    gap: 12,
+    marginBottom: 10,
   },
   monthTitle: {
-    fontSize: 17,
+    flex: 1,
+    fontSize: 28,
+    lineHeight: 34,
     fontWeight: '700',
-    color: '#fff',
-    letterSpacing: -0.01 * 17,
+    color: '#F7F7F8',
+    letterSpacing: -0.7,
+  },
+  monthControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
   },
   arrowBtn: {
     width: 44,
     height: 44,
-    borderRadius: 14,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.035)',
   },
   weekdays: {
     flexDirection: 'row',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   weekdayText: {
     width: '14.28%',
     textAlign: 'center',
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#8B8B94',
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#71717A',
   },
   grid: {
     flexDirection: 'row',
@@ -771,7 +960,7 @@ const cal = StyleSheet.create({
   },
   dayCell: {
     width: '14.28%',
-    minHeight: 48,
+    minHeight: 46,
     paddingVertical: 2,
     alignItems: 'center',
     justifyContent: 'center',
@@ -821,9 +1010,9 @@ const cal = StyleSheet.create({
     borderRadius: 2,
   },
   statusIndicatorBooked: {
-    width: 10,
-    height: 3,
-    borderRadius: 1.5,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   statusIndicatorClosed: {
     width: 6,
@@ -837,11 +1026,11 @@ const cal = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     columnGap: 18,
-    rowGap: 8,
-    marginTop: 12,
-    paddingTop: 14,
+    rowGap: 6,
+    marginTop: 8,
+    paddingTop: 11,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.08)',
   },
@@ -851,21 +1040,20 @@ const cal = StyleSheet.create({
     gap: 6,
   },
   legendDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   legendText: {
-    fontSize: 11,
-    color: '#A1A1AA',
-    fontWeight: '600',
+    fontSize: 12,
+    color: '#8B8B94',
+    fontWeight: '500',
   },
 });
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
 export default function BookScreen() {
-  const { colors, isDark } = useTheme();
   const { profile, backendUser } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -896,31 +1084,8 @@ export default function BookScreen() {
 
   // Add Vehicle form
   const [showAddVehicle, setShowAddVehicle] = useState(false);
-  // "Why Advanced?" bottom sheet
-  const [whyOpen, setWhyOpen] = useState(false);
-
-  // ── Per-card spring animations (4 packages × scale + opacity + checkmark) ──
-  const scaleSpf80  = useSharedValue(1);
-  const scaleSpf89  = useSharedValue(1);
-  const scaleSpf99  = useSharedValue(1);
-  const scaleSpf101 = useSharedValue(1);
-  const opacSpf80   = useSharedValue(1);
-  const opacSpf89   = useSharedValue(1);
-  const opacSpf99   = useSharedValue(1);
-  const opacSpf101  = useSharedValue(1);
-  const chkSpf80    = useSharedValue(0);
-  const chkSpf89    = useSharedValue(0);
-  const chkSpf99    = useSharedValue(0);
-  const chkSpf101   = useSharedValue(0);
-
-  const cardAnimSpf80  = useAnimatedStyle(() => ({ transform: [{ scale: scaleSpf80.value }],  opacity: opacSpf80.value  }));
-  const cardAnimSpf89  = useAnimatedStyle(() => ({ transform: [{ scale: scaleSpf89.value }],  opacity: opacSpf89.value  }));
-  const cardAnimSpf99  = useAnimatedStyle(() => ({ transform: [{ scale: scaleSpf99.value }],  opacity: opacSpf99.value  }));
-  const cardAnimSpf101 = useAnimatedStyle(() => ({ transform: [{ scale: scaleSpf101.value }], opacity: opacSpf101.value }));
-  const chkAnimSpf80   = useAnimatedStyle(() => ({ transform: [{ scale: chkSpf80.value }]  }));
-  const chkAnimSpf89   = useAnimatedStyle(() => ({ transform: [{ scale: chkSpf89.value }]  }));
-  const chkAnimSpf99   = useAnimatedStyle(() => ({ transform: [{ scale: chkSpf99.value }]  }));
-  const chkAnimSpf101  = useAnimatedStyle(() => ({ transform: [{ scale: chkSpf101.value }] }));
+  const [packageDetailsKey, setPackageDetailsKey] = useState<string | null>(null);
+  const [isContinuing, setIsContinuing] = useState(false);
 
   // Validation Errors
   const [phoneError, setPhoneError] = useState('');
@@ -947,7 +1112,9 @@ export default function BookScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  const dateScrollRef = useRef<ScrollView>(null);
+  useEffect(() => {
+    if (step === 0) setIsContinuing(false);
+  }, [step]);
 
   // ── Calendar availability state (mirrors web CustomerDashboard) ──
   type SlotStatus = 'AVAILABLE' | 'FULL' | 'CLOSED';
@@ -1377,39 +1544,21 @@ export default function BookScreen() {
     setStep((s) => Math.max(0, s - 1));
   };
 
-  // ── Package selection with spring animation ──────────────────────────────
-  const PKG_SCALES: Record<string, ReturnType<typeof useSharedValue<number>>> = {
-    spf80: scaleSpf80, spf89: scaleSpf89, spf99: scaleSpf99, spf101: scaleSpf101 };
-  const PKG_OPACS: Record<string, ReturnType<typeof useSharedValue<number>>> = {
-    spf80: opacSpf80,  spf89: opacSpf89,  spf99: opacSpf99,  spf101: opacSpf101  };
-  const PKG_CHKS: Record<string, ReturnType<typeof useSharedValue<number>>> = {
-    spf80: chkSpf80,   spf89: chkSpf89,   spf99: chkSpf99,   spf101: chkSpf101   };
-
-  const selectPkg = useCallback((key: string, price: number) => {
-    const allKeys = ['spf80', 'spf89', 'spf99', 'spf101'];
-    // Dim non-selected, brighten selected + animate checkmark (no scale bounce)
-    allKeys.forEach((k) => {
-      PKG_OPACS[k].value = withTiming(k === key ? 1 : 0.45, { duration: 220 });
-      PKG_CHKS[k].value  = withSpring(k === key ? 1 : 0, { damping: 12, stiffness: 300 });
-    });
-    // Business logic
+  // ── Package selection ────────────────────────────────────────────────────
+  const selectPkg = (key: string, price: number) => {
     setSelectedPkg(key);
     const pkg = SPF_PACKAGES.find(p => p.key === key);
     const matched = services.find(sv => sv.name.toLowerCase().includes(pkg?.label?.toLowerCase() ?? ''))
       || (services.length > 0 ? services[0] : null);
     if (matched) setSelectedService({ ...matched, price });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, [services, PKG_SCALES, PKG_OPACS, PKG_CHKS]);
-
-  const PKG_CARD_ANIMS: Record<string, ReturnType<typeof useAnimatedStyle>> = {
-    spf80: cardAnimSpf80, spf89: cardAnimSpf89, spf99: cardAnimSpf99, spf101: cardAnimSpf101 };
-  const PKG_CHK_ANIMS: Record<string, ReturnType<typeof useAnimatedStyle>> = {
-    spf80: chkAnimSpf80,  spf89: chkAnimSpf89,  spf99: chkAnimSpf99,  spf101: chkAnimSpf101  };
+  };
 
   const reset = () => {
     setStep(0);
     setSelectedVehicle(null);
     setSelectedService(null);
+    setSelectedPkg(null);
     setSelectedDate(null);
     setSelectedTime(null);
     setPhone('');
@@ -1419,6 +1568,8 @@ export default function BookScreen() {
     setTcScrolledToBottom(false);
     setIsSuccess(false);
     setShowAddVehicle(false);
+    setPackageDetailsKey(null);
+    setIsContinuing(false);
     setPhoneError('');
   };
   const handleConfirm = async () => {
@@ -1540,6 +1691,27 @@ export default function BookScreen() {
   const canProceedStep3 = scheduleIsKnownAvailable;                                // Review remains guarded during live refresh
   const canProceedStep4 = agreedToTerms && tcScrolledToBottom && scheduleIsKnownAvailable;
   const canConfirmBooking = canProceedStep4 && scheduleIsKnownAvailable;
+  const packageDetails = packageDetailsKey
+    ? SPF_PACKAGES.find((pkg) => pkg.key === packageDetailsKey) ?? null
+    : null;
+  const packageDetailsPrice = packageDetails?.prices[vehicleType] ?? null;
+  const selectedPackage = selectedPkg
+    ? SPF_PACKAGES.find((pkg) => pkg.key === selectedPkg) ?? null
+    : null;
+  const selectedPackagePrice = selectedPackage?.prices[vehicleType] ?? null;
+  const stepOneGuidance = !selectedVehicle
+    ? 'Select a vehicle to continue'
+    : !selectedPkg
+      ? 'Select a package to continue'
+      : `${selectedPackage?.label ?? 'Package'} selected`;
+
+  const handleStepOneContinue = () => {
+    if (!canProceedStep0 || isContinuing) return;
+    setIsContinuing(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setStep(1);
+  };
+
   const availableTimeOptionCount = slotStatuses.filter((slot) => slot.status === 'AVAILABLE').length;
   const selectedDateCapacityLabel = !selectedDate
     ? ''
@@ -1550,7 +1722,7 @@ export default function BookScreen() {
           ? 'Emergency Closed'
           : 'Closed'
         : typeof selectedDayAvailability?.remaining === 'number'
-          ? `${selectedDayAvailability.remaining} appointment${selectedDayAvailability.remaining === 1 ? '' : 's'} remaining`
+          ? `${selectedDayAvailability.remaining} slot${selectedDayAvailability.remaining === 1 ? '' : 's'} available`
           : 'Checking daily availability';
   const timeOptionCountLabel = !selectedDate
     ? 'Select a date first'
@@ -1558,7 +1730,7 @@ export default function BookScreen() {
       ? 'Checking available times'
       : selectedDayAvailability?.status === 'full' || selectedDayAvailability?.status === 'closed'
         ? 'No time options available'
-        : `${availableTimeOptionCount} available time option${availableTimeOptionCount === 1 ? '' : 's'}`;
+        : `${availableTimeOptionCount} slot${availableTimeOptionCount === 1 ? '' : 's'} available`;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Success screen
@@ -1747,7 +1919,7 @@ export default function BookScreen() {
   return (
     <View style={[ss.screen, { backgroundColor: SURFACE_LOW }]}>
       <AnimatedHeader />
-      <StepIndicator current={step} />
+      {step === 2 ? <ScheduleProgressHeader /> : <StepIndicator current={step} />}
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -1758,7 +1930,10 @@ export default function BookScreen() {
           contentContainerStyle={[
             ss.content,
             {
-              paddingBottom: TabBarContentHeight + insets.bottom + (step === 2 ? 72 : 32),
+              paddingBottom:
+                step === 2
+                  ? 32
+                  : TabBarContentHeight + insets.bottom + (step === 0 ? 116 : 32),
             },
           ]}
           showsVerticalScrollIndicator={false}
@@ -1768,12 +1943,12 @@ export default function BookScreen() {
               STEP 0 — CHOOSE SERVICE  (mirrors web Step 1 of 6)
           ═══════════════════════════════════════════════════ */}
           {step === 0 && (
-            <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
+            <Animated.View entering={FadeInDown.duration(200)} style={[ss.stepWrap, ss.stepOneWrap]}>
 
               {/* ── Hero ── */}
               <Animated.View entering={FadeInDown.delay(60).duration(200)} style={ss.heroSection}>
                 <Text style={ss.heroLabel}>STEP 1 OF 6</Text>
-                <Text style={ss.heroTitle}>Book a{'\n'}Service</Text>
+                <Text style={ss.heroTitle}>Book a Service</Text>
                 <Text style={ss.heroSub}>Choose your vehicle, then pick a package.</Text>
               </Animated.View>
 
@@ -1821,6 +1996,9 @@ export default function BookScreen() {
                         <TouchableOpacity
                           key={v.id}
                           activeOpacity={0.82}
+                          accessibilityRole="radio"
+                          accessibilityLabel={`${v.make} ${v.model}, ${typeLabel}`}
+                          accessibilityState={{ checked: isActive }}
                           onPress={() => {
                             setSelectedVehicle(v);
                             setVehicleType(getVehiclePriceKey(v.vehicleType || ''));
@@ -1873,6 +2051,8 @@ export default function BookScreen() {
                   setVehicles((prev) => [...prev, v]);
                   setSelectedVehicle(v);
                   setVehicleType(getVehiclePriceKey(v.vehicleType || ''));
+                  setSelectedPkg(null);
+                  setSelectedService(null);
                   setShowAddVehicle(false);
                 }}
               />
@@ -1901,118 +2081,116 @@ export default function BookScreen() {
                     {SPF_PACKAGES.map((pkg, idx) => {
                       const price = pkg.prices[vehicleType];
                       if (price === null) return null;
-                      const isHero     = pkg.key === 'spf89';
+                      const isHero = pkg.key === 'spf89';
                       const isSelected = selectedPkg === pkg.key;
+                      const compactFeatures = pkg.features
+                        .slice(0, 3)
+                        .map(getPackageFeatureParts);
                       return (
                         <Animated.View
                           key={pkg.key}
                           entering={FadeInDown.delay(idx * 40).duration(200)}
+                          style={[
+                            pkgCard.base,
+                            isHero && pkgCard.hero,
+                            isSelected && pkgCard.selected,
+                            isSelected && isHero && pkgCard.heroSelected,
+                          ]}
                         >
-                          <Animated.View style={PKG_CARD_ANIMS[pkg.key] as any}>
-                            <TouchableOpacity
-                              activeOpacity={1}
-                              onPress={() => selectPkg(pkg.key, price)}
-                              style={[
-                                pkgCard.base,
-                                isHero     && pkgCard.hero,
-                                isSelected && pkgCard.selected,
-                                isSelected && isHero && pkgCard.heroSelected,
-                              ]}
-                            >
-                              {/* Hero gradient overlay */}
-                              {isHero && (
-                                <LinearGradient
-                                  colors={['#1A1208', '#0F0F0F']}
-                                  start={{ x: 0, y: 0 }}
-                                  end={{ x: 1, y: 1 }}
-                                  style={StyleSheet.absoluteFill}
-                                />
-                              )}
+                          {isHero && (
+                            <LinearGradient
+                              colors={['#1A1208', '#0F0F0F']}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 1 }}
+                              style={StyleSheet.absoluteFill}
+                            />
+                          )}
 
-                              <View style={{ gap: 6 }}>
-                                {/* Tier label */}
-                                <Text style={pkgCard.tier}>{pkg.tier.toUpperCase()}</Text>
-
-                                {/* Name + price row */}
-                                <View style={pkgCard.nameRow}>
-                                  <Text style={pkgCard.name}>{pkg.label} — {pkg.tier}</Text>
-                                  {/* Animated checkmark */}
-                                  <Animated.View style={[pkgCard.checkCircle, isSelected && pkgCard.checkCircleActive, PKG_CHK_ANIMS[pkg.key] as any]}>
-                                    <Ionicons name="checkmark" size={13} color={isSelected ? '#0A0A0A' : 'transparent'} />
-                                  </Animated.View>
-                                </View>
-
-                                {/* Price */}
-                                <Text style={[pkgCard.price, isHero && { color: '#F97316' }]}>
-                                  ₱{price.toLocaleString()}
+                          <TouchableOpacity
+                            activeOpacity={0.82}
+                            accessibilityRole="radio"
+                            accessibilityLabel={`${pkg.label} ${pkg.tier}, ₱${price.toLocaleString()}`}
+                            accessibilityHint="Selects this service package"
+                            accessibilityState={{ checked: isSelected }}
+                            onPress={() => selectPkg(pkg.key, price)}
+                            style={pkgCard.selectArea}
+                          >
+                            <View style={pkgCard.topRow}>
+                              <Text style={pkgCard.tier}>{pkg.tier.toUpperCase()}</Text>
+                              <View
+                                style={[
+                                  pkgCard.badge,
+                                  {
+                                    borderColor: `${pkg.badgeColor}55`,
+                                    backgroundColor: `${pkg.badgeColor}18`,
+                                  },
+                                ]}
+                              >
+                                <Text style={[pkgCard.badgeText, { color: pkg.badgeColor }]}>
+                                  {pkg.badge}
                                 </Text>
-
-                                {/* Tagline */}
-                                <Text style={pkgCard.tagline}>{PKG_DURATIONS[pkg.key]}</Text>
-
-                                <Text style={pkgCard.description}>{pkg.description}</Text>
-
-                                {/* Social proof — SPF 89 only */}
-                                {isHero && (
-                                  <Text style={pkgCard.socialProof}>
-                                    78% of AutoSPF+ customers choose this package
-                                  </Text>
-                                )}
-
-                                {/* Divider */}
-                                <View style={pkgCard.divider} />
-
-                                {/* Features */}
-                                <View style={{ gap: 0 }}>
-                                  {pkg.features.map((feat, fi) => {
-                                    // Color savings in green
-                                    const saveMatch = feat.match(/(.*?)\s*\(save (₱[\d,]+)\)(.*)/);
-                                    return (
-                                      <Text key={fi} style={pkgCard.feature}>
-                                        {saveMatch ? (
-                                          <>
-                                            {saveMatch[1].trim()}
-                                            <Text style={{ color: '#4ADE80' }}> · saves {saveMatch[2]}</Text>
-                                          </>
-                                        ) : feat}
-                                      </Text>
-                                    );
-                                  })}
-                                </View>
-
-                                {/* "Why customers love this" — SPF 89 only */}
-                                {isHero && (
-                                  <TouchableOpacity
-                                    activeOpacity={0.7}
-                                    onPress={() => setWhyOpen(true)}
-                                    style={pkgCard.whyBtn}
-                                  >
-                                    <Text style={pkgCard.whyBtnText}>Why customers love this</Text>
-                                    <Ionicons name="arrow-forward" size={12} color="#F97316" />
-                                  </TouchableOpacity>
-                                )}
                               </View>
-                            </TouchableOpacity>
-                          </Animated.View>
+                            </View>
+
+                            <View style={pkgCard.nameRow}>
+                              <Text style={pkgCard.name}>{pkg.label} — {pkg.tier}</Text>
+                              <View style={[pkgCard.checkCircle, isSelected && pkgCard.checkCircleActive]}>
+                                {isSelected ? (
+                                  <Ionicons name="checkmark" size={14} color="#0A0A0A" />
+                                ) : null}
+                              </View>
+                            </View>
+
+                            <Text style={[pkgCard.price, isHero && pkgCard.heroPrice]}>
+                              ₱{price.toLocaleString()}
+                            </Text>
+
+                            <View style={pkgCard.metadataRow}>
+                              <View style={pkgCard.metadataPill}>
+                                <Ionicons name="shield-checkmark-outline" size={13} color={PRIMARY} />
+                                <Text style={pkgCard.metadataText}>{pkg.years}</Text>
+                              </View>
+                              <Text style={pkgCard.tagline} numberOfLines={1}>
+                                {PKG_DURATIONS[pkg.key]}
+                              </Text>
+                            </View>
+
+                            <View style={pkgCard.featurePreview}>
+                              {compactFeatures.map((feature) => (
+                                <View key={`${pkg.key}-${feature.title}`} style={pkgCard.featureRow}>
+                                  <Ionicons name="checkmark-circle" size={15} color={PRIMARY} />
+                                  <Text style={pkgCard.featureText} numberOfLines={1}>
+                                    {feature.title}
+                                  </Text>
+                                </View>
+                              ))}
+                            </View>
+
+                            {isSelected ? (
+                              <View style={pkgCard.selectedLabel}>
+                                <Ionicons name="checkmark-circle" size={14} color={PRIMARY} />
+                                <Text style={pkgCard.selectedLabelText}>Selected package</Text>
+                              </View>
+                            ) : null}
+                          </TouchableOpacity>
+
+                          <View style={pkgCard.divider} />
+                          <TouchableOpacity
+                            activeOpacity={0.72}
+                            accessibilityRole="button"
+                            accessibilityLabel={`View full details for ${pkg.label}`}
+                            onPress={() => setPackageDetailsKey(pkg.key)}
+                            style={pkgCard.detailsButton}
+                          >
+                            <Text style={pkgCard.detailsButtonText}>View full details</Text>
+                            <Ionicons name="chevron-forward" size={15} color={PRIMARY} />
+                          </TouchableOpacity>
                         </Animated.View>
                       );
                     })}
                   </View>
                 )}
               </Animated.View>
-
-              {/* Continue */}
-              <TouchableOpacity
-                activeOpacity={0.88}
-                disabled={!canProceedStep0}
-                onPress={goNext}
-                style={{ opacity: canProceedStep0 ? 1 : 0.4 }}
-              >
-                <LinearGradient colors={[PRIMARY_CTR, PRIMARY]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={ss.gradientBtn}>
-                  <Text style={ss.gradientBtnText}>Continue</Text>
-                  <Ionicons name="chevron-forward" size={18} color={ON_PRIMARY} />
-                </LinearGradient>
-              </TouchableOpacity>
             </Animated.View>
           )}
 
@@ -2193,29 +2371,38 @@ export default function BookScreen() {
               {/* ── Preferred Time ── */}
               <View style={sch.sectionCard}>
                 <View style={sch.timeSectionHeader}>
-                  <Text style={sch.timeSectionLabel}>PREFERRED TIME</Text>
-                  <Text style={sch.timeOptionCount}>{timeOptionCountLabel}</Text>
+                  <Text style={sch.timeSectionLabel}>Preferred Time</Text>
+                  {selectedDate ? (
+                    <Text style={sch.timeOptionCount}>{timeOptionCountLabel}</Text>
+                  ) : null}
                 </View>
 
                 {selectedDate ? (
                   <View style={sch.dateSummary}>
                     <View style={sch.dateSummaryBlock}>
-                      <Text style={sch.dateSummaryLabel}>SELECTED DATE</Text>
-                      <Text style={sch.dateSummaryDate}>{formatIsoDateForDisplay(selectedDate)}</Text>
+                      <Text style={sch.dateSummaryDate}>{formatIsoDateCompact(selectedDate)}</Text>
+                      <Text style={sch.dateSummaryHint}>Choose your arrival time</Text>
                     </View>
                     <View style={[sch.dateSummaryBlock, sch.dateSummaryCapacityBlock]}>
-                      <Text style={sch.dateSummaryLabel}>AVAILABILITY</Text>
-                      <Text style={[
-                        sch.dateSummaryCapacity,
-                        selectedDayAvailability?.status === 'full' && sch.dateSummaryCapacityFull,
-                        selectedDayAvailability?.status === 'closed' && sch.dateSummaryCapacityClosed,
-                      ]}>
-                        {selectedDateCapacityLabel}
-                      </Text>
+                      <View style={sch.availabilityRow}>
+                        <View style={[
+                          sch.availabilityDot,
+                          !selectedDayAvailability && sch.availabilityDotPending,
+                          selectedDayAvailability?.status === 'full' && sch.availabilityDotFull,
+                          selectedDayAvailability?.status === 'closed' && sch.availabilityDotClosed,
+                        ]} />
+                        <Text style={[
+                          sch.dateSummaryCapacity,
+                          selectedDayAvailability?.status === 'full' && sch.dateSummaryCapacityFull,
+                          selectedDayAvailability?.status === 'closed' && sch.dateSummaryCapacityClosed,
+                        ]}>
+                          {selectedDateCapacityLabel}
+                        </Text>
+                      </View>
                       {typeof selectedDayAvailability?.booked === 'number'
                         && typeof selectedDayAvailability?.capacity === 'number' ? (
                           <Text style={sch.dateSummaryMeta}>
-                            {selectedDayAvailability.booked} / {selectedDayAvailability.capacity} booked
+                            {selectedDayAvailability.booked} of {selectedDayAvailability.capacity} booked
                           </Text>
                         ) : null}
                     </View>
@@ -2230,56 +2417,61 @@ export default function BookScreen() {
                 )}
 
                 {!selectedDate ? (
-                  <View style={sch.emptyState}>
-                    <View style={sch.emptyIconWrap}>
-                      <Ionicons name="time-outline" size={20} color={Palette.accent} />
+                  <View style={sch.inlineState}>
+                    <Ionicons name="time-outline" size={22} color="#A1A1AA" />
+                    <View style={sch.inlineStateCopy}>
+                      <Text style={sch.inlineStateTitle}>Select a date to view available times</Text>
+                      <Text style={sch.inlineStateText}>Available dates are marked in the calendar.</Text>
                     </View>
-                    <Text style={sch.emptyTitle}>Choose an appointment date</Text>
-                    <Text style={sch.emptyText}>Select an available date to view time slots.</Text>
                   </View>
                 ) : selectedDayAvailability?.status === 'full' ? (
-                  <View style={sch.emptyState}>
-                    <View style={sch.emptyIconWrap}>
-                      <Ionicons name="calendar-outline" size={20} color="#EF4444" />
+                  <View style={sch.inlineState}>
+                    <Ionicons name="calendar-outline" size={22} color="#A1A1AA" />
+                    <View style={sch.inlineStateCopy}>
+                      <Text style={sch.inlineStateTitle}>Fully booked</Text>
+                      <Text style={sch.inlineStateText}>Choose another available date.</Text>
                     </View>
-                    <Text style={sch.emptyTitle}>No times available</Text>
-                    <Text style={sch.emptyText}>All appointment times for this date are booked.</Text>
                   </View>
                 ) : selectedDayAvailability?.status === 'closed' ? (
-                  <View style={sch.emptyState}>
-                    <View style={sch.emptyIconWrap}>
-                      <Ionicons
-                        name="calendar-outline"
-                        size={20}
-                        color={selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED' ? '#EF4444' : '#94A3B8'}
-                      />
+                  <View style={sch.inlineState}>
+                    <Ionicons
+                      name="calendar-outline"
+                      size={22}
+                      color={selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED' ? '#EF4444' : '#A1A1AA'}
+                    />
+                    <View style={sch.inlineStateCopy}>
+                      <Text style={[
+                        sch.inlineStateTitle,
+                        selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED' && { color: '#FCA5A5' },
+                      ]}>
+                        {selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED'
+                          ? 'Emergency closure'
+                          : 'Closed on this date'}
+                      </Text>
+                      <Text style={sch.inlineStateText}>
+                        {selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED'
+                          ? EMERGENCY_CLOSURE_MESSAGE
+                          : 'Choose another available date.'}
+                      </Text>
                     </View>
-                    <Text style={[
-                      sch.emptyTitle,
-                      selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED' && { color: '#EF4444' },
-                    ]}>
-                      {selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED'
-                        ? 'Emergency closure'
-                        : 'Date unavailable'}
-                    </Text>
-                    <Text style={sch.emptyText}>
-                      {selectedDayAvailability.errorCode === 'EMERGENCY_CLOSED'
-                        ? EMERGENCY_CLOSURE_MESSAGE
-                        : 'No appointment times are offered on this closed date.'}
-                    </Text>
                   </View>
                 ) : slotsLoading ? (
-                  <View style={sch.emptyState}>
-                    <ActivityIndicator size="small" color={Palette.accent} />
-                    <Text style={sch.emptyTitle}>Checking availability…</Text>
+                  <View
+                    style={sch.slotSkeletonGrid}
+                    accessibilityRole="progressbar"
+                    accessibilityLabel="Checking available times"
+                  >
+                    {[0, 1, 2, 3].map((item) => (
+                      <View key={item} style={sch.slotSkeleton} />
+                    ))}
                   </View>
                 ) : slotStatuses.length === 0 ? (
-                  <View style={sch.emptyState}>
-                    <View style={sch.emptyIconWrap}>
-                      <Ionicons name="calendar-outline" size={20} color="#94A3B8" />
+                  <View style={sch.inlineState}>
+                    <Ionicons name="calendar-outline" size={22} color="#A1A1AA" />
+                    <View style={sch.inlineStateCopy}>
+                      <Text style={sch.inlineStateTitle}>No openings on this date</Text>
+                      <Text style={sch.inlineStateText}>Choose another available date.</Text>
                     </View>
-                    <Text style={sch.emptyTitle}>No times available</Text>
-                    <Text style={sch.emptyText}>Choose another available date to continue.</Text>
                   </View>
                 ) : (
                   <Animated.View entering={FadeInDown.delay(80).duration(200)}>
@@ -2310,14 +2502,10 @@ export default function BookScreen() {
                             ]}
                           >
                             {isActive ? (
-                              <LinearGradient
-                                colors={[Palette.accentDark, Palette.accent]}
-                                start={{ x: 0, y: 0.5 }}
-                                end={{ x: 1, y: 0.5 }}
-                                style={s2.timePillGradient}
-                              >
+                              <View style={s2.timePillGradient}>
                                 <Text style={s2.timeTextSelected}>{t}</Text>
-                              </LinearGradient>
+                                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                              </View>
                             ) : (
                               <View style={s2.timePillContent}>
                                 <Text style={[
@@ -2341,13 +2529,13 @@ export default function BookScreen() {
               <View style={sch.sectionCard}>
                 <View style={sch.notesHeader}>
                   <Text style={sch.sectionLabel}>
-                    NOTES <Text style={sch.optional}>(optional)</Text>
+                    Notes <Text style={sch.optional}>Optional</Text>
                   </Text>
                   <Text style={[sch.counter, notes.length > 180 && { color: '#EF4444' }]}>{notes.length}/200</Text>
                 </View>
                 <TextInput
                   style={sch.notesInput}
-                  placeholder="Any special requests..."
+                  placeholder="Anything we should know before your appointment?"
                   placeholderTextColor="#71717A"
                   value={notes}
                   onChangeText={setNotes}
@@ -2359,44 +2547,6 @@ export default function BookScreen() {
                 />
               </View>
 
-              {/* Navigation — Schedule */}
-              <View style={[ss.btnRow, sch.actionRow]}>
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={goBack}
-                  style={[ss.outlineBtn, sch.backButton, { flex: 1 }]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Go back to booking details"
-                >
-                  <Text style={ss.outlineBtnText}>Back</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.88}
-                  disabled={!canProceedStep2}
-                  onPress={goNext}
-                  style={{ flex: 2 }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Continue to booking review"
-                  accessibilityState={{ disabled: !canProceedStep2 }}
-                >
-                  {canProceedStep2 ? (
-                    <LinearGradient
-                      colors={[Palette.accentDark, Palette.accent]}
-                      start={{ x: 0, y: 0.5 }}
-                      end={{ x: 1, y: 0.5 }}
-                      style={ss.gradientBtn}
-                    >
-                      <Text style={sch.continueText}>Continue</Text>
-                      <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
-                    </LinearGradient>
-                  ) : (
-                    <View style={[ss.gradientBtn, sch.continueDisabled]}>
-                      <Text style={sch.continueDisabledText}>Continue</Text>
-                      <Ionicons name="chevron-forward" size={18} color="#71717A" />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              </View>
             </Animated.View>
           )}
 
@@ -2787,37 +2937,253 @@ export default function BookScreen() {
               </Animated.View>
             );
           })()}
-
         </ScrollView>
+
+        {step === 2 ? (
+          <View
+            style={[
+              sch.actionDock,
+              { marginBottom: TabBarContentHeight + insets.bottom },
+            ]}
+          >
+            <TouchableOpacity
+              activeOpacity={0.68}
+              onPress={goBack}
+              style={sch.dockBackButton}
+              accessibilityRole="button"
+              accessibilityLabel="Go back to booking details"
+            >
+              <Ionicons name="chevron-back" size={18} color="#A1A1AA" />
+              <Text style={sch.dockBackText}>Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.82}
+              disabled={!canProceedStep2}
+              onPress={goNext}
+              style={[
+                sch.dockContinueButton,
+                !canProceedStep2 && sch.dockContinueButtonDisabled,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Continue to booking review"
+              accessibilityState={{ disabled: !canProceedStep2 }}
+            >
+              <Text style={[
+                sch.dockContinueText,
+                !canProceedStep2 && sch.dockContinueTextDisabled,
+              ]}>Continue</Text>
+              <Ionicons
+                name="arrow-forward"
+                size={18}
+                color={canProceedStep2 ? '#FFFFFF' : '#71717A'}
+              />
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </KeyboardAvoidingView>
 
-      {/* ── "Why Advanced?" Bottom Sheet ─────────────────────────── */}
-      <Modal visible={whyOpen} transparent animationType="slide" onRequestClose={() => setWhyOpen(false)}>
-        <TouchableOpacity style={why.backdrop} activeOpacity={1} onPress={() => setWhyOpen(false)} />
-        <View style={why.sheet}>
-          <View style={why.handle} />
-          <Text style={why.title}>Why 78% choose SPF 89</Text>
-          <Text style={why.sub}>The Advanced package hits the sweet spot on every dimension</Text>
-          <View style={why.bullets}>
-            {[
-              { icon: 'shield-checkmark-outline', heading: 'Best balance of cost vs protection', body: '5-year graphene coating at a price point that makes financial sense for most vehicle owners.' },
-              { icon: 'repeat-outline',           heading: 'Free annual reboost included', body: 'One Reboost/Maintenance visit (₱1,500 value) keeps your coating performing like new — at no extra cost.' },
-              { icon: 'trending-up-outline',      heading: 'Highest resale value boost', body: 'Professionally coated cars retain 8–12% more resale value than uncoated — this package is the minimum threshold.' },
-            ].map((b, i) => (
-              <View key={i} style={why.bullet}>
-                <View style={why.bulletIcon}>
-                  <Ionicons name={b.icon as any} size={18} color="#F97316" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={why.bulletHeading}>{b.heading}</Text>
-                  <Text style={why.bulletBody}>{b.body}</Text>
-                </View>
-              </View>
-            ))}
+      {step === 0 ? (
+        <View
+          style={[
+            bookingCta.container,
+            { bottom: TabBarContentHeight + insets.bottom },
+          ]}
+        >
+          <View style={bookingCta.summaryRow}>
+            <Text style={[bookingCta.guidance, canProceedStep0 && bookingCta.guidanceReady]}>
+              {stepOneGuidance}
+            </Text>
+            {selectedPackagePrice !== null ? (
+              <Text style={bookingCta.summaryPrice}>₱{selectedPackagePrice.toLocaleString()}</Text>
+            ) : null}
           </View>
-          <TouchableOpacity activeOpacity={0.85} onPress={() => setWhyOpen(false)} style={why.closeBtn}>
-            <Text style={why.closeBtnText}>Got it</Text>
+          <TouchableOpacity
+            activeOpacity={0.88}
+            disabled={!canProceedStep0 || isContinuing}
+            accessibilityRole="button"
+            accessibilityLabel="Continue to booking details"
+            accessibilityState={{ disabled: !canProceedStep0, busy: isContinuing }}
+            onPress={handleStepOneContinue}
+          >
+            <LinearGradient
+              colors={canProceedStep0 ? [PRIMARY_CTR, PRIMARY] : ['#292929', '#1C1C1C']}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={bookingCta.button}
+            >
+              {isContinuing ? (
+                <ActivityIndicator size="small" color={ON_PRIMARY} />
+              ) : (
+                <>
+                  <Text style={[bookingCta.buttonText, !canProceedStep0 && bookingCta.buttonTextDisabled]}>
+                    Continue
+                  </Text>
+                  <Ionicons
+                    name="arrow-forward"
+                    size={18}
+                    color={canProceedStep0 ? ON_PRIMARY : MUTED}
+                  />
+                </>
+              )}
+            </LinearGradient>
           </TouchableOpacity>
+        </View>
+      ) : null}
+
+      <Modal
+        visible={packageDetails !== null}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => setPackageDetailsKey(null)}
+      >
+        <View style={packageDetailsStyles.overlay}>
+          <TouchableOpacity
+            activeOpacity={1}
+            accessibilityRole="button"
+            accessibilityLabel="Close package details"
+            onPress={() => setPackageDetailsKey(null)}
+            style={packageDetailsStyles.backdrop}
+          />
+
+          {packageDetails && packageDetailsPrice !== null ? (
+            <View
+              style={[
+                packageDetailsStyles.sheet,
+                { paddingBottom: Math.max(insets.bottom, 16) },
+              ]}
+            >
+              <View style={packageDetailsStyles.handle} />
+              <View style={packageDetailsStyles.header}>
+                <View style={{ flex: 1 }}>
+                  <Text style={packageDetailsStyles.eyebrow}>{packageDetails.tier}</Text>
+                  <Text style={packageDetailsStyles.title}>
+                    {packageDetails.label} — {packageDetails.tier}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close package details"
+                  onPress={() => setPackageDetailsKey(null)}
+                  style={packageDetailsStyles.closeButton}
+                >
+                  <Ionicons name="close" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                style={packageDetailsStyles.scroll}
+                contentContainerStyle={packageDetailsStyles.content}
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={packageDetailsStyles.price}>
+                  ₱{packageDetailsPrice.toLocaleString()}
+                </Text>
+                <Text style={packageDetailsStyles.tagline}>
+                  {PKG_DURATIONS[packageDetails.key]}
+                </Text>
+
+                <View style={packageDetailsStyles.durationRow}>
+                  <Ionicons name="shield-checkmark-outline" size={17} color={PRIMARY} />
+                  <View>
+                    <Text style={packageDetailsStyles.durationLabel}>Protection</Text>
+                    <Text style={packageDetailsStyles.durationValue}>{packageDetails.years}</Text>
+                  </View>
+                </View>
+
+                <Text style={packageDetailsStyles.description}>{packageDetails.description}</Text>
+
+                {packageDetails.socialProof ? (
+                  <View style={packageDetailsStyles.highlight}>
+                    <Ionicons name="people-outline" size={17} color={PRIMARY} />
+                    <Text style={packageDetailsStyles.highlightText}>
+                      {packageDetails.socialProof}
+                    </Text>
+                  </View>
+                ) : null}
+
+                <View style={packageDetailsStyles.section}>
+                  <Text style={packageDetailsStyles.sectionTitle}>What&apos;s included</Text>
+                  <View style={packageDetailsStyles.inclusionList}>
+                    {packageDetails.features.map((rawFeature) => {
+                      const feature = getPackageFeatureParts(rawFeature);
+                      return (
+                        <View key={rawFeature} style={packageDetailsStyles.inclusionRow}>
+                          <View style={packageDetailsStyles.checkIcon}>
+                            <Ionicons name="checkmark" size={13} color={ON_PRIMARY} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={packageDetailsStyles.inclusionTitle}>{feature.title}</Text>
+                            {feature.detail ? (
+                              <Text style={packageDetailsStyles.inclusionDetail}>{feature.detail}</Text>
+                            ) : null}
+                            {feature.savings ? (
+                              <Text style={packageDetailsStyles.savings}>
+                                Included · Save {feature.savings}
+                              </Text>
+                            ) : null}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {packageDetails.insights?.length ? (
+                  <View style={packageDetailsStyles.section}>
+                    <Text style={packageDetailsStyles.sectionTitle}>Why customers love this</Text>
+                    <View style={packageDetailsStyles.insightList}>
+                      {packageDetails.insights.map((insight) => (
+                        <View key={insight.heading} style={packageDetailsStyles.insightRow}>
+                          <View style={packageDetailsStyles.insightIcon}>
+                            <Ionicons name={insight.icon} size={17} color={PRIMARY} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={packageDetailsStyles.insightTitle}>{insight.heading}</Text>
+                            <Text style={packageDetailsStyles.insightBody}>{insight.body}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+              </ScrollView>
+
+              {selectedPkg === packageDetails.key ? (
+                <View
+                  accessibilityRole="text"
+                  accessibilityLabel={`${packageDetails.label} is selected`}
+                  style={packageDetailsStyles.selectedAction}
+                >
+                  <Ionicons name="checkmark-circle" size={19} color={PRIMARY} />
+                  <Text style={packageDetailsStyles.selectedActionText}>Selected package</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  activeOpacity={0.86}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select ${packageDetails.label}`}
+                  onPress={() => {
+                    selectPkg(packageDetails.key, packageDetailsPrice);
+                    setPackageDetailsKey(null);
+                  }}
+                >
+                  <LinearGradient
+                    colors={[PRIMARY_CTR, PRIMARY]}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={packageDetailsStyles.selectButton}
+                  >
+                    <Text style={packageDetailsStyles.selectButtonText}>
+                      Select {packageDetails.label}
+                    </Text>
+                    <Ionicons name="checkmark" size={18} color={ON_PRIMARY} />
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : null}
         </View>
       </Modal>
     </View>
@@ -2834,6 +3200,7 @@ const ss = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 8 },
   stepWrap: { gap: 28 },
+  stepOneWrap: { gap: 24 },
 
   // ── Editorial Hero (Step 0) ──
   heroSection: {
@@ -3252,12 +3619,13 @@ const s2 = StyleSheet.create({
   timeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    columnGap: 10,
+    rowGap: 10,
   },
   timePill: {
-    width: '47.8%',
-    minHeight: 48,
-    borderRadius: 14,
+    width: '48%',
+    minHeight: 54,
+    borderRadius: 15,
     overflow: 'hidden',
     backgroundColor: SURFACE_HIGH,
     borderWidth: 1,
@@ -3265,32 +3633,26 @@ const s2 = StyleSheet.create({
     justifyContent: 'center',
   },
   timePillSelected: {
-    borderColor: 'rgba(255,107,53,0.75)',
-    ...Platform.select({
-      ios: {
-        shadowColor: Palette.accent,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 10,
-      },
-      android: { elevation: 4 },
-    }),
+    borderColor: Palette.accent,
   },
   timePillGradient: {
-    minHeight: 48,
+    minHeight: 54,
     paddingVertical: 12,
+    flexDirection: 'row',
+    gap: 7,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 14,
+    backgroundColor: Palette.accent,
   },
   timePillContent: {
-    minHeight: 48,
+    minHeight: 54,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
   },
   timeText: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '600',
     color: '#E4E4E7',
     textAlign: 'center',
@@ -3298,7 +3660,7 @@ const s2 = StyleSheet.create({
   timeTextSelected: {
     color: '#FFFFFF',
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: 15,
   },
   timeTextFull: { color: '#F87171' },
   timeTextClosed: { color: '#A1A1AA' },
@@ -3307,15 +3669,14 @@ const s2 = StyleSheet.create({
 
   /* ── Time slot status variants ── */
   timePillFull: {
-    backgroundColor: 'rgba(239,68,68,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.20)',
+    backgroundColor: SURFACE_HIGH,
+    borderColor: 'rgba(239,68,68,0.12)',
+    opacity: 0.5,
   },
   timePillClosed: {
-    backgroundColor: 'rgba(148,163,184,0.06)',
-    borderWidth: 1,
+    backgroundColor: SURFACE_HIGH,
     borderColor: 'rgba(148,163,184,0.12)',
-    opacity: 0.6,
+    opacity: 0.45,
   },
 
   /* ── "Select a date" empty state ── */
@@ -4252,60 +4613,80 @@ const s1 = StyleSheet.create({
 // ── Schedule step styles (mirrors web layout) ──────────────────────────────
 const sch = StyleSheet.create({
   scheduleWrap: {
-    gap: 24,
+    gap: 30,
   },
   sectionCard: {
-    backgroundColor: SURFACE,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 20,
-    padding: 16,
+    backgroundColor: 'transparent',
   },
   sectionLabel: {
-    fontSize: 11,
+    fontSize: 20,
+    lineHeight: 25,
     fontWeight: '700',
-    letterSpacing: 1.2,
-    color: '#E4E4E7',
+    letterSpacing: -0.35,
+    color: '#F4F4F5',
   },
   dateSummary: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: 12,
+    alignItems: 'flex-start',
+    gap: 10,
     marginBottom: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
-    borderRadius: 14,
-    backgroundColor: SURFACE_HIGH,
-    padding: 12,
+    paddingBottom: 13,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.09)',
   },
   dateSummaryBlock: {
     flex: 1,
-    gap: 4,
+    gap: 3,
   },
   dateSummaryCapacityBlock: {
     alignItems: 'flex-end',
   },
-  dateSummaryLabel: {
-    color: '#8B8B94',
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 0.7,
-  },
   dateSummaryDate: {
     color: '#F4F4F5',
-    fontSize: 13,
+    fontSize: 17,
     fontWeight: '700',
-    lineHeight: 18,
+    lineHeight: 21,
+  },
+  dateSummaryHint: {
+    color: '#8B8B94',
+    fontSize: 12,
+    lineHeight: 17,
   },
   dateSummaryCapacity: {
-    color: '#22c55e',
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 18,
+    color: '#D4D4D8',
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 16,
     textAlign: 'right',
+    flexShrink: 1,
+  },
+  availabilityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
+  availabilityDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#22C55E',
+    flexShrink: 0,
+  },
+  availabilityDotFull: {
+    backgroundColor: '#EF4444',
+  },
+  availabilityDotPending: {
+    backgroundColor: '#71717A',
+  },
+  availabilityDotClosed: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#94A3B8',
   },
   dateSummaryCapacityFull: {
-    color: '#EF4444',
+    color: '#D4D4D8',
   },
   dateSummaryCapacityClosed: {
     color: MUTED,
@@ -4314,6 +4695,7 @@ const sch = StyleSheet.create({
     color: '#8B8B94',
     fontSize: 10,
     fontWeight: '500',
+    textAlign: 'right',
   },
   timeSectionHeader: {
     flexDirection: 'row',
@@ -4323,10 +4705,11 @@ const sch = StyleSheet.create({
     marginBottom: 14,
   },
   timeSectionLabel: {
-    color: '#E4E4E7',
-    fontSize: 11,
+    color: '#F4F4F5',
+    fontSize: 20,
+    lineHeight: 25,
     fontWeight: '700',
-    letterSpacing: 1.2,
+    letterSpacing: -0.35,
   },
   timeOptionCount: {
     flex: 1,
@@ -4339,12 +4722,8 @@ const sch = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 8,
-    marginBottom: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.22)',
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,107,53,0.07)',
+    marginBottom: 14,
+    paddingVertical: 2,
   },
   scheduleMessageText: {
     flex: 1,
@@ -4352,49 +4731,52 @@ const sch = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 14,
-    backgroundColor: SURFACE_HIGH,
+  inlineState: {
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingVertical: 8,
   },
-  emptyIconWrap: {
-    width: 36,
-    height: 36,
-    marginBottom: 2,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,107,53,0.08)',
+  inlineStateCopy: {
+    flex: 1,
+    gap: 3,
   },
-  emptyTitle: {
-    fontSize: 13,
+  inlineStateTitle: {
+    fontSize: 14,
+    lineHeight: 19,
     color: '#E4E4E7',
-    fontWeight: '700',
-    textAlign: 'center',
+    fontWeight: '600',
   },
-  emptyText: {
+  inlineStateText: {
     fontSize: 12,
-    lineHeight: 17,
-    color: '#A1A1AA',
-    textAlign: 'center',
+    lineHeight: 18,
+    color: '#8B8B94',
+  },
+  slotSkeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 10,
+    rowGap: 10,
+  },
+  slotSkeleton: {
+    width: '48%',
+    minHeight: 54,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.055)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.045)',
   },
   notesHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   optional: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '400',
     letterSpacing: 0,
-    textTransform: 'none',
     color: '#A1A1AA',
   },
   counter: {
@@ -4404,42 +4786,63 @@ const sch = StyleSheet.create({
   notesInput: {
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.09)',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingTop: 13,
-    paddingBottom: 13,
-    fontSize: 14,
-    lineHeight: 20,
+    borderRadius: 17,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
+    fontSize: 15,
+    lineHeight: 21,
     color: '#F4F4F5',
     backgroundColor: SURFACE_HIGH,
-    minHeight: 128,
+    minHeight: 104,
     textAlignVertical: 'top',
   },
-  actionRow: {
-    marginTop: 0,
+  actionDock: {
+    minHeight: 78,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    backgroundColor: '#09090B',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.09)',
   },
-  backButton: {
+  dockBackButton: {
+    minWidth: 78,
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  dockBackText: {
+    color: '#A1A1AA',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  dockContinueButton: {
+    flex: 1,
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 17,
+    backgroundColor: Palette.accent,
+  },
+  dockContinueButtonDisabled: {
+    backgroundColor: SURFACE_HIGH,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    backgroundColor: SURFACE,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
-  continueText: {
+  dockContinueText: {
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
-    letterSpacing: 0.15,
   },
-  continueDisabled: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    backgroundColor: SURFACE_HIGH,
-    opacity: 0.78,
-  },
-  continueDisabledText: {
+  dockContinueTextDisabled: {
     color: '#71717A',
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: 0.15,
   },
 });
 
@@ -4773,41 +5176,62 @@ const svc = StyleSheet.create({
   },
 });
 
-// ── Package cards — world-class redesign ──────────────────────────────────────
+// ── Compact package selection cards ──────────────────────────────────────────
 const pkgCard = StyleSheet.create({
   base: {
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.07)',
     backgroundColor: '#111111',
-    padding: 20,
     overflow: 'hidden',
   },
   hero: {
     borderColor: 'rgba(249,115,22,0.28)',
-    paddingVertical: 24,
-    paddingHorizontal: 22,
     ...Platform.select({
-      ios: { shadowColor: '#F97316', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.18, shadowRadius: 24 },
-      android: { elevation: 8 },
+      ios: { shadowColor: '#F97316', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.12, shadowRadius: 18 },
+      android: { elevation: 5 },
     }),
   },
   selected: {
-    borderColor: 'rgba(249,115,22,0.6)',
+    borderColor: PRIMARY,
+    backgroundColor: 'rgba(255,140,0,0.07)',
   },
   heroSelected: {
     borderColor: '#F97316',
     ...Platform.select({
-      ios: { shadowOpacity: 0.35, shadowRadius: 32 },
+      ios: { shadowOpacity: 0.25, shadowRadius: 24 },
     }),
+  },
+  selectArea: {
+    paddingHorizontal: 18,
+    paddingTop: 17,
+    paddingBottom: 15,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 8,
   },
   tier: {
     fontSize: 9,
-    fontWeight: '600',
-    letterSpacing: 3,
-    color: 'rgba(255,255,255,0.35)',
+    fontWeight: '700',
+    letterSpacing: 2.2,
+    color: 'rgba(255,255,255,0.48)',
     textTransform: 'uppercase',
-    marginBottom: 4,
+  },
+  badge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexShrink: 1,
+  },
+  badgeText: {
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.7,
   },
   nameRow: {
     flexDirection: 'row',
@@ -4816,61 +5240,81 @@ const pkgCard = StyleSheet.create({
     gap: 8,
   },
   name: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: '#FFFFFF',
     flex: 1,
-    lineHeight: 26,
+    lineHeight: 23,
   },
   price: {
-    fontSize: 32,
+    fontSize: 27,
     fontWeight: '900',
     color: '#FFFFFF',
-    letterSpacing: -1.5,
-    lineHeight: 38,
+    letterSpacing: -1,
+    lineHeight: 33,
+    marginTop: 3,
   },
-  tagline: {
-    fontSize: 12,
-    fontStyle: 'italic',
-    color: 'rgba(255,255,255,0.4)',
-    lineHeight: 17,
+  heroPrice: {
+    color: '#F97316',
   },
-  description: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: 'rgba(255,255,255,0.55)',
-    lineHeight: 18,
-    marginTop: 6,
+  metadataRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginTop: 8,
   },
-  socialProof: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: 'rgba(249,115,22,0.75)',
-    marginTop: 2,
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    marginVertical: 14,
-  },
-  feature: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.7)',
-    lineHeight: 26,
-  },
-  whyBtn: {
+  metadataPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    marginTop: 10,
-    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(255,183,125,0.08)',
   },
-  whyBtnText: {
+  metadataText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: PRIMARY,
+  },
+  tagline: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.50)',
+  },
+  featurePreview: {
+    gap: 7,
+    marginTop: 14,
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  featureText: {
+    flex: 1,
     fontSize: 12,
     fontWeight: '600',
-    color: '#F97316',
+    color: 'rgba(255,255,255,0.72)',
+    lineHeight: 17,
   },
-  // Animated checkmark circle
+  selectedLabel: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,183,125,0.10)',
+  },
+  selectedLabelText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: PRIMARY,
+  },
   checkCircle: {
     width: 28,
     height: 28,
@@ -4885,79 +5329,321 @@ const pkgCard = StyleSheet.create({
     backgroundColor: '#F97316',
     borderColor: '#F97316',
   },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: 18,
+  },
+  detailsButton: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  detailsButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: PRIMARY,
+  },
 });
 
-// ── "Why Advanced?" Bottom Sheet ─────────────────────────────────────────────
-const why = StyleSheet.create({
-  backdrop: {
+const bookingCta = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 30,
+    paddingHorizontal: 16,
+    paddingTop: 9,
+    paddingBottom: 11,
+    backgroundColor: 'rgba(4,4,5,0.97)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,183,125,0.18)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -5 },
+        shadowOpacity: 0.22,
+        shadowRadius: 14,
+      },
+      android: { elevation: 12 },
+    }),
+  },
+  summaryRow: {
+    minHeight: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 7,
+  },
+  guidance: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#71717A',
+  },
+  guidanceReady: {
+    color: PRIMARY,
+  },
+  summaryPrice: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  button: {
+    minHeight: 50,
+    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+  },
+  buttonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: ON_PRIMARY,
+  },
+  buttonTextDisabled: {
+    color: MUTED,
+  },
+});
+
+const packageDetailsStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.72)',
   },
   sheet: {
+    maxHeight: '88%',
     backgroundColor: '#111111',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 40,
+    paddingHorizontal: 20,
+    paddingTop: 12,
     borderTopWidth: 1,
-    borderColor: 'rgba(249,115,22,0.2)',
-    gap: 16,
+    borderColor: 'rgba(249,115,22,0.24)',
+    overflow: 'hidden',
   },
   handle: {
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.16)',
     alignSelf: 'center',
+    marginBottom: 14,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingBottom: 14,
+  },
+  eyebrow: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 2,
+    color: PRIMARY,
+    textTransform: 'uppercase',
     marginBottom: 4,
   },
   title: {
     fontSize: 20,
+    lineHeight: 25,
     fontWeight: '800',
     color: '#FFFFFF',
-    letterSpacing: -0.5,
   },
-  sub: {
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scroll: {
+    flexShrink: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  content: {
+    paddingTop: 16,
+    paddingBottom: 22,
+  },
+  price: {
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '900',
+    letterSpacing: -1.2,
+    color: '#F97316',
+  },
+  tagline: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.45)',
-    marginTop: -8,
     lineHeight: 19,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.52)',
+    marginTop: 2,
   },
-  bullets: { gap: 18 },
-  bullet: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
-  bulletIcon: {
-    width: 38,
-    height: 38,
+  durationRow: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginTop: 16,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
     borderRadius: 12,
-    backgroundColor: 'rgba(249,115,22,0.1)',
+    backgroundColor: 'rgba(255,183,125,0.08)',
+  },
+  durationLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.45)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  durationValue: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: PRIMARY,
+  },
+  description: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: 'rgba(255,255,255,0.66)',
+    marginTop: 18,
+  },
+  highlight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(249,115,22,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(249,115,22,0.20)',
+  },
+  highlightText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
+    color: PRIMARY,
+  },
+  section: {
+    marginTop: 24,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 13,
+  },
+  inclusionList: {
+    gap: 15,
+  },
+  inclusionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 11,
+  },
+  checkIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: PRIMARY,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
-    marginTop: 1,
   },
-  bulletHeading: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 3,
-  },
-  bulletBody: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.5)',
+  inclusionTitle: {
+    fontSize: 13,
     lineHeight: 18,
-  },
-  closeBtn: {
-    backgroundColor: '#F97316',
-    borderRadius: 14,
-    paddingVertical: 15,
-    alignItems: 'center',
-    marginTop: 6,
-  },
-  closeBtnText: {
-    fontSize: 15,
     fontWeight: '700',
-    color: '#0A0A0A',
-    letterSpacing: 0.3,
+    color: '#F4F4F5',
+  },
+  inclusionDetail: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: 'rgba(255,255,255,0.50)',
+    marginTop: 2,
+  },
+  savings: {
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
+    color: '#4ADE80',
+    marginTop: 3,
+  },
+  insightList: {
+    gap: 14,
+  },
+  insightRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 11,
+  },
+  insightIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: 'rgba(249,115,22,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  insightTitle: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  insightBody: {
+    fontSize: 11,
+    lineHeight: 17,
+    color: 'rgba(255,255,255,0.50)',
+    marginTop: 2,
+  },
+  selectedAction: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 10,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,183,125,0.09)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,183,125,0.24)',
+  },
+  selectedActionText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: PRIMARY,
+  },
+  selectButton: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 10,
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  selectButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: ON_PRIMARY,
   },
 });

@@ -121,6 +121,8 @@ FIREBASE_CLIENT_EMAIL=<firebase-service-account-email>
 FIREBASE_PRIVATE_KEY="<firebase-private-key-with-escaped-newlines>"
 
 GROQ_API_KEY=<groq-api-key>
+GROQ_CHAT_MODEL=openai/gpt-oss-20b
+GROQ_CHAT_REASONING_EFFORT=low
 ROBOFLOW_API_KEY=<roboflow-api-key>
 ROBOFLOW_WORKSPACE=ivan-tadena
 ROBOFLOW_WORKFLOW_ID=vehicle-damage-dataset-vvehicle-damage-dataset-le164-1-yolo11s-seg-t1-logic

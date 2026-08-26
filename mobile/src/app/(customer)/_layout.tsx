@@ -81,7 +81,7 @@ function TabBarButton({
       accessibilityState={{ selected:isFocused }}
       accessibilityLabel={label}
     >
-      <Animated.View style={[styles.tabButtonInner, isFocused && styles.tabButtonActive, animStyle]}>
+      <Animated.View style={[styles.tabButtonInner, animStyle]}>
         <Ionicons
           name={isFocused ? iconName : inactiveIconName}
           size={21}
@@ -227,25 +227,16 @@ const styles = StyleSheet.create({
     height: 46,
     borderRadius: 16,
   },
-  tabButtonActive: {
-    backgroundColor: 'rgba(255, 107, 53, 0.065)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.12)',
-  },
   tabLabel: {
     fontSize: 9,
     marginTop: 1,
   },
   activeIndicator: {
     position: 'absolute',
-    top: 0,
-    width: 16,
+    bottom: 0,
+    width: 18,
     height: 2,
     borderRadius: 2,
     backgroundColor: Palette.accent,
-    shadowColor: Palette.accent,
-    shadowOpacity: 0.32,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 1 },
   },
 });

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  DEFAULT_GROQ_CHAT_MODEL,
   formatGroqApiError,
+  getGroqReasoningOptions,
+  resolveGroqModel,
   runGroqWithRetry,
 } from '../utils/groqChat.utils.js';
 
@@ -15,6 +18,17 @@ const providerError = (status, options = {}) => {
   };
   return error;
 };
+
+test('uses the supported production model and migrates the retired Llama alias', () => {
+  assert.equal(DEFAULT_GROQ_CHAT_MODEL, 'openai/gpt-oss-20b');
+  assert.equal(resolveGroqModel(), DEFAULT_GROQ_CHAT_MODEL);
+  assert.equal(resolveGroqModel('llama-3.1-8b-instant'), DEFAULT_GROQ_CHAT_MODEL);
+  assert.equal(resolveGroqModel('openai/gpt-oss-120b'), 'openai/gpt-oss-120b');
+  assert.deepEqual(getGroqReasoningOptions(DEFAULT_GROQ_CHAT_MODEL), {
+    reasoning_effort: 'low',
+  });
+  assert.deepEqual(getGroqReasoningOptions('qwen/qwen3.8-27b'), {});
+});
 
 test('classifies provider rate limits and preserves Retry-After without exposing internals', () => {
   const details = formatGroqApiError(providerError(429, {
