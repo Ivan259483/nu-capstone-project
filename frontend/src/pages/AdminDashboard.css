@@ -67,7 +67,15 @@
   }
 }
 
-.admin-shell * {
+/*
+ * Keep the legacy dashboard's dark border token out of AdminHubPanel.
+ *
+ * Admin Hub owns its border colors (including the notification center) through
+ * its scoped component styles. Applying this wildcard to `.admin-hub-route-host`
+ * makes equal-specificity component rules depend on stylesheet chunk order,
+ * which differs between Vite dev and production builds.
+ */
+.admin-shell:not(.admin-hub-route-host) * {
   border-color: var(--border);
 }
 
