@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { useEffect, lazy, Suspense, type ReactNode } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
+import SystemStatusGate from "./components/system/SystemStatusGate";
 import "./index.css";
 
 // Lazy-load ChatWidget and Navbar — they are never shown on /login or dashboard routes,
@@ -365,6 +366,7 @@ const AuthenticatedApp = () => (
                 <TooltipProvider>
                     <Toaster position="top-center" />
                     <IconifyLoader />
+                    <SystemStatusGate />
                     <AppRoutes />
                     {/* ChatWidget: public site only — dashboards have their own chat */}
                     <_ConditionalChatWidget />

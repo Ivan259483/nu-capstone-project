@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { NOTIFICATION_RECIPIENT_ROLES } from '../constants/roles.js';
+import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
 
 export const ADMIN_NOTIFICATION_CATEGORIES = Object.freeze([
   'appointments',
@@ -156,5 +157,10 @@ notificationSchema.index(
     },
   }
 );
+
+notificationSchema.plugin(operationalClassificationPlugin, {
+  collectionName: 'notifications',
+  label: (notification) => notification.title || notification.event,
+});
 
 export default mongoose.model('Notification', notificationSchema);

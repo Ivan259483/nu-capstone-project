@@ -11,6 +11,7 @@ import {
   getCustomerPaymentSummary,
   createPOSTransaction,
   getReceiptData,
+  createPaymentRefund,
 } from '../controllers/payment.controller.js';
 import { POS_MANAGER_ROLES } from '../constants/roles.js';
 
@@ -28,6 +29,7 @@ router.post('/local', createLocalPaymentPlaceholder);
 router.post('/pos', authorize(...POS_MANAGER_ROLES), createPOSTransaction);
 router.get('/sales/today', authorize(...POS_MANAGER_ROLES), getSalesToday);
 router.get('/customer/:customerId/summary', authorize(...POS_MANAGER_ROLES), getCustomerPaymentSummary);
+router.post('/:paymentId/refunds', authorize(...POS_MANAGER_ROLES), createPaymentRefund);
 router.get('/:id/receipt', authorize(...POS_MANAGER_ROLES), getReceiptData);
 router.get('/', authorize(...POS_MANAGER_ROLES), getAllPayments);
 

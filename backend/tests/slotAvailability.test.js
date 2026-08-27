@@ -30,6 +30,7 @@ const { default: ChatConversation } = await import(
   '../models/chatConversation.model.js'
 );
 const { default: Order } = await import('../models/order.model.js');
+const { default: Payment } = await import('../models/payment.model.js');
 const { default: ScheduledClosure } = await import(
   '../models/scheduledClosure.model.js'
 );
@@ -1241,6 +1242,10 @@ test('duplicate reschedules and rejected-proof retries are counter-idempotent', 
   });
   assert.equal(rejected.response.status, 200);
   assert.equal((await counterAt(MONDAY, '09:00')).count, 0);
+  const rejectedPayment = await Payment.findOne({ order: orderId, transactionType: 'reservation_fee' }).lean();
+  assert.equal(rejectedPayment.status, 'rejected');
+  assert.equal(rejectedPayment.amountSubmitted, 500);
+  assert.equal(rejectedPayment.amountVerified, 0);
 
   const retries = await Promise.all(
     Array.from({ length: 2 }, () =>
@@ -1266,6 +1271,10 @@ test('duplicate reschedules and rejected-proof retries are counter-idempotent', 
   assert.equal(current.status, 'pending_confirmation');
   assert.equal(current.bookingDate, MONDAY);
   assert.equal(current.bookingTime, '09:00');
+  const reservationPayments = await Payment.find({ order: orderId, transactionType: 'reservation_fee' }).lean();
+  assert.equal(reservationPayments.length, 1);
+  assert.equal(reservationPayments[0].status, 'pending');
+  assert.equal(reservationPayments[0].amount, 500);
   assert.equal((await counterAt(MONDAY, '09:00')).count, 1);
 });
 
@@ -1327,12 +1336,35 @@ test('lowering capacity does not block approval of an appointment that already o
 
   await setMondayAvailability({ capacity: 1 });
   const firstId = first.body.data.id || first.body.data._id;
+  const incompleteApproval = await requestJson(`/api/orders/${firstId}/approve`, {
+    method: 'PATCH',
+    headers: adminHeaders,
+    body: JSON.stringify({ verificationChecklist: { amount: true } }),
+  });
+  assert.equal(incompleteApproval.response.status, 400);
   const approved = await requestJson(`/api/orders/${firstId}/approve`, {
     method: 'PATCH',
     headers: adminHeaders,
-    body: JSON.stringify({}),
+    body: JSON.stringify({
+      verificationChecklist: {
+        amount: true,
+        identity: true,
+        timestamp: true,
+        reference: true,
+      },
+    }),
   });
   assert.equal(approved.response.status, 200);
+  const [approvedOrder, approvedPayment] = await Promise.all([
+    Order.findById(firstId).lean(),
+    Payment.findOne({ order: firstId, transactionType: 'reservation_fee' }).lean(),
+  ]);
+  assert.equal(approvedOrder.status, 'confirmed');
+  assert.equal(approvedOrder.serviceTrackingStage, 'confirmed');
+  assert.equal(approvedOrder.downPaymentAmount, 500);
+  assert.equal(approvedPayment.status, 'succeeded');
+  assert.equal(approvedPayment.amountVerified, 500);
+  assert.equal(approvedPayment.metadata.remainingBalance, 500);
 
   const slot = (await getSlotsForDate(MONDAY)).slots.find(
     (row) => row.time === '08:00',

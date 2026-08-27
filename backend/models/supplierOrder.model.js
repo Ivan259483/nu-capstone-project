@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
 
 const supplierOrderSchema = new mongoose.Schema(
   {
@@ -24,5 +25,10 @@ const supplierOrderSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+supplierOrderSchema.plugin(operationalClassificationPlugin, {
+  collectionName: 'supplier_orders',
+  label: (order) => `${order.status || 'Supplier order'} ${order.orderDate || order.createdAt || ''}`,
+});
 
 export default mongoose.model('SupplierOrder', supplierOrderSchema);

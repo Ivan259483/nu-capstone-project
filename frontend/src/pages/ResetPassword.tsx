@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { ArrowLeft, Check, CheckCircle2, Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,11 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import AuthSpotlight from "@/components/effects/AuthSpotlight";
 import { getBaseApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { registerPasswordPolicyError } from "@/lib/register-validation";
+import {
+    registerPasswordPolicyError,
+    registerPasswordRules,
+    registerPasswordStrength,
+} from "@/lib/register-validation";
 
 const OTP_LENGTH = 6;
 
@@ -69,11 +73,28 @@ export default function ResetPassword() {
     const [otpShake, setOtpShake] = useState(false);
     const [newPassword, setNewPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
-    const [showPassword, setShowPassword] = useState(false);
+    const [showPassword, setShowPassword] = useState({ new: false, confirm: false });
 
     const emailInputRef = useRef<HTMLInputElement | null>(null);
     const newPasswordInputRef = useRef<HTMLInputElement | null>(null);
     const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+    const passwordRules = useMemo(() => registerPasswordRules(newPassword), [newPassword]);
+    const passwordRuleCount = [
+        passwordRules.length,
+        passwordRules.upper,
+        passwordRules.lower,
+        passwordRules.number,
+        passwordRules.special,
+    ].filter(Boolean).length;
+    const passwordAllValid = passwordRuleCount === 5;
+    const passwordStrength = useMemo(
+        () => registerPasswordStrength(newPassword, passwordRules, t),
+        [newPassword, passwordRules, t]
+    );
+    const passwordsMatch =
+        newPassword.length > 0 && confirmPassword.length > 0 && newPassword === confirmPassword;
+    const canUpdatePassword = passwordAllValid && passwordStrength !== null && passwordsMatch;
 
     useEffect(() => {
         if (initialEmail) setEmail(initialEmail);
@@ -188,7 +209,7 @@ export default function ResetPassword() {
             toast.error(policyError);
             return;
         }
-        if (newPassword !== confirmPassword) {
+        if (!passwordsMatch) {
             toast.error(t("validation.passwordMismatch"));
             return;
         }
@@ -202,6 +223,7 @@ export default function ResetPassword() {
                     email,
                     otp: otpDigits.join(""),
                     newPassword,
+                    confirmPassword,
                 }),
                 signal: AbortSignal.timeout(12000),
             });
@@ -337,7 +359,7 @@ export default function ResetPassword() {
                                         <Input
                                             ref={newPasswordInputRef}
                                             id="reset-new-password"
-                                            type={showPassword ? "text" : "password"}
+                                            type={showPassword.new ? "text" : "password"}
                                             autoComplete="new-password"
                                             value={newPassword}
                                             onChange={(event) => setNewPassword(event.target.value)}
@@ -347,10 +369,10 @@ export default function ResetPassword() {
                                         <button
                                             type="button"
                                             className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-zinc-200"
-                                            onClick={() => setShowPassword((value) => !value)}
-                                            aria-label={showPassword ? "Hide password" : "Show password"}
+                                            onClick={() => setShowPassword((value) => ({ ...value, new: !value.new }))}
+                                            aria-label={showPassword.new ? "Hide password" : "Show password"}
                                         >
-                                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                            {showPassword.new ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                         </button>
                                     </div>
                                 </div>
@@ -363,7 +385,7 @@ export default function ResetPassword() {
                                         <Lock className={AUTH_ICON_CLASS} />
                                         <Input
                                             id="reset-confirm-password"
-                                            type={showPassword ? "text" : "password"}
+                                            type={showPassword.confirm ? "text" : "password"}
                                             autoComplete="new-password"
                                             value={confirmPassword}
                                             onChange={(event) => setConfirmPassword(event.target.value)}
@@ -374,10 +396,96 @@ export default function ResetPassword() {
                                                 }
                                             }}
                                             placeholder={t("login.forgotConfirmPassword")}
-                                            className={cn(AUTH_INPUT_CLASS, "pl-10")}
+                                            className={cn(AUTH_INPUT_CLASS, "pl-10 pr-11")}
                                         />
+                                        <button
+                                            type="button"
+                                            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-zinc-200"
+                                            onClick={() => setShowPassword((value) => ({ ...value, confirm: !value.confirm }))}
+                                            aria-label={showPassword.confirm ? "Hide password" : "Show password"}
+                                        >
+                                            {showPassword.confirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        </button>
                                     </div>
+                                    {confirmPassword.length > 0 ? (
+                                        <p
+                                            className={cn(
+                                                "px-1 text-[11px] font-medium animate-slide-up",
+                                                passwordsMatch ? "text-orange-200" : "text-red-300"
+                                            )}
+                                            role="status"
+                                            aria-live="polite"
+                                        >
+                                            {passwordsMatch ? "✓ Passwords match" : t("validation.passwordMismatch")}
+                                        </p>
+                                    ) : null}
                                 </div>
+
+                                {newPassword.length > 0 && passwordStrength ? (
+                                    <div className="space-y-2 px-1" aria-live="polite">
+                                        <div className="flex items-center justify-between gap-3 text-[11px] font-medium">
+                                            <span className="text-zinc-500">{t("register.strengthLabel")}</span>
+                                            <span className={passwordStrength.textClass}>{passwordStrength.text}</span>
+                                        </div>
+                                        <div
+                                            className="h-1 overflow-hidden rounded-full bg-white/[0.07]"
+                                            role="progressbar"
+                                            aria-label={t("register.strengthLabel")}
+                                            aria-valuemin={0}
+                                            aria-valuemax={5}
+                                            aria-valuenow={passwordRuleCount}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    "block h-full rounded-full transition-[width] duration-300 ease-out",
+                                                    passwordStrength.barClass
+                                                )}
+                                                style={{ width: `${passwordRuleCount * 20}%` }}
+                                            />
+                                        </div>
+                                        {!passwordAllValid ? (
+                                            <ul
+                                                className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3"
+                                                aria-label="Password requirements"
+                                            >
+                                                {(
+                                                    [
+                                                        [passwordRules.length, t("register.ruleLength")],
+                                                        [passwordRules.upper, t("register.ruleUppercase")],
+                                                        [passwordRules.lower, t("register.ruleLowercase")],
+                                                        [passwordRules.number, t("register.ruleNumber")],
+                                                        [passwordRules.special, t("register.ruleSpecial")],
+                                                    ] as const
+                                                ).map(([met, label]) => (
+                                                    <li
+                                                        key={label}
+                                                        className={cn(
+                                                            "flex items-center gap-1.5 text-[10px] font-medium transition-colors",
+                                                            met ? "text-zinc-300" : "text-zinc-600"
+                                                        )}
+                                                    >
+                                                        <span
+                                                            className={cn(
+                                                                "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border",
+                                                                met
+                                                                    ? "border-orange-300/35 bg-orange-300/[0.08] text-orange-200"
+                                                                    : "border-white/[0.09] text-transparent"
+                                                            )}
+                                                        >
+                                                            <Check className="h-2.5 w-2.5" aria-hidden />
+                                                        </span>
+                                                        <span>{label}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        ) : (
+                                            <p className="flex items-center gap-1.5 text-[10px] font-medium text-orange-200/90">
+                                                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                                                <span>✓ {t("register.strengthComplete")}</span>
+                                            </p>
+                                        )}
+                                    </div>
+                                ) : null}
                             </div>
                         )}
 
@@ -393,7 +501,7 @@ export default function ResetPassword() {
                                 isLoading ||
                                 (step === "email" && !email.trim()) ||
                                 (step === "otp" && otpDigits.join("").length !== OTP_LENGTH) ||
-                                (step === "password" && (!newPassword || !confirmPassword))
+                                (step === "password" && !canUpdatePassword)
                             }
                         >
                             {isLoading ? (

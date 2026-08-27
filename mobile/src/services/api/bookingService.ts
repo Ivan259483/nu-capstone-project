@@ -137,6 +137,7 @@ export const bookingService = {
     vehicleColor?: string;
     vehicleId?: string;
     downpaymentProof?: string;
+    reservationPaymentAmount?: number;
   }): Promise<BookingRecord> {
     const bookingDate = normalizeBookingDateForApi(params.date);
 
@@ -158,6 +159,7 @@ export const bookingService = {
       vehicle: params.vehicleId,
       service: params.service.id,
       downpaymentProof: params.downpaymentProof,
+      reservationPaymentAmount: params.reservationPaymentAmount ?? 500,
       items: [],
     };
 
@@ -253,10 +255,10 @@ export const bookingService = {
    * Upload GCash payment proof (base64 image)
    * Backend: POST /api/orders/:id/payment-proof
    */
-  async uploadPaymentProof(bookingId: string, paymentProofUrl: string): Promise<BookingRecord> {
+  async uploadPaymentProof(bookingId: string, paymentProofUrl: string, reservationPaymentAmount = 500): Promise<BookingRecord> {
     const response = await apiClient.post<ApiEnvelope<any>>(
       `/orders/${bookingId}/payment-proof`,
-      { paymentProofUrl }
+      { paymentProofUrl, reservationPaymentAmount }
     );
     return normalizeBooking(response.data.data);
   },

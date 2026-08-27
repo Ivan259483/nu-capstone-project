@@ -12,7 +12,6 @@ import {
   Calendar, AlertCircle, Package, Banknote, GripVertical,
 } from 'lucide-react';
 import {
-  approveBooking,
   createAvailabilityClosure,
   deleteAvailabilityClosure,
   fetchAvailabilityClosures,
@@ -57,29 +56,8 @@ function BookingCard({
   const meta = getMeta(booking.status);
   const isPending = booking.status === 'pending_confirmation';
 
-  const handleApprove = async () => {
-    setActioning(true);
-    try {
-      const data = await approveBooking(id);
-      if (data.success) {
-        toast.success('Booking approved ✅', { description: 'Customer has been notified.' });
-        invalidateDateCache(booking.bookingDate || '');
-        onActionComplete(id);
-      } else {
-        const msg = data.message || 'Approval failed';
-        if (msg.toLowerCase().includes('slot')) {
-          toast.error('Slot is no longer available', {
-            description: 'Another booking already occupies this time slot.',
-          });
-        } else {
-          toast.error('Approval failed', { description: msg });
-        }
-      }
-    } catch {
-      toast.error('Network error — could not approve booking');
-    } finally {
-      setActioning(false);
-    }
+  const handleApprove = () => {
+    window.dispatchEvent(new CustomEvent('sales:navigate-approval', { detail: { orderId: id } }));
   };
 
   const handleReject = async () => {
@@ -290,7 +268,7 @@ function BookingCard({
                 {actioning
                   ? <Loader2 size={12} className="animate-spin" />
                   : <CheckCircle size={12} />}
-                Approve
+                Review Payment
               </button>
             </div>
           )}

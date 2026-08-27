@@ -37,6 +37,25 @@ import {
   PENDING_PAYMENT_STATUSES,
 } from '../services/pendingPayments.service.js';
 import { normalizePaymentMethod } from '../utils/paymentMethod.utils.js';
+import {
+  buildLedgerTransaction,
+  createRefundLedgerEntry,
+  findRefundByIdempotency,
+  getOrderLedger,
+  getOrderServiceTotal,
+  getPaymentEffectiveAt,
+  getSignedAmount,
+  isPostedPayment,
+  refundableAmountForPayment,
+  roundMoney,
+  syncOrderFinancialSnapshot,
+  summarizeLedgerRows,
+} from '../services/financialLedger.service.js';
+import { getVisitEvidenceAt } from '../services/salesAnalytics.service.js';
+import { parseReportingRange } from '../utils/reportingRange.utils.js';
+import PaymentReconciliationEvent from '../models/paymentReconciliationEvent.model.js';
+import { getSystemState } from '../services/systemState.service.js';
+import { beginTrackedSystemMutation } from '../middleware/systemLifecycle.middleware.js';
 
 const LOW_STOCK_THRESHOLD = 10;
 const LOCAL_PAYMENTS_PROVIDER = (process.env.LOCAL_PAYMENTS_PROVIDER || 'paymongo').toLowerCase();
@@ -351,21 +370,23 @@ const applyInventoryDeductions = async (order) => {
 };
 
 const finalizePayment = async (payment, order, payload = {}) => {
+  const now = new Date();
   payment.status = 'succeeded';
+  payment.amountSubmitted = payment.amountSubmitted ?? payment.amount;
+  payment.amountVerified = payment.amountVerified ?? payment.amount;
+  payment.submittedAt = payment.submittedAt || payment.createdAt || now;
+  payment.reviewedAt = payment.reviewedAt || now;
+  payment.effectiveAt = payment.effectiveAt || now;
+  payment.transactionType = payment.transactionType || 'full_service_payment';
   payment.providerReference = payload.providerReference || payment.providerReference;
   payment.metadata = { ...payment.metadata, ...payload.metadata };
   await payment.save();
 
   order.invoiceId = order.invoiceId || payment.invoiceId;
-  order.paymentStatus = 'paid';
   order.paymentMethod = payment.method;
   order.paymentProvider = payment.provider;
-  order.paidAt = new Date();
   const prevStatus = order.status;
-  if (order.status === 'pending') {
-    order.status = 'confirmed';
-  }
-  await order.save();
+  await syncOrderFinancialSnapshot(order);
 
   await applyInventoryDeductions(order);
 
@@ -506,6 +527,12 @@ const getOrderForPayment = async (orderId, user) => {
   return order;
 };
 
+const getOutstandingForOrder = async (order) => {
+  const rows = await getOrderLedger(order._id);
+  const snapshot = summarizeLedgerRows(rows, getOrderServiceTotal(order));
+  return { rows, ...snapshot };
+};
+
 export const createStripePaymentIntent = async (req, res, next) => {
   try {
     const { orderId } = req.body || {};
@@ -517,11 +544,8 @@ export const createStripePaymentIntent = async (req, res, next) => {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found or access denied' });
     }
-    if (order.paymentStatus === 'paid') {
-      return res.status(400).json({ success: false, message: 'Order is already paid' });
-    }
-
-    const amount = Number(order.totalPrice ?? order.totalAmount);
+    const ledger = await getOutstandingForOrder(order);
+    const amount = ledger.outstandingBalance;
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ success: false, message: 'Invalid order amount' });
     }
@@ -567,6 +591,9 @@ export const createStripePaymentIntent = async (req, res, next) => {
       order: order._id,
       customer: order.customer,
       amount,
+      amountSubmitted: amount,
+      transactionType: ledger.netVerified > 0 ? 'service_balance' : 'full_service_payment',
+      submittedAt: new Date(),
       currency: 'PHP',
       status: 'pending',
       method: 'card',
@@ -616,11 +643,8 @@ export const createStripeCheckoutSession = async (req, res, next) => {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found or access denied' });
     }
-    if (order.paymentStatus === 'paid') {
-      return res.status(400).json({ success: false, message: 'Order is already paid' });
-    }
-
-    const amount = Number(order.totalPrice ?? order.totalAmount);
+    const ledger = await getOutstandingForOrder(order);
+    const amount = ledger.outstandingBalance;
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ success: false, message: 'Invalid order amount' });
     }
@@ -663,6 +687,9 @@ export const createStripeCheckoutSession = async (req, res, next) => {
       order: order._id,
       customer: order.customer,
       amount,
+      amountSubmitted: amount,
+      transactionType: ledger.netVerified > 0 ? 'service_balance' : 'full_service_payment',
+      submittedAt: new Date(),
       currency: 'PHP',
       status: 'pending',
       method: 'card',
@@ -736,11 +763,8 @@ export const createLocalPaymentPlaceholder = async (req, res, next) => {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found or access denied' });
     }
-    if (order.paymentStatus === 'paid') {
-      return res.status(400).json({ success: false, message: 'Order is already paid' });
-    }
-
-    const amount = Number(order.totalPrice ?? order.totalAmount);
+    const ledger = await getOutstandingForOrder(order);
+    const amount = ledger.outstandingBalance;
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ success: false, message: 'Invalid order amount' });
     }
@@ -756,6 +780,9 @@ export const createLocalPaymentPlaceholder = async (req, res, next) => {
       order: order._id,
       customer: order.customer,
       amount,
+      amountSubmitted: amount,
+      transactionType: ledger.netVerified > 0 ? 'service_balance' : 'full_service_payment',
+      submittedAt: new Date(),
       currency: 'PHP',
       status: 'pending',
       method: paymentMethod,
@@ -854,76 +881,187 @@ export const stripeWebhookHandler = async (req, res) => {
     return res.status(400).send(`Webhook Error: ${error.message}`);
   }
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const paymentId = session.metadata?.paymentId;
-    const orderId = session.metadata?.orderId;
+  try {
+    const systemState = await getSystemState();
+    if (systemState.mode === 'archived') {
+      let archiveTicket;
+      try {
+        archiveTicket = await beginTrackedSystemMutation({
+          allowArchived: true,
+          throwOnBlocked: true,
+          kind: 'internal',
+          requestId: req.id,
+        });
+      } catch (error) {
+        return res.status(error.statusCode || 503).json({
+          received: false,
+          code: error.code || 'SYSTEM_MUTATION_BLOCKED',
+        });
+      }
+      try {
+        const rawPayload = Buffer.isBuffer(req.body)
+          ? req.body
+          : Buffer.from(JSON.stringify(req.body || {}), 'utf8');
+        const payloadHash = crypto.createHash('sha256').update(rawPayload).digest('hex');
+        const object = event.data?.object || {};
+        const metadata = object.metadata || {};
+        const paymentId = mongoose.isValidObjectId(metadata.paymentId)
+          ? metadata.paymentId
+          : null;
+        const orderId = mongoose.isValidObjectId(metadata.orderId)
+          ? metadata.orderId
+          : null;
+        const eventId = String(event.id || payloadHash);
+        const amount = Number(
+          object.amount_total
+          ?? object.amount_received
+          ?? object.amount
+          ?? object.amount_due,
+        );
+        const providerSnapshot = {
+          eventId,
+          eventType: String(event.type || 'unknown'),
+          eventCreatedAt: Number.isFinite(Number(event.created))
+            ? new Date(Number(event.created) * 1000).toISOString()
+            : null,
+          livemode: Boolean(event.livemode),
+          objectType: String(object.object || 'unknown'),
+          objectId: object.id ? String(object.id) : null,
+          status: object.status ? String(object.status) : null,
+          paymentStatus: object.payment_status ? String(object.payment_status) : null,
+          amountMinor: Number.isFinite(amount) ? amount : null,
+          currency: object.currency ? String(object.currency).toLowerCase() : null,
+          metadata: { orderId, paymentId },
+        };
 
-    try {
-      let payment = paymentId ? await Payment.findById(paymentId) : null;
-      if (!payment && session.id) {
-        payment = await Payment.findOne({ providerReference: session.id });
-      }
-      if (!payment) {
-        console.warn('Payment record not found for checkout session:', session.id);
-        return res.json({ received: true });
-      }
-      if (payment.status === 'succeeded') {
-        return res.json({ received: true });
-      }
+        const reconciliationWrite = await PaymentReconciliationEvent.updateOne(
+          { provider: 'stripe', eventId },
+          {
+            $setOnInsert: {
+              provider: 'stripe',
+              eventId,
+              eventType: String(event.type || 'unknown'),
+              signatureVerified: true,
+              payloadHash,
+              providerSnapshot,
+              orderId,
+              paymentId,
+              status: 'pending',
+              receivedAt: new Date(),
+            },
+          },
+          { upsert: true, runValidators: true },
+        );
 
-      const order = orderId ? await Order.findById(orderId) : await Order.findById(payment.order);
-      if (!order) {
-        console.warn('Order not found for checkout session:', session.id);
-        return res.json({ received: true });
-      }
+        if (systemState.protectedAdministratorId && reconciliationWrite.upsertedCount === 1) {
+          await createAdminNotification({
+            title: 'Archived payment event needs reconciliation',
+            message: `Stripe sent ${event.type || 'a payment event'} after AutoSPF+ was archived. No booking or payment record was changed.`,
+            category: 'payments',
+            event: 'archived_payment_reconciliation',
+            severity: 'warning',
+            source: 'Stripe Webhook',
+            recipientRole: 'administrator',
+            recipientUserId: systemState.protectedAdministratorId,
+            actionRequired: true,
+            groupingKey: `archived-payment:${eventId}`,
+            link: '/admin?section=system_management',
+            action: { label: 'Review event', link: '/admin?section=system_management' },
+            metadata: {
+              provider: 'stripe',
+              eventId,
+              eventType: event.type || 'unknown',
+              orderId,
+              paymentId,
+            },
+          }).catch((error) => {
+            console.warn('[Stripe webhook] Reconciliation alert failed:', error.message);
+          });
+        }
 
-      await finalizePayment(payment, order, {
-        providerReference: session.id,
-        metadata: { stripeSessionStatus: session.status },
-      });
-    } catch (error) {
-      console.error('Failed to finalize payment from webhook:', error.message);
+        return res.json({ received: true, archived: true, reconciliationPending: true });
+      } finally {
+        archiveTicket.release();
+      }
     }
+  } catch (error) {
+    console.error('Failed to persist archived Stripe reconciliation event:', error.message);
+    return res.status(500).json({ received: false });
   }
 
-  if (event.type === 'payment_intent.payment_failed') {
-    try {
-      await recordFailedStripePayment(event.data.object);
-    } catch (error) {
-      console.error('Failed to record Stripe payment failure:', error.message);
-    }
+  let mutationTicket;
+  try {
+    mutationTicket = await beginTrackedSystemMutation({ throwOnBlocked: true });
+  } catch (error) {
+    console.warn('[Stripe webhook] System mutation gate blocked event:', error.code || error.message);
+    return res.status(error.statusCode || 503).json({
+      received: false,
+      code: error.code || 'SYSTEM_MUTATION_BLOCKED',
+    });
   }
 
-  res.json({ received: true });
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const paymentId = session.metadata?.paymentId;
+      const orderId = session.metadata?.orderId;
+
+      try {
+        let payment = paymentId ? await Payment.findById(paymentId) : null;
+        if (!payment && session.id) {
+          payment = await Payment.findOne({ providerReference: session.id });
+        }
+        if (!payment) {
+          console.warn('Payment record not found for checkout session:', session.id);
+          return res.json({ received: true });
+        }
+        if (payment.status === 'succeeded') {
+          return res.json({ received: true });
+        }
+
+        const order = orderId ? await Order.findById(orderId) : await Order.findById(payment.order);
+        if (!order) {
+          console.warn('Order not found for checkout session:', session.id);
+          return res.json({ received: true });
+        }
+
+        await finalizePayment(payment, order, {
+          providerReference: session.id,
+          metadata: { stripeSessionStatus: session.status },
+        });
+      } catch (error) {
+        console.error('Failed to finalize payment from webhook:', error.message);
+      }
+    }
+
+    if (event.type === 'payment_intent.payment_failed') {
+      try {
+        await recordFailedStripePayment(event.data.object);
+      } catch (error) {
+        console.error('Failed to record Stripe payment failure:', error.message);
+      }
+    }
+
+    return res.json({ received: true });
+  } finally {
+    mutationTicket.release();
+  }
 };
 
 export const getSalesToday = async (req, res, next) => {
   try {
-    const now = new Date();
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
-
-    const result = await Payment.aggregate([
-      {
-        $match: {
-          status: 'succeeded',
-          createdAt: { $gte: start, $lte: end },
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$amount' },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-
-    const total = result?.[0]?.total || 0;
-    const count = result?.[0]?.count || 0;
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+    const range = parseReportingRange({ range: 'custom', from: today, to: today });
+    const payments = await Payment.find({ status: { $in: ['succeeded', 'refunded'] } });
+    const recognized = payments.filter((payment) => {
+      const effectiveAt = getPaymentEffectiveAt(payment);
+      const time = effectiveAt ? new Date(effectiveAt).getTime() : NaN;
+      return isPostedPayment(payment) && time >= range.start.getTime() && time <= range.end.getTime();
+    });
+    const total = roundMoney(recognized.reduce((sum, payment) => sum + getSignedAmount(payment), 0));
+    const count = recognized.length;
 
     res.json({
       success: true,
@@ -950,22 +1088,28 @@ export const getMyPayments = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Authentication required' });
     }
 
-    const { limit = 50 } = req.query || {};
-
-    const payments = await Payment.find({ customer: userId })
-      .sort({ createdAt: -1 })
-      .limit(Number(limit))
-      .populate('order', 'orderNumber customerName serviceType status')
-      .lean();
-
-    // Calculate totals for this customer
-    const totals = await Payment.aggregate([
-      { $match: { customer: new mongoose.Types.ObjectId(userId), status: 'succeeded' } },
-      { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
-    ]);
-
-    const totalSpent = totals?.[0]?.total || 0;
-    const totalCount = totals?.[0]?.count || 0;
+    const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 50));
+    const allPayments = await Payment.find({ customer: userId })
+      .sort({ effectiveAt: -1, submittedAt: -1, createdAt: -1 })
+      .populate(
+        'order',
+        'orderNumber bookingReference customer customerName customerPhone serviceType status vehicle vehicleYear vehicleMake vehicleModel vehicleColor vehiclePlate totalPrice totalAmount serviceTotal items approvedAt cancelledAt arrivedAt'
+      )
+      .populate('vehicle', 'year make model color plateNumber vehicleType')
+      .populate('service', 'name price')
+      .populate('staffAssigned', 'name email')
+      .populate('reviewedBy', 'name email');
+    const byOrder = new Map();
+    allPayments.forEach((payment) => {
+      const orderId = String(payment.order?._id || payment.order || '');
+      if (!byOrder.has(orderId)) byOrder.set(orderId, []);
+      byOrder.get(orderId).push(payment);
+    });
+    const payments = allPayments.slice(0, limit).map((payment) => buildLedgerTransaction(payment, {
+      orderPayments: byOrder.get(String(payment.order?._id || payment.order || '')) || [],
+    }));
+    const totalSpent = roundMoney(allPayments.reduce((sum, payment) => sum + getSignedAmount(payment), 0));
+    const totalCount = allPayments.filter(isPostedPayment).length;
 
     res.json({
       success: true,
@@ -991,28 +1135,23 @@ export const getCustomerPaymentSummary = async (req, res, next) => {
     }
 
     const customerObjectId = new mongoose.Types.ObjectId(customerId);
-    const [totals, recentPayments] = await Promise.all([
-      Payment.aggregate([
-        { $match: { customer: customerObjectId, status: 'succeeded' } },
-        {
-          $group: {
-            _id: null,
-            totalSpent: { $sum: '$amount' },
-            orderIds: { $addToSet: '$order' },
-            lastVisit: { $max: '$createdAt' },
-          },
-        },
-      ]),
-      Payment.find({ customer: customerObjectId, status: 'succeeded' })
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .select('invoiceId order items amount createdAt method')
-        .populate('order', 'orderNumber serviceType')
-        .lean(),
-    ]);
-
-    const summary = totals?.[0];
-    const recentServices = recentPayments.map((payment) => {
+    const payments = await Payment.find({ customer: customerObjectId })
+      .sort({ effectiveAt: -1, submittedAt: -1, createdAt: -1 })
+      .populate(
+        'order',
+        'orderNumber bookingReference serviceType status arrivedAt egressData serviceProper qcCompletedAt jobOrder'
+      );
+    const postedPositive = payments.filter((payment) => isPostedPayment(payment) && payment.transactionType !== 'refund');
+    const distinctVisitedOrders = new Map();
+    postedPositive.forEach((payment) => {
+      const order = payment.order;
+      const visitAt = order && typeof order === 'object' ? getVisitEvidenceAt(order) : null;
+      if (visitAt) distinctVisitedOrders.set(String(order._id), visitAt);
+    });
+    const lastVisit = distinctVisitedOrders.size
+      ? new Date(Math.max(...[...distinctVisitedOrders.values()].map((date) => new Date(date).getTime())))
+      : null;
+    const recentServices = postedPositive.slice(0, 5).map((payment) => {
       const itemNames = Array.isArray(payment.items)
         ? payment.items.map((item) => String(item?.name || '').trim()).filter(Boolean)
         : [];
@@ -1020,8 +1159,8 @@ export const getCustomerPaymentSummary = async (req, res, next) => {
         id: payment._id,
         transactionId: payment.invoiceId,
         service: itemNames.join(', ') || payment.order?.serviceType || 'Service payment',
-        date: payment.createdAt,
-        amount: normalizeMoney(payment.amount),
+        date: getPaymentEffectiveAt(payment),
+        amount: getSignedAmount(payment),
         paymentMethod: payment.method,
       };
     });
@@ -1029,9 +1168,9 @@ export const getCustomerPaymentSummary = async (req, res, next) => {
     return res.json({
       success: true,
       data: {
-        totalSpent: normalizeMoney(summary?.totalSpent || 0),
-        visitCount: Array.isArray(summary?.orderIds) ? summary.orderIds.filter(Boolean).length : 0,
-        lastVisit: summary?.lastVisit || null,
+        totalSpent: roundMoney(payments.reduce((sum, payment) => sum + getSignedAmount(payment), 0)),
+        visitCount: distinctVisitedOrders.size,
+        lastVisit,
         recentServices,
       },
     });
@@ -1042,26 +1181,111 @@ export const getCustomerPaymentSummary = async (req, res, next) => {
 
 export const getAllPayments = async (req, res, next) => {
   try {
-    const { limit = 100 } = req.query || {};
-    const [payments, totalRevenue, pendingPayments] = await Promise.all([
-      Payment.find()
-        .sort({ createdAt: -1 })
-        .limit(Number(limit))
-        .populate('order', 'orderNumber customerName serviceType')
-        .populate('customer', 'name email')
-        .lean(),
-      Payment.aggregate([
-        { $match: { status: 'succeeded' } },
-        { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
-      ]),
+    const query = req.query || {};
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 25));
+    const filter = {};
+    const applyEnumFilter = (name, path) => {
+      if (!query[name]) return;
+      const values = String(query[name]).split(',').map((value) => value.trim()).filter(Boolean);
+      const allowed = new Set(Payment.schema.path(path).enumValues);
+      if (values.some((value) => !allowed.has(value))) {
+        const error = new Error(`Invalid ${name} filter.`);
+        error.statusCode = 400;
+        throw error;
+      }
+      filter[path] = values.length === 1 ? values[0] : { $in: values };
+    };
+    applyEnumFilter('status', 'status');
+    applyEnumFilter('transactionType', 'transactionType');
+    applyEnumFilter('method', 'method');
+    for (const field of ['customer', 'order']) {
+      if (query[field]) {
+        if (!mongoose.isValidObjectId(query[field])) {
+          const error = new Error(`Invalid ${field} filter.`);
+          error.statusCode = 400;
+          throw error;
+        }
+        filter[field] = query[field];
+      }
+    }
+    if (query.search && String(query.search).trim()) {
+      const search = String(query.search).trim();
+      const regex = new RegExp(escapeRegex(search), 'i');
+      const [matchingCustomers, matchingOrders] = await Promise.all([
+        User.find({ $or: [{ name: regex }, { email: regex }] }).select('_id'),
+        Order.find({
+          $or: [
+            { orderNumber: regex },
+            { bookingReference: regex },
+            { customerName: regex },
+            { vehiclePlate: regex },
+            { serviceType: regex },
+          ],
+        }).select('_id'),
+      ]);
+      filter.$or = [
+        { invoiceId: regex },
+        { paymentReference: regex },
+        { providerReference: regex },
+        { customer: { $in: matchingCustomers.map((row) => row._id) } },
+        { order: { $in: matchingOrders.map((row) => row._id) } },
+      ];
+    }
+    if (query.from || query.to) {
+      if (!query.from || !query.to) {
+        const error = new Error('Both from and to dates are required.');
+        error.statusCode = 400;
+        throw error;
+      }
+      const range = parseReportingRange({ range: 'custom', from: query.from, to: query.to });
+      const dateField = query.dateField === 'submittedAt' ? 'submittedAt' : 'effectiveAt';
+      filter[dateField] = { $gte: range.start, $lte: range.end };
+    }
+    const sortBy = ['effectiveAt', 'submittedAt', 'createdAt', 'amount', 'status'].includes(String(query.sortBy))
+      ? String(query.sortBy)
+      : 'createdAt';
+    const sortDirection = String(query.sortOrder || query.direction).toLowerCase() === 'asc' ? 1 : -1;
+    const [paymentDocs, total, summaryRows, pendingPayments] = await Promise.all([
+      Payment.find(filter)
+        .select('-proofImage -statusHistory.proofImage')
+        .sort({ [sortBy]: sortDirection, _id: sortDirection })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .populate(
+          'order',
+          'orderNumber bookingReference customer customerName customerPhone serviceType status vehicle vehicleYear vehicleMake ' +
+          'vehicleModel vehicleColor vehiclePlate totalPrice totalAmount serviceTotal downPaymentAmount paymentStatus items approvedAt cancelledAt'
+        )
+        .populate('customer', 'name email phone phoneNumber contactNumber mobileNumber')
+        .populate('vehicle', 'year make model color plateNumber vehicleType')
+        .populate('service', 'name price')
+        .populate('staffAssigned', 'name email')
+        .populate('reviewedBy', 'name email'),
+      Payment.countDocuments(filter),
+      Payment.find(filter).select('amount amountSubmitted amountVerified amountPaid status transactionType effectiveAt reviewedAt createdAt'),
       getPendingPaymentsSummary(),
     ]);
+    const orderIds = [...new Set(paymentDocs.map((payment) => String(payment.order?._id || payment.order || '')).filter(Boolean))];
+    const orderPayments = orderIds.length ? await Payment.find({ order: { $in: orderIds } }) : [];
+    const byOrder = new Map();
+    orderPayments.forEach((payment) => {
+      const key = String(payment.order);
+      if (!byOrder.has(key)) byOrder.set(key, []);
+      byOrder.get(key).push(payment);
+    });
+    const payments = paymentDocs.map((payment) => buildLedgerTransaction(payment, {
+      orderPayments: byOrder.get(String(payment.order?._id || payment.order)) || [],
+    }));
+    const totalRevenue = roundMoney(summaryRows.reduce((sum, payment) => sum + getSignedAmount(payment), 0));
+    const totalCount = summaryRows.filter(isPostedPayment).length;
 
     res.json({
       success: true,
       data: payments,
-      totalRevenue: totalRevenue?.[0]?.total || 0,
-      totalCount: totalRevenue?.[0]?.count || 0,
+      pagination: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
+      totalRevenue,
+      totalCount,
       pendingPaymentsSummary: {
         totalOutstanding: pendingPayments.totalOutstanding,
         count: pendingPayments.count,
@@ -1070,6 +1294,126 @@ export const getAllPayments = async (req, res, next) => {
       },
     });
   } catch (error) {
+    next(error);
+  }
+};
+
+export const createPaymentRefund = async (req, res, next) => {
+  try {
+    const { paymentId } = req.params;
+    const { amount = null, reason, confirmed, method } = req.body || {};
+    if (!mongoose.isValidObjectId(paymentId)) {
+      return res.status(400).json({ success: false, message: 'Invalid payment id.' });
+    }
+    if (confirmed !== true) {
+      return res.status(400).json({ success: false, message: 'Refund confirmation is required.' });
+    }
+    const normalizedReason = String(reason || '').trim();
+    if (normalizedReason.length < 3) {
+      return res.status(400).json({ success: false, message: 'A refund reason is required.' });
+    }
+    if (method && !Payment.schema.path('method').enumValues.includes(method)) {
+      return res.status(400).json({ success: false, message: 'Invalid refund method.' });
+    }
+    const idempotencyKey = String(
+      req.get('Idempotency-Key') || req.get('X-Idempotency-Key') || req.body?.idempotencyKey || ''
+    ).trim();
+    if (!/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey)) {
+      return res.status(400).json({ success: false, message: 'A valid idempotency key is required.' });
+    }
+    const originalPayment = await Payment.findById(paymentId).populate('order');
+    if (!originalPayment) {
+      return res.status(404).json({ success: false, message: 'Payment not found.' });
+    }
+    const existing = await findRefundByIdempotency(originalPayment._id, idempotencyKey);
+    if (existing) {
+      const existingOrderRows = await getOrderLedger(originalPayment.order?._id || originalPayment.order);
+      return res.json({
+        success: true,
+        idempotent: true,
+        data: buildLedgerTransaction(existing, { order: originalPayment.order, orderPayments: existingOrderRows }),
+      });
+    }
+
+    const orderId = originalPayment.order?._id || originalPayment.order;
+    if (!orderId) {
+      return res.status(409).json({ success: false, message: 'The original payment is missing its booking ledger.' });
+    }
+    const orderPaymentsBeforeRefund = await getOrderLedger(orderId);
+    const refundable = refundableAmountForPayment(originalPayment, orderPaymentsBeforeRefund);
+    const requestedRefund = amount === null || amount === undefined || amount === ''
+      ? refundable
+      : roundMoney(amount);
+    if (requestedRefund <= 0 || requestedRefund > refundable + 0.009) {
+      return res.status(409).json({
+        success: false,
+        message: `Refund amount must be positive and cannot exceed ₱${refundable.toFixed(2)}.`,
+        code: 'REFUND_EXCEEDS_REFUNDABLE_BALANCE',
+      });
+    }
+
+    let provider = 'manual';
+    let providerReference = null;
+    if (originalPayment.provider === 'stripe' || originalPayment.method === 'card') {
+      const stripe = getStripeClient();
+      if (!stripe) return res.status(503).json({ success: false, message: 'Stripe refunds are unavailable.' });
+      const intentId = String(originalPayment.metadata?.stripePaymentIntent || originalPayment.providerReference || '');
+      if (!intentId.startsWith('pi_')) {
+        return res.status(409).json({ success: false, message: 'This card payment lacks a refundable Stripe PaymentIntent reference.' });
+      }
+      const requestedAmount = Math.round(requestedRefund * 100);
+      try {
+        const stripeRefund = await stripe.refunds.create({
+          payment_intent: intentId,
+          amount: requestedAmount,
+          reason: 'requested_by_customer',
+          metadata: { autoSpfPaymentId: String(originalPayment._id), requestedBy: String(req.user?.id || '') },
+        }, { idempotencyKey });
+        provider = 'stripe';
+        providerReference = stripeRefund.id;
+      } catch (providerError) {
+        return res.status(502).json({ success: false, message: 'The payment provider did not complete the refund.' });
+      }
+    }
+
+    const result = await createRefundLedgerEntry({
+      originalPayment,
+      amount: requestedRefund,
+      reason: normalizedReason,
+      actorId: req.user?.id,
+      idempotencyKey,
+      method,
+      provider,
+      providerReference,
+    });
+    const orderPayments = await getOrderLedger(orderId);
+    const data = buildLedgerTransaction(result.payment, { order: originalPayment.order, orderPayments });
+    logActivity({
+      req,
+      type: 'refund_processed',
+      module: 'POS',
+      action: 'Refund Processed',
+      description: `Refund ${result.payment.invoiceId} posted for ₱${data.amountVerified.toFixed(2)}.`,
+      status: 'success',
+      referenceId: result.payment.invoiceId,
+      metadata: { paymentId: result.payment._id, relatedPaymentId: originalPayment._id, amount: data.amountVerified },
+    });
+    try {
+      getIO().to('realtime:staff').emit('ledger:changed', {
+        paymentId: result.payment._id,
+        orderId: originalPayment.order._id || originalPayment.order,
+        transactionType: 'refund',
+      });
+    } catch (socketError) {
+      console.warn('Socket not initialized for refund update:', socketError.message);
+    }
+    return res.status(201).json({ success: true, idempotent: result.idempotent, data });
+  } catch (error) {
+    if (error?.code === 11000) {
+      const idempotencyKey = String(req.get('Idempotency-Key') || req.get('X-Idempotency-Key') || req.body?.idempotencyKey || '').trim();
+      const existing = await findRefundByIdempotency(req.params.paymentId, idempotencyKey);
+      if (existing) return res.json({ success: true, idempotent: true, data: buildLedgerTransaction(existing) });
+    }
     next(error);
   }
 };
@@ -1106,13 +1450,25 @@ export const runPosCheckoutCore = async ({
   const discountAmount = normalizeMoney(discountAmountIn);
   const taxVat = normalizeMoney(taxVatAmount);
   const fees = normalizeMoney(additionalFees);
-  const dp = normalizeMoney(downpayment);
   const grandTotal = normalizeMoney(grandTotalIn);
-  const amountCollected = normalizeMoney(balanceDueIn);
+  const requestedBalance = normalizeMoney(balanceDueIn);
+  const existingLedgerRows = await getOrderLedger(order._id);
+  const existingLedger = summarizeLedgerRows(existingLedgerRows, grandTotal);
+  const dp = roundMoney(Math.max(0, existingLedger.netVerified));
+  const amountCollected = roundMoney(Math.max(0, grandTotal - existingLedger.netVerified));
 
-  if (grandTotal < 0 || amountCollected < 0) {
+  if (grandTotal <= 0 || amountCollected <= 0) {
     const err = new Error('Invalid billing totals');
-    err.statusCode = 400;
+    err.statusCode = amountCollected <= 0 ? 409 : 400;
+    if (amountCollected <= 0) err.message = 'This booking has no outstanding balance to collect.';
+    throw err;
+  }
+  if (Math.abs(requestedBalance - amountCollected) > 0.009) {
+    const err = new Error(
+      `Checkout amount changed. The server-calculated balance is ₱${amountCollected.toFixed(2)}.`
+    );
+    err.statusCode = 409;
+    err.code = 'LEDGER_AMOUNT_MISMATCH';
     throw err;
   }
 
@@ -1234,6 +1590,9 @@ export const runPosCheckoutCore = async ({
       vehicle: order.vehicle || null,
       service: order.serviceId || null,
       amount: amountCollected,
+      amountSubmitted: amountCollected,
+      amountVerified: amountCollected,
+      transactionType: existingLedger.netVerified > 0 ? 'service_balance' : 'full_service_payment',
       subtotal,
       discountAmount,
       taxVatAmount: taxVat,
@@ -1252,6 +1611,10 @@ export const runPosCheckoutCore = async ({
       paymentReference: paymentMethod === 'gcash' ? normalizedPaymentReference : null,
       checkoutReference,
       staffAssigned: resolvedStaffId,
+      submittedAt: new Date(),
+      reviewedAt: new Date(),
+      effectiveAt: new Date(),
+      reviewedBy: resolvedStaffId,
       discount: discount && discount.value > 0 ? discount : null,
       splitPayments: paymentMethod === 'split' ? splitPayments : [],
       cashReceived: ['cash', 'split'].includes(paymentMethod) ? Number(cashReceived) : null,
@@ -1270,6 +1633,13 @@ export const runPosCheckoutCore = async ({
         ...(paymentMethod === 'gcash' ? { paymentReference: normalizedPaymentReference } : {}),
         checkoutReference,
       },
+      statusHistory: [{
+        status: 'succeeded',
+        amountSubmitted: amountCollected,
+        amountVerified: amountCollected,
+        changedAt: new Date(),
+        changedBy: resolvedStaffId,
+      }],
     });
   } catch (error) {
     if (error?.code === 11000 && error?.keyPattern?.checkoutReference) {
@@ -1282,16 +1652,16 @@ export const runPosCheckoutCore = async ({
   }
 
   order.invoiceId = invoiceId;
-  order.paymentStatus = 'paid';
+  order.paymentStatus = balanceRemaining <= 0 ? 'paid' : 'partially_paid';
   order.paymentMethod = paymentMethod;
   order.paymentProvider = paymentMethod === 'card' ? 'stripe' : 'pos';
-  order.paidAt = new Date();
+  order.paidAt = balanceRemaining <= 0 ? new Date() : null;
   order.subtotal = subtotal;
   order.discountAmount = discountAmount;
   order.taxVatAmount = taxVat;
   order.additionalFees = fees;
   order.serviceTotal = grandTotal;
-  order.amountCollected = amountCollected;
+  order.amountCollected = roundMoney(existingLedger.netVerified + amountCollected);
   order.finalPaymentAmount = amountCollected;
   order.totalPrice = grandTotal;
   order.totalAmount = grandTotal;

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { encrypt, decrypt } from '../utils/encryption.utils.js';
+import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
 
 const orderSchema = new mongoose.Schema(
   {
@@ -50,7 +51,7 @@ const orderSchema = new mongoose.Schema(
     invoiceId: String,
     paymentStatus: {
       type: String,
-      enum: ['unpaid', 'paid', 'failed', 'refunded'],
+      enum: ['unpaid', 'partially_paid', 'paid', 'failed', 'refunded'],
       default: 'unpaid',
     },
     paymentMethod: String,
@@ -111,6 +112,10 @@ const orderSchema = new mongoose.Schema(
     },
     approvedAt: Date,
     approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    arrivedAt: Date,
+    cancelledAt: Date,
+    cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    cancellationReason: { type: String, default: null, maxlength: 500 },
     rejectedAt: Date,
     rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     rejectionReason: String,
@@ -578,10 +583,17 @@ orderSchema.index({ status: 1, archived: 1, createdAt: -1 }); // Admin status + 
 orderSchema.index({ bookingDate: 1, bookingTime: 1, status: 1 }); // Available slots lookup
 // Slot service filters { status: $in, bookingDate: $in } — prefix { bookingDate: 1 } is used; kept explicit for Atlas/SRV planners
 orderSchema.index({ bookingDate: 1, status: 1 });
+orderSchema.index({ approvedAt: -1, status: 1 });
+orderSchema.index({ cancelledAt: -1 });
+orderSchema.index({ arrivedAt: -1 });
 orderSchema.index({ archived: 1, createdAt: -1 }); // Archived orders listing
 orderSchema.index({ archived: 1, createdAt: -1, _id: -1 }); // Active order list by recency + stable pagination
 orderSchema.index({ archived: 1, updatedAt: -1, _id: -1 }); // Active order list by latest update + stable pagination
 orderSchema.index({ assignedDetailer: 1, archived: 1, updatedAt: -1, _id: -1 }); // Scoped QC activity/report reads
 orderSchema.index({ bookingReference: 1 }, { unique: true, sparse: true }); // Booking ref lookup
+orderSchema.plugin(operationalClassificationPlugin, {
+  collectionName: 'orders',
+  label: (order) => order.orderNumber || order.bookingReference || order.customerName,
+});
 
 export default mongoose.model('Order', orderSchema);

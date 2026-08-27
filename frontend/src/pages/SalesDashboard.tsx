@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import SalesSidebar from '@/components/sales/SalesSidebar';
 import SalesTopbar from '@/components/sales/SalesTopbar';
 import PremiumSalesDashboard from '@/components/sales/dashboard/PremiumSalesDashboard';
@@ -82,6 +82,21 @@ export default function SalesDashboard() {
   const [collapsed, setCollapsed] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
   const [posPreloadOrderId, setPosPreloadOrderId] = useState<string | null>(null);
   const [approvalsPreloadOrderId, setApprovalsPreloadOrderId] = useState<string | null>(null);
+  const mainScrollRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const openApproval = (event: Event) => {
+      const orderId = String((event as CustomEvent<{ orderId?: string }>).detail?.orderId || '').trim();
+      if (orderId) setApprovalsPreloadOrderId(orderId);
+      setActiveView('approvals');
+    };
+    window.addEventListener('sales:navigate-approval', openApproval);
+    return () => window.removeEventListener('sales:navigate-approval', openApproval);
+  }, []);
+
+  useEffect(() => {
+    if (mainScrollRef.current) mainScrollRef.current.scrollTop = 0;
+  }, [activeView]);
 
   const renderView = () => {
     switch (activeView) {
@@ -132,7 +147,7 @@ export default function SalesDashboard() {
             }}
             onNavigateToProfile={() => setActiveView('profile')}
           />
-          <main className={`min-h-0 flex-1 scrollbar-thin ${activeView === 'concierge-inbox' ? 'p-0' : activeView === 'profile' ? 'p-0' : 'p-6'} ${activeView === 'pos' ? 'flex flex-col overflow-hidden' :
+          <main ref={mainScrollRef} className={`min-h-0 flex-1 scrollbar-thin ${activeView === 'concierge-inbox' ? 'p-0' : activeView === 'profile' ? 'p-0' : 'p-6'} ${activeView === 'pos' ? 'flex flex-col overflow-hidden' :
               activeView === 'calendar' ? 'flex flex-col overflow-hidden' :
               activeView === 'concierge-inbox' ? 'flex flex-col overflow-hidden' :
               activeView === 'profile' ? 'flex flex-col overflow-hidden' :

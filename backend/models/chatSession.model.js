@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
 
 const chatSessionSchema = new mongoose.Schema(
   {
@@ -90,5 +91,10 @@ const chatSessionSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+chatSessionSchema.plugin(operationalClassificationPlugin, {
+  collectionName: 'chat_sessions',
+  label: (session) => session.leadName || session.leadEmail || session.sessionId,
+});
 
 export default mongoose.model('ChatSession', chatSessionSchema);

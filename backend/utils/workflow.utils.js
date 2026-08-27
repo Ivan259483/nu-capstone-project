@@ -30,6 +30,7 @@ import {
   createAdminNotification,
 } from '../services/adminNotification.service.js';
 import { handleQualityStageTransition } from '../services/qualityNotification.service.js';
+import { runTrackedSystemMutation } from '../middleware/systemLifecycle.middleware.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -67,7 +68,7 @@ const getCustomerId = (order) => {
  * @param {string}   prevStatus   - The previous status value
  * @param {{ id, name, role }} actor - The user who triggered the change (optional)
  */
-export const onOrderStatusChange = async (order, prevStatus, actor = null) => {
+const performOrderStatusChange = async (order, prevStatus, actor = null) => {
   const newStatus = order.status;
   const customerId = getCustomerId(order);
   const rooms = ['admin:chat'];
@@ -120,6 +121,12 @@ export const onOrderStatusChange = async (order, prevStatus, actor = null) => {
     await onCancelled(order, orderRef, customerId, rooms);
   }
 };
+
+export const onOrderStatusChange = (order, prevStatus, actor = null) => (
+  runTrackedSystemMutation(
+    () => performOrderStatusChange(order, prevStatus, actor),
+  )
+);
 
 // ═══════════════════════════════════════════════════════════════════════
 //  TRANSITION HANDLERS

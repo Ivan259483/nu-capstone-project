@@ -42,6 +42,9 @@ import {
 import { reconcileQualityJobRecipient } from '../services/qualityNotification.service.js';
 import { runInBackground } from '../utils/performance.utils.js';
 import { Expo } from 'expo-server-sdk';
+import { normalizeAuthVersion } from '../utils/authVersion.utils.js';
+import { assertAdministratorMutationAllowed } from '../services/administratorProtection.service.js';
+import { registerCloudinaryManagedAsset } from '../services/managedAsset.service.js';
 
 const getQueryByIdOrFirebaseUid = (id) => {
   // If it's a 24-character hex string, assume it's a valid ObjectId
@@ -57,6 +60,15 @@ const canViewUser = (req, user) => {
 };
 
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+
+const disconnectRevokedUserSessions = async (userId, code = 'SESSION_REVOKED') => {
+  try {
+    const { disconnectUserSockets } = await import('../utils/socket.utils.js');
+    disconnectUserSockets(userId, code);
+  } catch (error) {
+    console.warn('[UserController] Socket session revocation failed:', error.message);
+  }
+};
 
 const getIncomingPhoneValue = (body = {}) => {
   for (const field of USER_PHONE_FIELDS) {
@@ -378,6 +390,7 @@ export const updateUser = async (req, res, next) => {
     }
 
     let staffEmailChangeRequired = false;
+    let accountEmailChanged = false;
     if (typeof email !== 'undefined') {
       const normalizedEmail = normalizeEmailForOtp(email);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
@@ -385,6 +398,7 @@ export const updateUser = async (req, res, next) => {
       }
 
       const emailChanged = normalizedEmail !== normalizeEmailForOtp(user.email);
+      accountEmailChanged = emailChanged;
       if (emailChanged && requiresStaffTwoFactor(resultingRole) && selfRequest) {
         return res.status(403).json({
           success: false,
@@ -406,18 +420,26 @@ export const updateUser = async (req, res, next) => {
       }
     }
 
-    const affectsStaffAccount = requiresStaffTwoFactor(user.role)
-      || requiresStaffTwoFactor(resultingRole);
-    const transitionsStaffToInactive = affectsStaffAccount
-      && isActive === false
+    const transitionsAccountToInactive = isActive === false
       && user.isActive !== false;
-    const transitionsStaffToRestrictedStatus = affectsStaffAccount
-      && typeof status !== 'undefined'
+    const transitionsAccountToRestrictedStatus = typeof status !== 'undefined'
       && status !== user.status
       && ['pending', 'suspended'].includes(status);
-    const revokeExistingStaffSessions = staffEmailChangeRequired
-      || transitionsStaffToInactive
-      || transitionsStaffToRestrictedStatus;
+    const roleChanged = typeof requestedRole !== 'undefined' && requestedRole !== user.role;
+    const revokeExistingSessions = accountEmailChanged
+      || transitionsAccountToInactive
+      || transitionsAccountToRestrictedStatus
+      || roleChanged;
+
+    await assertAdministratorMutationAllowed({
+      targetUser: user,
+      changes: {
+        ...(typeof requestedRole !== 'undefined' ? { role: resultingRole } : {}),
+        ...(typeof isActive !== 'undefined' ? { isActive } : {}),
+        ...(typeof status !== 'undefined' ? { status } : {}),
+        ...(staffEmailChangeRequired ? { isVerified: false, status: 'pending' } : {}),
+      },
+    });
 
     const canonicalPhone = resolvePhoneForClient({ phone: user.phone });
     const resolvedExistingPhone = resolvePhoneForClient(user);
@@ -437,7 +459,7 @@ export const updateUser = async (req, res, next) => {
     if (process.env.NODE_ENV === 'development') console.log(`   -> Executing findByIdAndUpdate for _id:`, user._id);
     const updatedUser = await User.findByIdAndUpdate(
       user._id,
-      revokeExistingStaffSessions
+      revokeExistingSessions
         ? { $set: updatePayload, $inc: { authVersion: 1 } }
         : updatePayload,
       { new: true }
@@ -447,6 +469,9 @@ export const updateUser = async (req, res, next) => {
     if (updatedUser) {
       if (updatedUser.phone) updatedUser.phone = decrypt(updatedUser.phone);
       if (updatedUser.address) updatedUser.address = decrypt(updatedUser.address);
+    }
+    if (updatedUser && revokeExistingSessions) {
+      await disconnectRevokedUserSessions(updatedUser._id);
     }
 
     let verification = null;
@@ -583,6 +608,13 @@ export const updateMyProfile = async (req, res, next) => {
 
       req.body.avatar = uploadedAvatar.secureUrl;
       req.profilePhotoUpload = uploadedAvatar;
+      await registerCloudinaryManagedAsset({
+        ...uploadedAvatar,
+        ownerCollection: 'User',
+        ownerId: req.user.id,
+        fieldPath: 'avatar',
+        byteSize: uploadedAvatar.bytes,
+      });
     }
 
     req.params.id = String(req.user.id);
@@ -642,6 +674,11 @@ export const deleteUser = async (req, res, next) => {
       });
     }
 
+    await assertAdministratorMutationAllowed({
+      targetUser: user,
+      changes: { hardDelete: true, isDeleted: true, isActive: false },
+    });
+
     const userId = user._id;
     const userEmail = user.email;
     const affectedQualityOrderIds = await Order.find({ assignedDetailer: userId })
@@ -652,8 +689,10 @@ export const deleteUser = async (req, res, next) => {
     user.isDeleted = true;
     user.deletedAt = new Date();
     user.isActive = false;
+    user.authVersion = normalizeAuthVersion(user.authVersion) + 1;
     user.expoPushTokens = [];
     await user.save();
+    await disconnectRevokedUserSessions(userId);
 
     // Delete from Firebase Auth if admin is initialized
     if (firebaseAdmin) {
@@ -776,6 +815,12 @@ export const archiveUser = async (req, res, next) => {
       });
     }
 
+
+    await assertAdministratorMutationAllowed({
+      targetUser: user,
+      changes: { isActive: false, status: 'suspended' },
+    });
+
     // Only archive if not already archived/suspended
     if (!user.isActive && ['archived', 'suspended'].includes(user.status)) {
       return res.status(409).json({
@@ -793,10 +838,11 @@ export const archiveUser = async (req, res, next) => {
           archivedAt: new Date(),
           expoPushTokens: [],
         },
-        ...(requiresStaffTwoFactor(user.role) ? { $inc: { authVersion: 1 } } : {}),
+        $inc: { authVersion: 1 },
       },
       { new: true, runValidators: true },
     );
+    await disconnectRevokedUserSessions(user._id);
 
     logActivity({
       req, type: 'user_archived', module: 'User', action: 'User Archived',
@@ -868,6 +914,7 @@ export const activateUser = async (req, res, next) => {
         },
         { new: true, runValidators: true },
       );
+      await disconnectRevokedUserSessions(user._id);
 
       let verification;
       try {
@@ -903,10 +950,11 @@ export const activateUser = async (req, res, next) => {
       {
         $set: { isActive: true, status: 'active' },
         $unset: { archivedAt: 1 },
-        ...(requiresStaffTwoFactor(user.role) ? { $inc: { authVersion: 1 } } : {}),
+        $inc: { authVersion: 1 },
       },
       { new: true, runValidators: true },
     );
+    await disconnectRevokedUserSessions(user._id);
 
     logActivity({
       req, type: 'user_activated', module: 'User', action: 'User Activated',
@@ -1033,7 +1081,8 @@ export const createUser = async (req, res, next) => {
               isFirstLogin: false,
               ...(parsedPhone?.phone ? { phone: encrypt(parsedPhone.phone) } : {}),
               ...(!staffAccount && firebaseUid ? { firebaseUid } : {}),
-            }
+            },
+            $inc: { authVersion: 1 },
           },
           { new: true }
         );
@@ -1298,7 +1347,9 @@ export const changePassword = async (req, res, next) => {
 
     // Update to new password
     user.password = newPassword; // Will be hashed by pre-save hook
+    user.authVersion = normalizeAuthVersion(user.authVersion) + 1;
     await user.save();
+    await disconnectRevokedUserSessions(user._id);
 
     res.json({
       success: true,

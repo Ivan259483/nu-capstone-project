@@ -30,7 +30,17 @@ import { startQualityNotificationRetryScheduler } from './services/qualityNotifi
 import { buildStaticArCsp } from './utils/csp.utils.js';
 import { isConfiguredCorsOriginAllowed } from './utils/origin.utils.js';
 import { authenticate, authorize } from './middleware/auth.middleware.js';
+import {
+  enforceSystemLifecycle,
+  runTrackedSystemMutation,
+} from './middleware/systemLifecycle.middleware.js';
 import { BOOKING_MANAGER_ROLES } from './constants/roles.js';
+import { getSystemState } from './services/systemState.service.js';
+import User from './models/user.model.js';
+import {
+  startExternalCleanupWorker,
+  stopExternalCleanupWorker,
+} from './services/systemExternalCleanup.service.js';
 
 // ============================================
 // EMAIL CONFIGURATION
@@ -53,6 +63,7 @@ import activityRoutes from './routes/activity.routes.js';
 import notificationRoutes from './routes/notifications.routes.js';
 import chatRoutes from './routes/chatbot.routes.js';
 import paymentRoutes from './routes/payment.routes.js';
+import salesAnalyticsRoutes from './routes/salesAnalytics.routes.js';
 import invoiceRoutes from './routes/invoice.routes.js';
 import { stripeWebhookHandler } from './controllers/payment.controller.js';
 import supplierRoutes from './routes/suppliers.routes.js';
@@ -116,7 +127,12 @@ const corsOptionsDelegate = (req, callback) => {
       credentials: false,
       methods: ['GET', 'HEAD', 'OPTIONS'],
       allowedHeaders: ['Range'],
-      exposedHeaders: ['Accept-Ranges', 'Content-Length', 'Content-Range'],
+      exposedHeaders: [
+        'Accept-Ranges',
+        'Content-Length',
+        'Content-Range',
+        'X-Operational-Data-Epoch',
+      ],
       maxAge: 86400,
     });
   }
@@ -127,8 +143,16 @@ const corsOptionsDelegate = (req, callback) => {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-Client-Type', 'ngrok-skip-browser-warning'],
-    exposedHeaders: ['X-Request-ID', 'Server-Timing'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-Client-Type', 'Idempotency-Key', 'X-Idempotency-Key', 'ngrok-skip-browser-warning'],
+    exposedHeaders: [
+      'X-Request-ID',
+      'Server-Timing',
+      'Content-Disposition',
+      'X-AutoSPF-Backup-Id',
+      'X-AutoSPF-Export-Id',
+      'X-AutoSPF-Checksum',
+      'X-Operational-Data-Epoch',
+    ],
   });
 };
 
@@ -236,6 +260,23 @@ app.get('/health', healthCheckHandler);
 // Backward-compatible API-prefixed health check for existing host settings/monitors.
 app.get('/api/health', healthCheckHandler);
 
+// Attach authoritative lifecycle state to every API request, reject writes
+// while a destructive lease is active, and enforce archived/read-only gates.
+// Stripe's raw signed webhook is intentionally mounted earlier and performs
+// its own archived reconciliation handling after signature verification.
+app.use('/api', enforceSystemLifecycle);
+app.use('/api', (req, res, next) => {
+  if (req.systemState?.mode !== 'archived' || !['GET', 'HEAD'].includes(req.method)) {
+    return next();
+  }
+  const path = String(req.originalUrl || '').split('?')[0].replace(/\/+$/, '');
+  if (path === '/api/system/status') return next();
+  return authenticate(req, res, () => {
+    req.archivedLifecycleAuthenticated = true;
+    next();
+  });
+});
+
 // API Routes
 app.use('/api/auth', authLimiter, authRoutes); // Stricter rate limit on auth
 app.use('/api/users', userRoutes);
@@ -250,6 +291,7 @@ app.use('/api/activity', activityRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/sales-analytics', salesAnalyticsRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/settings', settingsRoutes);
@@ -313,6 +355,37 @@ const startServer = async () => {
     await connectDB();
     console.log('✅ MongoDB connected successfully');
     await migrateLegacyUserRoles();
+    const startupSystemState = await getSystemState();
+    try {
+      if (!startupSystemState.protectedAdministratorId) {
+        const error = new Error('No protected administrator ID is stored. Run the one-time protected-administrator migration.');
+        error.code = 'PROTECTED_ADMIN_NOT_INITIALIZED';
+        throw error;
+      }
+      const usableProtectedAdministrator = await User.exists({
+        _id: startupSystemState.protectedAdministratorId,
+        role: 'administrator',
+        isActive: true,
+        isVerified: true,
+        status: 'active',
+        isDeleted: { $ne: true },
+      });
+      if (!usableProtectedAdministrator) {
+        const error = new Error('The stored protected administrator ID does not resolve to a usable verified Administrator.');
+        error.code = 'PROTECTED_ADMIN_INVALID';
+        throw error;
+      }
+      console.log('🔐 Protected administrator lifecycle binding verified');
+    } catch (error) {
+      // Runtime startup validates only the persisted ID. Email lookup and the
+      // initial binding are exclusively owned by the one-time migration.
+      console.error(`[SYSTEM_STATE] Protected administrator validation failed (${error.code || 'UNKNOWN'}): ${error.message}`);
+    }
+    if (startupSystemState.mode !== 'archived') {
+      startExternalCleanupWorker();
+    } else {
+      console.log('[SYSTEM_STATE] Archived startup: external cleanup worker remains stopped.');
+    }
     // Do not hold the HTTP listener behind provider verification. If the first
     // login arrives while warm-up is still running, initializeMailer() joins
     // the same single-flight promise and the request-level timeout remains in
@@ -365,7 +438,10 @@ const startServer = async () => {
       const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
       setInterval(async () => {
         try {
-          const result = await cleanupExpiredReservations();
+          const result = await runTrackedSystemMutation(
+            () => cleanupExpiredReservations(),
+          );
+          if (result?.skipped) return;
           if (result.released > 0) {
             console.log(`[SCHEDULER] 🧹 Released ${result.released} expired inventory reservation(s)`);
           }
@@ -385,7 +461,25 @@ const startServer = async () => {
       process.exit(1); // Force exit so nodemon can restart cleanly
     });
 
+    let shutdownStarted = false;
+    const shutdown = (signal) => {
+      if (shutdownStarted) return;
+      shutdownStarted = true;
+      console.log(`[SERVER] ${signal} received; stopping background workers.`);
+      stopExternalCleanupWorker();
+      server.close(async () => {
+        try {
+          await mongoose.disconnect();
+        } finally {
+          process.exit(0);
+        }
+      });
+    };
+    process.once('SIGTERM', () => shutdown('SIGTERM'));
+    process.once('SIGINT', () => shutdown('SIGINT'));
+
   } catch (error) {
+    stopExternalCleanupWorker();
     console.error('❌ Failed to start server:', error);
     process.exit(1);
   }

@@ -42,6 +42,12 @@ import {
   issueStaffVerificationLink,
 } from '../services/staffVerification.service.js';
 import { normalizeAuthVersion } from '../utils/authVersion.utils.js';
+import { getSystemState } from '../services/systemState.service.js';
+import {
+  assertAuthenticationAllowed,
+  assertRegistrationEnabled,
+} from '../middleware/systemLifecycle.middleware.js';
+import { assertAdministratorMutationAllowed } from '../services/administratorProtection.service.js';
 import {
   buildAdminDeepLink,
   buildAdminGroupingKey,
@@ -57,6 +63,25 @@ const PASSWORD_SETUP_PURPOSE = 'password_setup';
 const PASSWORD_SETUP_RESEND_COOLDOWN_MS = 60 * 1000;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NAME_PART_REGEX = /^[a-zA-ZÀ-ÿ\s.\-']+$/;
+
+const sendSystemPolicyError = (res, error) => {
+  if (!error?.code || !Number.isInteger(error?.statusCode)) return false;
+  res.status(error.statusCode).json({
+    success: false,
+    code: error.code,
+    message: error.message,
+  });
+  return true;
+};
+
+const disconnectRevokedUserSessions = async (userId, code = 'SESSION_REVOKED') => {
+  try {
+    const { disconnectUserSockets } = await import('../utils/socket.utils.js');
+    disconnectUserSockets(userId, code);
+  } catch (error) {
+    console.warn('[Auth] Socket session revocation failed:', error.message);
+  }
+};
 
 const notifyAuthSecurityEvent = async ({
   event,
@@ -273,20 +298,30 @@ const buildAuthTokenClaims = (user, additionalClaims = {}) => ({
   id: user._id,
   email: user.email,
   role: user.role,
-  ...(requiresStaffTwoFactor(user.role)
-    ? { authVersion: normalizeAuthVersion(user.authVersion) }
-    : {}),
+  authVersion: normalizeAuthVersion(user.authVersion),
   ...additionalClaims,
 });
 
-async function issueAuthTokenResponse(user, req, additionalClaims = {}) {
-  const token = jwt.sign(
+const signAuthToken = async (user, additionalClaims = {}) => {
+  const systemState = await getSystemState();
+  await assertAuthenticationAllowed(user, systemState);
+  return jwt.sign(
     buildAuthTokenClaims(user, {
-      ...getSessionClientClaims(req),
+      globalSessionEpoch: normalizeAuthVersion(systemState.globalSessionEpoch),
       ...additionalClaims,
     }),
     config.jwtSecret,
-    { expiresIn: '7d' }
+    { expiresIn: '7d' },
+  );
+};
+
+async function issueAuthTokenResponse(user, req, additionalClaims = {}) {
+  const token = await signAuthToken(
+    user,
+    {
+      ...getSessionClientClaims(req),
+      ...additionalClaims,
+    },
   );
   scheduleLastSeen(user, req);
   return { user: serializeUserForAuthResponse(user), token };
@@ -417,8 +452,19 @@ const loadPasswordSetupToken = async (rawToken) => {
   if (!user.isActive) {
     return { ok: false, status: 403, message: 'This account has been deactivated. Please contact support.' };
   }
-  if (user.role !== 'customer') {
+  if (!['customer', 'office_admin'].includes(user.role)) {
     return { ok: false, status: 409, message: 'This setup link is not valid for this account type.' };
+  }
+  if (
+    user.role === 'office_admin'
+    && (
+      user.status !== 'pending'
+      || user.isVerified === true
+      || Boolean(user.password)
+      || user.isFirstLogin !== true
+    )
+  ) {
+    return { ok: false, status: 400, message: 'This client administrator setup link is no longer valid.' };
   }
   if (user.isVerified && user.password) {
     return { ok: false, status: 400, message: 'This account is already active. Please sign in.' };
@@ -433,6 +479,7 @@ const loadPasswordSetupToken = async (rawToken) => {
  */
 export const sendOtp = async (req, res, next) => {
   try {
+    await assertRegistrationEnabled(req.systemState);
     const email = normalizeEmailForOtp(req.body.email);
 
     if (!email) {
@@ -574,6 +621,7 @@ export const sendOtp = async (req, res, next) => {
       },
     });
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     console.error('\n❌ Send OTP Error:');
     console.error('   Message:', error.message);
     console.error('   Stack:', error.stack);
@@ -700,12 +748,29 @@ export const resetPassword = async (req, res, next) => {
   try {
     const email = normalizeEmailForOtp(req.body.email);
     const otp = normalizeOtpInput(req.body.otp);
-    const { newPassword } = req.body;
+    const { newPassword, confirmPassword } = req.body;
 
     if (!email || !otp || !newPassword) {
       return res.status(400).json({
         success: false,
         message: 'Email, OTP, and new password are required'
+      });
+    }
+
+    // Keep the controller defensive even if this handler is called without
+    // the route-level express-validator middleware.
+    if (typeof confirmPassword !== 'undefined' && confirmPassword !== newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Passwords do not match.',
+      });
+    }
+
+    const passwordErrors = getPasswordPolicyErrors(newPassword);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Password must contain: ${passwordErrors.join(', ')}`,
       });
     }
 
@@ -764,7 +829,9 @@ export const resetPassword = async (req, res, next) => {
 
     // Update password only after atomically consuming the purpose-bound reset OTP.
     user.password = newPassword;
+    user.authVersion = normalizeAuthVersion(user.authVersion) + 1;
     await user.save();
+    await disconnectRevokedUserSessions(user._id);
 
     // Clean up OTP
     await OTP.deleteMany({ email, purpose: PASSWORD_RESET_OTP_PURPOSE });
@@ -807,6 +874,7 @@ export const resetPassword = async (req, res, next) => {
  */
 export const verifyOtp = async (req, res, next) => {
   try {
+    await assertRegistrationEnabled(req.systemState);
     const email = normalizeEmailForOtp(req.body.email);
     const otp = normalizeOtpInput(req.body.otp);
 
@@ -968,6 +1036,7 @@ export const verifyOtp = async (req, res, next) => {
     user.isActive = true;
     user.status = 'active';
     await user.save();
+    await disconnectRevokedUserSessions(user._id);
     console.log(`✅ [verifyOtp] Activated account for ${maskEmail(email)}`);
     sendWelcomeEmail(email, user.name).catch(err => console.warn('⚠️ Welcome email failed:', err.message));
 
@@ -1019,6 +1088,7 @@ export const verifyOtp = async (req, res, next) => {
       },
     });
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     console.error('❌ Verify OTP Error:', error);
     res.status(500).json({
       success: false,
@@ -1176,6 +1246,7 @@ export const startChatRegistration = async (req, res) => {
  */
 export const resendChatRegistrationEmail = async (req, res) => {
   try {
+    await assertRegistrationEnabled(req.systemState);
     const email = normalizeEmailForOtp(req.body.email);
     if (!email || !EMAIL_REGEX.test(email)) {
       return res.status(400).json({ success: false, message: 'Please enter a valid email address.' });
@@ -1231,6 +1302,7 @@ export const resendChatRegistrationEmail = async (req, res) => {
       },
     });
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     console.error('❌ Chat Registration Resend Error:', error);
     return res.status(error.emailError ? 502 : 500).json({
       success: false,
@@ -1258,6 +1330,7 @@ export const validatePasswordSetupToken = async (req, res) => {
         email: loaded.user.email,
         name: loaded.user.name,
         expiresAt: loaded.tokenRecord.expiresAt,
+        requiresSignIn: loaded.user.role === 'office_admin',
       },
     });
   } catch (error) {
@@ -1290,6 +1363,12 @@ export const completePasswordSetup = async (req, res) => {
     if (!loaded.ok) {
       return res.status(loaded.status).json({ success: false, message: loaded.message });
     }
+    const isClientAdministratorInvitation = loaded.user.role === 'office_admin';
+    if (!isClientAdministratorInvitation) {
+      // Customer setup remains subject to the public registration gate. The
+      // protected handover invitation is a separate server-authorized flow.
+      await assertRegistrationEnabled(req.systemState);
+    }
 
     const now = new Date();
     const consumeResult = await AccountSetupToken.updateOne(
@@ -1307,9 +1386,12 @@ export const completePasswordSetup = async (req, res) => {
 
     const user = loaded.user;
     user.password = newPassword;
+    user.authVersion = normalizeAuthVersion(user.authVersion) + 1;
     user.isVerified = true;
     user.status = 'active';
+    user.isFirstLogin = false;
     await user.save();
+    await disconnectRevokedUserSessions(user._id);
 
     await AccountSetupToken.updateMany(
       {
@@ -1320,14 +1402,16 @@ export const completePasswordSetup = async (req, res) => {
       { $set: { usedAt: now } }
     );
 
-    const authToken = jwt.sign(
-      buildAuthTokenClaims(user, { emailLinkVerified: true }),
-      config.jwtSecret,
-      { expiresIn: '7d' }
-    );
+    // A client administrator must still prove both factors through the normal
+    // password-plus-OTP login. Password setup alone never creates a staff JWT.
+    const authToken = isClientAdministratorInvitation
+      ? null
+      : await signAuthToken(user, { emailLinkVerified: true });
 
-    scheduleLastSeen(user, req);
-    sendWelcomeEmail(user.email, user.name).catch(err => console.warn('⚠️ Welcome email failed:', err.message));
+    if (!isClientAdministratorInvitation) {
+      scheduleLastSeen(user, req);
+      sendWelcomeEmail(user.email, user.name).catch(err => console.warn('⚠️ Welcome email failed:', err.message));
+    }
 
     const userObject = user.toObject({ virtuals: true });
     delete userObject.password;
@@ -1339,19 +1423,30 @@ export const completePasswordSetup = async (req, res) => {
       userId: user._id,
       userName: user.name || user.email,
       userRole: user.role,
-      type: 'chat_registration_completed',
+      type: isClientAdministratorInvitation
+        ? 'client_administrator_setup_completed'
+        : 'chat_registration_completed',
       module: 'Auth',
       action: 'Password Setup Complete',
-      description: `${user.name || user.email} activated their chatbot-created account.`,
+      description: isClientAdministratorInvitation
+        ? `${user.name || user.email} completed client administrator password setup and must complete OTP sign-in.`
+        : `${user.name || user.email} activated their chatbot-created account.`,
       status: 'success',
     });
 
     return res.json({
       success: true,
-      message: 'Welcome to AutoSPF+. Your account is now active.',
-      data: { user: userObject, token: authToken },
+      message: isClientAdministratorInvitation
+        ? 'Password setup complete. Sign in with your password and one-time code to finish administrator verification.'
+        : 'Welcome to AutoSPF+. Your account is now active.',
+      data: {
+        user: userObject,
+        token: authToken,
+        requiresSignIn: isClientAdministratorInvitation,
+      },
     });
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     console.error('❌ Password Setup Complete Error:', error);
     return res.status(500).json({ success: false, message: 'Failed to complete password setup.', error: error.message });
   }
@@ -1363,6 +1458,7 @@ export const completePasswordSetup = async (req, res) => {
  */
 export const register = async (req, res, next) => {
   try {
+    await assertRegistrationEnabled(req.systemState);
     const { name, password, referralCode, phone: rawPhone } = req.body;
     const email = normalizeEmailForOtp(req.body.email);
 
@@ -1585,6 +1681,7 @@ export const register = async (req, res, next) => {
       },
     });
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     console.error('❌ Registration Error:', error);
     res.status(500).json({
       success: false,
@@ -1664,6 +1761,8 @@ export const login = async (req, res, next) => {
         message: 'Invalid credentials',
       });
     }
+
+    await assertAuthenticationAllowed(user, req.systemState);
 
     if (user.isDeleted) {
       return res.status(403).json({
@@ -2212,11 +2311,7 @@ export const login = async (req, res, next) => {
     }
 
     // ── Any role not configured for login OTP: direct JWT ───────────────────
-    const token = jwt.sign(
-      buildAuthTokenClaims(user, getSessionClientClaims(req)),
-      config.jwtSecret,
-      { expiresIn: '7d' }
-    );
+    const token = await signAuthToken(user, getSessionClientClaims(req));
 
     scheduleLastSeen(user, req);
 
@@ -2253,6 +2348,7 @@ export const login = async (req, res, next) => {
 
     res.json(loginPayload);
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     authOtpLog(req, 'login_unhandled_error', {
       error: String(error?.message || error).slice(0, 500),
       stack: String(error?.stack || '').split('\n').slice(0, 6).join(' | '),
@@ -2444,6 +2540,7 @@ export const socialLogin = async (req, res, next) => {
     }
 
     if (!user) {
+      await assertRegistrationEnabled(req.systemState);
       if (!verifiedIdentity.email_verified) {
         return res.status(403).json({
           success: false,
@@ -2483,13 +2580,12 @@ export const socialLogin = async (req, res, next) => {
     scheduleLastSeen(user, req);
 
     // Generate token
-    const token = jwt.sign(
-      buildAuthTokenClaims(user, {
+    const token = await signAuthToken(
+      user,
+      {
         ...getSessionClientClaims(req),
         federatedVerified: true,
-      }),
-      config.jwtSecret,
-      { expiresIn: '7d' }
+      },
     );
 
      const userObject = user.toObject({ virtuals: true });
@@ -2516,6 +2612,7 @@ export const socialLogin = async (req, res, next) => {
     });
 
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     console.error('❌ Social Login Error:', error);
     res.status(500).json({
       success: false,
@@ -2570,6 +2667,11 @@ export const deleteAccount = async (req, res) => {
         message: 'Incorrect password. Please try again.',
       });
     }
+
+    await assertAdministratorMutationAllowed({
+      targetUser: user,
+      changes: { hardDelete: true, isDeleted: true, isActive: false },
+    });
 
     const firebaseUid = user.firebaseUid;
 
@@ -2648,6 +2750,7 @@ export const deleteAccount = async (req, res) => {
 
       // ── 5. Hard-delete the User document ────────────────────────────────
       await User.findByIdAndDelete(userId);
+      await disconnectRevokedUserSessions(userId);
       console.log(`[DELETE_ACCOUNT] ✅ User document deleted: ${userId} (${user.email})`);
 
     } catch (mongoError) {
@@ -2680,6 +2783,7 @@ export const deleteAccount = async (req, res) => {
     });
 
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     console.error('[DELETE_ACCOUNT] ❌ Unexpected error:', error);
     return res.status(500).json({
       success: false,
@@ -2755,6 +2859,7 @@ export const verifyLoginOtp = async (req, res) => {
       await OTP.deleteOne({ _id: otpRecord._id });
       return res.status(403).json({ success: false, message: 'Account not accessible.' });
     }
+    await assertAuthenticationAllowed(user, req.systemState);
     if (user.lockUntil && user.lockUntil > new Date()) {
       return res.status(423).json({ success: false, message: 'Your account is temporarily locked.' });
     }
@@ -2886,15 +2991,20 @@ export const verifyLoginOtp = async (req, res) => {
       return res.status(409).json({ success: false, message: 'This login code has already been used.' });
     }
 
-    const token = jwt.sign(
-      buildAuthTokenClaims(user, {
+    const token = await signAuthToken(
+      user,
+      {
         ...getSessionClientClaims(req),
         authLevel: STAFF_2FA_AUTH_LEVEL,
         otpVerified: true,
         otpVerifiedAt: Math.floor(Date.now() / 1000),
-      }),
-      config.jwtSecret,
-      { expiresIn: '7d' }
+      },
+    );
+
+    const passwordOtpSignInAt = new Date();
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { lastPasswordOtpSignInAt: passwordOtpSignInAt } },
     );
 
     scheduleLastSeen(user, req);
@@ -2918,6 +3028,7 @@ export const verifyLoginOtp = async (req, res) => {
       data: { user: userObject, token },
     });
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     console.error('❌ [verifyLoginOtp] Error:', error);
     return res.status(500).json({ success: false, message: 'Verification failed. Please try again.' });
   }
@@ -2966,6 +3077,7 @@ export const resendLoginOtp = async (req, res) => {
       await OTP.deleteOne({ _id: existing._id });
       return res.status(403).json({ success: false, message: 'Account not accessible.' });
     }
+    await assertAuthenticationAllowed(user, req.systemState);
     if (user.lockUntil && user.lockUntil > new Date()) {
       return res.status(423).json({ success: false, message: 'Your account is temporarily locked.' });
     }
@@ -3077,6 +3189,7 @@ export const resendLoginOtp = async (req, res) => {
       data: buildLoginOtpResponseData(otpRecord),
     });
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     console.error('❌ [resendLoginOtp] Error:', error);
     return res.status(500).json({ success: false, message: 'Failed to resend code. Please try again.' });
   }
@@ -3244,17 +3357,15 @@ export const setPassword = async (req, res) => {
     }
 
     user.password = newPassword; // hashed by pre-save hook
+    user.authVersion = normalizeAuthVersion(user.authVersion) + 1;
     user.isFirstLogin = false;
     user.isVerified = true;
     user.status = 'active';
     await user.save();
+    await disconnectRevokedUserSessions(user._id);
 
     // Issue a fresh full-access JWT
-    const token = jwt.sign(
-      buildAuthTokenClaims(user),
-      config.jwtSecret,
-      { expiresIn: '7d' }
-    );
+    const token = await signAuthToken(user);
 
     const userObject = user.toObject({ virtuals: true });
     delete userObject.password;
@@ -3275,6 +3386,7 @@ export const setPassword = async (req, res) => {
       data: { user: userObject, token },
     });
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     console.error('❌ [setPassword] Error:', error);
     res.status(500).json({ success: false, message: 'Failed to set password.', error: error.message });
   }
@@ -3321,7 +3433,9 @@ export const changePassword = async (req, res) => {
     }
 
     user.password = newPassword; // hashed by pre-save hook
+    user.authVersion = normalizeAuthVersion(user.authVersion) + 1;
     await user.save();
+    await disconnectRevokedUserSessions(user._id);
 
     logActivity({
       userId: user._id, userName: user.name || user.email, userRole: user.role,
@@ -3353,6 +3467,7 @@ export const changePassword = async (req, res) => {
  */
 export const resendOtp = async (req, res) => {
   try {
+    await assertRegistrationEnabled(req.systemState);
     const email = normalizeEmailForOtp(req.body.email);
     if (!email) return res.status(400).json({ success: false, message: 'Email is required.' });
 
@@ -3423,6 +3538,7 @@ export const resendOtp = async (req, res) => {
 
     res.json({ success: true, message: 'A new verification code has been sent.', data: { expiresIn: config.otpExpiry } });
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     console.error('❌ [resendOtp] Error:', error);
     res.status(500).json({ success: false, message: 'Failed to resend OTP.' });
   }
@@ -3546,11 +3662,7 @@ export const recoverFirebase = async (req, res) => {
       }
 
       // Issue a JWT so after Firebase create the client can call social-login
-      const token = jwt.sign(
-        buildAuthTokenClaims(user, getSessionClientClaims(req)),
-        config.jwtSecret,
-        { expiresIn: '7d' }
-      );
+      const token = await signAuthToken(user, getSessionClientClaims(req));
 
       return res.json({
         success: true,
@@ -3583,7 +3695,7 @@ export const recoverFirebase = async (req, res) => {
             // Admin SDK hung on createUser — fall back to client-side creation
             console.warn(`[recoverFirebase] Admin SDK createUser timed out for ${email} — instructing client-side create`);
             if (!user.isVerified) { user.isVerified = true; await user.save(); }
-            const token = jwt.sign(buildAuthTokenClaims(user, getSessionClientClaims(req)), config.jwtSecret, { expiresIn: '7d' });
+            const token = await signAuthToken(user, getSessionClientClaims(req));
             return res.json({ success: true, needsClientCreate: true, message: 'MongoDB credentials valid. Please create Firebase account on device.', data: { token, needsClientCreate: true, userName: user.name } });
           }
           throw createErr;
@@ -3592,7 +3704,7 @@ export const recoverFirebase = async (req, res) => {
         // Admin SDK hung on getUserByEmail — fall back to client-side creation
         console.warn(`[recoverFirebase] Admin SDK getUserByEmail timed out for ${email} — instructing client-side create`);
         if (!user.isVerified) { user.isVerified = true; await user.save(); }
-        const token = jwt.sign(buildAuthTokenClaims(user, getSessionClientClaims(req)), config.jwtSecret, { expiresIn: '7d' });
+        const token = await signAuthToken(user, getSessionClientClaims(req));
         return res.json({ success: true, needsClientCreate: true, message: 'MongoDB credentials valid. Please create Firebase account on device.', data: { token, needsClientCreate: true, userName: user.name } });
       } else {
         throw fbErr;
@@ -3608,11 +3720,7 @@ export const recoverFirebase = async (req, res) => {
     }
 
     // Issue a JWT so the client can complete the social-login flow
-    const token = jwt.sign(
-      buildAuthTokenClaims(user, getSessionClientClaims(req)),
-      config.jwtSecret,
-      { expiresIn: '7d' }
-    );
+    const token = await signAuthToken(user, getSessionClientClaims(req));
 
     logActivity({
       userId: user._id, userName: user.name || email, userRole: user.role,
@@ -3626,6 +3734,7 @@ export const recoverFirebase = async (req, res) => {
       data: { token, firebaseUid },
     });
   } catch (error) {
+    if (sendSystemPolicyError(res, error)) return;
     console.error('❌ [recoverFirebase] Error:', error);
     res.status(500).json({ success: false, message: 'Failed to restore Firebase account.', error: error.message });
   }

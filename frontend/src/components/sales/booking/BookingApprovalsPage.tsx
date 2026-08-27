@@ -90,7 +90,11 @@ const formatPlate = (value: unknown, fallback = '—') => {
 const getProofUrl = (booking: any) => booking.paymentProofUrl || booking.downpaymentProof || '';
 
 const getReservationPayment = (booking: any) => {
-  const stored = Number(booking?.downPaymentAmount);
+  const stored = Number(
+    booking?.latestPayment?.amountSubmitted
+      ?? booking?.latestPayment?.amount
+      ?? booking?.downPaymentAmount
+  );
   return Number.isFinite(stored) && stored > 0 ? stored : DOWNPAYMENT;
 };
 
@@ -546,15 +550,19 @@ function getPaymentMetadata(booking: any): Array<{ label: string; value: string 
     entries.push({ label: 'Payment method', value: methodLabel });
   }
 
-  const submittedAmount = Number(booking.downPaymentAmount);
+  const submittedAmount = Number(
+    booking.latestPayment?.amountSubmitted
+      ?? booking.latestPayment?.amount
+      ?? booking.downPaymentAmount
+  );
   if (Number.isFinite(submittedAmount) && submittedAmount > 0) {
     entries.push({ label: 'Amount submitted', value: formatMoney(submittedAmount) });
   }
 
-  const paymentReference = booking.gcashReferenceNumber || booking.paymentReference || booking.transactionReference || booking.referenceNumber;
+  const paymentReference = booking.latestPayment?.paymentReference || booking.gcashReferenceNumber || booking.paymentReference || booking.transactionReference || booking.referenceNumber;
   if (paymentReference) entries.push({ label: 'GCash reference number', value: String(paymentReference) });
 
-  const paymentAt = booking.paymentDateTime || booking.paymentSubmittedAt || booking.paidAt;
+  const paymentAt = booking.latestPayment?.submittedAt || booking.paymentDateTime || booking.paymentSubmittedAt || booking.paidAt;
   if (paymentAt) {
     const date = formatDateTime(paymentAt, { year: 'numeric', month: 'short', day: 'numeric' });
     const time = formatDateTime(paymentAt, { hour: 'numeric', minute: '2-digit' });
@@ -579,7 +587,7 @@ function ProofModal({ booking, loading, error, onRetry, onClose, onApprove, onRe
   error?: string;
   onRetry: () => void;
   onClose: () => void;
-  onApprove: () => Promise<boolean>;
+  onApprove: (verificationChecklist: Record<string, boolean>) => Promise<boolean>;
   onReject: (reason: string) => Promise<boolean>;
   acting: boolean;
 }) {
@@ -728,7 +736,7 @@ function ProofModal({ booking, loading, error, onRetry, onClose, onApprove, onRe
             </div>
             <div className="mt-5 grid grid-cols-2 gap-2.5">
               <button type="button" onClick={() => setDecision(null)} disabled={acting} className="h-11 rounded-xl bg-slate-100 text-sm font-black text-slate-600 disabled:opacity-50">Cancel</button>
-              <button type="button" onClick={async () => { const ok = await onApprove(); if (!ok) setDecision(null); }} disabled={acting} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-black text-white disabled:opacity-60">
+              <button type="button" onClick={async () => { const ok = await onApprove(checks); if (!ok) setDecision(null); }} disabled={acting} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-black text-white disabled:opacity-60">
                 {acting ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> Processing…</> : 'Confirm approval'}
               </button>
             </div>
@@ -779,7 +787,7 @@ function ProofModal({ booking, loading, error, onRetry, onClose, onApprove, onRe
 // ─── Single booking card ─────────────────────────────────────────────────────
 function BookingCard({ booking, onApprove, onReject, idx }: {
   booking: any; idx: number;
-  onApprove: (id: string, name: string, total: number) => Promise<boolean>;
+  onApprove: (id: string, name: string, total: number, verificationChecklist: Record<string, boolean>) => Promise<boolean>;
   onReject: (id: string, name: string, reason: string) => Promise<boolean>;
 }) {
   const [acting, setActing] = useState(false);
@@ -836,11 +844,11 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
     void loadBookingDetail();
   }, [booking, loadBookingDetail]);
 
-  const doApprove = async (): Promise<boolean> => {
+  const doApprove = async (verificationChecklist: Record<string, boolean>): Promise<boolean> => {
     if (acting) return false;
     setActing(true);
     try {
-      const ok = await onApprove(id, customerName, total);
+      const ok = await onApprove(id, customerName, total, verificationChecklist);
       if (ok) setShowModal(false);
       return ok;
     } finally {
@@ -1163,16 +1171,22 @@ export default function BookingApprovalsPage({
     }));
   }, []);
 
-  const handleApprove = async (id: string, _name: string, total: number): Promise<boolean> => {
+  const handleApprove = async (
+    id: string,
+    _name: string,
+    total: number,
+    verificationChecklist: Record<string, boolean>
+  ): Promise<boolean> => {
     try {
-      const data = await apiPatch(`/api/orders/${id}/approve`);
+      const data = await apiPatch(`/api/orders/${id}/approve`, { verificationChecklist });
       if (!data.success) {
         toast.error('Approval failed', { description: data.message });
         return false;
       }
       patchBookingDecision(id, data.data, { status: 'approved', approvedAt: new Date().toISOString() });
-      const balance = Math.max(0, total - DOWNPAYMENT);
-      toast.success(`Reservation approved — ${formatMoney(DOWNPAYMENT)} recorded. ${formatMoney(balance)} remains due on arrival.`);
+      const approvedAmount = Number(data.data?.downPaymentAmount) || DOWNPAYMENT;
+      const balance = Math.max(0, total - approvedAmount);
+      toast.success(`Reservation approved — ${formatMoney(approvedAmount)} recorded. ${formatMoney(balance)} remains due on arrival.`);
       return true;
     } catch {
       toast.error('Approval failed', { description: 'The request could not be completed. Please try again.' });
@@ -1314,10 +1328,15 @@ export default function BookingApprovalsPage({
           error={forcedReview.error}
           onRetry={retryForcedProof}
           onClose={closeForcedReview}
-          onApprove={async () => {
+          onApprove={async (verificationChecklist) => {
             if (!forcedOrderId || forcedReview.acting) return false;
             setForcedReview((fr) => (fr ? { ...fr, acting: true } : null));
-            const ok = await handleApprove(forcedOrderId, forcedCustomerName, getTotal(forcedModalBooking));
+            const ok = await handleApprove(
+              forcedOrderId,
+              forcedCustomerName,
+              getTotal(forcedModalBooking),
+              verificationChecklist
+            );
             if (ok) closeForcedReview();
             else setForcedReview((fr) => (fr ? { ...fr, acting: false } : null));
             return ok;

@@ -166,6 +166,7 @@ export const uploadVehicleScanImages = async (files, options = {}) => {
   const folder = String(options.folder || config.uploadFolder || 'vehicle-scans').trim();
   const endpoint = createUploadEndpoint();
   const uploadedUrls = [];
+  const uploadedAssets = [];
 
   for (let index = 0; index < files.length; index += 1) {
     const file = files[index];
@@ -209,21 +210,33 @@ export const uploadVehicleScanImages = async (files, options = {}) => {
         failedFileIndex: index,
         uploadedCount: uploadedUrls.length,
         uploadedUrls: [...uploadedUrls],
+        uploadedAssets: [...uploadedAssets],
       };
       throw error;
     }
 
     const secureUrl = response.data?.secure_url;
-    if (!secureUrl || typeof secureUrl !== 'string') {
-      const error = new Error('Cloudinary upload succeeded but no secure_url was returned.');
+    const returnedPublicId = response.data?.public_id;
+    if (
+      !secureUrl
+      || typeof secureUrl !== 'string'
+      || (options.returnMetadata && (!returnedPublicId || typeof returnedPublicId !== 'string'))
+    ) {
+      const error = new Error('Cloudinary upload succeeded but required secure_url/public_id metadata was not returned.');
       error.code = 'CLOUDINARY_UPLOAD_INVALID_RESPONSE';
       throw error;
     }
 
     uploadedUrls.push(secureUrl);
+    uploadedAssets.push({
+      secureUrl,
+      publicId: returnedPublicId || `${folder}/${publicId}`,
+      resourceType: response.data?.resource_type || 'image',
+      bytes: Number(response.data?.bytes) || Number(file.size) || Number(file.buffer?.length) || null,
+    });
   }
 
-  return uploadedUrls;
+  return options.returnMetadata ? uploadedAssets : uploadedUrls;
 };
 
 /**

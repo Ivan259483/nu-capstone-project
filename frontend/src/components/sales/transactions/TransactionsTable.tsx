@@ -1,27 +1,31 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   Search, Filter, Download, Eye, Printer, ChevronUp, ChevronDown,
-  ChevronsUpDown, Calendar, X, Receipt,
+  ChevronsUpDown, Calendar, X, Receipt, RotateCcw,
 } from 'lucide-react';
 import {
   Transaction, TransactionStatus,
   TransactionPaymentFilter, DEFAULT_TRANSACTION_PAYMENT_FILTER,
   filterTransactions, transactionsToCsv,
   formatPeso, getPaymentMethodLabel, formatTransactionStatusLabel,
+  formatTransactionTypeLabel, formatBookingStatusLabel, formatManilaDateKey, SALES_TIME_ZONE,
 } from '@/lib/salesData';
 import TransactionReceiptModal from './TransactionReceiptModal';
 import { useSalesContext } from '@/contexts/SalesAnalyticsContext';
 import { printDetailedReceipt, receiptFromTransaction } from '@/lib/receipt-document';
 import SalesStatCard from '@/components/sales/ui/SalesStatCard';
 import { SALES_ACCENTS, hashToSalesAccent } from '@/components/sales/ui/salesTheme';
+import api from '@/lib/api';
+import { buildRefundRequest, getRefundValidationError } from '@/lib/salesAnalyticsContracts';
+import type { SalesAnalyticsReport } from '@/types/salesAnalytics';
 
 type SortKey = keyof Transaction | '';
 type SortDir = 'asc' | 'desc';
 
 const STATUS_OPTIONS: { key: string; value: TransactionStatus | 'all'; label: string }[] = [
   { key: 'sf-all', value: 'all', label: 'All Status' },
-  { key: 'sf-completed', value: 'completed', label: 'Completed' },
-  { key: 'sf-pending', value: 'pending', label: 'Pending' },
+  { key: 'sf-completed', value: 'completed', label: 'Paid' },
+  { key: 'sf-pending', value: 'pending', label: 'Pending Verification' },
   { key: 'sf-processing', value: 'processing', label: 'Processing' },
   { key: 'sf-voided', value: 'voided', label: 'Voided' },
 ];
@@ -30,6 +34,9 @@ const PM_OPTIONS: { key: string; value: TransactionPaymentFilter; label: string 
   { key: 'pm-all', value: 'all', label: 'All Payment Methods' },
   { key: 'pm-cash', value: 'cash', label: 'Cash' },
   { key: 'pm-gcash', value: 'gcash', label: 'GCash' },
+  { key: 'pm-card', value: 'card', label: 'Card' },
+  { key: 'pm-maya', value: 'maya', label: 'Maya' },
+  { key: 'pm-split', value: 'split', label: 'Split Tender' },
 ];
 
 const PM_BADGE_COLORS: Record<string, string> = {
@@ -39,12 +46,18 @@ const PM_BADGE_COLORS: Record<string, string> = {
   maya:          'text-violet-900 bg-gradient-to-b from-violet-50/95 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_0_0_1px_rgba(221,214,254,0.8),0_1px_2px_rgba(76,29,149,0.05)]',
   bank_transfer: 'text-slate-800 bg-gradient-to-b from-slate-50 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(226,232,240,0.95),0_1px_2px_rgba(15,23,42,0.04)]',
   unknown:       'text-slate-700 bg-gradient-to-b from-slate-100 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(203,213,225,0.9),0_1px_2px_rgba(15,23,42,0.04)]',
+  split:         'text-cyan-900 bg-cyan-50 shadow-[0_0_0_1px_rgba(165,243,252,0.8)]',
+  other:         'text-slate-700 bg-slate-100 shadow-[0_0_0_1px_rgba(203,213,225,0.9)]',
 };
 
 const statusKey = (status: TransactionStatus, raw?: string) =>
   String(raw || status || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
 
 const STATUS_BADGES: Record<string, { dot: string; className: string }> = {
+  succeeded: {
+    dot: SALES_ACCENTS.green,
+    className: 'bg-green-50 text-green-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(187,247,208,0.9),0_1px_2px_rgba(22,163,74,0.06)]',
+  },
   approved: {
     dot: SALES_ACCENTS.green,
     className: 'bg-green-50 text-green-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(187,247,208,0.9),0_1px_2px_rgba(22,163,74,0.06)]',
@@ -64,6 +77,14 @@ const STATUS_BADGES: Record<string, { dot: string; className: string }> = {
   rejected: {
     dot: SALES_ACCENTS.red,
     className: 'bg-red-50 text-red-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(254,202,202,0.9),0_1px_2px_rgba(220,38,38,0.06)]',
+  },
+  failed: {
+    dot: SALES_ACCENTS.red,
+    className: 'bg-red-50 text-red-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(254,202,202,0.9),0_1px_2px_rgba(220,38,38,0.06)]',
+  },
+  refunded: {
+    dot: SALES_ACCENTS.slate,
+    className: 'bg-slate-100 text-slate-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(203,213,225,0.9)]',
   },
   cancelled: {
     dot: SALES_ACCENTS.red,
@@ -105,18 +126,11 @@ const getStatusBadge = (txn: Transaction) => {
 
 const ITEMS_PER_PAGE_OPTIONS = [5, 10, 20, 50];
 
-const localDateInputValue = (date: Date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
 const defaultDateRange = () => {
-  const today = new Date();
+  const today = formatManilaDateKey(new Date());
   return {
-    from: localDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)),
-    to: localDateInputValue(today),
+    from: `${today.slice(0, 8)}01`,
+    to: today,
   };
 };
 
@@ -133,14 +147,67 @@ export default function TransactionsTable() {
   const [perPage, setPerPage] = useState(10);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [receiptTxn, setReceiptTxn] = useState<Transaction | null>(null);
+  const [refundTxn, setRefundTxn] = useState<Transaction | null>(null);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundReason, setRefundReason] = useState('');
+  const [refundConfirmed, setRefundConfirmed] = useState(false);
+  const [refundSubmitting, setRefundSubmitting] = useState(false);
+  const [rangeReport, setRangeReport] = useState<SalesAnalyticsReport | null>(null);
 
-  const { transactions: TRANSACTIONS, isLoading } = useSalesContext();
+  const { transactions: TRANSACTIONS, isLoading, refetch } = useSalesContext();
+
+  useEffect(() => {
+    if (!dateFrom || !dateTo) return;
+    const controller = new AbortController();
+    api.get('/sales-analytics/report', {
+      params: { range: 'custom', from: dateFrom, to: dateTo, serviceMetric: 'orders' },
+      signal: controller.signal,
+      meta: { suppressCancelLog: true, suppressErrorToast: true },
+    } as any).then((response) => {
+      if (response.data?.success) setRangeReport(response.data.data as SalesAnalyticsReport);
+    }).catch((error) => {
+      if (error?.code !== 'ERR_CANCELED') console.error('Failed to load transaction range summary:', error);
+    });
+    return () => controller.abort();
+  }, [TRANSACTIONS, dateFrom, dateTo]);
+
+  const openRefund = (transaction: Transaction) => {
+    setRefundTxn(transaction);
+    setRefundAmount(String(transaction.refundableBalance || transaction.amountVerified || ''));
+    setRefundReason('');
+    setRefundConfirmed(false);
+  };
+
+  const submitRefund = async () => {
+    if (!refundTxn?.paymentId) return;
+    const draft = {
+      amount: Number(refundAmount),
+      refundableBalance: Number(refundTxn.refundableBalance),
+      reason: refundReason,
+      confirmed: refundConfirmed,
+    };
+    if (getRefundValidationError(draft)) return;
+    setRefundSubmitting(true);
+    try {
+      const idempotencyKey = typeof crypto?.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `refund-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      await api.post(
+        `/payments/${refundTxn.paymentId}/refunds`,
+        buildRefundRequest(draft),
+        { headers: { 'Idempotency-Key': idempotencyKey } },
+      );
+      await refetch();
+      setRefundTxn(null);
+    } finally {
+      setRefundSubmitting(false);
+    }
+  };
 
   const dateRangeTransactions = useMemo(
     () => filterTransactions(TRANSACTIONS, { dateFrom, dateTo }),
     [TRANSACTIONS, dateFrom, dateTo]
   );
-
   const filtered = useMemo(() => {
     const data = filterTransactions(TRANSACTIONS, {
       search,
@@ -227,16 +294,14 @@ export default function TransactionsTable() {
 
   // KPI cards intentionally represent the entire selected date range; search,
   // status, and payment-method filters only affect the table and Filtered card.
-  const rangeRevenue = dateRangeTransactions
-    .filter((t) => t.status !== 'voided')
-    .reduce((sum, transaction) => sum + transaction.total, 0);
-  const pendingTotal = dateRangeTransactions.filter((t) => t.status === 'pending').reduce((s, t) => s + t.total, 0);
-  const pendingCount = dateRangeTransactions.filter((t) => t.status === 'pending').length;
+  const rangeRevenue = rangeReport?.kpis.netCollectedRevenue || 0;
+  const pendingTotal = rangeReport?.secondary.pendingVerification || 0;
+  const pendingCount = rangeReport?.secondary.pendingVerificationCount || 0;
 
   return (
     <>
       {/* Summary Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+      <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           {
             key: 'ts-today',
@@ -246,7 +311,7 @@ export default function TransactionsTable() {
             accent: SALES_ACCENTS.orange,
             icon: <Receipt size={17} className="text-slate-500" />,
           },
-          { key: 'ts-pending',  title: 'Pending',       value: formatPeso(pendingTotal),      sub: `${pendingCount} awaiting payment`, accent: SALES_ACCENTS.orange, icon: <Calendar size={17} className="text-slate-500" /> },
+          { key: 'ts-pending',  title: 'Pending',       value: formatPeso(pendingTotal),      sub: `${pendingCount} awaiting verification`, accent: SALES_ACCENTS.orange, icon: <Calendar size={17} className="text-slate-500" /> },
           { key: 'ts-total',    title: 'Total Records', value: String(dateRangeTransactions.length), sub: 'Selected date range', accent: SALES_ACCENTS.purple, icon: <Receipt size={17} className="text-slate-500" /> },
           { key: 'ts-filtered', title: 'Filtered',      value: String(filtered.length),        sub: 'Current view',              accent: SALES_ACCENTS.teal, icon: <Filter size={17} className="text-slate-500" /> },
         ].map((s) => (
@@ -370,13 +435,6 @@ export default function TransactionsTable() {
               Export Selected
             </button>
             <button
-              onClick={() => console.warn('Bulk void requires manager approval.')}
-              className="flex items-center gap-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-white/90 border border-red-200/60 px-3 py-1.5 rounded-lg shadow-sm transition-colors duration-150"
-            >
-              <X size={12} />
-              Void Selected
-            </button>
-            <button
               onClick={() => setSelectedRows(new Set())}
               className="ml-auto text-xs text-slate-500 hover:text-slate-700"
             >
@@ -403,9 +461,11 @@ export default function TransactionsTable() {
                   { key: 'col-customer', label: 'Customer', sortKey: 'customerName' as SortKey },
                   { key: 'col-vehicle', label: 'Vehicle', sortKey: 'vehiclePlate' as SortKey },
                   { key: 'col-services', label: 'Services', sortKey: '' as SortKey },
+                  { key: 'col-type', label: 'Transaction Type', sortKey: 'transactionType' as SortKey },
                   { key: 'col-amount', label: 'Amount', sortKey: 'total' as SortKey },
                   { key: 'col-pm', label: 'Payment', sortKey: 'paymentMethod' as SortKey },
-                  { key: 'col-status', label: 'Status', sortKey: 'status' as SortKey },
+                  { key: 'col-status', label: 'Payment Status', sortKey: 'status' as SortKey },
+                  { key: 'col-booking-status', label: 'Booking Status', sortKey: 'bookingStatus' as SortKey },
                   { key: 'col-datetime', label: 'Date & Time', sortKey: 'dateTime' as SortKey },
                   { key: 'col-staff', label: 'Staff', sortKey: 'staffName' as SortKey },
                   { key: 'col-actions', label: '', sortKey: '' as SortKey },
@@ -424,7 +484,7 @@ export default function TransactionsTable() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={11} className="px-6 py-16 text-center">
+                  <td colSpan={13} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-blue-600 animate-spin mx-auto" />
                       <p className="text-sm font-semibold text-slate-700">Loading transactions...</p>
@@ -433,7 +493,7 @@ export default function TransactionsTable() {
                 </tr>
               ) : paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-6 py-16 text-center">
+                  <td colSpan={13} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
                         <Receipt size={22} className="text-slate-400" />
@@ -476,9 +536,12 @@ export default function TransactionsTable() {
 
                     {/* Transaction ID — hairline via shadow (smoother than 1px border on curves) */}
                     <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
-                      <span className="inline-flex items-center font-mono text-[11px] font-semibold text-blue-900 tracking-tight antialiased bg-gradient-to-b from-sky-50 to-blue-50/90 px-3 py-1.5 rounded-full shadow-[inset_0_1px_0_rgba(255,255,255,0.95),inset_0_-1px_0_rgba(37,99,235,0.04),0_0_0_1px_rgba(186,230,253,0.85),0_1px_3px_rgba(30,58,138,0.07)]">
-                        {txn.id}
-                      </span>
+                      <div>
+                        <span className="inline-flex items-center font-mono text-[11px] font-semibold text-blue-900 tracking-tight antialiased bg-gradient-to-b from-sky-50 to-blue-50/90 px-3 py-1.5 rounded-full shadow-[inset_0_1px_0_rgba(255,255,255,0.95),inset_0_-1px_0_rgba(37,99,235,0.04),0_0_0_1px_rgba(186,230,253,0.85),0_1px_3px_rgba(30,58,138,0.07)]">
+                          {txn.id}
+                        </span>
+                        {txn.bookingId ? <p className="mt-1 pl-1 font-mono text-[9px] text-slate-400">Booking {txn.bookingId}</p> : null}
+                      </div>
                     </td>
 
                     {/* Customer */}
@@ -529,13 +592,25 @@ export default function TransactionsTable() {
                       </div>
                     </td>
 
+                    {/* Transaction Type */}
+                    <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
+                      <span className="text-xs font-semibold text-slate-700">{formatTransactionTypeLabel(txn.transactionType)}</span>
+                    </td>
+
                     {/* Amount */}
                     <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
                       <p className={`text-sm font-bold font-tabular ${
-                        txn.status === 'voided' ? 'text-slate-400 line-through' :
-                        txn.status === 'pending' ? 'text-amber-600' : 'text-slate-900'
+                        txn.transactionType === 'refund' ? 'text-rose-600' :
+                        txn.status === 'pending' ? 'text-amber-600' : 'text-emerald-700'
                       }`}>
-                        {formatPeso(txn.total)}
+                        {txn.transactionType === 'refund'
+                          ? formatPeso(txn.signedAmount || -Math.abs(txn.amountVerified || txn.total))
+                          : txn.status === 'pending'
+                            ? formatPeso(txn.amountSubmitted || txn.total)
+                            : formatPeso(txn.amountVerified || txn.signedAmount || txn.total)}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-slate-400">
+                        {txn.transactionType === 'refund' ? 'Refund posted' : txn.status === 'pending' ? 'Submitted' : 'Verified'}
                       </p>
                       {txn.discount > 0 && (
                         <p className="text-[10px] text-emerald-600">−{formatPeso(txn.discount)} disc.</p>
@@ -562,13 +637,20 @@ export default function TransactionsTable() {
                       </div>
                     </td>
 
+                    {/* Booking Status */}
+                    <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
+                      <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                        {formatBookingStatusLabel(txn.bookingStatus)}
+                      </span>
+                    </td>
+
                     {/* Date & Time */}
                     <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
                       <p className="text-xs text-slate-700">
-                        {new Date(txn.dateTime).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {new Date(txn.dateTime).toLocaleDateString('en-PH', { timeZone: SALES_TIME_ZONE, month: 'short', day: 'numeric', year: 'numeric' })}
                       </p>
                       <p className="text-[10px] text-slate-400">
-                        {new Date(txn.dateTime).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(txn.dateTime).toLocaleTimeString('en-PH', { timeZone: SALES_TIME_ZONE, hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </td>
 
@@ -596,6 +678,16 @@ export default function TransactionsTable() {
                         >
                           <Printer size={14} strokeWidth={1.75} />
                         </button>
+                        {txn.transactionType !== 'refund' && txn.statusRaw === 'succeeded' && Number(txn.refundableBalance) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => openRefund(txn)}
+                            className="txn-row-icon-btn rounded-full p-2 text-slate-400 hover:bg-rose-500/[0.08] hover:text-rose-600"
+                            title="Create refund"
+                          >
+                            <RotateCcw size={14} strokeWidth={1.75} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -681,6 +773,71 @@ export default function TransactionsTable() {
           </div>
         </div>
       </div>
+
+      {refundTxn && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-[2px]" onMouseDown={() => !refundSubmitting && setRefundTxn(null)}>
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-950">Post a refund</h2>
+                <p className="mt-1 text-sm text-slate-500">The original verified payment remains intact. This creates a separate negative ledger row.</p>
+              </div>
+              <button type="button" disabled={refundSubmitting} onClick={() => setRefundTxn(null)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"><X size={17} /></button>
+            </div>
+
+            <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm">
+              <div className="flex justify-between gap-3"><span className="text-slate-500">Payment</span><span className="font-mono font-semibold text-slate-800">{refundTxn.id}</span></div>
+              <div className="mt-2 flex justify-between gap-3"><span className="text-slate-500">Refundable balance</span><span className="font-bold text-slate-900">{formatPeso(refundTxn.refundableBalance || 0)}</span></div>
+            </div>
+
+            <label className="mt-5 block text-xs font-semibold text-slate-600">
+              Refund amount
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                max={refundTxn.refundableBalance}
+                value={refundAmount}
+                onChange={(event) => setRefundAmount(event.target.value)}
+                className="input-base mt-2 w-full rounded-xl py-2.5"
+              />
+            </label>
+            <label className="mt-4 block text-xs font-semibold text-slate-600">
+              Required reason
+              <textarea
+                value={refundReason}
+                onChange={(event) => setRefundReason(event.target.value)}
+                maxLength={500}
+                rows={3}
+                placeholder="Why is this refund being issued?"
+                className="input-base mt-2 w-full resize-none rounded-xl py-2.5"
+              />
+            </label>
+            <label className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              <input type="checkbox" checked={refundConfirmed} onChange={(event) => setRefundConfirmed(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-amber-300" />
+              <span>I confirm the customer refund has been authorized and the amount is correct.</span>
+            </label>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" disabled={refundSubmitting} onClick={() => setRefundTxn(null)} className="btn-secondary rounded-xl px-4 py-2.5">Cancel</button>
+              <button
+                type="button"
+                disabled={refundSubmitting || Boolean(getRefundValidationError({
+                  amount: Number(refundAmount),
+                  refundableBalance: Number(refundTxn.refundableBalance),
+                  reason: refundReason,
+                  confirmed: refundConfirmed,
+                }))}
+                onClick={submitRefund}
+                className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+              >
+                <RotateCcw size={15} className={refundSubmitting ? 'animate-spin' : ''} />
+                {refundSubmitting ? 'Posting…' : Number(refundAmount) === Number(refundTxn.refundableBalance) ? 'Post full refund' : 'Post partial refund'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Receipt Modal */}
       {receiptTxn && (

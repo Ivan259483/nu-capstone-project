@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Printer, Download, CheckCircle2, Clock, XCircle, Car, Phone, Image as ImageIcon } from 'lucide-react';
 import { Transaction, formatPeso, getPaymentMethodLabel, PaymentMethod } from '@/lib/salesData';
 import AppLogo from '@/components/sales/ui/AppLogo';
@@ -48,6 +49,7 @@ const STATUS_CONFIG = {
 
 export default function TransactionReceiptModal({ txn, onClose }: Props) {
   const [showConfirm, setShowConfirm] = useState(false);
+  const titleId = useId();
   const statusCfg = STATUS_CONFIG[txn.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG['pending'];
   const StatusIcon = statusCfg.icon;
   const receipt = receiptFromTransaction(txn);
@@ -67,25 +69,56 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
   const handlePrint = () => printDetailedReceipt(receipt);
   const handleDownloadPdf = () => downloadDetailedReceiptPdf(receipt);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-      <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-md mx-4 animate-slide-up max-h-[92vh] flex flex-col">
+  useEffect(() => {
+    const appRoot = document.getElementById('root');
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousRootInert = appRoot?.inert ?? false;
+
+    document.body.style.overflow = 'hidden';
+    if (appRoot) appRoot.inert = true;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (showConfirm) setShowConfirm(false);
+      else onClose();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      if (appRoot) appRoot.inert = previousRootInert;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose, showConfirm]);
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden overscroll-contain p-3 sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+    >
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade-in" aria-hidden="true" />
+      <div className="relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-modal animate-slide-up sm:max-h-[calc(100dvh-3rem)]">
 
         {/* Status Header */}
-        <div className={`${statusCfg.bg} ${statusCfg.border} border-b rounded-t-2xl px-6 py-5`}>
+        <div className={`${statusCfg.bg} ${statusCfg.border} shrink-0 border-b rounded-t-2xl px-6 py-5`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className={`w-10 h-10 rounded-full ${statusCfg.bg} border ${statusCfg.border} flex items-center justify-center`}>
                 <StatusIcon size={20} className={statusCfg.color} />
               </div>
               <div>
-                <p className={`font-bold text-base ${statusCfg.color}`}>{statusCfg.label}</p>
+                <p id={titleId} className={`font-bold text-base ${statusCfg.color}`}>{statusCfg.label}</p>
                 <p className="text-slate-500 text-xs font-mono">{txn.id}</p>
               </div>
             </div>
             <button
+              type="button"
               onClick={onClose}
               className="p-1.5 rounded-lg hover:bg-white/60 transition-colors duration-150 text-slate-500 hover:text-slate-700"
+              aria-label="Close receipt"
+              autoFocus
             >
               <X size={18} />
             </button>
@@ -93,7 +126,7 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
         </div>
 
         {/* Receipt Scroll Body */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-thin">
           <div className="px-6 py-5">
 
             {/* Shop Info */}
@@ -261,7 +294,7 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
         </div>
 
         {/* Footer Actions */}
-        <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
+        <div className="shrink-0 px-6 py-4 border-t border-slate-100 flex gap-3">
           <button onClick={onClose} className="btn-secondary flex-none px-4">
             Close
           </button>
@@ -296,7 +329,7 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
 
       {/* Confirmation Dialog */}
       {showConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-fade-in px-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto overscroll-contain bg-slate-900/60 px-4 py-6 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-zoom-in">
             <div className="p-5 text-center">
               <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -324,6 +357,7 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

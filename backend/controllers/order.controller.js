@@ -76,6 +76,25 @@ import {
 } from '../services/qualityNotification.service.js';
 import { timeOperation } from '../utils/performance.utils.js';
 import { normalizePosPaymentMethod } from '../utils/paymentMethod.utils.js';
+import {
+  assertVerificationChecklistComplete,
+  ensurePendingReservationPayment,
+  MINIMUM_RESERVATION_FEE,
+  normalizeReservationAmount,
+  reservationPaymentAmount,
+  reservationRemainingBalance,
+} from '../services/reservationPayment.service.js';
+import {
+  createVerifiedLedgerPayment,
+  getOrderLedger,
+  getOrderServiceTotal,
+  roundMoney,
+  summarizeLedgerRows,
+} from '../services/financialLedger.service.js';
+import {
+  assertBookingsEnabled,
+  runTrackedSystemMutation,
+} from '../middleware/systemLifecycle.middleware.js';
 
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
@@ -86,6 +105,28 @@ const DEFAULT_SERVICE_STEPS = [
 ];
 
 const LOW_STOCK_THRESHOLD = 10;
+
+const isMongoTransactionUnavailable = (error) =>
+  error?.code === 20
+  || /transaction numbers are only allowed on a replica set member or mongos/i.test(String(error?.message || ''));
+
+/** Atlas/production uses the transaction path; standalone local Mongo keeps a CAS-backed fallback. */
+async function runReservationDecisionTransaction(work) {
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => {
+      result = await work(session);
+    });
+    return result;
+  } catch (error) {
+    if (!isMongoTransactionUnavailable(error)) throw error;
+    console.warn('[payments] MongoDB transactions unavailable; using guarded standalone decision flow.');
+    return work(null);
+  } finally {
+    await session.endSession();
+  }
+}
 
 const syncQualityStageNotifications = async (order, previousStage, nextStage) => {
   try {
@@ -626,10 +667,7 @@ async function attachLatestReceiptRecords(orderRows = []) {
     return value.toString?.() || String(value);
   };
 
-  const receiptOrderIds = orderRows
-    .filter((order) => order?.paymentStatus === 'paid' || order?.invoiceId)
-    .map((order) => order?._id)
-    .filter(Boolean);
+  const receiptOrderIds = orderRows.map((order) => order?._id).filter(Boolean);
   const customerIds = [...new Set(orderRows.map((order) => idFromReference(order?.customer)).filter(Boolean))];
   const vehicleIds = [...new Set(orderRows.map((order) => idFromReference(order?.vehicle)).filter(Boolean))];
 
@@ -637,11 +675,11 @@ async function attachLatestReceiptRecords(orderRows = []) {
     receiptOrderIds.length
       ? Payment.find({
           order: { $in: receiptOrderIds },
-          status: 'succeeded',
         })
           .select(
             '_id order invoiceId items subtotal discount discountAmount taxVatAmount additionalFees ' +
-            'downpayment grandTotal amount amountPaid balanceRemaining method status staffAssigned createdAt'
+            'downpayment grandTotal amount amountSubmitted amountVerified amountPaid balanceRemaining method status ' +
+            'transactionType paymentReference submittedAt reviewedAt reviewedBy reviewReason staffAssigned createdAt'
           )
           .sort({ createdAt: -1 })
           .lean()
@@ -1394,7 +1432,14 @@ export const getOrderApprovalPreview = async (req, res, next) => {
       });
     }
 
-    const dto = formatBookingDto(order);
+    const latestPayment = await Payment.findOne({ order: order._id })
+      .select(
+        '_id invoiceId amount amountSubmitted amountVerified method status transactionType ' +
+        'paymentReference submittedAt reviewedAt reviewedBy reviewReason createdAt'
+      )
+      .sort({ createdAt: -1 })
+      .lean();
+    const dto = formatBookingDto({ ...order.toObject({ virtuals: true }), latestPayment });
 
     res.json({
       success: true,
@@ -1428,8 +1473,12 @@ export const getOrderGcashProofFields = async (req, res, next) => {
       });
     }
 
-    const downpaymentProof = order.downpaymentProof || null;
-    const paymentProofUrl = order.paymentProofUrl || null;
+    const reservationPayment = await Payment.findOne({
+      order: order._id,
+      transactionType: 'reservation_fee',
+    }).select('proofImage').lean();
+    const downpaymentProof = order.downpaymentProof || reservationPayment?.proofImage || null;
+    const paymentProofUrl = order.paymentProofUrl || reservationPayment?.proofImage || null;
 
     res.json({
       success: true,
@@ -1445,8 +1494,10 @@ export const getOrderGcashProofFields = async (req, res, next) => {
  */
 export const createOrder = async (req, res, next) => {
   let reservedSlot = null;
+  let createdOrder = null;
   let conciergeSourceConversationId = '';
   try {
+    await assertBookingsEnabled(req.systemState);
     // Controller-Level Authorization Guard
     if (!req.user || !req.user.id || !req.user.role) {
         return res.status(401).json({ 
@@ -1479,6 +1530,7 @@ export const createOrder = async (req, res, next) => {
       price: priceInput,
       downpaymentProof: downpaymentProofInput,
       paymentProofUrl: paymentProofUrlInput,
+      reservationPaymentAmount: reservationPaymentAmountInput,
       sourceConversationId: sourceConversationIdInput,
       vehicleType: vehicleTypeInput,
     } = req.body;
@@ -1778,6 +1830,13 @@ export const createOrder = async (req, res, next) => {
       });
     }
 
+    const submittedReservationAmount = resolvedPaymentProof
+      ? normalizeReservationAmount(
+          reservationPaymentAmountInput,
+          finalTotalPrice || finalTotalAmount
+        )
+      : null;
+
     const bookingDateWasProvided = bookingDate !== undefined && bookingDate !== null && bookingDate !== '';
     const bookingTimeWasProvided = bookingTime !== undefined && bookingTime !== null && bookingTime !== '';
     if (
@@ -1873,7 +1932,18 @@ export const createOrder = async (req, res, next) => {
     // Auto-assign was removed to prevent unconfirmed bookings entering the service queue.
 
     await order.save();
+    createdOrder = order;
+    if (resolvedPaymentProof) {
+      await ensurePendingReservationPayment({
+        order,
+        amount: submittedReservationAmount,
+        proofImage: resolvedPaymentProof,
+        paymentMethod: 'gcash',
+        submittedBy: req.user.id,
+      });
+    }
     reservedSlot = null;
+    createdOrder = null;
     emitOrderCapacityChange(null, order, 'appointment_created');
 
     if (resolvedPaymentProof) {
@@ -1914,7 +1984,7 @@ export const createOrder = async (req, res, next) => {
     const customerRef = order.customer;
     const hasReservationProof = Boolean(resolvedPaymentProof);
     setImmediate(() => {
-      void (async () => {
+      void runTrackedSystemMutation(async () => {
         try {
           const customerLabel = fallbackCustomerName || 'Customer';
           const serviceLabel = finalServiceType || 'Service';
@@ -2017,9 +2087,18 @@ export const createOrder = async (req, res, next) => {
         } catch (actErr) {
           console.error('Failed to log booking activity:', actErr);
         }
-      })();
+      }).catch((error) => {
+        console.warn('[Booking] Background side effects skipped or failed:', error.message);
+      });
     });
   } catch (error) {
+    if (createdOrder?._id) {
+      try {
+        await Order.deleteOne({ _id: createdOrder._id });
+      } catch (rollbackError) {
+        console.error('[PAYMENT_ROLLBACK_ERROR] Failed to remove booking after reservation transaction failure:', rollbackError.message);
+      }
+    }
     if (reservedSlot) {
       try {
         await releaseBookingReservation(reservedSlot);
@@ -2248,11 +2327,8 @@ export const updateOrder = async (req, res, next) => {
         .forEach((field) => allowedFields.add(field));
     }
     if (isBookingManagerRole(req.user.role)) {
-      ['status', 'customerStatus', 'bookingDate', 'bookingTime', 'assignedDetailer', 'archived', 'archivedAt', 'archivedReason']
+      ['status', 'customerStatus', 'bookingDate', 'bookingTime', 'assignedDetailer', 'cancellationReason', 'archived', 'archivedAt', 'archivedReason']
         .forEach((field) => allowedFields.add(field));
-    }
-    if (isPosManagerRole(req.user.role)) {
-      ['paymentStatus', 'paymentMethod'].forEach((field) => allowedFields.add(field));
     }
     if (isAssignedDetailer || isClaimingUnassigned) {
       ['status', 'customerStatus', 'assignedDetailer'].forEach((field) => allowedFields.add(field));
@@ -2338,21 +2414,6 @@ export const updateOrder = async (req, res, next) => {
       update.assignedDetailer = detailerId;
     }
 
-    if (Object.prototype.hasOwnProperty.call(req.body, 'paymentStatus')) {
-      if (!isPosManagerRole(req.user.role) || !['paid', 'unpaid', 'failed', 'refunded'].includes(req.body.paymentStatus)) {
-        return res.status(403).json({ success: false, message: 'Only authorized POS users may change payment status.' });
-      }
-      update.paymentStatus = req.body.paymentStatus;
-      update.paidAt = req.body.paymentStatus === 'paid' ? new Date() : null;
-    }
-    if (Object.prototype.hasOwnProperty.call(req.body, 'paymentMethod')) {
-      const paymentMethod = normalizePosPaymentMethod(req.body.paymentMethod);
-      if (!isPosManagerRole(req.user.role) || !paymentMethod) {
-        return res.status(400).json({ success: false, message: 'Invalid payment method.' });
-      }
-      update.paymentMethod = paymentMethod;
-    }
-
     if (Object.prototype.hasOwnProperty.call(req.body, 'archived')) {
       if (typeof req.body.archived !== 'boolean') {
         return res.status(400).json({ success: false, message: 'archived must be a boolean.' });
@@ -2375,6 +2436,13 @@ export const updateOrder = async (req, res, next) => {
     if (Object.prototype.hasOwnProperty.call(req.body, 'cancellationReason') &&
       (typeof req.body.cancellationReason !== 'string' || req.body.cancellationReason.length > 500)) {
       return res.status(400).json({ success: false, message: 'Invalid cancellation reason.' });
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'cancellationReason')) {
+      update.cancellationReason = req.body.cancellationReason.trim() || null;
+    }
+    if (update.status === 'cancelled' && order.status !== 'cancelled') {
+      update.cancelledAt = new Date();
+      update.cancelledBy = req.user.id;
     }
 
     const previousOccupancy = captureOrderSlotOccupancy(order);
@@ -2749,10 +2817,11 @@ export const deleteOrder = async (req, res, next) => {
       });
     }
 
-    if (['paid', 'refunded'].includes(order.paymentStatus) || ['completed', 'paid', 'released'].includes(order.status)) {
+    const hasLedgerHistory = Boolean(await Payment.exists({ order: order._id }));
+    if (hasLedgerHistory || ['paid', 'partially_paid', 'refunded'].includes(order.paymentStatus) || ['completed', 'paid', 'released'].includes(order.status)) {
       return res.status(409).json({
         success: false,
-        message: 'Financial and completed bookings must be retained. Archive the booking instead.',
+        message: 'Bookings with financial history or completed service activity must be retained. Archive the booking instead.',
       });
     }
 
@@ -2840,7 +2909,8 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
       order.serviceSteps = DEFAULT_SERVICE_STEPS.map(step => ({ ...step }));
     }
 
-    // Optionally mark as paid as part of the same transaction
+    // Optionally collect the exact server-side balance as part of the assignment.
+    // The paid flag is a ledger projection; it is never written without a Payment row.
     if (isMarkPaid) {
       const canonicalPaymentMethod = normalizePosPaymentMethod(paymentMethod);
       if (!canonicalPaymentMethod) {
@@ -2849,12 +2919,19 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
           message: 'Payment method is required and must be cash or gcash when marking an order paid.',
         });
       }
-      order.paymentStatus = 'paid';
-      order.paidAt = order.paidAt || new Date();
-      order.paymentMethod = canonicalPaymentMethod;
-      order.paymentProvider = order.paymentProvider || 'admin';
-      if (!order.invoiceId) {
-        order.invoiceId = `INV-${Date.now()}`;
+      const ledgerRows = await getOrderLedger(order._id);
+      const ledger = summarizeLedgerRows(ledgerRows, getOrderServiceTotal(order));
+      if (ledger.outstandingBalance > 0) {
+        await createVerifiedLedgerPayment({
+          order,
+          amount: ledger.outstandingBalance,
+          expectedAmount: ledger.outstandingBalance,
+          method: canonicalPaymentMethod,
+          actorId: req.user.id,
+          provider: 'admin',
+          transactionType: ledger.netVerified > 0 ? 'service_balance' : 'full_service_payment',
+          metadata: { assignAndPay: true, orderNumber: order.orderNumber },
+        });
       }
       if (['pending', 'confirmed'].includes(order.status)) {
         order.status = 'assigned';
@@ -4021,7 +4098,7 @@ export const operateCheckIn = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    if (!['pending', 'confirmed', 'assigned'].includes(order.status)) {
+    if (!['pending', 'approved', 'confirmed', 'assigned'].includes(order.status)) {
       return res.status(400).json({ success: false, message: `Cannot check-in order in '${order.status}' status. Order must be confirmed or assigned first.` });
     }
 
@@ -4041,21 +4118,44 @@ export const operateCheckIn = async (req, res, next) => {
       reservedSlot = slotCheck;
     }
 
-    const totalPrice = order.totalPrice || 0;
-    const minDownPayment = totalPrice * 0.3;
-    if (totalPrice > 0 && downPaymentAmount < minDownPayment) {
-      return res.status(400).json({ success: false, message: `Down payment must be at least 30% (₱${minDownPayment.toFixed(2)})` });
+    const totalPrice = getOrderServiceTotal(order);
+    const ledgerRows = await getOrderLedger(order._id);
+    const ledger = summarizeLedgerRows(ledgerRows, totalPrice);
+    const requiredAtCheckIn = roundMoney(totalPrice * 0.3);
+    const additionalAmountDue = roundMoney(Math.max(0, requiredAtCheckIn - ledger.netVerified));
+    const submittedAmount = roundMoney(downPaymentAmount);
+    const acceptsLegacyCumulativeAmount = Math.abs(submittedAmount - requiredAtCheckIn) <= 0.009;
+    const acceptsAdditionalAmount = Math.abs(submittedAmount - additionalAmountDue) <= 0.009;
+    if (additionalAmountDue > 0 && !acceptsLegacyCumulativeAmount && !acceptsAdditionalAmount) {
+      return res.status(409).json({
+        success: false,
+        code: 'LEDGER_AMOUNT_MISMATCH',
+        message: `Only the additional check-in amount of ₱${additionalAmountDue.toFixed(2)} is due after verified payments.`,
+        data: { requiredAtCheckIn, verifiedBeforeCheckIn: ledger.netVerified, additionalAmountDue },
+      });
     }
 
-    const canonicalPaymentMethod = normalizePosPaymentMethod(paymentMethod);
-    if (!canonicalPaymentMethod) {
+    const canonicalPaymentMethod = additionalAmountDue > 0
+      ? normalizePosPaymentMethod(paymentMethod)
+      : null;
+    if (additionalAmountDue > 0 && !canonicalPaymentMethod) {
       return res.status(400).json({
         success: false,
         message: 'Payment method is required and must be cash or gcash.',
       });
     }
-    order.downPaymentAmount = downPaymentAmount;
-    order.paymentMethod = canonicalPaymentMethod;
+    if (additionalAmountDue > 0) {
+      await createVerifiedLedgerPayment({
+        order,
+        amount: additionalAmountDue,
+        expectedAmount: additionalAmountDue,
+        method: canonicalPaymentMethod,
+        actorId: req.user.id,
+        provider: 'pos',
+        transactionType: 'service_balance',
+        metadata: { checkInCollection: true, requiredAtCheckIn, previouslyVerified: ledger.netVerified },
+      });
+    }
 
     if (sigData) {
       try {
@@ -4078,6 +4178,7 @@ export const operateCheckIn = async (req, res, next) => {
     }
 
     order.status = 'received';
+    order.arrivedAt = order.arrivedAt || new Date();
     await order.save();
     reservedSlot = null;
 
@@ -4097,7 +4198,7 @@ export const operateCheckIn = async (req, res, next) => {
       type: 'status_change',
       module: 'Booking',
       action: 'ORDER_CHECKIN',
-      description: `Order checked in. Down payment: ₱${downPaymentAmount}. Method: ${paymentMethod || 'N/A'}.`,
+      description: `Order checked in. Additional collection: ₱${additionalAmountDue}. Previously verified: ₱${ledger.netVerified}.`,
       referenceId: order._id,
     });
 
@@ -4215,6 +4316,29 @@ export const operateFinalPayment = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { finalPaymentAmount, paymentMethod } = req.body;
+    let order = await Order.findById(id);
+
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    // Allow 'received', 'in_progress', 'completed' to move to 'paid' early if they want, but typically 'completed'
+    if (['pending_confirmation', 'pending', 'rejected', 'confirmed', 'released', 'cancelled'].includes(order.status)) {
+       return res.status(400).json({ message: `Cannot pay order in ${order.status} status` });
+    }
+
+    const prevPayStatus = order.status;
+    const ledgerRows = await getOrderLedger(order._id);
+    const ledger = summarizeLedgerRows(ledgerRows, getOrderServiceTotal(order));
+    if (ledger.outstandingBalance <= 0) {
+      return res.status(409).json({ success: false, message: 'This booking has no outstanding balance.' });
+    }
+    const submitted = roundMoney(finalPaymentAmount);
+    if (Math.abs(submitted - ledger.outstandingBalance) > 0.009) {
+      return res.status(409).json({
+        success: false,
+        code: 'LEDGER_AMOUNT_MISMATCH',
+        message: `Final payment must match the server-calculated balance of ₱${ledger.outstandingBalance.toFixed(2)}.`,
+        data: { outstandingBalance: ledger.outstandingBalance },
+      });
+    }
     const canonicalPaymentMethod = normalizePosPaymentMethod(paymentMethod);
     if (!canonicalPaymentMethod) {
       return res.status(400).json({
@@ -4222,22 +4346,17 @@ export const operateFinalPayment = async (req, res, next) => {
         message: 'Payment method is required and must be cash or gcash.',
       });
     }
-    let order = await Order.findById(id);
-
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-    // Allow 'received', 'in_progress', 'completed' to move to 'paid' early if they want, but typically 'completed'
-    if (['pending', 'confirmed', 'released', 'cancelled'].includes(order.status)) {
-       return res.status(400).json({ message: `Cannot pay order in ${order.status} status` });
-    }
-
-    const prevPayStatus = order.status;
-
-    // Usually remaining balance = total - downpayment
-    order.finalPaymentAmount = finalPaymentAmount;
-    order.paymentStatus = 'paid';
-    order.paymentMethod = canonicalPaymentMethod;
-    order.paidAt = new Date();
-    order.status = 'paid';
+    await createVerifiedLedgerPayment({
+      order,
+      amount: ledger.outstandingBalance,
+      expectedAmount: ledger.outstandingBalance,
+      method: canonicalPaymentMethod,
+      actorId: req.user.id,
+      provider: 'pos',
+      transactionType: ledger.netVerified > 0 ? 'service_balance' : 'full_service_payment',
+      metadata: { finalPayment: true, orderNumber: order.orderNumber },
+    });
+    order.status = order.paymentStatus === 'paid' ? 'paid' : order.status;
     
     // Auto-generate Warranty + Receipt PDF right at Payment Stage
     try {
@@ -4465,7 +4584,7 @@ export const uploadPaymentProof = async (req, res, next) => {
   let reservedSlot = null;
   try {
     const { id } = req.params;
-    const { paymentProofUrl } = req.body;
+    const { paymentProofUrl, reservationPaymentAmount: reservationPaymentAmountInput } = req.body;
 
     if (!paymentProofUrl) {
       return res.status(400).json({ success: false, message: 'Payment proof image is required' });
@@ -4482,6 +4601,11 @@ export const uploadPaymentProof = async (req, res, next) => {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
+
+    const submittedReservationAmount = normalizeReservationAmount(
+      reservationPaymentAmountInput,
+      order.serviceTotal || order.totalPrice || order.totalAmount
+    );
 
     // Must belong to the customer (authorization checked via middleware, but double check here)
     const customerId = order.customer?.toString?.();
@@ -4533,6 +4657,7 @@ export const uploadPaymentProof = async (req, res, next) => {
       { _id: order._id, __v: order.__v, status: previousStatus },
       {
         $set: {
+          downpaymentProof: paymentProofUrl,
           paymentProofUrl,
           paymentMethod: 'gcash',
           status: 'pending_confirmation',
@@ -4552,6 +4677,13 @@ export const uploadPaymentProof = async (req, res, next) => {
       }
       const current = await Order.findById(order._id);
       if (current?.status === 'pending_confirmation') {
+        await ensurePendingReservationPayment({
+          order: current,
+          amount: submittedReservationAmount,
+          proofImage: paymentProofUrl,
+          paymentMethod: 'gcash',
+          submittedBy: req.user.id,
+        });
         return res.status(200).json({ success: true, data: current, idempotent: true });
       }
       return res.status(409).json({
@@ -4562,6 +4694,13 @@ export const uploadPaymentProof = async (req, res, next) => {
     }
     order = savedOrder;
     reservedSlot = null;
+    await ensurePendingReservationPayment({
+      order,
+      amount: submittedReservationAmount,
+      proofImage: paymentProofUrl,
+      paymentMethod: 'gcash',
+      submittedBy: req.user.id,
+    });
     emitOrderCapacityChange(previousOccupancy, order, 'appointment_resubmitted');
 
     emitBookingApprovalQueueUpdate(order);
@@ -4631,16 +4770,36 @@ export const uploadPaymentProof = async (req, res, next) => {
       }
     }
     console.error('Error uploading payment proof:', error);
-    res.status(500).json({ success: false, message: 'Failed to upload payment proof' });
+    if (error?.statusCode || error?.status) {
+      return res.status(error.statusCode || error.status).json({
+        success: false,
+        errorCode: error.code,
+        message: error.message,
+      });
+    }
+    next(error);
   }
 };
 
 export const approveBooking = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id).populate('customer', 'name email avatar');
+    let order = await Order.findById(req.params.id).populate('customer', 'name email avatar');
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
     if (order.status !== 'pending_confirmation') {
+      const existingReservation = await Payment.findOne({
+        order: order._id,
+        transactionType: 'reservation_fee',
+        status: 'succeeded',
+      }).lean();
+      if (order.status === 'confirmed' && existingReservation) {
+        return res.json({
+          success: true,
+          message: 'Reservation was already approved.',
+          idempotent: true,
+          data: formatBookingDto(order),
+        });
+      }
       return res.status(400).json({ success: false, message: `Cannot approve booking with status '${order.status}'.` });
     }
 
@@ -4658,6 +4817,7 @@ export const approveBooking = async (req, res, next) => {
     // Approval is a lifecycle-only change and remains valid after Admin lowers
     // capacity below the occupancy of existing appointments.
 
+    const verificationChecklist = assertVerificationChecklistComplete(req.body?.verificationChecklist);
     const previousStatus = order.status;
     const previousAssignedDetailerId = order.assignedDetailer
       ? String(order.assignedDetailer?._id || order.assignedDetailer)
@@ -4696,23 +4856,95 @@ export const approveBooking = async (req, res, next) => {
       }
     }
 
-    order.status = detailerId ? 'confirmed' : 'approved';
-    order.approvedAt = new Date();
-    order.approvedBy = req.user.id;
-    if (detailerId) order.assignedDetailer = detailerId;
-    if (!order.serviceSteps || order.serviceSteps.length === 0) {
-      order.serviceSteps = DEFAULT_SERVICE_STEPS.map(s => ({ ...s }));
-    }
+    order = await runReservationDecisionTransaction(async (session) => {
+      const sessionOptions = session ? { session } : {};
+      const transactionOrder = await Order.findOne({
+        _id: req.params.id,
+        status: 'pending_confirmation',
+      }).session(session);
+      if (!transactionOrder) {
+        const error = new Error('Booking changed while it was being approved. Refresh and try again.');
+        error.statusCode = 409;
+        error.status = 409;
+        error.code = 'BOOKING_CHANGED';
+        throw error;
+      }
 
-    // ── Activate Live Tracker — Step 1: "Appointment Confirmed" ──────
-    // Setting serviceTrackingStage = 'confirmed' triggers the customer's
-    // live tracker to become active, showing "Appointment Confirmed" as
-    // the first completed step. The QC Checker will advance it from here.
-    order.serviceTrackingStage = 'confirmed';
-    order.serviceTrackingUpdatedAt = new Date();
-    order.serviceTrackingUpdatedBy = req.user?.name || 'Sales';
+      let reservationPayment = await Payment.findOne({
+        order: transactionOrder._id,
+        transactionType: 'reservation_fee',
+      }).session(session);
+      if (!reservationPayment) {
+        reservationPayment = await ensurePendingReservationPayment({
+          order: transactionOrder,
+          amount: MINIMUM_RESERVATION_FEE,
+          proofImage: transactionOrder.paymentProofUrl || transactionOrder.downpaymentProof,
+          paymentMethod: 'gcash',
+          submittedBy: transactionOrder.customer,
+          session,
+        });
+      }
+      if (reservationPayment.status !== 'pending') {
+        const error = new Error(`Reservation payment cannot be approved with status '${reservationPayment.status}'.`);
+        error.statusCode = 409;
+        error.status = 409;
+        error.code = 'PAYMENT_STATUS_CHANGED';
+        throw error;
+      }
 
-    await order.save();
+      const approvedAmount = normalizeReservationAmount(
+        reservationPaymentAmount(reservationPayment),
+        transactionOrder.serviceTotal || transactionOrder.totalPrice || transactionOrder.totalAmount
+      );
+      const reviewedAt = new Date();
+      reservationPayment.status = 'succeeded';
+      reservationPayment.amount = approvedAmount;
+      reservationPayment.amountVerified = approvedAmount;
+      reservationPayment.reviewedAt = reviewedAt;
+      reservationPayment.effectiveAt = reviewedAt;
+      reservationPayment.reviewedBy = req.user.id;
+      reservationPayment.reviewReason = null;
+      reservationPayment.verificationChecklist = verificationChecklist;
+      reservationPayment.metadata = {
+        ...(reservationPayment.metadata || {}),
+        bookingStatusAtReview: 'confirmed',
+        remainingBalance: reservationRemainingBalance(transactionOrder, approvedAmount),
+      };
+      reservationPayment.statusHistory.push({
+        status: 'succeeded',
+        amountSubmitted: reservationPayment.amountSubmitted,
+        amountVerified: approvedAmount,
+        proofImage: reservationPayment.proofImage,
+        changedAt: reviewedAt,
+        changedBy: req.user.id,
+      });
+      await reservationPayment.save(sessionOptions);
+
+      transactionOrder.status = 'confirmed';
+      transactionOrder.approvedAt = reviewedAt;
+      transactionOrder.approvedBy = req.user.id;
+      transactionOrder.rejectedAt = null;
+      transactionOrder.rejectedBy = null;
+      transactionOrder.rejectionReason = null;
+      transactionOrder.downPaymentAmount = approvedAmount;
+      transactionOrder.amountCollected = approvedAmount;
+      transactionOrder.paymentStatus = approvedAmount + 0.009 >= getOrderServiceTotal(transactionOrder)
+        ? 'paid'
+        : 'partially_paid';
+      if (detailerId) transactionOrder.assignedDetailer = detailerId;
+      if (!transactionOrder.serviceSteps || transactionOrder.serviceSteps.length === 0) {
+        transactionOrder.serviceSteps = DEFAULT_SERVICE_STEPS.map(s => ({ ...s }));
+      }
+
+      // Sales approval activates only Stage 1. Vehicle Arrival remains a
+      // separate staff-recorded transition.
+      transactionOrder.serviceTrackingStage = 'confirmed';
+      transactionOrder.serviceTrackingUpdatedAt = reviewedAt;
+      transactionOrder.serviceTrackingUpdatedBy = req.user?.name || 'Sales';
+      await transactionOrder.save(sessionOptions);
+      return transactionOrder;
+    });
+    await order.populate('customer', 'name email avatar');
 
     if (detailerId) {
       try {
@@ -4722,14 +4954,6 @@ export const approveBooking = async (req, res, next) => {
       }
     }
 
-    // ── Clean up GCash proof images from DB after approval ────────────
-    // Base64 images can be 200–500KB each. Once approved, the proof is no
-    // longer needed and keeping it causes document bloat that can slow
-    // queries and eventually crash the app. We $unset them atomically.
-    await Order.updateOne(
-      { _id: order._id },
-      { $unset: { downpaymentProof: '', paymentProofUrl: '' } }
-    );
     emitBookingApprovalQueueUpdate(order);
 
     emitCustomerStatusUpdate(order);
@@ -4765,27 +4989,102 @@ export const approveBooking = async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════════════════
 export const rejectBooking = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id).populate('customer', 'name email avatar');
+    let order = await Order.findById(req.params.id).populate('customer', 'name email avatar');
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
     if (order.status !== 'pending_confirmation') {
+      const existingReservation = await Payment.findOne({
+        order: order._id,
+        transactionType: 'reservation_fee',
+        status: 'rejected',
+      }).lean();
+      if (order.status === 'rejected' && existingReservation) {
+        return res.json({
+          success: true,
+          message: 'Payment proof was already rejected.',
+          idempotent: true,
+          data: formatBookingDto(order),
+        });
+      }
       return res.status(400).json({ success: false, message: `Cannot reject booking with status '${order.status}'.` });
     }
 
     const { reason = 'Payment proof could not be verified.' } = req.body || {};
     const occupancyBefore = captureOrderSlotOccupancy(order);
-    order.status = 'rejected';
-    order.rejectedAt = new Date();
-    order.rejectedBy = req.user.id;
-    order.rejectionReason = reason;
-    await saveOrderWithSlotTransition(order, occupancyBefore);
+    order = await runReservationDecisionTransaction(async (session) => {
+      const sessionOptions = session ? { session } : {};
+      const transactionOrder = await Order.findOne({
+        _id: req.params.id,
+        status: 'pending_confirmation',
+      }).session(session);
+      if (!transactionOrder) {
+        const error = new Error('Booking changed while the proof was being rejected. Refresh and try again.');
+        error.statusCode = 409;
+        error.status = 409;
+        error.code = 'BOOKING_CHANGED';
+        throw error;
+      }
 
-    // ── Clean up GCash proof images from DB after rejection ───────────
-    // No longer needed once a decision has been made.
-    await Order.updateOne(
-      { _id: order._id },
-      { $unset: { downpaymentProof: '', paymentProofUrl: '' } }
-    );
+      let reservationPayment = await Payment.findOne({
+        order: transactionOrder._id,
+        transactionType: 'reservation_fee',
+      }).session(session);
+      if (!reservationPayment) {
+        reservationPayment = await ensurePendingReservationPayment({
+          order: transactionOrder,
+          amount: MINIMUM_RESERVATION_FEE,
+          proofImage: transactionOrder.paymentProofUrl || transactionOrder.downpaymentProof,
+          paymentMethod: 'gcash',
+          submittedBy: transactionOrder.customer,
+          session,
+        });
+      }
+      if (reservationPayment.status !== 'pending') {
+        const error = new Error(`Reservation payment cannot be rejected with status '${reservationPayment.status}'.`);
+        error.statusCode = 409;
+        error.status = 409;
+        error.code = 'PAYMENT_STATUS_CHANGED';
+        throw error;
+      }
+
+      const reviewedAt = new Date();
+      reservationPayment.status = 'rejected';
+      reservationPayment.amountVerified = 0;
+      reservationPayment.reviewedAt = reviewedAt;
+      reservationPayment.effectiveAt = null;
+      reservationPayment.reviewedBy = req.user.id;
+      reservationPayment.reviewReason = String(reason).trim().slice(0, 1000);
+      reservationPayment.metadata = {
+        ...(reservationPayment.metadata || {}),
+        bookingStatusAtReview: 'rejected',
+        remainingBalance: transactionOrder.serviceTotal || transactionOrder.totalPrice || transactionOrder.totalAmount || 0,
+      };
+      reservationPayment.statusHistory.push({
+        status: 'rejected',
+        amountSubmitted: reservationPayment.amountSubmitted,
+        amountVerified: 0,
+        proofImage: reservationPayment.proofImage,
+        reason: reservationPayment.reviewReason,
+        changedAt: reviewedAt,
+        changedBy: req.user.id,
+      });
+      await reservationPayment.save(sessionOptions);
+
+      transactionOrder.status = 'rejected';
+      transactionOrder.rejectedAt = reviewedAt;
+      transactionOrder.rejectedBy = req.user.id;
+      transactionOrder.rejectionReason = reservationPayment.reviewReason;
+      transactionOrder.serviceTrackingStage = null;
+      transactionOrder.serviceTrackingUpdatedAt = null;
+      transactionOrder.serviceTrackingUpdatedBy = null;
+      await transactionOrder.save(sessionOptions);
+      return transactionOrder;
+    });
+    await order.populate('customer', 'name email avatar');
+    if (occupancyBefore.occupies && occupancyBefore.slot) {
+      await releaseBookingSlot(occupancyBefore.slot.date, occupancyBefore.slot.time, { releaseDaily: true });
+      emitAvailabilityUpdated({ type: 'appointment_capacity_changed', dates: [occupancyBefore.slot.date] });
+    }
     emitBookingApprovalQueueUpdate(order);
 
     // Emit booking_updated for calendar real-time refresh

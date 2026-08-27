@@ -1,5 +1,6 @@
 import Order from '../models/order.model.js';
 import { createCustomerNotification } from './customerNotification.service.js';
+import { runTrackedSystemMutation } from '../middleware/systemLifecycle.middleware.js';
 
 const REMINDER_INTERVAL_MS = 15 * 60 * 1000;
 
@@ -78,7 +79,7 @@ export async function runAppointmentReminderSweep(now = new Date()) {
 
 export function startAppointmentReminderScheduler() {
   const run = () => {
-    runAppointmentReminderSweep().catch((error) => {
+    runTrackedSystemMutation(() => runAppointmentReminderSweep()).catch((error) => {
       console.error('[SCHEDULER] Appointment reminder sweep failed:', error.message);
     });
   };

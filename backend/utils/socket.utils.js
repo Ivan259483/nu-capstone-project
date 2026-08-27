@@ -16,8 +16,19 @@ import {
 } from '../constants/roles.js';
 import User from '../models/user.model.js';
 import { decrypt, looksLikeEncryptedValue } from './encryption.utils.js';
-import { authVersionMatches } from './authVersion.utils.js';
+import {
+  authVersionMatches,
+  globalSessionEpochMatches,
+} from './authVersion.utils.js';
 import { isConfiguredCorsOriginAllowed } from './origin.utils.js';
+import {
+  getSystemState,
+  isProtectedAdministrator,
+} from '../services/systemState.service.js';
+import {
+  assertRegistrationEnabled,
+  runTrackedSystemMutation,
+} from '../middleware/systemLifecycle.middleware.js';
 
 /**
  * Change streams return raw BSON — Mongoose decrypt middleware does not run.
@@ -124,6 +135,9 @@ const WATCHED_COLLECTIONS = new Set([
   'scheduledclosures',
   'chatconversations',
   'chatmessages',
+  // Internal-only security streams. These are never forwarded to clients.
+  'users',
+  'systemstates',
 ]);
 
 // ── Debounce/batch rapid successive changes (200 ms window) ─────────
@@ -212,7 +226,19 @@ export const initSocket = (httpServer) => {
     // Authorization header. Query-string tokens leak into proxy/access logs.
     const token = socket.handshake.auth?.token || tokenFromHeader;
 
+    let systemState;
+    try {
+      systemState = await getSystemState();
+    } catch (error) {
+      console.error('[SOCKET_AUTH] System state unavailable:', error.message);
+      return next(new Error('SYSTEM_STATE_UNAVAILABLE'));
+    }
+    socket.systemState = systemState;
+
     if (!token) {
+      if (systemState.mode === 'archived') {
+        return next(new Error('SYSTEM_ARCHIVED'));
+      }
       // Anonymous chat connections remain supported, but receive no user/staff rooms.
       return next();
     }
@@ -239,10 +265,21 @@ export const initSocket = (httpServer) => {
       if (
         requiresStaffTwoFactor(liveRole) &&
         (!user.isVerified ||
-          decoded.authLevel !== STAFF_2FA_AUTH_LEVEL ||
-          !authVersionMatches(decoded.authVersion, user.authVersion))
+          decoded.authLevel !== STAFF_2FA_AUTH_LEVEL)
       ) {
         return next(new Error('Staff two-factor authentication required'));
+      }
+      if (!authVersionMatches(decoded.authVersion, user.authVersion)) {
+        return next(new Error('SESSION_REVOKED'));
+      }
+      if (!globalSessionEpochMatches(decoded.globalSessionEpoch, systemState.globalSessionEpoch)) {
+        return next(new Error('GLOBAL_SESSION_REVOKED'));
+      }
+      if (
+        systemState.mode === 'archived'
+        && !await isProtectedAdministrator(user, systemState)
+      ) {
+        return next(new Error('SYSTEM_ARCHIVED'));
       }
       if (
         isCustomerRole(liveRole) &&
@@ -305,11 +342,31 @@ export const initSocket = (httpServer) => {
     });
 
     socket.on('chat:message', async (payload) => {
-      await handleSocketMessage(io, socket, payload);
+      try {
+        await runTrackedSystemMutation(async (state) => {
+          if (!socket.user) await assertRegistrationEnabled(state);
+          await handleSocketMessage(io, socket, payload);
+        }, { throwOnBlocked: true });
+      } catch (error) {
+        socket.emit('system:error', {
+          code: error.code || 'SYSTEM_MUTATION_BLOCKED',
+          message: error.message || 'This action is temporarily unavailable.',
+        });
+      }
     });
 
     socket.on('chat:message:stream', async (payload) => {
-      await handleSocketStreamingMessage(io, socket, payload);
+      try {
+        await runTrackedSystemMutation(async (state) => {
+          if (!socket.user) await assertRegistrationEnabled(state);
+          await handleSocketStreamingMessage(io, socket, payload);
+        }, { throwOnBlocked: true });
+      } catch (error) {
+        socket.emit('system:error', {
+          code: error.code || 'SYSTEM_MUTATION_BLOCKED',
+          message: error.message || 'This action is temporarily unavailable.',
+        });
+      }
     });
   });
 
@@ -321,6 +378,33 @@ export const getIO = () => {
     throw new Error('Socket.io not initialized');
   }
   return io;
+};
+
+export const disconnectUserSockets = (userIds, code = 'SESSION_REVOKED') => {
+  if (!io) return 0;
+  const ids = new Set((Array.isArray(userIds) ? userIds : [userIds])
+    .filter(Boolean)
+    .map(String));
+  let disconnected = 0;
+  for (const socket of io.sockets.sockets.values()) {
+    if (!socket.user?.id || !ids.has(String(socket.user.id))) continue;
+    socket.emit('session:revoked', { code });
+    socket.disconnect(true);
+    disconnected += 1;
+  }
+  return disconnected;
+};
+
+export const disconnectAllAuthenticatedSockets = (code = 'GLOBAL_SESSION_REVOKED') => {
+  if (!io) return 0;
+  let disconnected = 0;
+  for (const socket of io.sockets.sockets.values()) {
+    if (!socket.user?.id) continue;
+    socket.emit('session:revoked', { code });
+    socket.disconnect(true);
+    disconnected += 1;
+  }
+  return disconnected;
 };
 
 export const initChangeStreams = (mongooseConnection) => {
@@ -339,6 +423,55 @@ export const initChangeStreams = (mongooseConnection) => {
 
       // Only emit changes for collections the frontends care about
       if (!WATCHED_COLLECTIONS.has(collectionName)) return;
+
+      if (collectionName === 'users') {
+        const userId = change.documentKey?._id?.toString?.();
+        if (!userId) return;
+        const liveUser = change.fullDocument;
+        for (const socket of io.sockets.sockets.values()) {
+          if (String(socket.user?.id || '') !== userId) continue;
+          const sessionStillValid = Boolean(
+            liveUser
+            && !liveUser.isDeleted
+            && liveUser.isActive
+            && authVersionMatches(socket.user.authVersion, liveUser.authVersion)
+          );
+          if (sessionStillValid) continue;
+          socket.emit('session:revoked', { code: 'SESSION_REVOKED' });
+          socket.disconnect(true);
+        }
+        return;
+      }
+
+      if (collectionName === 'systemstates') {
+        const state = change.fullDocument;
+        if (!state) return;
+        const protectedId = String(state.protectedAdministratorId || '');
+        for (const socket of io.sockets.sockets.values()) {
+          const authenticated = Boolean(socket.user?.id);
+          const epochValid = !authenticated || globalSessionEpochMatches(
+            socket.user.globalSessionEpoch,
+            state.globalSessionEpoch,
+          );
+          const archiveAccessValid = state.mode !== 'archived'
+            || (authenticated && String(socket.user.id) === protectedId);
+          if (!epochValid || !archiveAccessValid) {
+            socket.emit('session:revoked', {
+              code: !epochValid ? 'GLOBAL_SESSION_REVOKED' : 'SYSTEM_ARCHIVED',
+            });
+            socket.disconnect(true);
+            continue;
+          }
+          socket.systemState = state;
+          socket.emit('system:state', {
+            mode: state.mode,
+            registrationEnabled: Boolean(state.registrationEnabled),
+            bookingsEnabled: Boolean(state.bookingsEnabled),
+            operationalDataEpoch: Number(state.operationalDataEpoch || 0),
+          });
+        }
+        return;
+      }
 
       const rawDoc = change.fullDocument || null;
       const fullDocument =

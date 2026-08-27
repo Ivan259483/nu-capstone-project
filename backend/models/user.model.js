@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { encrypt, decrypt } from '../utils/encryption.utils.js';
 import { USER_ROLES, normalizeToCanonical } from '../constants/roles.js';
+import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
 
 const userSchema = new mongoose.Schema(
   {
@@ -155,6 +156,12 @@ const userSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** Durable proof that password authentication plus login OTP completed. */
+    lastPasswordOtpSignInAt: {
+      type: Date,
+      default: null,
+      select: false,
+    },
   },
   { timestamps: true }
 );
@@ -179,6 +186,13 @@ userSchema.pre('save', async function (next) {
     this.referralCode = `${namePrefix}-${randomHex}`;
   }
 
+  // A password mutation invalidates any earlier password-plus-OTP proof. The
+  // handover workflow therefore requires a fresh OTP login for the credential
+  // that is current at transfer time.
+  if (this.isModified('password')) {
+    this.lastPasswordOtpSignInAt = null;
+  }
+
   // Password hashing
   if (this.isModified('password') && this.password) {
     try {
@@ -199,6 +213,24 @@ userSchema.pre('save', async function (next) {
   
   next();
 });
+
+function invalidatePasswordOtpEvidenceOnQueryUpdate(next) {
+  const update = this.getUpdate();
+  if (!update || Array.isArray(update)) return next();
+  const directPasswordMutation = Object.prototype.hasOwnProperty.call(update, 'password');
+  const setPasswordMutation = Object.prototype.hasOwnProperty.call(update.$set || {}, 'password');
+  const unsetPasswordMutation = Object.prototype.hasOwnProperty.call(update.$unset || {}, 'password');
+  if (directPasswordMutation) {
+    update.lastPasswordOtpSignInAt = null;
+  } else if (setPasswordMutation || unsetPasswordMutation) {
+    update.$set = { ...(update.$set || {}), lastPasswordOtpSignInAt: null };
+  }
+  next();
+}
+
+userSchema.pre('updateOne', invalidatePasswordOtpEvidenceOnQueryUpdate);
+userSchema.pre('updateMany', invalidatePasswordOtpEvidenceOnQueryUpdate);
+userSchema.pre('findOneAndUpdate', invalidatePasswordOtpEvidenceOnQueryUpdate);
 
 // Decrypt PII after loading
 userSchema.post('init', function (doc) {
@@ -225,5 +257,15 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
     return false;
   }
 };
+
+userSchema.plugin(operationalClassificationPlugin, {
+  resolveCollectionName: (user) => {
+    const role = normalizeToCanonical(user.role);
+    if (role === 'customer') return 'customers';
+    if (['office_admin', 'sales', 'staff_quality_checker'].includes(role)) return 'staff';
+    return null;
+  },
+  label: (user) => `${user.name || ''} ${user.email || ''} ${user.role || ''}`,
+});
 
 export default mongoose.model('User', userSchema);

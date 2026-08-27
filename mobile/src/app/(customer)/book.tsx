@@ -1855,6 +1855,7 @@ export default function BookScreen() {
         vehicleColor: selectedVehicle?.color,
         vehicleId: selectedVehicle?._id || selectedVehicle?.id,
         downpaymentProof: downpaymentProof || undefined,
+        reservationPaymentAmount: 500,
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

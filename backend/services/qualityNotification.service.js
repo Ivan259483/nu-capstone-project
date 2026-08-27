@@ -5,6 +5,7 @@ import Order from '../models/order.model.js';
 import QualityNotificationRetry from '../models/qualityNotificationRetry.model.js';
 import User from '../models/user.model.js';
 import { getIO } from '../utils/socket.utils.js';
+import { runTrackedSystemMutation } from '../middleware/systemLifecycle.middleware.js';
 import {
   countGatePhotos,
   requiredGatePhotosForValidation,
@@ -1141,7 +1142,7 @@ export function runQualityNotificationRetrySweep({
 
 export function startQualityNotificationRetryScheduler() {
   const run = () => {
-    void runQualityNotificationRetrySweep().catch((error) => {
+    void runTrackedSystemMutation(() => runQualityNotificationRetrySweep()).catch((error) => {
       console.error('[SCHEDULER] Quality notification retry sweep failed:', error.message);
     });
   };

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
 
 const damageSchema = new mongoose.Schema(
   {
@@ -77,5 +78,10 @@ const aiServiceRequestSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+aiServiceRequestSchema.plugin(operationalClassificationPlugin, {
+  collectionName: 'ai_requests',
+  label: (request) => request.status || request.analysisSource,
+});
 
 export default mongoose.model('AIServiceRequest', aiServiceRequestSchema);

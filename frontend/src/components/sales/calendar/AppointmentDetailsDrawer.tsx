@@ -33,7 +33,7 @@ import { toast } from 'sonner';
 import api from '@/lib/api';
 import { normalizeBooking, OrderService } from '@/lib/order-service';
 import { formatPeso } from '@/lib/salesData';
-import { approveBooking, rejectBooking } from './calendarService';
+import { rejectBooking } from './calendarService';
 import {
   getAppointmentStatusMeta,
   normalizeAppointmentStatus,
@@ -493,12 +493,10 @@ export default function AppointmentDetailsDrawer({
     [details, onChanged, requestLatest],
   );
 
-  const handleApprove = () =>
-    runAction(
-      'approve',
-      () => approveBooking(bookingId) as Promise<ActionResult>,
-      'Appointment approved',
-    );
+  const handleApprove = () => {
+    setConfirmMode(null);
+    window.dispatchEvent(new CustomEvent('sales:navigate-approval', { detail: { orderId: bookingId } }));
+  };
 
   const handleReject = () =>
     runAction(
@@ -881,7 +879,7 @@ export default function AppointmentDetailsDrawer({
                       className="inline-flex min-w-24 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white transition-colors hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {actionKey === 'approve' ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                      Approve
+                      Review Payment
                     </button>
                   </>
                 )}

@@ -4,6 +4,7 @@
  * → ar-view → estimate → confirm) and retrieve historical scans.
  */
 import mongoose from 'mongoose';
+import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
 
 const coordinateSchema = new mongoose.Schema(
   {
@@ -208,5 +209,9 @@ const aiScanSchema = new mongoose.Schema(
 aiScanSchema.index({ customer: 1, createdAt: -1 });
 aiScanSchema.index({ createdAt: -1 });
 aiScanSchema.index({ modelStatus: 1, createdAt: -1 });
+aiScanSchema.plugin(operationalClassificationPlugin, {
+  collectionName: 'ai_scans',
+  label: (scan) => scan.summary || scan.source,
+});
 
 export default mongoose.model('AIScan', aiScanSchema);

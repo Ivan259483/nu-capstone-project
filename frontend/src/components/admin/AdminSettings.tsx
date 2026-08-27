@@ -9,32 +9,21 @@ import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import type { BusinessSettings } from '@/types';
-import { Download, Database, Trash2, ShieldAlert, AlertTriangle } from 'lucide-react';
-import { toast } from 'sonner';
 
 interface AdminSettingsProps {
     settings: BusinessSettings | null;
     isDarkMode: boolean;
     onSave: (updatedSettings: Partial<BusinessSettings>) => Promise<void>;
-    onExportData?: () => void;
-    onBackupDB?: () => void;
-    onClearCache?: () => void;
-    onResetSystem?: () => void;
 }
 
 export const AdminSettings: React.FC<AdminSettingsProps> = ({ 
     settings, 
     isDarkMode, 
     onSave,
-    onExportData,
-    onBackupDB,
-    onClearCache,
-    onResetSystem
 }) => {
     const [localSettings, setLocalSettings] = useState<Partial<BusinessSettings>>({});
     const [isDirty, setIsDirty] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
-    const [resetInput, setResetInput] = useState('');
 
     useEffect(() => {
         if (settings) {
@@ -96,7 +85,6 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <TabsTrigger value="profile" className={`data-[state=active]:border-orange-500 data-[state=active]:text-orange-500 rounded-none border-b-2 border-transparent px-6 py-3 font-medium ${isDarkMode ? 'text-zinc-400 hover:text-white' : 'text-gray-500 hover:text-gray-900'}`}>Shop Profile</TabsTrigger>
                     <TabsTrigger value="config" className={`data-[state=active]:border-orange-500 data-[state=active]:text-orange-500 rounded-none border-b-2 border-transparent px-6 py-3 font-medium ${isDarkMode ? 'text-zinc-400 hover:text-white' : 'text-gray-500 hover:text-gray-900'}`}>System Config</TabsTrigger>
                     <TabsTrigger value="security" className={`data-[state=active]:border-orange-500 data-[state=active]:text-orange-500 rounded-none border-b-2 border-transparent px-6 py-3 font-medium ${isDarkMode ? 'text-zinc-400 hover:text-white' : 'text-gray-500 hover:text-gray-900'}`}>Security</TabsTrigger>
-                    <TabsTrigger value="platform" className={`data-[state=active]:border-orange-500 data-[state=active]:text-orange-500 rounded-none border-b-2 border-transparent px-6 py-3 font-medium ${isDarkMode ? 'text-zinc-400 hover:text-white' : 'text-gray-500 hover:text-gray-900'}`}>Platform</TabsTrigger>
                 </TabsList>
 
                 {/* Tab 1: Shop Profile */}
@@ -377,87 +365,6 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                     </div>
                 </TabsContent>
 
-                {/* Tab 4: Platform */}
-                <TabsContent value="platform" className="space-y-6 max-w-4xl mx-auto w-full pb-8">
-                    <div className={cardClasses}>
-                        <div className="p-6 border-b border-white/5">
-                            <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Platform Operations</h3>
-                        </div>
-                        <div className="p-6 grid gap-4 grid-cols-1 md:grid-cols-2">
-                            <div className={`p-5 rounded-xl border ${isDarkMode ? 'bg-white/[0.02] border-white/5' : 'bg-gray-50 border-gray-100'} flex flex-col justify-between`}>
-                                <div className="mb-4">
-                                    <Download className="w-5 h-5 text-orange-500 mb-2" />
-                                    <h4 className={`font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Export Data</h4>
-                                    <p className={`text-xs mt-1 ${isDarkMode ? 'text-zinc-400' : 'text-gray-500'}`}>Export all customers, inventory, and bookings to a CSV file.</p>
-                                </div>
-                                <Button variant="outline" className={`w-full ${isDarkMode ? 'border-white/10 hover:bg-white/5 text-white' : ''}`} onClick={() => { if(onExportData) onExportData(); else toast.success('Export started.'); }}>Export Data</Button>
-                            </div>
-                            <div className={`p-5 rounded-xl border ${isDarkMode ? 'bg-white/[0.02] border-white/5' : 'bg-gray-50 border-gray-100'} flex flex-col justify-between`}>
-                                <div className="mb-4">
-                                    <Database className="w-5 h-5 text-orange-500 mb-2" />
-                                    <h4 className={`font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Backup Database</h4>
-                                    <p className={`text-xs mt-1 ${isDarkMode ? 'text-zinc-400' : 'text-gray-500'}`}>Generate and download a full snapshot of the MongoDB database.</p>
-                                </div>
-                                <Button variant="outline" className={`w-full ${isDarkMode ? 'border-white/10 hover:bg-white/5 text-white' : ''}`} onClick={() => { if(onBackupDB) onBackupDB(); else toast.success('Backup initiated.'); }}>Backup Now</Button>
-                            </div>
-                            <div className={`p-5 rounded-xl border ${isDarkMode ? 'bg-white/[0.02] border-white/5' : 'bg-gray-50 border-gray-100'} flex flex-col justify-between`}>
-                                <div className="mb-4">
-                                    <ShieldAlert className="w-5 h-5 text-orange-500 mb-2" />
-                                    <h4 className={`font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Clear Cache</h4>
-                                    <p className={`text-xs mt-1 ${isDarkMode ? 'text-zinc-400' : 'text-gray-500'}`}>Clear system application caches and temporary data.</p>
-                                </div>
-                                <Button variant="outline" className={`w-full ${isDarkMode ? 'border-white/10 hover:bg-white/5 text-white' : ''}`} onClick={() => { if(onClearCache) onClearCache(); else toast.success('Cache cleared.'); }}>Clear Cache</Button>
-                            </div>
-                            <div className={`p-5 rounded-xl border ${isDarkMode ? 'bg-white/[0.02] border-white/5' : 'bg-gray-50 border-gray-100'} flex flex-col justify-between`}>
-                                <div className="mb-4">
-                                    <ShieldAlert className="w-5 h-5 text-orange-500 mb-2" />
-                                    <h4 className={`font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Audit Logs</h4>
-                                    <p className={`text-xs mt-1 ${isDarkMode ? 'text-zinc-400' : 'text-gray-500'}`}>View the immutable activity stream for all platform actions.</p>
-                                </div>
-                                <Button variant="outline" className={`w-full ${isDarkMode ? 'border-white/10 hover:bg-white/5 text-white' : ''}`} onClick={() => toast.success('Opening audit logs...')}>View Logs</Button>
-                            </div>
-                        </div>
-                        <div className={`rounded-b-2xl border-t ${isDarkMode ? 'bg-red-500/5 border-red-500/20' : 'bg-red-50 border-red-200'}`}>
-                            <div className="p-6 border-b border-red-500/10 flex items-center gap-2">
-                                <AlertTriangle className="w-5 h-5 text-red-500" />
-                                <h3 className="text-lg font-semibold text-red-500">Danger Zone</h3>
-                            </div>
-                            <div className="p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                                <div>
-                                    <p className={`text-sm mb-2 font-medium ${isDarkMode ? 'text-zinc-300' : 'text-gray-700'}`}>
-                                        Reset System Configuration
-                                    </p>
-                                    <p className={`text-xs max-w-sm ${isDarkMode ? 'text-zinc-400' : 'text-gray-500'}`}>
-                                        Completely reset the platform settings to default. Erases all custom configuration.
-                                        Type <strong>RESET</strong> below to confirm.
-                                    </p>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <Input 
-                                        className={`w-36 ${isDarkMode ? 'bg-black/20 border-red-500/20 text-white placeholder:text-zinc-500' : 'bg-white border-red-200'}`} 
-                                        placeholder="Type RESET"
-                                        value={resetInput}
-                                        onChange={(e) => setResetInput(e.target.value)}
-                                    />
-                                    <Button 
-                                        disabled={resetInput !== 'RESET'} 
-                                        className="bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/20"
-                                        onClick={() => {
-                                            if(onResetSystem) {
-                                                onResetSystem();
-                                            } else {
-                                                toast.error("System reset triggered!");
-                                            }
-                                            setResetInput('');
-                                        }}
-                                    >
-                                        <Trash2 className="w-4 h-4 mr-2" /> Reset
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </TabsContent>
             </Tabs>
 
             {/* Footer Unsaved Changes Indicator */}

@@ -105,6 +105,20 @@ async function seedEligibleOrder(overrides = {}) {
     discount: { discountType: 'fixed', value: 0 },
   });
 
+  await Payment.create({
+    invoiceId: `RSV-${order.orderNumber}`,
+    order: order._id,
+    customer: customer._id,
+    amount: 200,
+    amountSubmitted: 200,
+    amountVerified: 200,
+    status: 'succeeded',
+    transactionType: 'reservation_fee',
+    method: 'gcash',
+    submittedAt: new Date(),
+    effectiveAt: new Date(),
+  });
+
   return { customer, order, billing };
 }
 

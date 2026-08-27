@@ -65,6 +65,16 @@ test('authenticated API CORS reflects only exact web and Capacitor origins', asy
     assert.equal(response.headers.get('access-control-allow-origin'), allowedOrigin);
     assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
     assert.equal(response.headers.get('x-powered-by'), null);
+    const exposedHeaders = String(response.headers.get('access-control-expose-headers') || '')
+      .toLowerCase();
+    for (const header of [
+      'x-autospf-backup-id',
+      'x-autospf-export-id',
+      'x-autospf-checksum',
+      'x-operational-data-epoch',
+    ]) {
+      assert.match(exposedHeaders, new RegExp(`(?:^|,\\s*)${header}(?:,|$)`));
+    }
   }
 
   const rejected = await request('/api/auth/me', {

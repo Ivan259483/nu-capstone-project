@@ -22,7 +22,7 @@ import { ActivityLogsTab } from '@/components/technician/ActivityLogsTab';
 import { HistoryTab } from '@/components/technician/HistoryTab';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { formatDistanceToNow } from 'date-fns';
-import { collection, query, where, onSnapshot, orderBy, doc, setDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -829,26 +829,6 @@ export default function DetailerDashboard() {
                 return false;
             }
 
-            // Open the 7-step workflow overlay
-            setWorkflowJob(job);
-
-            // Also update status to in-progress for live tracking
-            const normalizedJobId = normalizeBookingId(jobId);
-
-            // ATOMIC FIRESTORE UPDATE (Critical for Live Tracking)
-            if (normalizedJobId && db) {
-                try {
-                    await setDoc(doc(db, 'bookings', normalizedJobId), {
-                        status: 'in_progress',
-                        updatedAt: new Date().toISOString()
-                    }, { merge: true });
-                    console.log('✅ Atomic Firestore Update: in-progress');
-                } catch (err) {
-                    console.error('🔥 Firestore Update Failed:', err);
-                    toast.error('Network error: Could not sync status to live tracking.');
-                }
-            }
-
             try {
                 // If this is an unassigned booking, claim it for this detailer
                 const updatePayload: Record<string, any> = { status: 'in_progress' };
@@ -858,6 +838,13 @@ export default function DetailerDashboard() {
                 // Backend Sync
                 const response = await OrderService.updateOrder(jobId, updatePayload);
                 if (response.success) {
+                    setWorkflowJob({
+                        ...job,
+                        status: 'in_progress',
+                        ...(updatePayload.assignedDetailer
+                            ? { assignedDetailer: updatePayload.assignedDetailer }
+                            : {}),
+                    });
                     toast.success('Job started successfully!');
 
                     try {
@@ -874,16 +861,17 @@ export default function DetailerDashboard() {
                         console.error('Failed to log activity', e);
                     }
 
-                    loadData(); // Sync with server state
+                    await loadData(); // Sync with the authoritative server state
                     return true;
                 } else {
-                    throw new Error('Backend update failed');
+                    throw new Error(response.message || 'Backend update failed');
                 }
-            } catch (error) {
-                // Keep optimistic state but warn
-                console.warn('Backend sync failed, relying on Firestore/Local:', error);
-                toast.success('Job started (Offline Mode)');
-                return true;
+            } catch (error: any) {
+                const message = error?.response?.data?.message || error?.message || 'Failed to start job.';
+                console.warn('Backend job start failed:', error);
+                setWorkflowJob(null);
+                toast.error(message);
+                return false;
             }
         } catch (error) {
             console.error('Critical error starting job:', error);

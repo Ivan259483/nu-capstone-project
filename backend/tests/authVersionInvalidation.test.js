@@ -261,6 +261,10 @@ test('Administrator email migration permanently revokes old HTTP and socket JWTs
   const freshClaims = jwt.verify(verified.body.data.token, config.jwtSecret);
   assert.equal(freshClaims.authLevel, STAFF_2FA_AUTH_LEVEL);
   assert.equal(freshClaims.authVersion, 1);
+  assert.equal(freshClaims.globalSessionEpoch, 0);
+  const signedInAdministrator = await User.findById(administrator._id)
+    .select('+lastPasswordOtpSignInAt');
+  assert.ok(signedInAdministrator.lastPasswordOtpSignInAt instanceof Date);
   const freshHttp = await requestJson('/api/admin-only', { token: verified.body.data.token });
   assert.equal(freshHttp.response.status, 200);
   const freshOptionalHttp = await requestJson('/api/optional', { token: verified.body.data.token });
@@ -269,7 +273,7 @@ test('Administrator email migration permanently revokes old HTTP and socket JWTs
   assert.match(await connectSocketByPolling(verified.body.data.token), /^40/);
 });
 
-test('staff email, archive/restore, and restricted-state transitions revoke old sessions without changing customer behavior', async () => {
+test('account email, archive/restore, role, and restricted-state transitions revoke affected sessions for every role', async () => {
   const manager = await User.create({
     name: 'Lifecycle Manager',
     email: 'lifecycle.manager@custom-domain.test',
@@ -454,13 +458,14 @@ test('staff email, archive/restore, and restricted-state transitions revoke old 
   });
   assert.equal(customerChange.response.status, 200);
   const changedCustomer = await User.findById(customer._id);
-  assert.equal(changedCustomer.authVersion, 0);
+  assert.equal(changedCustomer.authVersion, 1);
   assert.equal(changedCustomer.isVerified, true);
   assert.equal(changedCustomer.status, 'active');
-  assert.equal((await requestJson('/api/protected', { token: customerToken })).response.status, 200);
+  const staleCustomerAfterEmailChange = await requestJson('/api/protected', { token: customerToken });
+  assert.equal(staleCustomerAfterEmailChange.response.status, 401);
+  assert.equal(staleCustomerAfterEmailChange.body.code, 'SESSION_REVOKED');
   const customerOptional = await requestJson('/api/optional', { token: customerToken });
-  assert.equal(customerOptional.body.authenticated, true);
-  assert.equal(customerOptional.body.role, 'customer');
+  assert.equal(customerOptional.body.authenticated, false);
 
   const promoted = await requestJson(`/api/users/${customer._id}`, {
     method: 'PUT',

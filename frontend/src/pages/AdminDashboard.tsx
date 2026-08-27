@@ -2,8 +2,6 @@ import { lazy, useState, useEffect, useCallback, useRef, useMemo, type Component
 import { jsPDF } from 'jspdf';
 import './AdminDashboard.css';
 import { useNavigate } from 'react-router-dom';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '@/config/firebase';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     LogOut, Package, Users, ShoppingCart, PhilippinePeso, Activity, Settings,
@@ -45,7 +43,6 @@ import { SupplierService } from '@/lib/supplier-service';
 import { InventoryService } from '@/lib/inventory-service-api';
 import { DetailService } from '@/lib/detail-service-api';
 import { PaymentService, type PendingPaymentsSummary } from '@/lib/payment-service';
-import { SystemService } from '@/lib/system-service';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
 import { SettingsService } from '@/lib/settings-service';
 import { getPasswordPolicyError } from '@/lib/password-policy';
@@ -445,10 +442,6 @@ export default function AdminDashboard() {
     const [showDangerModal, setShowDangerModal] = useState(false);
     const [itemToDelete, setItemToDelete] = useState<{ id: string; type: 'inventory' | 'user' | 'supplier' | 'service'; name: string } | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
-    // System Management
-    const [showResetModal, setShowResetModal] = useState(false);
-    const [isResetting, setIsResetting] = useState(false);
-    const [resetConfirmText, setResetConfirmText] = useState('');
 
     const isValidDate = (date: any) => {
         if (!date) return false;
@@ -683,7 +676,8 @@ export default function AdminDashboard() {
                     setServices(mappedServices);
                 }
 
-                // Note: Bookings are now handled via real-time Firebase listener (onSnapshot)
+                // Bookings are handled by authoritative MongoDB reads refreshed
+                // through the backend Socket.IO change stream.
             }
         } catch (error: any) {
             console.error('🚨 [AdminDashboard] loadData Exception:', {
@@ -1783,21 +1777,10 @@ export default function AdminDashboard() {
                 }
                 if (response.success) {
                     toast.success('Detailer assigned.');
-
-                    // Firestore real-time sync — so DetailerDashboard picks up assignment live
-                    try {
-                        await setDoc(doc(db, 'bookings', selectedBooking.id), {
-                            assignedDetailer: selectedDetailerId,
-                            status: response.data?.status || 'assigned',
-                            updatedAt: new Date().toISOString()
-                        }, { merge: true });
-                    } catch (fsErr) {
-                        console.warn('[FIRESTORE] Assignment sync failed (non-critical):', fsErr);
-                    }
-
                     setShowAssignModal(false);
                     setSelectedBooking(null);
                     setSelectedDetailerId('');
+                    await fetchBookingsFromMongo();
                     loadData();
                 } else {
                     toast.error(response.message || 'Failed to assign detailer');
@@ -1851,13 +1834,6 @@ export default function AdminDashboard() {
         try {
             const response = await OrderService.updateOrder(booking.id, { status: 'confirmed' });
             if (response.success) {
-                // ATOMIC UPDATE for Real-Time Sync — use 'confirmed' to match backend
-                await setDoc(doc(db, 'bookings', booking.id), {
-                    status: 'confirmed',
-                    customerStatus: 'Confirmed',
-                    updatedAt: new Date().toISOString()
-                }, { merge: true });
-
                 toast.success('Booking confirmed ✓', { id: toastId });
                 setBookings((prev) => prev.map((b) => (b.id === booking.id ? { ...b, status: 'confirmed' } : b)));
             } else {
@@ -1888,11 +1864,6 @@ export default function AdminDashboard() {
             const response = await OrderService.updateOrder(booking.id, { paymentStatus: newStatus });
             if (response.success) {
                 toast.success(newStatus === 'paid' ? 'Payment marked as paid ✓' : 'Marked as unpaid');
-                // Firestore sync for real-time calendar color update (best-effort)
-                setDoc(doc(db, 'bookings', booking.id), {
-                    paymentStatus: newStatus,
-                    updatedAt: new Date().toISOString()
-                }, { merge: true }).catch(() => { });
             } else {
                 throw new Error(response.message || 'Update failed');
             }
@@ -2035,12 +2006,6 @@ export default function AdminDashboard() {
             setBookings(prev => prev.map(b => b.id === detailBooking.id ? { ...b, ...payload } : b));
             setDetailBooking(prev => prev ? { ...prev, ...payload } : null);
 
-            // Firestore sync best-effort for live calendar
-            setDoc(doc(db, 'bookings', detailBooking.id), {
-                ...payload,
-                updatedAt: new Date().toISOString()
-            }, { merge: true }).catch(() => { });
-
             setIsEditScheduleOpen(false);
         } catch (error: any) {
             console.error('Save schedule error:', error);
@@ -2055,72 +2020,6 @@ export default function AdminDashboard() {
     // ──────────────────────────────────────────────────────────────────
 
     const detailers = users.filter((u) => u.role === SERVICE_STAFF_ROLE);
-
-    // Platform Management Handlers
-    const handleExportData = async () => {
-        const loadingToast = toast.loading('Generating data archive...');
-        try {
-            await SystemService.exportAllData();
-            toast.success('Data archive downloaded', { id: loadingToast });
-        } catch (error) {
-            toast.error('Failed to export data', { id: loadingToast });
-        }
-    };
-
-    const handleBackupDB = async () => {
-        const loadingToast = toast.loading('Initiating cloud backup...');
-        try {
-            const res = await SystemService.backupDatabase();
-            if (res.success) {
-                toast.success('Backup successful', { id: loadingToast, description: res.message });
-                if (user) {
-                    await ActivityService.createActivityLog(
-                        'maintenance',
-                        'Database Backup',
-                        `${user.name} triggered a database backup`,
-                        user.id,
-                        user.name
-                    );
-                }
-            }
-        } catch (error) {
-            toast.error('Backup failed', { id: loadingToast });
-        }
-    };
-
-    const handleClearCache = async () => {
-        const loadingToast = toast.loading('Purging memory buffers...');
-        try {
-            const res = await SystemService.clearCache();
-            if (res.success) {
-                toast.success('Cache cleared', { id: loadingToast });
-            }
-        } catch (error) {
-            toast.error('Failed to clear cache', { id: loadingToast });
-        }
-    };
-
-    const handleConfirmReset = async () => {
-        if (resetConfirmText !== 'RESET') {
-            toast.error('Please type RESET to confirm');
-            return;
-        }
-
-        setIsResetting(true);
-        try {
-            const res = await SystemService.resetSystem();
-            if (res.success) {
-                toast.success('System reset successfully');
-                setShowResetModal(false);
-                logout();
-                navigate('/');
-            }
-        } catch (error) {
-            toast.error('Failed to reset system');
-        } finally {
-            setIsResetting(false);
-        }
-    };
 
     // Notification handlers
     const refreshNotificationFeed = useCallback(async (): Promise<boolean> => {
@@ -2416,10 +2315,6 @@ export default function AdminDashboard() {
                     onEditSupplier={handleEditSupplier}
                     onOrderSupplier={handleOpenOrderModal}
                     onSaveSettings={handleSaveSettings}
-                    onExportData={handleExportData}
-                    onBackupDB={handleBackupDB}
-                    onClearCache={handleClearCache}
-                    onResetSystem={() => setShowResetModal(true)}
                 />
             </div>
         );
@@ -3561,10 +3456,6 @@ export default function AdminDashboard() {
                                     settings={settings}
                                     isDarkMode={theme === 'dark'}
                                     onSave={handleSaveSettings}
-                                    onExportData={handleExportData}
-                                    onBackupDB={handleBackupDB}
-                                    onClearCache={handleClearCache}
-                                    onResetSystem={() => setShowResetModal(true)}
                                 />
                             </motion.div>
                         )}
@@ -4156,33 +4047,6 @@ export default function AdminDashboard() {
                             className="bg-red-600 hover:bg-red-700"
                         >
                             {isDeleting ? 'Deleting...' : 'Delete'}
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-
-            <AlertDialog open={showResetModal} onOpenChange={setShowResetModal}>
-                <AlertDialogContent className={theme === 'light' ? 'bg-white' : 'bg-[#121214] border-zinc-800'}>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle className="text-red-600">Reset Entire System</AlertDialogTitle>
-                        <AlertDialogDescription className={theme === 'light' ? 'text-gray-600' : 'text-zinc-400'}>
-                            This will delete ALL data including users, inventory, bookings, and settings. Type <strong>RESET</strong> to confirm.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <Input
-                        value={resetConfirmText}
-                        onChange={(e) => setResetConfirmText(e.target.value)}
-                        placeholder="Type RESET"
-                        className={theme === 'light' ? 'bg-gray-50 border-gray-300' : 'bg-zinc-900 border-zinc-800'}
-                    />
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={handleConfirmReset}
-                            disabled={isResetting || resetConfirmText !== 'RESET'}
-                            className="bg-red-600 hover:bg-red-700"
-                        >
-                            {isResetting ? 'Resetting...' : 'Reset System'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

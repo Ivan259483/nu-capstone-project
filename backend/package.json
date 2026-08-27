@@ -9,9 +9,13 @@
         "dev": "NODE_ENV=development nodemon --legacy-watch server.js",
         "check:email-dns": "node scripts/check-email-dns.js",
         "bootstrap:administrator": "node scripts/bootstrap-administrator.js",
+        "initialize:system-management": "node scripts/initialize-system-management.js",
+        "migrate:protected-administrator": "node scripts/migrate-protected-administrator.js",
         "migrate:encryption-key": "node scripts/migrate-legacy-encryption-key.js",
         "audit:encryption": "node scripts/audit-encrypted-records.js",
         "indexes:performance": "node scripts/create-performance-indexes.js",
+        "reconcile:ledger": "node scripts/reconcile-financial-ledger.js",
+        "restore:backup": "node scripts/restore-autospf-backup.js",
         "test": "node --test tests/*.test.js"
     },
     "keywords": [

@@ -1788,6 +1788,7 @@ export default function CustomerDashboard() {
         items: JSON.stringify([{ product: bookingForm.service, quantity: 1, price: bookingForm.servicePrice }]),
         // GCash proof — single field keeps JSON body small (backend copies to paymentProofUrl if needed)
         downpaymentProof: bookingDownpaymentProof || undefined,
+        reservationPaymentAmount: 500,
       };
       const res = await OrderService.createOrder(payload);
 
@@ -3431,7 +3432,7 @@ export default function CustomerDashboard() {
           </header>
 
           {/* Scrollable Area */}
-          <main className="customer-dashboard-scroll-root customer-dashboard-main flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5 bg-slate-50">
+          <main className="customer-dashboard-scroll-root customer-dashboard-main min-w-0 w-full flex-1 overflow-y-auto bg-slate-50 p-3 sm:p-4 lg:p-5">
 
             {activeSection === 'bookings' ? (
               bookingsSectionLoading ? (
@@ -5388,14 +5389,14 @@ export default function CustomerDashboard() {
                 currentStep = bumpCustomerTrackerIndexForInProgressGateComplete(activeBooking, currentStep, 'dashboard5');
 
                 return (
-                  <div className="max-w-5xl mx-auto pb-12 space-y-6">
+                  <div className="customer-content-fade-in min-w-0 w-full flex-1 space-y-6 pb-12">
                     <div>
                       <h2 className="text-xl font-semibold text-slate-900 mb-1">Live Tracker</h2>
                       <p className="text-sm text-slate-500">Track your vehicle service in real time.</p>
                     </div>
 
                     {!activeBooking ? (
-                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-10 text-center">
+                      <div className="w-full bg-white rounded-xl border border-slate-200 shadow-sm p-10 text-center">
                         <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
                           <iconify-icon icon="solar:routing-2-linear" width="28" style={{ color: '#94a3b8' }}></iconify-icon>
                         </div>
@@ -5408,7 +5409,7 @@ export default function CustomerDashboard() {
                     ) : (
                       <>
                         {/* Status Banner */}
-                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="w-full min-w-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               <div className="relative">

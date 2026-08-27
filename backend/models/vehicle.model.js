@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
 
 const vehicleSchema = new mongoose.Schema(
   {
@@ -55,5 +56,9 @@ const vehicleSchema = new mongoose.Schema(
 // Fast per-user vehicle lookup — without this, every getMyVehicles call is
 // a full collection scan O(n) instead of an indexed O(k) lookup.
 vehicleSchema.index({ customer: 1, createdAt: -1 });
+vehicleSchema.plugin(operationalClassificationPlugin, {
+  collectionName: 'vehicles',
+  label: (vehicle) => [vehicle.year, vehicle.make, vehicle.model, vehicle.plateNumber].filter(Boolean).join(' '),
+});
 
 export default mongoose.model('Vehicle', vehicleSchema);

@@ -480,18 +480,9 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                     });
                 }
 
-                // Sync to Firestore
-                try {
-                    const updatedBooking = {
-                        ...selectedBooking,
-                        status: 'completed',
-                        paymentStatus: 'paid',
-                        paidAt: new Date().toISOString(),
-                    };
-                    await OrderService.syncBookingToFirestore(updatedBooking as any);
-                } catch (syncErr) {
-                    console.warn('Firestore sync failed (non-blocking):', syncErr);
-                }
+                // The POS endpoint is authoritative; ensure the completion
+                // callback's next HTTP read cannot reuse a stale booking cache.
+                await OrderService.refreshAfterBookingMutation();
 
                 onTransactionComplete();
                 resetPOS();

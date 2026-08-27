@@ -5,15 +5,27 @@ import { enqueueRequest } from '../offlineQueue';
 import { Toast } from '@/components/ui/PremiumToast';
 
 type AuthInvalidHandler = ((details: { status: number | undefined; path: string; message: string }) => Promise<void> | void) | null;
+type SystemStatusHandler = ((details: {
+  status: number | undefined;
+  path: string;
+  message: string;
+  code?: string;
+}) => Promise<void> | void) | null;
 
 let authInvalidHandler: AuthInvalidHandler = null;
 let isHandlingAuthInvalid = false;
+let systemStatusHandler: SystemStatusHandler = null;
+let isHandlingSystemStatus = false;
 
 /** Dedupe dev console noise when the same ngrok-miswired 404 repeats (e.g. multiple mounts). */
 const ngrok404DevWarned = new Set<string>();
 
 export const setAuthInvalidHandler = (handler: AuthInvalidHandler): void => {
   authInvalidHandler = handler;
+};
+
+export const setSystemStatusHandler = (handler: SystemStatusHandler): void => {
+  systemStatusHandler = handler;
 };
 
 const AUTH_EXEMPT_PATHS = [
@@ -47,6 +59,20 @@ const AUTH_INVALID_CODES = new Set([
   'MOBILE_SESSION_REQUIRED',
   'ACCOUNT_INACTIVE',
   'USER_DELETED',
+  'SESSION_EPOCH_REVOKED',
+  'GLOBAL_SESSION_REVOKED',
+  'SESSION_REVOKED',
+]);
+
+const SYSTEM_STATUS_CODES = new Set([
+  'SYSTEM_ARCHIVED',
+  'SYSTEM_DECOMMISSIONING',
+  'SYSTEM_WRITE_LOCKED',
+  'SYSTEM_MUTATION_LOCKED',
+  'SYSTEM_MUTATION_IN_PROGRESS',
+  'REGISTRATION_DISABLED',
+  'BOOKING_DISABLED',
+  'BOOKINGS_DISABLED',
 ]);
 
 const shouldInvalidateAuthSession = (
@@ -102,6 +128,7 @@ apiClient.interceptors.response.use(
     // plaintext offline mutation queue.
     const isSensitiveAuthRequest = path.includes('/auth/');
     const invalidatesAuthSession = shouldInvalidateAuthSession(status, path, message, code);
+    const systemStatusChanged = Boolean(code && SYSTEM_STATUS_CODES.has(code));
     const suppressExpectedErrorLog =
       Boolean((config as any)?.meta?.suppressExpectedErrorLog) && status === 404;
 
@@ -120,6 +147,19 @@ apiClient.interceptors.response.use(
         }
       } finally {
         isHandlingAuthInvalid = false;
+      }
+    }
+
+    if (systemStatusChanged && !isHandlingSystemStatus) {
+      isHandlingSystemStatus = true;
+      try {
+        await systemStatusHandler?.({ status, path, message, code });
+      } catch (systemErr) {
+        if (__DEV__) {
+          console.warn('[API] Failed to refresh system status:', systemErr);
+        }
+      } finally {
+        isHandlingSystemStatus = false;
       }
     }
 
@@ -304,6 +344,39 @@ export function clearApiCache(): void {
   cacheGeneration += 1;
   cache.clear();
   inflight.clear();
+}
+
+const OPERATIONAL_CACHE_PREFIXES = [
+  '/activity',
+  '/ai',
+  '/bookings',
+  '/chat',
+  '/customers',
+  '/invoices',
+  '/notifications',
+  '/orders',
+  '/payments',
+  '/qc',
+  '/vehicles',
+];
+
+const isOperationalCacheKey = (key: string): boolean => (
+  OPERATIONAL_CACHE_PREFIXES.some((prefix) => key === prefix || key.startsWith(`${prefix}/`) || key.startsWith(`${prefix}?`))
+);
+
+/**
+ * Drop only operational GET data after the server advances its operational
+ * epoch. Catalog, service, supplier, settings, and authentication state are
+ * intentionally preserved.
+ */
+export function clearOperationalApiCache(): void {
+  cacheGeneration += 1;
+  for (const key of cache.keys()) {
+    if (isOperationalCacheKey(key)) cache.delete(key);
+  }
+  for (const key of inflight.keys()) {
+    if (isOperationalCacheKey(key)) inflight.delete(key);
+  }
 }
 
 // ── Error helpers (unchanged) ────────────────────────────────────────

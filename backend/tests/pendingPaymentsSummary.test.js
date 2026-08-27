@@ -16,6 +16,7 @@ const order = (id, overrides = {}) => ({
   paymentStatus: 'unpaid',
   totalPrice: 1000,
   downPaymentAmount: 0,
+  approvedAt: new Date('2026-08-01T00:00:00.000Z'),
   archived: false,
   ...overrides,
 });
@@ -25,9 +26,7 @@ test('pending payment summary includes supported statuses and uses outstanding b
     order('pending', { paymentStatus: 'pending' }),
     order('unpaid', { downPaymentAmount: 200 }),
     order('partial', { paymentStatus: 'partially paid' }),
-    order('awaiting', { paymentStatus: 'awaiting settlement', totalPrice: 500 }),
-    order('paid', { paymentStatus: 'paid' }),
-    order('completed-payment', { paymentStatus: 'completed' }),
+    order('paid-flag-only', { paymentStatus: 'paid' }),
     order('cancelled', { status: 'cancelled' }),
     order('rejected', { status: 'rejected' }),
     order('archived', { archived: true }),
@@ -47,20 +46,20 @@ test('pending payment summary includes supported statuses and uses outstanding b
     'awaiting_settlement',
   ]);
   assert.equal(summary.count, 4);
-  assert.equal(summary.totalOutstanding, 3000);
+  assert.equal(summary.totalOutstanding, 3700);
   assert.deepEqual(summary.statusCounts, {
-    pending: 1,
-    unpaid: 0,
-    partially_paid: 2,
-    awaiting_settlement: 1,
+    pending: 0,
+    unpaid: 3,
+    partially_paid: 1,
+    awaiting_settlement: 0,
   });
   assert.deepEqual(
     summary.transactions.map(({ orderId, outstandingBalance }) => [orderId, outstandingBalance]),
     [
       ['pending', 1000],
-      ['unpaid', 800],
+      ['unpaid', 1000],
       ['partial', 700],
-      ['awaiting', 500],
+      ['paid-flag-only', 1000],
     ]
   );
 });
@@ -88,7 +87,7 @@ test('billing service total and all recorded paid amounts determine the remainin
     orderStatus: 'confirmed',
     paymentStatus: 'partially_paid',
     totalServiceAmount: 1950,
-    amountAlreadyPaid: 700,
-    outstandingBalance: 1250,
+    amountAlreadyPaid: 200,
+    outstandingBalance: 1750,
   });
 });

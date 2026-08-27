@@ -6,6 +6,7 @@ import { sendPasswordSetupEmail } from '../utils/mail.utils.js';
 import { normalizeEmailForOtp } from '../utils/otp.utils.js';
 import { parseRegisterPhone } from '../utils/phone.utils.js';
 import { logActivity } from '../utils/logActivity.utils.js';
+import { assertRegistrationEnabled } from '../middleware/systemLifecycle.middleware.js';
 
 export const PASSWORD_SETUP_PURPOSE = 'password_setup';
 export const PASSWORD_SETUP_RESEND_COOLDOWN_MS = 60 * 1000;
@@ -146,6 +147,17 @@ export const issuePasswordSetupEmail = async (user) => {
 };
 
 export const startChatRegistrationForCustomer = async (body = {}) => {
+  try {
+    await assertRegistrationEnabled();
+  } catch (error) {
+    return {
+      ok: false,
+      status: error.statusCode || 403,
+      code: error.code || 'REGISTRATION_DISABLED',
+      message: error.message,
+    };
+  }
+
   const parsed = parseChatRegistrationBody(body);
   if (!parsed.ok) return parsed;
 

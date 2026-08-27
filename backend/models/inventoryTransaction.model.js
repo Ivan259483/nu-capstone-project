@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
 
 const inventoryTransactionSchema = new mongoose.Schema(
   {
@@ -41,5 +42,10 @@ const inventoryTransactionSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+inventoryTransactionSchema.plugin(operationalClassificationPlugin, {
+  collectionName: 'inventory_transactions',
+  label: (transaction) => `${transaction.type || 'Inventory'} ${transaction.quantity ?? ''} ${transaction.referenceModel || ''}`,
+});
 
 export default mongoose.model('InventoryTransaction', inventoryTransactionSchema);

@@ -9,8 +9,15 @@ import {
 } from '../constants/roles.js';
 import User from '../models/user.model.js';
 import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
-import { authVersionMatches } from '../utils/authVersion.utils.js';
+import {
+  authVersionMatches,
+  globalSessionEpochMatches,
+} from '../utils/authVersion.utils.js';
 import { timeOperation } from '../utils/performance.utils.js';
+import {
+  getSystemState,
+  isProtectedAdministrator,
+} from '../services/systemState.service.js';
 import {
   MOBILE_CLIENT_TYPE,
   MOBILE_CUSTOMER_ONLY_CODE,
@@ -56,6 +63,9 @@ export const authenticate = async (req, res, next) => {
     if (req.method === 'OPTIONS') {
       return next();
     }
+    if (req.archivedLifecycleAuthenticated === true && req.user?.id) {
+      return next();
+    }
 
     const authHeader = req.headers.authorization;
     
@@ -82,7 +92,10 @@ export const authenticate = async (req, res, next) => {
 
       // STRICT VERIFICATION: Ensure user actually still exists and has not been deleted/deactivated.
       // Always use live MongoDB role/name/email — JWT embeds role from login time and goes stale after admin edits.
-      const userDoc = await loadLiveAuthUser(decoded.id, req, res);
+      const [userDoc, systemState] = await Promise.all([
+        loadLiveAuthUser(decoded.id, req, res),
+        req.systemState ? Promise.resolve(req.systemState) : getSystemState(),
+      ]);
       if (!userDoc) {
         return res.status(401).json({ success: false, message: 'User account no longer exists.' });
       }
@@ -156,17 +169,33 @@ export const authenticate = async (req, res, next) => {
           code: 'STAFF_2FA_REQUIRED',
         });
       }
-      if (
-        requiresStaffTwoFactor(liveRole)
-        && !authVersionMatches(decoded.authVersion, userDoc.authVersion)
-      ) {
+      if (!authVersionMatches(decoded.authVersion, userDoc.authVersion)) {
         return res.status(401).json({
           success: false,
-          message: 'This staff session is no longer valid. Sign in again.',
-          code: 'STAFF_SESSION_REVOKED',
+          message: 'This session is no longer valid. Sign in again.',
+          code: requiresStaffTwoFactor(liveRole) ? 'STAFF_SESSION_REVOKED' : 'SESSION_REVOKED',
+        });
+      }
+      if (!globalSessionEpochMatches(decoded.globalSessionEpoch, systemState.globalSessionEpoch)) {
+        return res.status(401).json({
+          success: false,
+          message: 'All sessions were revoked by a system management operation. Sign in again.',
+          code: 'GLOBAL_SESSION_REVOKED',
+        });
+      }
+      const protectedAdministrator = await isProtectedAdministrator(userDoc, systemState);
+      if (
+        systemState.mode === 'archived'
+        && !protectedAdministrator
+      ) {
+        return res.status(423).json({
+          success: false,
+          message: 'This system is archived. Only the protected administrator may sign in.',
+          code: 'SYSTEM_ARCHIVED',
         });
       }
 
+      req.systemState = systemState;
       req.user = {
         ...decoded,
         role: liveRole,
@@ -236,7 +265,10 @@ export const optionalAuthenticate = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, config.jwtSecret);
     if (decoded?.id) {
-      const userDoc = await loadLiveAuthUser(decoded.id, req, res);
+      const [userDoc, systemState] = await Promise.all([
+        loadLiveAuthUser(decoded.id, req, res),
+        req.systemState ? Promise.resolve(req.systemState) : getSystemState(),
+      ]);
       const liveRole = migrateLegacyUserRole(userDoc?.role);
       const liveAccountUsable = Boolean(
         userDoc
@@ -254,8 +286,14 @@ export const optionalAuthenticate = async (req, res, next) => {
         || (
           userDoc.isVerified
           && decoded.authLevel === STAFF_2FA_AUTH_LEVEL
-          && authVersionMatches(decoded.authVersion, userDoc.authVersion)
         );
+      const liveAccountSessionValid = authVersionMatches(decoded.authVersion, userDoc?.authVersion);
+      const liveGlobalSessionValid = globalSessionEpochMatches(
+        decoded.globalSessionEpoch,
+        systemState.globalSessionEpoch,
+      );
+      const liveArchivedSessionValid = systemState.mode !== 'archived'
+        || await isProtectedAdministrator(userDoc, systemState);
       const liveCustomerSessionValid = !isCustomerRole(liveRole)
         || (
           userDoc.isVerified
@@ -274,9 +312,13 @@ export const optionalAuthenticate = async (req, res, next) => {
       if (
         liveAccountUsable
         && liveStaffSessionValid
+        && liveAccountSessionValid
+        && liveGlobalSessionValid
+        && liveArchivedSessionValid
         && liveCustomerSessionValid
         && liveMobileSessionValid
       ) {
+        req.systemState = systemState;
         req.user = {
           ...decoded,
           role: liveRole,

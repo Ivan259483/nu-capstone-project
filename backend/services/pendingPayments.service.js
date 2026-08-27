@@ -2,6 +2,7 @@ import Billing from '../models/billing.model.js';
 import Order from '../models/order.model.js';
 import Payment from '../models/payment.model.js';
 import { computeBillingTotals, normalizeMoney } from '../utils/billingTotals.js';
+import { getSignedAmount } from './financialLedger.service.js';
 
 export const PENDING_PAYMENT_STATUSES = Object.freeze([
   'pending',
@@ -10,9 +11,11 @@ export const PENDING_PAYMENT_STATUSES = Object.freeze([
   'awaiting_settlement',
 ]);
 
-const INCLUDED_PAYMENT_STATUSES = new Set(PENDING_PAYMENT_STATUSES);
 const EXCLUDED_ORDER_STATUSES = new Set(['cancelled', 'rejected']);
-const SETTLED_PAYMENT_STATUSES = ['succeeded', 'paid', 'completed'];
+const LEGITIMATE_ORDER_STATUSES = new Set([
+  'approved', 'confirmed', 'assigned', 'queued', 'received', 'in_progress',
+  'ready_for_payment', 'completed', 'paid', 'released',
+]);
 
 const idOf = (value) => value?._id?.toString?.() || value?.toString?.() || String(value || '');
 
@@ -49,36 +52,22 @@ function totalServiceAmount(order, billing) {
   );
 }
 
-function amountAlreadyPaid(order, billing, settledPaymentTotal) {
-  const billingDownpayment = normalizeMoney(billing?.downpayment);
-  const reservationPayment = billingDownpayment > 0
-    ? billingDownpayment
-    : normalizeMoney(order?.downPaymentAmount);
-  const recordedFinalPayment = Math.max(
-    normalizeMoney(settledPaymentTotal),
-    normalizeMoney(order?.amountCollected),
-    normalizeMoney(order?.finalPaymentAmount)
-  );
-  return normalizeMoney(reservationPayment + recordedFinalPayment);
-}
-
 export function calculateOutstandingTransaction({ order, billing = null, settledPaymentTotal = 0 }) {
   if (!order || order.archived === true) return null;
 
   const orderStatus = normalizePaymentStatus(order.status);
-  if (EXCLUDED_ORDER_STATUSES.has(orderStatus)) return null;
-
-  const storedPaymentStatus = normalizePaymentStatus(order.paymentStatus) || 'unpaid';
-  if (!INCLUDED_PAYMENT_STATUSES.has(storedPaymentStatus)) return null;
+  if (EXCLUDED_ORDER_STATUSES.has(orderStatus) || !LEGITIMATE_ORDER_STATUSES.has(orderStatus) || !order.approvedAt) return null;
 
   const total = totalServiceAmount(order, billing);
-  const paid = amountAlreadyPaid(order, billing, settledPaymentTotal);
+  // Order flags and billing downpayment fields are projections only. The signed
+  // posted ledger total is the sole financial authority.
+  const paid = normalizeMoney(Math.max(0, settledPaymentTotal));
   const outstanding = normalizeMoney(Math.max(0, total - paid));
   if (total <= 0 || outstanding <= 0) return null;
 
   const paymentStatus = paid > 0 && outstanding < total
     ? 'partially_paid'
-    : storedPaymentStatus;
+    : 'unpaid';
 
   return {
     orderId: idOf(order._id || order.id),
@@ -122,12 +111,12 @@ export function summarizeOutstandingOrders({ orders, billingsByOrder, settledTot
 export async function getPendingPaymentsSummary() {
   const orders = await Order.find({
     archived: { $ne: true },
-    status: { $nin: ['cancelled', 'rejected'] },
-    paymentStatus: { $nin: SETTLED_PAYMENT_STATUSES },
+    approvedAt: { $ne: null },
+    status: { $in: [...LEGITIMATE_ORDER_STATUSES] },
   })
     .select(
       '_id orderNumber bookingReference status paymentStatus archived serviceTotal totalPrice totalAmount ' +
-      'subtotal discountAmount taxVatAmount additionalFees downPaymentAmount amountCollected finalPaymentAmount'
+      'subtotal discountAmount taxVatAmount additionalFees downPaymentAmount amountCollected finalPaymentAmount approvedAt'
     )
     .lean();
 
@@ -141,20 +130,7 @@ export async function getPendingPaymentsSummary() {
       .select('order lineItems discount taxVatAmount additionalFees downpayment version updatedAt')
       .sort({ version: -1, updatedAt: -1 })
       .lean(),
-    Payment.aggregate([
-      {
-        $match: {
-          order: { $in: orderIds },
-          status: { $in: SETTLED_PAYMENT_STATUSES },
-        },
-      },
-      {
-        $group: {
-          _id: '$order',
-          amount: { $sum: { $ifNull: ['$amountPaid', '$amount'] } },
-        },
-      },
-    ]),
+    Payment.find({ order: { $in: orderIds } }).lean(),
   ]);
 
   const billingsByOrder = new Map();
@@ -162,9 +138,13 @@ export async function getPendingPaymentsSummary() {
     const orderId = idOf(billing.order);
     if (!billingsByOrder.has(orderId)) billingsByOrder.set(orderId, billing);
   }
-  const settledTotalsByOrder = new Map(
-    settledPayments.map((payment) => [idOf(payment._id), normalizeMoney(payment.amount)])
-  );
+  const settledTotalsByOrder = new Map();
+  settledPayments.forEach((payment) => {
+    const orderId = idOf(payment.order);
+    settledTotalsByOrder.set(orderId, normalizeMoney(
+      (settledTotalsByOrder.get(orderId) || 0) + getSignedAmount(payment)
+    ));
+  });
 
   return summarizeOutstandingOrders({ orders, billingsByOrder, settledTotalsByOrder });
 }

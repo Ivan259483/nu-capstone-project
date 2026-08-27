@@ -9,6 +9,7 @@ import {
   buildAdminGroupingKey,
   createAdminNotification,
 } from '../services/adminNotification.service.js';
+import { invalidateInventoryBaseline } from '../services/systemState.service.js';
 
 const notifyProductStockState = async (
   product,
@@ -224,6 +225,7 @@ export const createProduct = async (req, res, next) => {
     });
 
     await product.save();
+    await invalidateInventoryBaseline();
 
     logActivity({
       req, type: 'stock_in', module: 'Inventory', action: 'Product Created',
@@ -301,15 +303,19 @@ export const updateProduct = async (req, res, next) => {
     if (process.env.NODE_ENV === 'development') console.log(`[BACKEND NORMALIZED PAYLOAD]`, updateData);
 
     let previousInventory;
-    // If updating inventory, validate stock won't go negative
-    if (updateData.inventory !== undefined) {
-      const existingProduct = await Product.findById(req.params.id);
+    let existingProduct;
+    if (updateData.inventory !== undefined || updateData.isActive !== undefined) {
+      existingProduct = await Product.findById(req.params.id);
       if (!existingProduct) {
         return res.status(404).json({
           success: false,
           message: 'Product not found',
         });
       }
+    }
+
+    // If updating inventory, validate stock won't go negative
+    if (updateData.inventory !== undefined) {
       previousInventory = Number(existingProduct.inventory) || 0;
 
       // Check if new inventory value would be negative
@@ -333,6 +339,13 @@ export const updateProduct = async (req, res, next) => {
         success: false,
         message: 'Product not found',
       });
+    }
+
+    if (
+      updateData.isActive !== undefined
+      && (existingProduct?.isActive !== false) !== (product.isActive !== false)
+    ) {
+      await invalidateInventoryBaseline();
     }
 
     // Log inventory edit
@@ -489,6 +502,8 @@ export const deleteProduct = async (req, res, next) => {
         message: 'Product not found',
       });
     }
+
+    if (product.isActive !== false) await invalidateInventoryBaseline();
 
     logActivity({
       req, type: 'inventory_edit', module: 'Inventory', action: 'Product Deleted',

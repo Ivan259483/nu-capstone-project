@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { toast } from 'sonner';
 import { auth } from '@/config/firebase';
+import { syncOperationalDataEpoch } from './operational-data-epoch';
 
 // Backend API configuration — production fallback (Render); override with VITE_API_URL
 const PRODUCTION_API_URL = 'https://nu-capstone-project.onrender.com/api';
@@ -142,6 +143,10 @@ api.interceptors.request.use(
 // Response Interceptor: Global Error Handling & 401 Cleanup
 api.interceptors.response.use(
     (response) => {
+        const epochHeader = response.headers?.['x-operational-data-epoch'];
+        if (typeof epochHeader === 'string' || typeof epochHeader === 'number') {
+            syncOperationalDataEpoch(epochHeader);
+        }
         if (import.meta.env.DEV) {
             const cfg = response.config as { _reqStarted?: number; method?: string; url?: string };
             if (cfg._reqStarted != null && typeof performance !== 'undefined') {

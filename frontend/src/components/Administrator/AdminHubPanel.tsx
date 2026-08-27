@@ -16,6 +16,7 @@ import {
   Calendar,
   Package,
   Bell,
+  ServerCog,
   type LucideIcon,
 } from 'lucide-react';
 import AdminTopBar from './AdminTopBar';
@@ -42,6 +43,7 @@ import {
   createAdminHubLocation,
   resolveAdminHubPage,
 } from './adminHubNavigation';
+import { canOpenSystemManagement } from './pages/systemManagementUtils';
 
 const AdminNotificationCenterPage = lazy(() => import('./notifications/AdminNotificationCenterPage'));
 const AdminUserProfilePage = lazy(() => import('./pages/AdminUserProfilePage'));
@@ -55,6 +57,7 @@ const ServicesPricing = lazy(() => import('@/components/admin/ServicesPricing').
   default: module.ServicesPricing,
 })));
 const InventoryPanel = lazy(() => import('@/components/inventory/InventoryPanel'));
+const SystemManagementPage = lazy(() => import('./pages/SystemManagementPage'));
 
 interface Props {
   currentUser?: any;
@@ -74,10 +77,6 @@ interface Props {
   onEditSupplier?: (s: any) => void;
   onOrderSupplier?: (s: any) => void;
   onSaveSettings?: (partial: any) => void;
-  onExportData?: () => void;
-  onBackupDB?: () => void;
-  onClearCache?: () => void;
-  onResetSystem?: () => void;
   fullMode?: boolean; // When true, this is the ONLY UI (no old dashboard behind it)
   /** Parent AdminDashboard also loads GET /users; use it as a background refresh source after the Hub's immediate directory load. */
   syncUserDirectoryFromParent?: boolean;
@@ -152,6 +151,7 @@ const NAV_SECTION_LABELS: Record<string, string> = {
   operations: 'OPERATIONS',
   catalog: 'CATALOG',
   management: 'USERS',
+  system: 'SYSTEM',
 };
 
 const PAGE_ICONS: Record<string, LucideIcon> = {
@@ -164,6 +164,7 @@ const PAGE_ICONS: Record<string, LucideIcon> = {
   users: Users,
   roles: ShieldCheck,
   logs: ScrollText,
+  system_management: ServerCog,
   profile: User,
 };
 
@@ -223,6 +224,13 @@ function buildNavTree(role: string): NavEntry[] {
         ],
       },
       managementGroup,
+      {
+        type: 'group',
+        id: 'system',
+        label: 'System',
+        icon: ServerCog,
+        children: [{ id: 'system_management', label: 'System Management' }],
+      },
     ];
   }
 
@@ -265,6 +273,7 @@ function getNotificationHubPage(notification: SystemNotification): string | null
   if (/appointments?|bookings?|scheduling|availability|closure|waiver/.test(link)) return 'scheduling';
   if (/permissions?|roles?/.test(link)) return 'roles';
   if (/activity|audit|logs?/.test(link)) return 'logs';
+  if (/system[-_/ ]?management|turnover|decommission|backup/.test(link)) return 'system_management';
   if (/users?|accounts?|staff/.test(link)) return 'users';
   if (/billing|payments?|revenue|refund/.test(link)) return 'dashboard';
 
@@ -302,7 +311,7 @@ function AdminHubPanelInner({
   inventory = [], suppliers = [], services = [], bookings = [], payments = [], pendingPaymentsSummary = null,
   activityLogs: parentActivityLogs = [], settings, setSettings,
   onLoadData, onAddSupplier, onEditSupplier, onOrderSupplier,
-  onSaveSettings, onExportData, onBackupDB, onClearCache, onResetSystem,
+  onSaveSettings,
   fullMode = false,
   syncUserDirectoryFromParent = false,
   directoryUsers,
@@ -316,9 +325,11 @@ function AdminHubPanelInner({
   const location = useLocation();
   const currentRole = getSafeUserRole(currentUser?.role);
   const isQualityChecker = currentRole === 'staff_quality_checker';
+  const hasSystemManagementAccess = canOpenSystemManagement(currentRole);
 
-  const activePage = resolveAdminHubPage(location.search, isQualityChecker);
+  const activePage = resolveAdminHubPage(location.search, isQualityChecker, hasSystemManagementAccess);
   const [visitedPages, setVisitedPages] = useState<Set<string>>(() => new Set([activePage]));
+  const [systemManagementBusy, setSystemManagementBusy] = useState(false);
   const [isNarrowViewport, setIsNarrowViewport] = useState(isAdminHubNarrowViewport);
   const [sidebarCollapsedPreference, setSidebarCollapsedPreference] = useState(
     readAdminHubSidebarPreference,
@@ -534,12 +545,18 @@ function AdminHubPanelInner({
 
   const selectNavPage = useCallback(
     (requestedId: string) => {
+      if (systemManagementBusy && requestedId !== 'system_management') return;
       const id =
         isQualityChecker && requestedId !== 'profile' ? 'live_tracking' : requestedId;
       navigateToHubPage(id, true);
     },
-    [isQualityChecker, navigateToHubPage],
+    [isQualityChecker, navigateToHubPage, systemManagementBusy],
   );
+
+  useEffect(() => {
+    if (!systemManagementBusy || activePage === 'system_management') return;
+    navigateToHubPage('system_management', true, true);
+  }, [activePage, navigateToHubPage, systemManagementBusy]);
 
   const navTree = useMemo(() => buildNavTree(currentRole), [currentRole]);
 
@@ -612,6 +629,7 @@ function AdminHubPanelInner({
 
   const handleAdminNotificationClick = useCallback(
     async (notification: SystemNotification) => {
+      if (systemManagementBusy) return;
       const id = getNotificationId(notification);
       if (id && !notification.isRead) await handleSetNotificationRead(id, true);
 
@@ -654,7 +672,7 @@ function AdminHubPanelInner({
         navigate(link.startsWith('/') ? link : `/${link}`);
       }
     },
-    [handleSetNotificationRead, location.pathname, navigate, selectNavPage],
+    [handleSetNotificationRead, location.pathname, navigate, selectNavPage, systemManagementBusy],
   );
 
   const handleMarkAllNotificationsRead = useCallback(async () => {
@@ -688,9 +706,10 @@ function AdminHubPanelInner({
   }, [selectNavPage]);
 
   const handleSignOut = useCallback(async () => {
+    if (systemManagementBusy) return;
     await logout();
     navigate('/login', { replace: true });
-  }, [logout, navigate]);
+  }, [logout, navigate, systemManagementBusy]);
 
   const filteredNavTree = useMemo(
     () => filterNavTree(navTree, navSearchQuery),
@@ -874,7 +893,8 @@ function AdminHubPanelInner({
               <button
                 type="button"
                 className="ah-nav-item is-utility"
-                onClick={onClose}
+                onClick={() => { if (!systemManagementBusy) onClose(); }}
+                disabled={systemManagementBusy}
                 title={collapsed ? 'Back' : undefined}
               >
                 <ArrowLeft size={18} strokeWidth={1.5} className="ah-nav-icon" aria-hidden />
@@ -926,7 +946,6 @@ function AdminHubPanelInner({
                 loading={blockingHubLoad}
                 chartsVisible={activePage === 'dashboard'}
                 onRefreshOverview={onLoadData}
-                onExportReport={onExportData}
               />
             ))}
             {renderTabPanel('notifications', (
@@ -954,6 +973,18 @@ function AdminHubPanelInner({
             <ServicesPricing services={services} onRefresh={onLoadData || (() => undefined)} />
             ))}
             {renderTabPanel('inventory', <InventoryPanel embedded />)}
+            {/* Unlike ordinary Hub pages, System Management is intentionally
+                unmounted on navigation so passwords, passphrases, phrases, and
+                unexecuted previews cannot survive in a hidden visited tab. */}
+            {hasSystemManagementAccess && activePage === 'system_management' && renderTabPanel('system_management', (
+              <SystemManagementPage
+                currentUser={currentUser}
+                users={users}
+                inventory={inventory}
+                onOperationalDataChanged={onLoadData}
+                onExecutionBusyChange={setSystemManagementBusy}
+              />
+            ))}
 
             {prefetchCustomerTracker && renderTabPanel('live_tracking', (
               <CustomerTrackerPanel

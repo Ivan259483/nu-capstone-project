@@ -33,6 +33,8 @@ import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { processQueue } from '@/services/offlineQueue';
 import { apiClient, getApiStatusCode } from '@/services/api/client';
 import { isCustomerRole } from '@/services/api/roles';
+import { SystemStatusProvider } from '@/context/SystemStatusContext';
+import SystemStatusGate from '@/components/SystemStatusGate';
 
 // Prevent the native splash from auto-hiding until our custom one is ready.
 SplashScreen.preventAutoHideAsync();
@@ -212,16 +214,20 @@ export default function RootLayout() {
     <GlobalErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <AuthProvider>
-            <NotificationsProvider>
-              <AppLockGuard>
-                <PremiumToast />
-                <GlobalWatchers>
-                  <InnerLayout />
-                </GlobalWatchers>
-              </AppLockGuard>
-            </NotificationsProvider>
-          </AuthProvider>
+          <SystemStatusProvider>
+            <AuthProvider>
+              <NotificationsProvider>
+                <AppLockGuard>
+                  <PremiumToast />
+                  <GlobalWatchers>
+                    <SystemStatusGate>
+                      <InnerLayout />
+                    </SystemStatusGate>
+                  </GlobalWatchers>
+                </AppLockGuard>
+              </NotificationsProvider>
+            </AuthProvider>
+          </SystemStatusProvider>
         </ThemeProvider>
       </QueryClientProvider>
     </GlobalErrorBoundary>

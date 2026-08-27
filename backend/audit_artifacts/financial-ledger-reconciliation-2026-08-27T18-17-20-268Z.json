@@ -1,0 +1,773 @@
+{
+  "mode": "dry-run",
+  "generatedAt": "2026-08-27T18:17:20.268Z",
+  "rules": {
+    "orderPaymentFlagsAreEvidence": false,
+    "requiredBackfillEvidence": [
+      "amount",
+      "method",
+      "date"
+    ],
+    "refundsInvented": false
+  },
+  "summary": {
+    "succeededPaymentsReviewed": 21,
+    "succeededPaymentsEnriched": 21,
+    "provablePaymentsBackfilled": 0,
+    "ambiguousOrdersExcluded": 36,
+    "cancelledOrRejectedPaymentsFlagged": 4
+  },
+  "enrichments": [
+    {
+      "paymentId": "69de2b64f31a7ddb50b5e19f",
+      "invoiceId": "INV-20260414-F76C35",
+      "changes": {
+        "amountVerified": 8999,
+        "amountSubmitted": 8999,
+        "effectiveAt": "2026-04-14T11:56:20.665Z",
+        "submittedAt": "2026-04-14T11:56:20.665Z"
+      }
+    },
+    {
+      "paymentId": "69fcb74868d9d440745798e6",
+      "invoiceId": "INV-20260507-A6E9CD",
+      "changes": {
+        "amountVerified": 7999,
+        "amountSubmitted": 7999,
+        "effectiveAt": "2026-05-07T16:01:12.069Z",
+        "submittedAt": "2026-05-07T16:01:12.069Z"
+      }
+    },
+    {
+      "paymentId": "69fdc95d8a1d1d9e0a8cbb29",
+      "invoiceId": "INV-20260508-F1E406",
+      "changes": {
+        "amountVerified": 7499,
+        "amountSubmitted": 7499,
+        "effectiveAt": "2026-05-08T11:30:37.095Z",
+        "submittedAt": "2026-05-08T11:30:37.095Z"
+      }
+    },
+    {
+      "paymentId": "69fee7ea2074787976448d0b",
+      "invoiceId": "INV-20260509-7D714A",
+      "changes": {
+        "amountVerified": 9999,
+        "amountSubmitted": 9999,
+        "effectiveAt": "2026-05-09T07:53:14.608Z",
+        "submittedAt": "2026-05-09T07:53:14.608Z"
+      }
+    },
+    {
+      "paymentId": "69fee8502074787976448e50",
+      "invoiceId": "INV-20260509-26E380",
+      "changes": {
+        "amountVerified": 22498,
+        "amountSubmitted": 22498,
+        "effectiveAt": "2026-05-09T07:54:56.923Z",
+        "submittedAt": "2026-05-09T07:54:56.923Z"
+      }
+    },
+    {
+      "paymentId": "6a040cea525ef5e5af0902fb",
+      "invoiceId": "INV-20260513-FA19FA",
+      "changes": {
+        "amountVerified": 6999,
+        "amountSubmitted": 6999,
+        "effectiveAt": "2026-05-13T05:32:26.924Z",
+        "submittedAt": "2026-05-13T05:32:26.924Z"
+      }
+    },
+    {
+      "paymentId": "6a05b4029a0cefb9ca322bbe",
+      "invoiceId": "INV-20260514-594C88",
+      "changes": {
+        "amountVerified": 7499,
+        "amountSubmitted": 7499,
+        "effectiveAt": "2026-05-14T11:37:38.976Z",
+        "submittedAt": "2026-05-14T11:37:38.976Z"
+      }
+    },
+    {
+      "paymentId": "6a05c76e26d4b75f6a438631",
+      "invoiceId": "INV-20260514-50D17D",
+      "changes": {
+        "amountVerified": 9499,
+        "amountSubmitted": 9499,
+        "effectiveAt": "2026-05-14T13:00:30.028Z",
+        "submittedAt": "2026-05-14T13:00:30.028Z"
+      }
+    },
+    {
+      "paymentId": "6a06cc553d7d48a8895074b1",
+      "invoiceId": "INV-20260515-47911F",
+      "changes": {
+        "amountVerified": 7499,
+        "amountSubmitted": 7499,
+        "effectiveAt": "2026-05-15T07:33:41.503Z",
+        "submittedAt": "2026-05-15T07:33:41.503Z"
+      }
+    },
+    {
+      "paymentId": "6a06fae8b80e88c765889a04",
+      "invoiceId": "INV-20260515-8004E7",
+      "changes": {
+        "amountVerified": 7499,
+        "amountSubmitted": 7499,
+        "effectiveAt": "2026-05-15T10:52:24.162Z",
+        "submittedAt": "2026-05-15T10:52:24.162Z"
+      }
+    },
+    {
+      "paymentId": "6a070649f4da0cd79a0afa3c",
+      "invoiceId": "INV-20260515-E8124C",
+      "changes": {
+        "amountVerified": 7499,
+        "amountSubmitted": 7499,
+        "effectiveAt": "2026-05-15T11:40:57.105Z",
+        "submittedAt": "2026-05-15T11:40:57.105Z"
+      }
+    },
+    {
+      "paymentId": "6a0ac25b0189a57afa0d6804",
+      "invoiceId": "INV-20260518-632700",
+      "changes": {
+        "amountVerified": 39499,
+        "amountSubmitted": 39499,
+        "effectiveAt": "2026-05-18T07:40:11.526Z",
+        "submittedAt": "2026-05-18T07:40:11.526Z"
+      }
+    },
+    {
+      "paymentId": "6a0c42ca758aac45573fd1ec",
+      "invoiceId": "INV-20260519-2AA558",
+      "changes": {
+        "amountVerified": 40099,
+        "amountSubmitted": 40099,
+        "effectiveAt": "2026-05-19T11:00:26.512Z",
+        "submittedAt": "2026-05-19T11:00:26.512Z"
+      }
+    },
+    {
+      "paymentId": "6a0dd921934534f295f85ff1",
+      "invoiceId": "INV-20260520-18C829",
+      "changes": {
+        "amountVerified": 8499,
+        "amountSubmitted": 8499,
+        "effectiveAt": "2026-05-20T15:54:09.326Z",
+        "submittedAt": "2026-05-20T15:54:09.326Z"
+      }
+    },
+    {
+      "paymentId": "6a0f01628830b50fafc74ba8",
+      "invoiceId": "INV-20260521-F28AE9",
+      "changes": {
+        "amountVerified": 12499,
+        "amountSubmitted": 12499,
+        "effectiveAt": "2026-05-21T12:58:10.712Z",
+        "submittedAt": "2026-05-21T12:58:10.712Z"
+      }
+    },
+    {
+      "paymentId": "6a1495eff4f5f4249bf6ee45",
+      "invoiceId": "INV-20260525-9C7248",
+      "changes": {
+        "amountVerified": 7499,
+        "amountSubmitted": 7499,
+        "effectiveAt": "2026-05-25T18:33:19.221Z",
+        "submittedAt": "2026-05-25T18:33:19.221Z"
+      }
+    },
+    {
+      "paymentId": "6a1d999a51679139708a2552",
+      "invoiceId": "INV-20260601-0CD942",
+      "changes": {
+        "amountVerified": 8499,
+        "amountSubmitted": 8499,
+        "effectiveAt": "2026-06-01T14:39:22.441Z",
+        "submittedAt": "2026-06-01T14:39:22.441Z"
+      }
+    },
+    {
+      "paymentId": "6a2d3214c6765fe1109a50cd",
+      "invoiceId": "INV-20260613-09D41B",
+      "changes": {
+        "amountVerified": 18398,
+        "amountSubmitted": 18398,
+        "effectiveAt": "2026-06-13T10:33:56.160Z",
+        "submittedAt": "2026-06-13T10:33:56.160Z"
+      }
+    },
+    {
+      "paymentId": "6a35546bba36ff212b29648c",
+      "invoiceId": "INV-20260619-02D7CE",
+      "changes": {
+        "amountVerified": 17499,
+        "amountSubmitted": 17499,
+        "effectiveAt": "2026-06-19T14:38:35.847Z",
+        "submittedAt": "2026-06-19T14:38:35.847Z"
+      }
+    },
+    {
+      "paymentId": "6a6306bd0210820537e2d8b3",
+      "invoiceId": "INV-20260724-DCFBE6",
+      "changes": {
+        "amountVerified": 17998,
+        "amountSubmitted": 17998,
+        "effectiveAt": "2026-07-24T06:31:25.619Z",
+        "submittedAt": "2026-07-24T06:31:25.619Z"
+      }
+    },
+    {
+      "paymentId": "6a88a184eaba1c72137ea981",
+      "invoiceId": "INV-20260821-7547C7",
+      "changes": {
+        "amountVerified": 40998,
+        "amountSubmitted": 40998,
+        "effectiveAt": "2026-08-21T19:05:40.035Z",
+        "submittedAt": "2026-08-21T19:05:40.035Z"
+      }
+    }
+  ],
+  "backfills": [],
+  "exceptions": [
+    {
+      "orderId": "69f103ff1389c9dbc274719b",
+      "orderNumber": "ORD-1777402879083",
+      "bookingReference": "ASPF-260429-7743",
+      "status": "released",
+      "paymentStatus": "unpaid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f1a968adbea713880301a1",
+      "orderNumber": "ORD-1777445224215",
+      "bookingReference": "ASPF-260429-0FF2",
+      "status": "released",
+      "paymentStatus": "unpaid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f2172d58c8a21273008317",
+      "orderNumber": "ORD-1777473325776",
+      "bookingReference": "ASPF-260429-42AD",
+      "status": "released",
+      "paymentStatus": "unpaid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f21a9258c8a212730088c4",
+      "orderNumber": "ORD-1777474194936",
+      "bookingReference": "ASPF-260429-8106",
+      "status": "released",
+      "paymentStatus": "unpaid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f23d133adf61da2a7037db",
+      "orderNumber": "ORD-1777483027565",
+      "bookingReference": "ASPF-260430-D8B9",
+      "status": "released",
+      "paymentStatus": "unpaid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f244b8b3f6829f761f714a",
+      "orderNumber": "ORD-1777484984550",
+      "bookingReference": "ASPF-260430-E85F",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f25e818b51ccca3508e915",
+      "orderNumber": "ORD-1777491585671",
+      "bookingReference": "ASPF-260430-156A",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f2ddc5ba42a2185fd8e276",
+      "orderNumber": "ORD-1777524165585",
+      "bookingReference": "ASPF-260430-8562",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f2ebc8ba42a2185fd8ecd0",
+      "orderNumber": "ORD-1777527752141",
+      "bookingReference": "ASPF-260430-F995",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f43f83f1dede0d7c1ac596",
+      "orderNumber": "ORD-1777614723557",
+      "bookingReference": "ASPF-260501-D69F",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 8999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f4be2f700fd3d5a70fa448",
+      "orderNumber": "ORD-1777647151165",
+      "bookingReference": "ASPF-260501-8542",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f512bc5b47f9f893a242b4",
+      "orderNumber": "ORD-1777668796977",
+      "bookingReference": "ASPF-260502-0A30",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f56511665559ab6fe3b9fd",
+      "orderNumber": "ORD-1777689873591",
+      "bookingReference": "ASPF-260502-40B2",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f57af9665559ab6fe3cd90",
+      "orderNumber": "ORD-1777695481515",
+      "bookingReference": "ASPF-260502-0334",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 9999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f7872eb8b9c96448ea37b3",
+      "orderNumber": "ORD-1777829678282",
+      "bookingReference": "ASPF-260503-8FCB",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7499,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f81363c221580da5eb82ae",
+      "orderNumber": "ORD-1777865571779",
+      "bookingReference": "ASPF-260504-C323",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 8999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f816c82938b807c9078c82",
+      "orderNumber": "ORD-1777866440308",
+      "bookingReference": "ASPF-260504-0395",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7499,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f86572137c54b9ed2ffe01",
+      "orderNumber": "ORD-1777886578297",
+      "bookingReference": "ASPF-260504-B3A9",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f8b6508239e21e0b7705d9",
+      "orderNumber": "ORD-1777907280057",
+      "bookingReference": "ASPF-260504-19D5",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f8c01871583a8375626985",
+      "orderNumber": "ORD-1777909784153",
+      "bookingReference": "ASPF-260504-1E95",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69f9e0a06357d23cf0cdd20a",
+      "orderNumber": "ORD-1777983648944",
+      "bookingReference": "ASPF-260505-129E",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fa00d67c55ac3d5a707199",
+      "orderNumber": "ORD-1777991894444",
+      "bookingReference": "ASPF-260505-BC73",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fa01157c55ac3d5a70737b",
+      "orderNumber": "ORD-1777991957354",
+      "bookingReference": "ASPF-260505-9164",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fa07376f485668e654421c",
+      "orderNumber": "ORD-1777993527000",
+      "bookingReference": "ASPF-260505-E2E8",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 9999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69faa18023cfaa78c15f81ca",
+      "orderNumber": "ORD-1778033024862",
+      "bookingReference": "ASPF-260506-1320",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fae6b7358b1314b5900327",
+      "orderNumber": "ORD-1778050743506",
+      "bookingReference": "ASPF-260506-3728",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fafe94358b1314b59011b4",
+      "orderNumber": "ORD-1778056852730",
+      "bookingReference": "ASPF-260506-4F5E",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 46999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69faff4a358b1314b59012d0",
+      "orderNumber": "ORD-1778057034916",
+      "bookingReference": "ASPF-260506-2A12",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 39999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fafffd358b1314b5901599",
+      "orderNumber": "ORD-1778057213325",
+      "bookingReference": "ASPF-260506-C35A",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 46999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fb003e358b1314b590170b",
+      "orderNumber": "ORD-1778057278865",
+      "bookingReference": "ASPF-260506-7DD8",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 49999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fc2fe933be2422d6fd28ca",
+      "orderNumber": "ORD-1778135017955",
+      "bookingReference": "ASPF-260507-2896",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fc3beff6cbfa62dc103560",
+      "orderNumber": "ORD-1778138095707",
+      "bookingReference": "ASPF-260507-DAFB",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7499,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fd509868d9d4407457e632",
+      "orderNumber": "ORD-1778208920571",
+      "bookingReference": "ASPF-260508-6307",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7499,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fda329546a99142ad2caf6",
+      "orderNumber": "ORD-1778230057384",
+      "bookingReference": "ASPF-260508-F70E",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fda7afdd5d7c2a18184c8c",
+      "orderNumber": "ORD-1778231215539",
+      "bookingReference": "ASPF-260508-41B9",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    },
+    {
+      "orderId": "69fed51620747879764465a6",
+      "orderNumber": "ORD-1778308374093",
+      "bookingReference": "ASPF-260509-0066",
+      "status": "released",
+      "paymentStatus": "paid",
+      "serviceTotal": 7999,
+      "missingEvidence": [
+        "amount",
+        "method",
+        "date"
+      ],
+      "note": "Excluded from collected revenue. An Order paid flag alone is not financial evidence."
+    }
+  ],
+  "reviewFlags": [
+    {
+      "paymentId": "69fcb74868d9d440745798e6",
+      "invoiceId": "INV-20260507-A6E9CD",
+      "orderId": "69f3502aba42a2185fd8f8d2",
+      "bookingStatus": "rejected",
+      "amountVerified": 7999,
+      "note": "Financial history retained; review whether an explicit refund is required."
+    },
+    {
+      "paymentId": "69fee7ea2074787976448d0b",
+      "invoiceId": "INV-20260509-7D714A",
+      "orderId": "69fdce8fab8e7d7d467e5e96",
+      "bookingStatus": "rejected",
+      "amountVerified": 9999,
+      "note": "Financial history retained; review whether an explicit refund is required."
+    },
+    {
+      "paymentId": "6a6306bd0210820537e2d8b3",
+      "invoiceId": "INV-20260724-DCFBE6",
+      "orderId": "6a6306ba0210820537e2d868",
+      "bookingStatus": "cancelled",
+      "amountVerified": 17998,
+      "note": "Financial history retained; review whether an explicit refund is required."
+    },
+    {
+      "paymentId": "6a88a184eaba1c72137ea981",
+      "invoiceId": "INV-20260821-7547C7",
+      "orderId": "6a88a183eaba1c72137ea934",
+      "bookingStatus": "cancelled",
+      "amountVerified": 40998,
+      "note": "Financial history retained; review whether an explicit refund is required."
+    }
+  ]
+}

@@ -128,6 +128,7 @@ export default function BillingWorkspace({
     if (!billing?.lineItems?.length) return billing?.computed ?? undefined;
     return computeBillingTotals({
       lineItems: billing.lineItems.map((li) => ({
+        name: li.name,
         unitPrice: li.unitPrice,
         quantity: li.quantity,
       })),
@@ -138,8 +139,7 @@ export default function BillingWorkspace({
     });
   }, [billing, discType, discVal, discReason, taxVat, fees, downpayment]);
 
-  const chargeFieldEditing =
-    taxVat === '' || fees === '' || downpayment === '' || discVal === '';
+  const chargeFieldEditing = taxVat === '' || fees === '' || discVal === '';
 
   const readOnly = billing?.status === 'checked_out' || !orderId;
 
@@ -159,7 +159,6 @@ export default function BillingWorkspace({
       discount: { discountType: discType, value: moneyFieldNum(discVal), reason: discReason },
       taxVatAmount: moneyFieldNum(taxVat),
       additionalFees: moneyFieldNum(fees),
-      downpayment: moneyFieldNum(downpayment),
     };
     if (nextLines !== undefined) {
       payload.lineItems = nextLines;
@@ -172,6 +171,7 @@ export default function BillingWorkspace({
     else setSaving(false);
     if (res.success && 'data' in res && res.data) {
       setBilling(res.data);
+      setDownpayment(res.data.downpayment ?? 0);
       const serverComp = res.data.computed;
       onChargesChange?.(buildChargesPayload(serverComp));
       if (!options?.silent) toast.success('Billing saved');
@@ -242,13 +242,13 @@ export default function BillingWorkspace({
       discount: { discountType: discType, value: moneyFieldNum(discVal), reason: discReason },
       taxVatAmount: moneyFieldNum(taxVat),
       additionalFees: moneyFieldNum(fees),
-      downpayment: moneyFieldNum(downpayment),
     });
     if (!saveFirst.success || !('data' in saveFirst) || !saveFirst.data) {
       toast.error((saveFirst as { message?: string }).message || 'Save billing before checkout failed');
       return;
     }
     setBilling(saveFirst.data);
+    setDownpayment(saveFirst.data.downpayment ?? 0);
 
     setCheckoutLoading(true);
     const res = await BillingService.checkout(orderId, {
@@ -386,15 +386,13 @@ export default function BillingWorkspace({
             />
           </label>
           <label className="block text-[11px] font-semibold text-slate-600">
-            Downpayment (reservation / GCash already collected)
+            Verified ledger credit
             <input
               type="text"
-              inputMode="decimal"
-              disabled={readOnly}
-              placeholder="500"
-              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+              disabled
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-600"
               value={moneyFieldStr(downpayment)}
-              onChange={(e) => setDownpayment(parseMoneyInput(e.target.value))}
+              title="Calculated from verified payments and posted refunds"
             />
           </label>
           <div className="block text-[11px] font-semibold text-slate-600">

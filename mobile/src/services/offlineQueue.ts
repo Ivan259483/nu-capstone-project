@@ -101,6 +101,43 @@ export const clearQueue = async () => {
   }
 };
 
+const OPERATIONAL_QUEUE_PREFIXES = [
+  '/activity',
+  '/ai',
+  '/bookings',
+  '/chat',
+  '/customers',
+  '/invoices',
+  '/notifications',
+  '/orders',
+  '/payments',
+  '/qc',
+  '/vehicles',
+];
+
+const isOperationalQueuedRequest = (request: QueuedRequest): boolean => {
+  const path = String(request.url || '').split('?')[0].replace(/^\/api/, '');
+  return OPERATIONAL_QUEUE_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+};
+
+/** Remove stale operational mutations without discarding preserved settings. */
+export const clearOperationalQueue = async () => {
+  try {
+    const queueData = await AsyncStorage.getItem(QUEUE_STORAGE_KEY);
+    if (!queueData) return;
+    const queue: QueuedRequest[] = JSON.parse(queueData);
+    const preserved = queue.filter((request) => !isOperationalQueuedRequest(request));
+    if (preserved.length) {
+      await AsyncStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(preserved));
+    } else {
+      await AsyncStorage.removeItem(QUEUE_STORAGE_KEY);
+    }
+    console.log(`[OfflineQueue] Cleared ${queue.length - preserved.length} operational request(s).`);
+  } catch (error) {
+    console.error('[OfflineQueue] Failed to clear operational requests:', error);
+  }
+};
+
 /**
  * Replay the queued requests sequentially when online.
  *

@@ -47,7 +47,6 @@ interface Props {
   /** When false (dashboard tab hidden), charts are not mounted to avoid Recharts size warnings. */
   chartsVisible?: boolean;
   onRefreshOverview?: () => void | Promise<void>;
-  onExportReport?: () => void | Promise<void>;
 }
 
 type PipelineStage = 'pending' | 'confirmed' | 'in_progress' | 'quality_check' | 'completed' | 'cancelled';
@@ -493,7 +492,6 @@ export default function AdminDashboardPage({
   loading,
   chartsVisible = true,
   onRefreshOverview,
-  onExportReport,
 }: Props) {
   const [refreshingOverview, setRefreshingOverview] = useState(false);
   const [exportingReport, setExportingReport] = useState(false);
@@ -511,10 +509,40 @@ export default function AdminDashboardPage({
   };
 
   const handleExportReport = async () => {
-    if (!onExportReport || exportingReport) return;
+    if (exportingReport) return;
     setExportingReport(true);
     try {
-      await onExportReport();
+      const escapeCsv = (value: unknown) => {
+        const text = String(value ?? '');
+        const spreadsheetSafe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+        return `"${spreadsheetSafe.replace(/"/g, '""')}"`;
+      };
+      const rows = [
+        ['Report generated', new Date().toISOString()],
+        ['Bookings loaded', bookings.length],
+        ['Payments loaded', payments.length],
+        ['Services loaded', services.length],
+        ['Inventory products loaded', inventory.length],
+        [],
+        ['Booking reference', 'Customer', 'Service', 'Schedule', 'Status', 'Amount'],
+        ...bookings.map((booking) => [
+          booking?.bookingReference || booking?.orderNumber || booking?.id || booking?._id || '',
+          booking?.customerName || booking?.customer?.name || '',
+          booking?.serviceName || booking?.serviceType || '',
+          booking?.bookingDate || booking?.date || '',
+          booking?.status || '',
+          booking?.totalPrice ?? booking?.totalAmount ?? '',
+        ]),
+      ];
+      const csv = rows.map((row) => row.map(escapeCsv).join(',')).join('\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `autospf-operations-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
     } catch (error) {
       console.error('[AdminDashboardPage] report export failed:', error);
     } finally {
@@ -1015,17 +1043,15 @@ export default function AdminDashboardPage({
               <span>{refreshingOverview ? 'Refreshing' : 'Refresh'}</span>
             </button>
           )}
-          {onExportReport && (
-            <button
-              type="button"
-              className="ah-dashboard-action ah-dashboard-action--primary"
-              onClick={handleExportReport}
-              disabled={exportingReport}
-            >
-              <Download size={15} aria-hidden />
-              <span>{exportingReport ? 'Exporting' : 'Export Report'}</span>
-            </button>
-          )}
+          <button
+            type="button"
+            className="ah-dashboard-action ah-dashboard-action--primary"
+            onClick={handleExportReport}
+            disabled={exportingReport}
+          >
+            <Download size={15} aria-hidden />
+            <span>{exportingReport ? 'Exporting' : 'Export Report'}</span>
+          </button>
         </div>
       </div>
 

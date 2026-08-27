@@ -30,6 +30,8 @@ import {
   notifyQualityEvidenceReplacement,
   syncQualityEvidenceAttention,
 } from '../services/qualityNotification.service.js';
+import { runTrackedSystemMutation } from '../middleware/systemLifecycle.middleware.js';
+import { registerCloudinaryManagedAsset } from '../services/managedAsset.service.js';
 
 /** Same coarse stages as QC `service-status`; `confirmed` is optional text-only for customers. */
 const TRACKER_MEDIA_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'];
@@ -233,14 +235,26 @@ function queueCloudinaryStagePhotoBackfill({
 }) {
   if (!file?.buffer?.length || !inlineUrl) return;
 
-  setImmediate(async () => {
-    try {
-      const urls = await uploadVehicleScanImages([file], { folder: 'live-tracker-stages' });
-      const hostedUrl = urls[0] || '';
+  setImmediate(() => {
+    void runTrackedSystemMutation(async () => {
+      try {
+      const assets = await uploadVehicleScanImages([file], {
+        folder: 'live-tracker-stages',
+        returnMetadata: true,
+      });
+      const uploadedAsset = assets[0];
+      const hostedUrl = uploadedAsset?.secureUrl || '';
       if (!hostedUrl) return;
 
       const order = await Order.findById(orderId);
       if (!order) return;
+      await registerCloudinaryManagedAsset({
+        ...uploadedAsset,
+        ownerCollection: 'Order',
+        ownerId: order._id,
+        fieldPath: `trackerStageMedia.${stage}.${slot || 'default'}`,
+        byteSize: uploadedAsset.bytes,
+      });
 
       let idx = -1;
       if (isGateStage(stage)) {
@@ -273,11 +287,14 @@ function queueCloudinaryStagePhotoBackfill({
       order.markModified('trackerStageMedia');
       await order.save({ validateBeforeSave: false });
       emitTrackerStageMediaUpdate(order);
-    } catch (error) {
-      console.warn(
-        `[tracker] Background Cloudinary stage photo upload failed: ${cloudinaryErrorMessage(error)}`
-      );
-    }
+      } catch (error) {
+        console.warn(
+          `[tracker] Background Cloudinary stage photo upload failed: ${cloudinaryErrorMessage(error)}`
+        );
+      }
+    }).catch((error) => {
+      console.warn(`[tracker] Background stage photo task blocked: ${error.message}`);
+    });
   });
 }
 
@@ -440,6 +457,7 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
 
     let photoUrl = '';
     let storage = 'none';
+    let uploadedAsset = null;
     if (req.file?.buffer) {
       const useFastInline = wantsFastInlineUpload(req) && req.file.buffer.length <= FAST_INLINE_STAGE_PHOTO_MAX_BYTES;
       if (useFastInline) {
@@ -447,8 +465,12 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
         storage = 'inline_fast';
       } else {
         try {
-          const urls = await uploadVehicleScanImages([req.file], { folder: 'live-tracker-stages' });
-          photoUrl = urls[0] || '';
+          const assets = await uploadVehicleScanImages([req.file], {
+            folder: 'live-tracker-stages',
+            returnMetadata: true,
+          });
+          uploadedAsset = assets[0] || null;
+          photoUrl = uploadedAsset?.secureUrl || '';
           storage = photoUrl ? 'cloudinary' : 'none';
         } catch (uploadError) {
           console.warn(
@@ -466,6 +488,16 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
 
     if (stage === 'confirmed' && !photoUrl && !(typeof description === 'string' && description.trim())) {
       return res.status(400).json({ success: false, message: 'Provide a photo or a description for confirmed stage' });
+    }
+
+    if (uploadedAsset) {
+      await registerCloudinaryManagedAsset({
+        ...uploadedAsset,
+        ownerCollection: 'Order',
+        ownerId: order._id,
+        fieldPath: `trackerStageMedia.${stage}.${slot || 'default'}`,
+        byteSize: uploadedAsset.bytes,
+      });
     }
 
     if (isGateStage(stage)) {

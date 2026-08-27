@@ -52,7 +52,18 @@ export async function timeOperation({ req, res, kind = 'operation', name }, oper
 export function runInBackground({ req, kind = 'background', name }, operation) {
   return new Promise((resolve) => {
     setImmediate(() => {
-      void timeOperation({ req, kind, name }, operation)
+      const disconnectedTestHarness = Boolean(process.env.NODE_TEST_CONTEXT)
+        && mongoose.connection.readyState === 0;
+      // Background database work can outlive the HTTP response that scheduled
+      // it. Admit and count it separately so lifecycle execution can drain it
+      // and so archived/leased systems do not receive late mutations.
+      const trackedWork = disconnectedTestHarness
+        ? timeOperation({ req, kind, name }, operation)
+        : import('../middleware/systemLifecycle.middleware.js')
+          .then(({ runTrackedSystemMutation }) => runTrackedSystemMutation(
+            () => timeOperation({ req, kind, name }, operation),
+          ));
+      void trackedWork
         .then((value) => resolve({ ok: true, value }))
         .catch((error) => {
           console.warn(
@@ -63,3 +74,4 @@ export function runInBackground({ req, kind = 'background', name }, operation) {
     });
   });
 }
+import mongoose from 'mongoose';

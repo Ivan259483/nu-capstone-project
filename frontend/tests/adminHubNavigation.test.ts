@@ -72,6 +72,7 @@ test('every Admin Hub sidebar target produces matching URL and rendered state', 
     'users',
     'roles',
     'logs',
+    'system_management',
     'profile',
   ];
 
@@ -129,4 +130,10 @@ test('quality checker routing stays constrained while profile remains reachable'
   assert.equal(resolveAdminHubPage('?tab=notifications', true), 'live_tracking');
   assert.equal(resolveAdminHubPage('?tab=live_tracking', true), 'live_tracking');
   assert.equal(resolveAdminHubPage('?tab=profile', true), 'profile');
+});
+
+test('system management deep links are restricted to authorized Admin Hub roles', () => {
+  assert.equal(resolveAdminHubPage('?tab=system_management', false, true), 'system_management');
+  assert.equal(resolveAdminHubPage('?tab=system_management', false, false), 'dashboard');
+  assert.equal(resolveAdminHubPage('?tab=system_management', true, false), 'live_tracking');
 });

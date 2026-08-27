@@ -1,4 +1,8 @@
 import mongoose from 'mongoose';
+import {
+  OPERATIONAL_ACTIVITY_TYPES,
+  operationalClassificationPlugin,
+} from '../plugins/operationalClassification.plugin.js';
 
 const activityLogSchema = new mongoose.Schema({
   type: {
@@ -15,6 +19,10 @@ const activityLogSchema = new mongoose.Schema({
       'login_otp_sent',
       'failed_login_otp',
       'password_set',
+      // System-authorized client ownership setup evidence. This remains an
+      // authoritative auth audit and is intentionally not in the deletable
+      // DEMO_OPERATIONAL_ACTIVITY_TYPES manifest.
+      'client_administrator_setup_completed',
 
       // ── User Management ──
       'user_created',
@@ -133,6 +141,12 @@ activityLogSchema.index({ userId: 1, createdAt: -1 });
 activityLogSchema.index({ type: 1, module: 1, createdAt: -1 });
 // Keep bare createdAt for global timeline queries (admin dashboard)
 activityLogSchema.index({ createdAt: -1 });
+activityLogSchema.plugin(operationalClassificationPlugin, {
+  resolveCollectionName: (activity) => (
+    OPERATIONAL_ACTIVITY_TYPES.includes(activity.type) ? 'activity' : null
+  ),
+  label: (activity) => activity.title || activity.action || activity.type,
+});
 
 const ActivityLog = mongoose.model('ActivityLog', activityLogSchema);
 

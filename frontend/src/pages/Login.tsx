@@ -217,12 +217,16 @@ export default function Login() {
         const params = new URLSearchParams(window.location.search);
         return getSafeLoginRedirect(params.get("redirect") || params.get("next"));
     }, [location.search]);
+    const invitedEmailParam = useMemo(() => {
+        const value = String(new URLSearchParams(location.search).get("email") || "").trim().toLowerCase();
+        return LOGIN_EMAIL_PATTERN.test(value) ? value : "";
+    }, [location.search]);
     const redirectTo = redirectParamTo || DEFAULT_LOGIN_REDIRECT;
 
     /* ── Form state ── */
     const [showPassword, setShowPassword] = useState(false);
     const [loginStep, setLoginStep] = useState<"email" | "password">("email");
-    const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+    const [loginForm, setLoginForm] = useState({ email: invitedEmailParam, password: "" });
     const [loginPasswordError, setLoginPasswordError] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isButtonLoading, setIsButtonLoading] = useState(false);
@@ -373,12 +377,16 @@ export default function Login() {
 
     /* ── Load remembered email ── */
     useEffect(() => {
+        if (invitedEmailParam) {
+            setLoginForm((current) => ({ ...current, email: invitedEmailParam }));
+            return;
+        }
         const rememberedEmail = localStorage.getItem("remembered_email");
         if (rememberedEmail) {
             setLoginForm((current) => ({ ...current, email: rememberedEmail }));
             setRememberMe(true);
         }
-    }, []);
+    }, [invitedEmailParam]);
 
     /* ── Redirect helper ── */
     const performRedirect = useCallback((role: string) => {

@@ -16,6 +16,11 @@ import {
 } from '../utils/phone-client.utils.js';
 import { hydrateReceiptSnapshot } from '../utils/receiptSnapshot.utils.js';
 import { normalizePosPaymentMethod } from '../utils/paymentMethod.utils.js';
+import {
+  getOrderLedger,
+  getOrderServiceTotal,
+  summarizeLedgerRows,
+} from '../services/financialLedger.service.js';
 
 const RECEIPT_CUSTOMER_SELECT = `name email ${USER_PHONE_SELECT_FIELDS}`;
 const RECEIPT_VEHICLE_SELECT = 'year make model color plateNumber vehicleType';
@@ -66,6 +71,14 @@ function applyComputed(billing) {
   return computed;
 }
 
+async function applyLedgerCredit(billing, ledgerRows = null) {
+  const rows = ledgerRows || await getOrderLedger(billing.order?._id || billing.order);
+  const ledger = summarizeLedgerRows(rows, 0);
+  billing.downpayment = normalizeMoney(Math.max(0, ledger.netVerified));
+  applyComputed(billing);
+  return ledger;
+}
+
 function pushBillingEvent(billing, req, action, summary, payload = null) {
   billing.events.push({
     at: new Date(),
@@ -98,7 +111,8 @@ function applyBillingBody(billing, body) {
   }
   if (body.taxVatAmount !== undefined) billing.taxVatAmount = normalizeMoney(body.taxVatAmount);
   if (body.additionalFees !== undefined) billing.additionalFees = normalizeMoney(body.additionalFees);
-  if (body.downpayment !== undefined) billing.downpayment = normalizeMoney(body.downpayment);
+  // Downpayment is a read-only projection of verified ledger value. Client
+  // billing edits cannot manufacture or erase collected money.
   if (body.dedupeByServiceId !== undefined) billing.dedupeByServiceId = !!body.dedupeByServiceId;
 
   billing.version = (billing.version || 1) + 1;
@@ -195,7 +209,7 @@ export const getBilling = async (req, res, next) => {
         downpayment: normalizeMoney(order.downPaymentAmount || 0),
       });
     }
-    applyComputed(billing);
+    await applyLedgerCredit(billing);
     await billing.save();
 
     return res.json({ success: true, data: billing });
@@ -217,7 +231,9 @@ export const putBilling = async (req, res, next) => {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
-    if (order.paymentStatus === 'paid') {
+    const orderLedgerRows = await getOrderLedger(order._id);
+    const orderLedger = summarizeLedgerRows(orderLedgerRows, getOrderServiceTotal(order));
+    if (orderLedger.netVerified > 0 && orderLedger.outstandingBalance <= 0.009) {
       return res.status(400).json({ success: false, message: 'Cannot edit billing on a paid order' });
     }
 
@@ -234,6 +250,7 @@ export const putBilling = async (req, res, next) => {
       }
 
       applyBillingBody(billing, body);
+      await applyLedgerCredit(billing);
       billing.lastEditedBy = req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : null;
 
       pushBillingEvent(billing, req, 'billing_updated', `v${billing.version} — ${billing.lineItems.length} line(s)`, {
@@ -307,10 +324,6 @@ export const checkoutBilling = async (req, res, next) => {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
-    if (order.paymentStatus === 'paid') {
-      return res.status(400).json({ success: false, message: 'Order is already paid' });
-    }
-
     const billing = await Billing.findOne({ order: orderId });
     if (!billing) {
       return res.status(404).json({ success: false, message: 'Billing not found' });
@@ -322,7 +335,7 @@ export const checkoutBilling = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Add at least one line item before checkout' });
     }
 
-    applyComputed(billing);
+    await applyLedgerCredit(billing);
 
     const discountForCalc =
       billing.discount && Number(billing.discount.value) > 0

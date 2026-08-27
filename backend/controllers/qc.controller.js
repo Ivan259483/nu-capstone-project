@@ -40,6 +40,12 @@ import {
 import {
   invalidateResponseCache,
 } from '../utils/responseCache.utils.js';
+import {
+  getOrderLedger,
+  getOrderServiceTotal,
+  summarizeLedgerRows,
+  syncOrderFinancialSnapshot,
+} from '../services/financialLedger.service.js';
 
 const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
 const QC_APPROVED_ORDER_STATUSES = ['completed', 'released'];
@@ -1109,7 +1115,10 @@ export const updateServiceStatus = async (req, res, next) => {
     }
 
     if (stage === 'released') {
-      if (String(order.paymentStatus || '').toLowerCase() !== 'paid') {
+      const ledgerRows = await getOrderLedger(order._id);
+      const ledger = summarizeLedgerRows(ledgerRows, getOrderServiceTotal(order));
+      await syncOrderFinancialSnapshot(order, ledgerRows);
+      if (ledger.outstandingBalance > 0.009 || ledger.netVerified <= 0) {
         return res.status(400).json({
           success: false,
           message: 'Collect the final balance in Sales POS before releasing the vehicle to the customer.',
@@ -1153,11 +1162,6 @@ export const updateServiceStatus = async (req, res, next) => {
 
     if (QC_APPROVED_TRACKER_STAGES.includes(stage) && !order.qcCompletedAt) {
       order.qcCompletedAt = new Date();
-    }
-
-    // ── Mark payment as paid when the car is physically released ─────────
-    if (stage === 'released') {
-      order.paymentStatus = 'paid';
     }
 
     await saveOrderWithSlotTransition(order, occupancyBefore);

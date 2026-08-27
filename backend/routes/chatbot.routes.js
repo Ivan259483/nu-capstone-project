@@ -5,6 +5,7 @@ import {
   optionalAuthenticate,
 } from '../middleware/auth.middleware.js';
 import { BOOKING_MANAGER_ROLES } from '../constants/roles.js';
+import { enforceAnonymousChatOnboarding } from '../middleware/systemLifecycle.middleware.js';
 import {
   startSession,
   listConversations,
@@ -94,7 +95,12 @@ router.post(
 );
 
 router.get('/conversations', authenticateIfTokenPresent, listConversations);
-router.post('/conversations', authenticateIfTokenPresent, createConversation);
+router.post(
+  '/conversations',
+  authenticateIfTokenPresent,
+  enforceAnonymousChatOnboarding,
+  createConversation,
+);
 router.get(
   '/conversations/:conversationId/messages',
   authenticateIfTokenPresent,
@@ -103,6 +109,7 @@ router.get(
 router.post(
   '/conversations/:conversationId/messages',
   authenticateIfTokenPresent,
+  enforceAnonymousChatOnboarding,
   postCustomerMessage,
 );
 router.patch(
@@ -115,12 +122,12 @@ router.get(
   authenticateIfTokenPresent,
   getConversation,
 );
-router.post('/session', startSession);
-router.post('/lead', saveLead);
+router.post('/session', enforceAnonymousChatOnboarding, startSession);
+router.post('/lead', enforceAnonymousChatOnboarding, saveLead);
 router.post('/tracker/verify', verifyPublicTracker);
 router.get('/tracker/:token', getPublicTracker);
-router.post('/message/stream', sendMessageStream);
-router.post('/message', sendMessage);
+router.post('/message/stream', enforceAnonymousChatOnboarding, sendMessageStream);
+router.post('/message', enforceAnonymousChatOnboarding, sendMessage);
 router.post('/handoff', authenticateIfTokenPresent, handoffConversation);
 
 export default router;

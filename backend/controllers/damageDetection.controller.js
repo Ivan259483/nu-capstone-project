@@ -14,6 +14,7 @@ import {
 } from '../utils/cloudinaryStorage.utils.js';
 import { invalidateResponseCache } from '../utils/responseCache.utils.js';
 import { runInBackground, timeOperation } from '../utils/performance.utils.js';
+import { registerCloudinaryManagedAsset } from '../services/managedAsset.service.js';
 
 const parseArrayField = (value) => {
   if (Array.isArray(value)) return value.map(String);
@@ -171,11 +172,14 @@ export const detectVehicleDamage = async (req, res) => {
       const files = req.files;
       runInBackground({ req, kind: 'external', name: 'aiScan.cloudinary.archive' }, async () => {
         let archivedUrls = [];
+        let archivedAssets = [];
         let archiveState;
         try {
-          archivedUrls = await uploadVehicleScanImages(files, {
+          archivedAssets = await uploadVehicleScanImages(files, {
             folder: String(process.env.CLOUDINARY_UPLOAD_FOLDER || 'vehicle-scans').trim(),
+            returnMetadata: true,
           });
+          archivedUrls = archivedAssets.map((asset) => asset.secureUrl);
           archiveState = {
             ...imageArchive,
             status: 'succeeded',
@@ -189,6 +193,9 @@ export const detectVehicleDamage = async (req, res) => {
           const details = getCloudinarySafeErrorDetails(error);
           archivedUrls = Array.isArray(error?.cloudinaryUploadContext?.uploadedUrls)
             ? error.cloudinaryUploadContext.uploadedUrls
+            : [];
+          archivedAssets = Array.isArray(error?.cloudinaryUploadContext?.uploadedAssets)
+            ? error.cloudinaryUploadContext.uploadedAssets
             : [];
           archiveState = {
             ...imageArchive,
@@ -213,6 +220,14 @@ export const detectVehicleDamage = async (req, res) => {
             requestedCount: files.length,
           }));
         }
+
+        await Promise.all(archivedAssets.map((asset, index) => registerCloudinaryManagedAsset({
+          ...asset,
+          ownerCollection: 'AIScan',
+          ownerId: scanId,
+          fieldPath: `imageUrls.${index}`,
+          byteSize: asset.bytes,
+        })));
 
         await timeOperation(
           { req, kind: 'db', name: 'aiScan.archive.update' },

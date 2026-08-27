@@ -9,3 +9,9 @@ export const normalizeAuthVersion = (value) => {
 
 export const authVersionMatches = (tokenVersion, accountVersion) =>
   normalizeAuthVersion(tokenVersion) === normalizeAuthVersion(accountVersion);
+
+/** Global lifecycle session epoch. Legacy tokens belong to epoch zero. */
+export const normalizeGlobalSessionEpoch = normalizeAuthVersion;
+
+export const globalSessionEpochMatches = (tokenEpoch, systemEpoch) =>
+  normalizeGlobalSessionEpoch(tokenEpoch) === normalizeGlobalSessionEpoch(systemEpoch);

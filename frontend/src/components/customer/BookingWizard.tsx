@@ -26,8 +26,6 @@ import { formatCurrency } from '@/lib/utils';
 import { OrderService, type AvailableSlotsResponse } from '@/lib/order-service';
 import api from '@/lib/api';
 import type { Service, Vehicle, User } from '@/types';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '@/config/firebase';
 import {
     AVAILABILITY_UPDATED_EVENT,
     ensureAvailabilityRealtimeSync,

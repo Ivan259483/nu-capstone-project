@@ -8,6 +8,7 @@ export const ADMIN_HUB_ROUTABLE_TAB_IDS = new Set([
   'users',
   'roles',
   'logs',
+  'system_management',
   'profile',
 ]);
 
@@ -20,12 +21,18 @@ const NOTIFICATION_CONTEXT_PARAMS = [
 ];
 
 /** Resolve the rendered Admin Hub page exclusively from the router location. */
-export function resolveAdminHubPage(search: string, isQualityChecker = false): string {
+export function resolveAdminHubPage(
+  search: string,
+  isQualityChecker = false,
+  canAccessSystemManagement = true,
+): string {
   const requestedTab = new URLSearchParams(search).get('tab');
 
   if (isQualityChecker) {
     return requestedTab === 'profile' ? 'profile' : 'live_tracking';
   }
+
+  if (requestedTab === 'system_management' && !canAccessSystemManagement) return 'dashboard';
 
   return requestedTab && ADMIN_HUB_ROUTABLE_TAB_IDS.has(requestedTab)
     ? requestedTab

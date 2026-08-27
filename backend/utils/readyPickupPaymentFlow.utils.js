@@ -13,6 +13,12 @@ import {
   captureOrderSlotOccupancy,
   reconcilePersistedOrderSlotTransition,
 } from '../services/slot.service.js';
+import {
+  getVerifiedAmount,
+  isPostedPayment,
+  isRefundPayment,
+  summarizeLedgerRows,
+} from '../services/financialLedger.service.js';
 
 const DEFAULT_RESERVATION_FALLBACK = 500;
 const FINAL_ORDER_STATUSES = new Set(['released', 'completed', 'cancelled', 'rejected']);
@@ -104,8 +110,8 @@ export async function computeOrderFinancialState(orderOrId) {
 
   const [billing, payments, invoiceRecord] = await Promise.all([
     Billing.findOne({ order: order._id }),
-    Payment.find({ order: order._id, status: 'succeeded' })
-      .select('_id amount amountPaid downpayment grandTotal balanceRemaining status checkoutReference metadata createdAt')
+    Payment.find({ order: order._id })
+      .select('_id amount amountSubmitted amountVerified amountPaid transactionType relatedPayment downpayment grandTotal balanceRemaining status checkoutReference metadata effectiveAt reviewedAt createdAt')
       .sort({ createdAt: -1 }),
     InvoiceRecord.findOne({ order: order._id }).sort({ createdAt: -1 }),
   ]);
@@ -128,17 +134,15 @@ export async function computeOrderFinancialState(orderOrId) {
   if (totalAmount <= 0) totalAmount = financialTotalFromInvoice(invoiceRecord);
   if (totalAmount <= 0) totalAmount = financialTotalFromOrder(order);
 
-  const finalPaymentsTotal = normalizeMoney(
-    payments.reduce((sum, payment) => sum + normalizeMoney(payment.amountPaid ?? payment.amount), 0)
-  );
-  const paidByRecords = normalizeMoney(downpaymentApplied + finalPaymentsTotal);
-  const orderMarkedPaid = keyOf(order.paymentStatus) === 'paid';
-  const amountPaid = orderMarkedPaid && totalAmount > paidByRecords
-    ? totalAmount
-    : paidByRecords;
-  const remainingBalance = orderMarkedPaid
-    ? 0
-    : normalizeMoney(Math.max(0, totalAmount - amountPaid));
+  const ledger = summarizeLedgerRows(payments, totalAmount);
+  const reservationLedgerTotal = normalizeMoney(payments
+    .filter((payment) => payment.transactionType === 'reservation_fee' && isPostedPayment(payment))
+    .reduce((sum, payment) => sum + getVerifiedAmount(payment), 0));
+  const finalPaymentsTotal = normalizeMoney(payments
+    .filter((payment) => !isRefundPayment(payment) && payment.transactionType !== 'reservation_fee' && isPostedPayment(payment))
+    .reduce((sum, payment) => sum + getVerifiedAmount(payment), 0));
+  const amountPaid = ledger.netVerified;
+  const remainingBalance = ledger.outstandingBalance;
 
   return {
     order,
@@ -148,7 +152,7 @@ export async function computeOrderFinancialState(orderOrId) {
     totalAmount,
     amountPaid,
     finalPaymentsTotal,
-    downpaymentApplied,
+    downpaymentApplied: reservationLedgerTotal || downpaymentApplied,
     remainingBalance,
     discount: billing?.discount || invoiceRecord?.snapshot?.discount || null,
     discountAmount: normalizeMoney(billing?.computed?.discountTotal ?? order.discountAmount),
@@ -156,7 +160,7 @@ export async function computeOrderFinancialState(orderOrId) {
     additionalFees: normalizeMoney(billing?.additionalFees ?? order.additionalFees),
     billingStatus: billing?.status || null,
     checkedOutBilling: billing?.status === 'checked_out',
-    hasSucceededPayment: payments.length > 0,
+    hasSucceededPayment: payments.some((payment) => !isRefundPayment(payment) && isPostedPayment(payment)),
     latestCheckoutReference:
       payments.find((payment) => payment.checkoutReference)?.checkoutReference
       || payments.find((payment) => payment.metadata?.checkoutReference)?.metadata?.checkoutReference

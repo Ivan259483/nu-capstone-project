@@ -7,6 +7,7 @@
  */
 import api, { getStoredAuthToken } from './api';
 import type { AxiosRequestConfig, AxiosResponse } from 'axios';
+import { OPERATIONAL_DATA_EPOCH_EVENT } from './operational-data-epoch';
 
 // ── Cache store ──────────────────────────────────────────────────────
 interface CacheEntry {
@@ -16,6 +17,57 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<AxiosResponse>>();
+
+/**
+ * Request-cache namespaces backed by operational records. An operational epoch
+ * change must not evict preserved configuration such as settings, services,
+ * products, or suppliers.
+ */
+export const OPERATIONAL_QUERY_PREFIXES = [
+    '/bookings',
+    '/activity',
+    '/notifications',
+    '/users',
+    '/chat',
+    '/payments',
+    '/transactions',
+    '/approvals',
+    '/tracking',
+    '/qc',
+    '/documents',
+    '/rewards',
+    '/reports',
+    '/ai',
+    '/supplier-orders',
+    '/inventory-ledgers',
+] as const;
+
+const requestPart = (key: string): string => {
+    const separator = key.indexOf('::');
+    return separator >= 0 ? key.slice(separator + 2) : key;
+};
+
+const isOperationalRequest = (key: string): boolean => {
+    const requestKey = requestPart(key);
+    return OPERATIONAL_QUERY_PREFIXES.some((prefix) => requestKey.startsWith(prefix));
+};
+
+let operationalCacheGeneration = 0;
+
+if (typeof window !== 'undefined') {
+    window.addEventListener(OPERATIONAL_DATA_EPOCH_EVENT, () => {
+        operationalCacheGeneration += 1;
+        for (const key of cache.keys()) {
+            if (isOperationalRequest(key)) cache.delete(key);
+        }
+        // Do not let a request started before the epoch change deduplicate a
+        // post-cleanup refresh. The promise still settles normally for its
+        // original caller, but the generation guard below prevents recaching.
+        for (const key of inflight.keys()) {
+            if (isOperationalRequest(key)) inflight.delete(key);
+        }
+    });
+}
 
 /** Default TTL values in milliseconds */
 export const TTL = {
@@ -55,6 +107,7 @@ export async function cachedGet<T = any>(
     ttl: number = TTL.SHORT
 ): Promise<T> {
     const key = buildKey(url, config);
+    const requestGeneration = operationalCacheGeneration;
 
     // 1. Return cached data if fresh
     if (ttl > 0) {
@@ -79,7 +132,10 @@ export async function cachedGet<T = any>(
         const response = await request;
 
         // 4. Store in cache
-        if (ttl > 0) {
+        if (
+            ttl > 0
+            && (!isOperationalRequest(key) || requestGeneration === operationalCacheGeneration)
+        ) {
             cache.set(key, {
                 data: response.data,
                 expiresAt: Date.now() + ttl,
@@ -88,7 +144,9 @@ export async function cachedGet<T = any>(
 
         return response.data as T;
     } finally {
-        inflight.delete(key);
+        // An epoch change may have detached this request and allowed a fresh
+        // request for the same key to start. Never remove that newer promise.
+        if (inflight.get(key) === request) inflight.delete(key);
     }
 }
 
@@ -102,8 +160,7 @@ export async function cachedGet<T = any>(
  */
 export function invalidate(prefix: string): void {
     for (const key of cache.keys()) {
-        const separator = key.indexOf('::');
-        const requestKey = separator >= 0 ? key.slice(separator + 2) : key;
+        const requestKey = requestPart(key);
         if (requestKey.startsWith(prefix)) {
             cache.delete(key);
         }

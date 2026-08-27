@@ -4,6 +4,7 @@ import {
   DEFAULT_TRANSACTION_PAYMENT_FILTER,
   filterTransactions,
   normalizePaymentMethod,
+  getRecognizedRevenueAmount,
   transactionsToCsv,
   type Transaction,
 } from '../src/lib/salesData.ts';
@@ -73,10 +74,44 @@ test('payment, status, date, and search filters combine before pagination', () =
   assert.deepEqual(filtered.slice(0, 1).map((row) => row.id), ['GCASH-1']);
 });
 
+test('Transactions date filters use Asia/Manila calendar boundaries', () => {
+  const justAfterManilaMidnight = transaction('MANILA-BOUNDARY', 'cash', {
+    dateTime: '2026-08-22T16:30:00.000Z',
+  });
+  assert.deepEqual(
+    filterTransactions([justAfterManilaMidnight], { dateFrom: '2026-08-23', dateTo: '2026-08-23' })
+      .map((row) => row.id),
+    ['MANILA-BOUNDARY'],
+  );
+  assert.deepEqual(
+    filterTransactions([justAfterManilaMidnight], { dateFrom: '2026-08-22', dateTo: '2026-08-22' }),
+    [],
+  );
+});
+
 test('CSV export uses display labels and preserves the filtered methods', () => {
   const csv = transactionsToCsv([cash, gcash, transaction('UNKNOWN-1', 'unknown')]);
   assert.match(csv, /"Payment Method"/);
   assert.match(csv, /"Cash"/);
   assert.match(csv, /"GCash"/);
   assert.match(csv, /"Unknown"/);
+});
+
+test('revenue recognizes paid payments but excludes pending and rejected proofs', () => {
+  const paid = transaction('PAID-1', 'gcash', { status: 'completed', statusRaw: 'succeeded', total: 500 });
+  const pending = transaction('PENDING-1', 'gcash', { status: 'pending', statusRaw: 'pending', total: 500 });
+  const rejected = transaction('REJECTED-1', 'gcash', { status: 'voided', statusRaw: 'rejected', total: 500 });
+  assert.equal(getRecognizedRevenueAmount(paid), 500);
+  assert.equal(getRecognizedRevenueAmount(pending), 0);
+  assert.equal(getRecognizedRevenueAmount(rejected), 0);
+});
+
+test('a separate refund transaction reduces recognized revenue', () => {
+  const refund = transaction('REFUND-1', 'gcash', {
+    status: 'voided',
+    statusRaw: 'refunded',
+    transactionType: 'refund',
+    total: -500,
+  });
+  assert.equal(getRecognizedRevenueAmount(refund), -500);
 });

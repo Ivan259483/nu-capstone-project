@@ -56,6 +56,7 @@ export default function SetPasswordPage() {
     const [linkError, setLinkError] = useState("");
     const [accountEmail, setAccountEmail] = useState("");
     const [accountName, setAccountName] = useState("");
+    const [requiresSignInAfterSetup, setRequiresSignInAfterSetup] = useState(false);
 
     const rules = useMemo(() => passwordRules(form.newPassword), [form.newPassword]);
     const strength = [rules.length, rules.upper, rules.lower, rules.number, rules.special].filter(Boolean).length;
@@ -85,6 +86,7 @@ export default function SetPasswordPage() {
                 }
                 setAccountEmail(data.data?.email || "");
                 setAccountName(data.data?.name || "");
+                setRequiresSignInAfterSetup(Boolean(data.data?.requiresSignIn));
                 setLinkStatus("valid");
             } catch {
                 if (!cancelled) {
@@ -149,7 +151,22 @@ export default function SetPasswordPage() {
                 return;
             }
 
-            const { token: newToken, user } = data.data || {};
+            const { token: newToken, user, requiresSignIn } = data.data || {};
+            if (requiresSignIn) {
+                // Password setup is not authentication for a client Office
+                // Admin. Remove any stale browser session before the required
+                // password-plus-OTP sign-in.
+                localStorage.removeItem("autospf_token");
+                localStorage.removeItem("autospf_session_cache");
+                localStorage.removeItem("autospf_backend_user");
+                sessionStorage.removeItem("login_otp_session_v1");
+                localStorage.removeItem("autospf_set_password_token");
+                if (setAuthUser) setAuthUser(null);
+                toast.success(data.message || "Password setup complete. Sign in to continue.");
+                const email = String(user?.email || accountEmail || "").trim().toLowerCase();
+                navigate(email ? `/login?email=${encodeURIComponent(email)}` : "/login", { replace: true });
+                return;
+            }
             if (newToken) localStorage.setItem("autospf_token", newToken);
             localStorage.removeItem("autospf_set_password_token");
             if (user && setAuthUser) setAuthUser(user);
@@ -322,7 +339,9 @@ export default function SetPasswordPage() {
                 </h1>
                 <p className="set-pw-note">
                     {isSetupLink
-                        ? "Your AutoSPF+ account is almost ready. Create your own password to activate secure access."
+                        ? requiresSignInAfterSetup
+                            ? "Create your password, then sign in with the one-time code sent to your email to finish administrator verification."
+                            : "Your AutoSPF+ account is almost ready. Create your own password to activate secure access."
                         : "For your security, please create your own password before accessing your account."}
                     {accountEmail ? (
                         <span className="set-pw-badge">
@@ -448,7 +467,7 @@ export default function SetPasswordPage() {
 
                         <button type="submit" className="btn-submit" disabled={isLoading} id="set-pw-submit">
                             {isLoading ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
-                            {isLoading ? "Saving..." : "Set Password & Continue"}
+                            {isLoading ? "Saving..." : requiresSignInAfterSetup ? "Set Password & Continue to Sign In" : "Set Password & Continue"}
                         </button>
                     </form>
                 )}

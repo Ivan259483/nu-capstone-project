@@ -8,6 +8,7 @@ process.env.RESEND_API_KEY = 'test_resend_key';
 
 const { default: Notification } = await import('../models/notification.model.js');
 const { default: Order } = await import('../models/order.model.js');
+const { default: Payment } = await import('../models/payment.model.js');
 const { default: User } = await import('../models/user.model.js');
 const { default: Customer } = await import('../models/customer.model.js');
 const { default: NotificationUserState } = await import(
@@ -87,6 +88,22 @@ async function seedOrder({
     bookingDate,
     bookingTime,
   });
+
+  if (paymentStatus === 'paid') {
+    await Payment.create({
+      invoiceId: `TEST-${order.orderNumber}`,
+      order: order._id,
+      customer: customer._id || customer,
+      amount: totalPrice,
+      amountSubmitted: totalPrice,
+      amountVerified: totalPrice,
+      status: 'succeeded',
+      transactionType: 'full_service_payment',
+      method: 'cash',
+      submittedAt: new Date(),
+      effectiveAt: new Date(),
+    });
+  }
 
   return { customer, order };
 }

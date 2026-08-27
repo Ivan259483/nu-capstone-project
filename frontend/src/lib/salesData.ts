@@ -1,6 +1,6 @@
 // Backend integration point: replace all mock data with API calls
 export type TransactionStatus = 'completed' | 'pending' | 'processing' | 'voided';
-export type PaymentMethod = 'cash' | 'card' | 'gcash' | 'maya' | 'bank_transfer' | 'unknown';
+export type PaymentMethod = 'cash' | 'card' | 'gcash' | 'maya' | 'bank_transfer' | 'split' | 'other' | 'unknown';
 
 export interface ServiceItem {
   id: string;
@@ -72,10 +72,12 @@ export interface Customer {
 
 export interface Transaction {
   id: string;
+  paymentId?: string;
   orderId?: string;
   orderNumber?: string;
   bookingReference?: string;
   invoiceId?: string;
+  bookingId?: string;
   customerId: string;
   customerName: string;
   customerPhone: string;
@@ -94,6 +96,16 @@ export interface Transaction {
   amountCollected?: number;
   balanceRemaining?: number;
   total: number;
+  transactionType?: 'reservation_fee' | 'service_balance' | 'full_service_payment' | 'additional_charge' | 'refund';
+  bookingStatus?: string;
+  amountSubmitted?: number;
+  amountVerified?: number;
+  signedAmount?: number;
+  paymentStatus?: string;
+  submittedAt?: string;
+  effectiveAt?: string;
+  refundableBalance?: number;
+  relatedPaymentId?: string;
   paymentMethod: PaymentMethod;
   /** Normalized for filters, KPIs, and badge colors */
   status: TransactionStatus;
@@ -141,10 +153,24 @@ export const SEVEN_DAY_SALES: { date: string; revenue: number }[] = [];
 export const formatPeso = (amount: number) =>
   `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+/** Revenue is recognized only for received funds; refund records reduce it. */
+export function getRecognizedRevenueAmount(transaction: Transaction): number {
+  if (transaction.signedAmount !== null && transaction.signedAmount !== undefined && Number.isFinite(Number(transaction.signedAmount))) {
+    return Number(transaction.signedAmount);
+  }
+  if (
+    transaction.transactionType === 'refund'
+    && ['refunded', 'succeeded'].includes(String(transaction.paymentStatus || transaction.statusRaw || '').toLowerCase())
+  ) {
+    return -Math.abs(Number(transaction.amountVerified ?? transaction.total) || 0);
+  }
+  return transaction.status === 'completed' ? Number(transaction.total) || 0 : 0;
+}
+
 export const getPaymentMethodLabel = (method: PaymentMethod): string => {
   const map: Record<PaymentMethod, string> = {
     cash: 'Cash', card: 'Credit/Debit Card', gcash: 'GCash',
-    maya: 'Maya', bank_transfer: 'Bank Transfer', unknown: 'Unknown',
+    maya: 'Maya', bank_transfer: 'Bank Transfer', split: 'Split Tender', other: 'Other', unknown: 'Unknown',
   };
   return map[method];
 };
@@ -154,13 +180,13 @@ export function normalizePaymentMethod(value: unknown): PaymentMethod {
   const normalized = typeof value === 'string'
     ? value.trim().toLowerCase().replace(/[\s-]+/g, '_')
     : '';
-  if (['cash', 'card', 'gcash', 'maya', 'bank_transfer'].includes(normalized)) {
+  if (['cash', 'card', 'gcash', 'maya', 'bank_transfer', 'split', 'other'].includes(normalized)) {
     return normalized as PaymentMethod;
   }
   return 'unknown';
 }
 
-export type TransactionPaymentFilter = 'all' | 'cash' | 'gcash';
+export type TransactionPaymentFilter = 'all' | PaymentMethod;
 export const DEFAULT_TRANSACTION_PAYMENT_FILTER: TransactionPaymentFilter = 'all';
 
 export interface TransactionFilters {
@@ -171,19 +197,32 @@ export interface TransactionFilters {
   dateTo?: string;
 }
 
+export const SALES_TIME_ZONE = 'Asia/Manila';
+
+export function formatManilaDateKey(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: SALES_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${fields.year}-${fields.month}-${fields.day}`;
+}
+
 /** Apply all Transactions-page filters to the same dataset before pagination/export. */
 export function filterTransactions(
   transactions: Transaction[],
   filters: TransactionFilters
 ): Transaction[] {
   const query = String(filters.search || '').trim().toLowerCase();
-  const from = filters.dateFrom ? new Date(`${filters.dateFrom}T00:00:00`).getTime() : null;
-  const to = filters.dateTo ? new Date(`${filters.dateTo}T23:59:59.999`).getTime() : null;
 
   return transactions.filter((transaction) => {
-    const transactionTime = new Date(transaction.dateTime).getTime();
-    if (from !== null && (!Number.isFinite(transactionTime) || transactionTime < from)) return false;
-    if (to !== null && (!Number.isFinite(transactionTime) || transactionTime > to)) return false;
+    const transactionDate = formatManilaDateKey(transaction.dateTime);
+    if (filters.dateFrom && (!transactionDate || transactionDate < filters.dateFrom)) return false;
+    if (filters.dateTo && (!transactionDate || transactionDate > filters.dateTo)) return false;
     if (filters.status && filters.status !== 'all' && transaction.status !== filters.status) return false;
     if (
       filters.paymentMethod
@@ -207,18 +246,24 @@ const csvCell = (value: unknown): string =>
 /** Build the exact filtered CSV payload shown by the Transactions page. */
 export function transactionsToCsv(transactions: Transaction[]): string {
   const headers = [
-    'Transaction ID', 'Customer', 'Vehicle Plate', 'Services', 'Amount',
-    'Payment Method', 'Status', 'Date', 'Staff',
+    'Transaction ID', 'Booking ID', 'Customer', 'Vehicle Plate', 'Services', 'Transaction Type',
+    'Amount Submitted', 'Amount Verified', 'Signed Amount',
+    'Payment Method', 'Payment Status', 'Booking Status', 'Date', 'Staff',
   ];
   const rows = transactions.map((transaction) => [
     transaction.id,
+    transaction.bookingId || transaction.bookingReference || transaction.orderNumber || '',
     transaction.customerName,
     transaction.vehiclePlate,
     transaction.services.map((service) => service.name).join('; '),
-    transaction.total.toFixed(2),
+    formatTransactionTypeLabel(transaction.transactionType),
+    Number(transaction.amountSubmitted || 0).toFixed(2),
+    Number(transaction.amountVerified || 0).toFixed(2),
+    Number(transaction.signedAmount || 0).toFixed(2),
     getPaymentMethodLabel(transaction.paymentMethod),
     formatTransactionStatusLabel(transaction.status, transaction.statusRaw),
-    new Date(transaction.dateTime).toLocaleString('en-PH'),
+    formatBookingStatusLabel(transaction.bookingStatus),
+    new Date(transaction.dateTime).toLocaleString('en-PH', { timeZone: SALES_TIME_ZONE }),
     transaction.staffName,
   ].map(csvCell).join(','));
   return [headers.map(csvCell).join(','), ...rows].join('\n');
@@ -258,20 +303,49 @@ export function formatTransactionStatusLabel(
 ): string {
   const r = (statusRaw || '').toLowerCase();
   const map: Record<string, string> = {
-    released: 'Released',
+    succeeded: 'Paid',
     rejected: 'Rejected',
-    pending_confirmation: 'Pending review',
-    in_progress: 'In Progress',
-    pending: 'Pending',
-    approved: 'Approved',
-    confirmed: 'Confirmed',
-    assigned: 'Assigned',
-    received: 'Received',
-    queued: 'Queued',
-    paid: 'Paid',
-    completed: 'Completed',
-    cancelled: 'Cancelled',
+    pending: 'Pending Verification',
+    failed: 'Failed',
+    refunded: 'Refunded',
+    partially_refunded: 'Partially Refunded',
+    voided: 'Voided',
   };
   if (r && map[r]) return map[r];
+  if (canonical === 'completed') return 'Paid';
+  if (canonical === 'pending') return 'Pending Verification';
   return canonical.charAt(0).toUpperCase() + canonical.slice(1);
+}
+
+export function formatTransactionTypeLabel(value?: Transaction['transactionType']): string {
+  const labels: Record<string, string> = {
+    reservation_fee: 'Reservation Fee',
+    service_balance: 'Service Balance',
+    full_service_payment: 'Full Service Payment',
+    additional_charge: 'Additional Charge',
+    refund: 'Refund',
+  };
+  return labels[String(value || '')] || 'Full Service Payment';
+}
+
+export function formatBookingStatusLabel(value?: string): string {
+  const key = String(value || '').trim().toLowerCase().replace(/-/g, '_');
+  const labels: Record<string, string> = {
+    pending_confirmation: 'Awaiting Approval',
+    pending: 'Awaiting Approval',
+    approved: 'Confirmed',
+    confirmed: 'Confirmed',
+    assigned: 'Confirmed',
+    queued: 'Confirmed',
+    received: 'Arrived',
+    in_progress: 'In Service',
+    quality_check: 'Quality Check',
+    ready_for_payment: 'Ready for Pickup',
+    completed: 'Completed',
+    paid: 'Completed',
+    released: 'Completed',
+    rejected: 'Awaiting Approval',
+    cancelled: 'Cancelled',
+  };
+  return labels[key] || (key ? key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '—');
 }

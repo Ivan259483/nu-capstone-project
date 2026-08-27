@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
 
 export const CHAT_CONVERSATION_STATUSES = Object.freeze([
   'open',
@@ -180,5 +181,10 @@ chatConversationSchema.index({ guestKey: 1, lastMessageAt: -1 });
 chatConversationSchema.index({ userId: 1, lastMessageAt: -1 });
 chatConversationSchema.index({ status: 1, lastMessageAt: -1 });
 chatConversationSchema.index({ handedOffAt: 1, lastMessageAt: -1 });
+
+chatConversationSchema.plugin(operationalClassificationPlugin, {
+  collectionName: 'chat_conversations',
+  label: (conversation) => conversation.title || conversation.customerName || conversation.conversationId,
+});
 
 export default mongoose.model('ChatConversation', chatConversationSchema);

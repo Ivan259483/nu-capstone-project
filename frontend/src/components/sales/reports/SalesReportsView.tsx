@@ -1,425 +1,342 @@
-import React, { useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  TrendingUp, TrendingDown, DollarSign, ShoppingBag, Users,
-  Calendar, Download, BarChart3, PieChart, ArrowUpRight,
-  ArrowDownRight, Clock, CreditCard, Wallet, Landmark, Smartphone,
-  ChevronDown, Filter,
+  BadgeDollarSign,
+  Banknote,
+  CalendarDays,
+  Download,
+  FileClock,
+  ReceiptText,
+  RefreshCw,
+  RotateCcw,
+  ShoppingBag,
+  Users,
+  WalletCards,
 } from 'lucide-react';
-import { useSalesContext } from '@/contexts/SalesAnalyticsContext';
-import { getPaymentMethodLabel } from '@/lib/salesData';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import api from '@/lib/api';
+import { getSharedSocket } from '@/hooks/useRealtimeSync';
+import SalesStatCard from '@/components/sales/ui/SalesStatCard';
+import { SALES_ACCENTS } from '@/components/sales/ui/salesTheme';
+import type { ReportRange, SalesAnalyticsReport, ServiceMetric } from '@/types/salesAnalytics';
+import { buildSalesReportQuery } from '@/lib/salesAnalyticsContracts';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function formatCurrency(n: number) {
-  return `₱${n.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
-}
+const peso = (value: number) => `₱${Number(value || 0).toLocaleString('en-PH', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})}`;
 
-function pctChange(current: number, previous: number): { value: number; isUp: boolean } {
-  if (previous === 0) return { value: current > 0 ? 100 : 0, isUp: current > 0 };
-  const pct = ((current - previous) / previous) * 100;
-  return { value: Math.abs(Math.round(pct)), isUp: pct >= 0 };
-}
-
-type DateRange = '7d' | '30d' | '90d' | 'all';
-
-// ── Mini Bar Chart ────────────────────────────────────────────────────────────
-function MiniBarChart({ data, color = '#3B82F6' }: { data: { label: string; value: number }[]; color?: string }) {
-  const max = Math.max(...data.map(d => d.value), 1);
-  return (
-    <div className="flex items-end gap-1.5 h-32">
-      {data.map((d, i) => (
-        <div key={i} className="flex-1 flex flex-col items-center gap-1">
-          <div
-            className="w-full rounded-t-md transition-all duration-500"
-            style={{
-              height: `${Math.max((d.value / max) * 100, 4)}%`,
-              backgroundColor: color,
-              opacity: 0.15 + (d.value / max) * 0.85,
-              minHeight: '4px',
-            }}
-          />
-          <span className="text-[9px] text-slate-400 whitespace-nowrap">{d.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Donut Chart ───────────────────────────────────────────────────────────────
-function DonutChart({ data }: { data: { name: string; value: number; pct: number; fill: string }[] }) {
-  const total = data.reduce((sum, d) => sum + d.value, 0);
-  let offset = 0;
-
-  if (data.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-40">
-        <div className="text-center">
-          <div className="w-20 h-20 rounded-full bg-slate-100/90 shadow-inner mx-auto mb-2" />
-          <p className="text-xs text-slate-400">No data yet</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-6">
-      <svg viewBox="0 0 100 100" className="w-32 h-32 shrink-0">
-        {data.map((d, i) => {
-          const pct = total > 0 ? (d.value / total) * 100 : 0;
-          const dashArray = `${pct * 2.827} ${282.7 - pct * 2.827}`;
-          const dashOffset = -offset * 2.827;
-          offset += pct;
-          return (
-            <circle
-              key={i}
-              cx="50" cy="50" r="45"
-              fill="none"
-              stroke={d.fill}
-              strokeWidth="10"
-              strokeDasharray={dashArray}
-              strokeDashoffset={dashOffset}
-              className="transition-all duration-700"
-            />
-          );
-        })}
-        <text x="50" y="47" textAnchor="middle" className="fill-slate-900 text-[10px] font-bold">
-          {formatCurrency(total)}
-        </text>
-        <text x="50" y="57" textAnchor="middle" className="fill-slate-400 text-[5px]">Total Revenue</text>
-      </svg>
-      <div className="space-y-2 flex-1">
-        {data.map((d, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: d.fill }} />
-            <span className="text-xs text-slate-600 flex-1 truncate">{d.name}</span>
-            <span className="text-xs font-bold text-slate-800">{d.pct}%</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Payment Method Icon ───────────────────────────────────────────────────────
-const PAYMENT_ICONS: Record<string, typeof CreditCard> = {
-  cash: Wallet,
-  card: CreditCard,
-  gcash: Smartphone,
-  maya: Smartphone,
-  bank_transfer: Landmark,
+const compactPeso = (value: number) => {
+  if (Math.abs(value) >= 1_000_000) return `₱${(value / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1_000) return `₱${Math.round(value / 1_000)}K`;
+  return `₱${Math.round(value)}`;
 };
 
-// ── Main Sales Reports View ───────────────────────────────────────────────────
+const comparisonLabel = (change?: number) => {
+  if (change === undefined) return 'No all-time comparison';
+  const sign = change > 0 ? '+' : '';
+  return `${sign}${change.toFixed(1)}% vs previous equal period`;
+};
+
+const rangeOptions: Array<{ value: ReportRange; label: string }> = [
+  { value: '7d', label: '7 Days' },
+  { value: '30d', label: '30 Days' },
+  { value: '90d', label: '90 Days' },
+  { value: 'all', label: 'All Time' },
+  { value: 'custom', label: 'Custom' },
+];
+
 export default function SalesReportsView() {
-  const { transactions, isLoading, kpis, hourlySales, serviceMix, sevenDaySales } = useSalesContext();
-  const [dateRange, setDateRange] = useState<DateRange>('30d');
+  const [range, setRange] = useState<ReportRange>('30d');
+  const [serviceMetric, setServiceMetric] = useState<ServiceMetric>('orders');
+  const [customDraft, setCustomDraft] = useState({ from: '', to: '' });
+  const [custom, setCustom] = useState({ from: '', to: '' });
+  const [report, setReport] = useState<SalesAnalyticsReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
 
-  // Filter transactions by date range
-  const rangeFiltered = useMemo(() => {
-    const now = new Date();
-    let cutoff: Date;
-    switch (dateRange) {
-      case '7d': cutoff = new Date(now.getTime() - 7 * 86400000); break;
-      case '30d': cutoff = new Date(now.getTime() - 30 * 86400000); break;
-      case '90d': cutoff = new Date(now.getTime() - 90 * 86400000); break;
-      default: cutoff = new Date(0);
+  const query = useMemo(
+    () => buildSalesReportQuery(range, serviceMetric, custom),
+    [custom, range, serviceMetric],
+  );
+  const customReady = range !== 'custom' || Boolean(custom.from && custom.to);
+
+  const loadReport = useCallback(async (signal?: AbortSignal) => {
+    if (!customReady) return;
+    setLoading(true);
+    try {
+      const response = await api.get('/sales-analytics/report', {
+        params: query,
+        signal,
+        meta: { suppressCancelLog: true, suppressErrorToast: true },
+      } as any);
+      if (response.data?.success) setReport(response.data.data as SalesAnalyticsReport);
+    } catch (error: any) {
+      if (error?.code !== 'ERR_CANCELED') console.error('Failed to load sales report:', error);
+    } finally {
+      if (!signal?.aborted) setLoading(false);
     }
-    return transactions.filter((t) => new Date(t.analyticsDateTime || t.dateTime) >= cutoff);
-  }, [transactions, dateRange]);
+  }, [customReady, query]);
 
-  // Previous period for comparison
-  const prevFiltered = useMemo(() => {
-    const now = new Date();
-    let periodMs: number;
-    switch (dateRange) {
-      case '7d': periodMs = 7 * 86400000; break;
-      case '30d': periodMs = 30 * 86400000; break;
-      case '90d': periodMs = 90 * 86400000; break;
-      default: return [];
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadReport(controller.signal);
+    return () => controller.abort();
+  }, [loadReport, refreshToken]);
+
+  useEffect(() => {
+    const socket = getSharedSocket();
+    const invalidate = (payload?: any) => {
+      if (!payload?.collection || ['payments', 'orders'].includes(payload.collection)) setRefreshToken((value) => value + 1);
+    };
+    socket.on('db_change', invalidate);
+    socket.on('ledger:changed', invalidate);
+    return () => {
+      socket.off('db_change', invalidate);
+      socket.off('ledger:changed', invalidate);
+    };
+  }, []);
+
+  const downloadCsv = async () => {
+    if (!customReady) return;
+    setDownloading(true);
+    try {
+      const response = await api.get('/sales-analytics/report.csv', { params: query, responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `autospf-sales-${report?.range.from || 'all'}-${report?.range.to || 'time'}.csv`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
     }
-    const start = new Date(now.getTime() - 2 * periodMs);
-    const end = new Date(now.getTime() - periodMs);
-    return transactions.filter((t) => {
-      const d = new Date(t.analyticsDateTime || t.dateTime);
-      return d >= start && d < end;
-    });
-  }, [transactions, dateRange]);
-
-  // Revenue KPIs for selected period
-  const periodRevenue = rangeFiltered.filter(t => t.status !== 'voided').reduce((s, t) => s + t.total, 0);
-  const prevRevenue = prevFiltered.filter(t => t.status !== 'voided').reduce((s, t) => s + t.total, 0);
-  const revChange = pctChange(periodRevenue, prevRevenue);
-  const periodOrders = rangeFiltered.length;
-  const prevOrders = prevFiltered.length;
-  const ordersChange = pctChange(periodOrders, prevOrders);
-  const periodAvg = periodOrders > 0 ? periodRevenue / periodOrders : 0;
-  const prevAvg = prevOrders > 0 ? prevRevenue / prevOrders : 0;
-  const avgChange = pctChange(periodAvg, prevAvg);
-
-  // Unique customers
-  const uniqueCustomers = new Set(rangeFiltered.map(t => t.customerId)).size;
-  const prevUniqueCustomers = new Set(prevFiltered.map(t => t.customerId)).size;
-  const custChange = pctChange(uniqueCustomers, prevUniqueCustomers);
-
-  // Payment method breakdown
-  const paymentBreakdown = useMemo(() => {
-    const map: Record<string, { count: number; total: number }> = {};
-    rangeFiltered.filter(t => t.status !== 'voided').forEach(t => {
-      const method = t.paymentMethod;
-      if (!map[method]) map[method] = { count: 0, total: 0 };
-      map[method].count += 1;
-      map[method].total += t.total;
-    });
-    return Object.entries(map)
-      .sort((a, b) => b[1].total - a[1].total)
-      .map(([method, data]) => ({ method, ...data }));
-  }, [rangeFiltered]);
-
-  // Service breakdown
-  const serviceBreakdown = useMemo(() => {
-    const map: Record<string, { count: number; revenue: number }> = {};
-    rangeFiltered.filter(t => t.status !== 'voided').forEach(t => {
-      t.services.forEach(s => {
-        const name = s.name || 'Other';
-        if (!map[name]) map[name] = { count: 0, revenue: 0 };
-        map[name].count += s.qty;
-        map[name].revenue += s.price * s.qty;
-      });
-    });
-    return Object.entries(map)
-      .sort((a, b) => b[1].revenue - a[1].revenue)
-      .slice(0, 8);
-  }, [rangeFiltered]);
-
-  // Daily revenue for chart
-  const dailyRevenue = useMemo(() => {
-    const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : dateRange === '90d' ? 90 : 30;
-    const result: { label: string; value: number }[] = [];
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 86400000);
-      const next = new Date(d.getTime() + 86400000);
-      const dayRev = rangeFiltered
-        .filter(t => t.status !== 'voided')
-        .filter(t => {
-          const td = new Date(t.dateTime);
-          return td >= d && td < next;
-        })
-        .reduce((sum, t) => sum + t.total, 0);
-
-      // Show every Nth label to avoid crowding
-      const step = days <= 7 ? 1 : days <= 30 ? 5 : 10;
-      const label = (days - 1 - i) % step === 0 || i === 0
-        ? d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
-        : '';
-      result.push({ label, value: dayRev });
-    }
-    return result;
-  }, [rangeFiltered, dateRange]);
-
-  // CSV Export
-  const handleExport = () => {
-    const headers = ['Date', 'Customer', 'Services', 'Payment', 'Status', 'Total'];
-    const rows = rangeFiltered.map(t => [
-      new Date(t.dateTime).toLocaleDateString('en-PH'),
-      t.customerName,
-      t.services.map(s => s.name).join('; '),
-      getPaymentMethodLabel(t.paymentMethod),
-      t.status,
-      t.total.toFixed(2),
-    ]);
-    const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `sales-report-${dateRange}-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
-  return (
-    <div className="space-y-6 page-enter">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Sales Reports</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Revenue analytics & performance insights</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Date Range Selector */}
-          <div className="flex rounded-xl bg-slate-100/70 p-1 shadow-inner gap-0.5">
-            {[
-              { key: '7d' as DateRange, label: '7 Days' },
-              { key: '30d' as DateRange, label: '30 Days' },
-              { key: '90d' as DateRange, label: '90 Days' },
-              { key: 'all' as DateRange, label: 'All Time' },
-            ].map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setDateRange(opt.key)}
-                className={`px-3 py-2 text-xs font-semibold rounded-lg transition-all duration-200 ${
-                  dateRange === opt.key
-                    ? 'bg-white text-blue-700 shadow-[0_1px_3px_rgba(15,23,42,0.1),0_4px_14px_-4px_rgba(15,23,42,0.08)]'
-                    : 'text-slate-600 hover:bg-white/60'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+  const kpis = report?.kpis;
+  const comparisons = report?.comparison;
+  const secondary = report?.secondary;
+  const rangeLabel = report?.range.from && report.range.to
+    ? `${report.range.from} to ${report.range.to}`
+    : 'All available ledger history';
 
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-sm font-semibold text-slate-700 shadow-[0_2px_8px_rgba(15,23,42,0.05),0_10px_28px_-10px_rgba(15,23,42,0.1)] hover:shadow-[0_4px_14px_rgba(15,23,42,0.08),0_14px_36px_-12px_rgba(15,23,42,0.12)] transition-all duration-200"
-          >
-            <Download size={14} />
-            Export CSV
-          </button>
+  return (
+    <div className="page-enter space-y-6 pb-8 text-slate-900">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-950">Sales Reports</h1>
+          <p className="mt-1 text-sm text-slate-500">Booked value and collected money are reported independently from one verified ledger.</p>
+          <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400">
+            <CalendarDays size={13} /> {rangeLabel} · Asia/Manila
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={downloadCsv}
+          disabled={!customReady || downloading}
+          className="btn-secondary inline-flex items-center gap-2 rounded-xl px-4 py-2.5 disabled:opacity-50"
+        >
+          {downloading ? <RefreshCw size={15} className="animate-spin" /> : <Download size={15} />}
+          Export reconciled CSV
+        </button>
       </div>
 
-      {/* KPI Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200/70 bg-white p-2 shadow-sm">
+        {rangeOptions.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setRange(option.value)}
+            className={`rounded-xl px-3.5 py-2 text-xs font-semibold transition ${
+              range === option.value ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+        {range === 'custom' && (
+          <div className="ml-1 flex flex-wrap items-center gap-2 border-l border-slate-200 pl-3">
+            <input
+              aria-label="Report from date"
+              type="date"
+              value={customDraft.from}
+              max={customDraft.to || undefined}
+              onChange={(event) => setCustomDraft((value) => ({ ...value, from: event.target.value }))}
+              className="input-base rounded-xl py-2 text-xs"
+            />
+            <span className="text-xs text-slate-400">to</span>
+            <input
+              aria-label="Report to date"
+              type="date"
+              value={customDraft.to}
+              min={customDraft.from || undefined}
+              onChange={(event) => setCustomDraft((value) => ({ ...value, to: event.target.value }))}
+              className="input-base rounded-xl py-2 text-xs"
+            />
+            <button
+              type="button"
+              disabled={!customDraft.from || !customDraft.to}
+              onClick={() => setCustom(customDraft)}
+              className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+            >
+              Apply
+            </button>
+          </div>
+        )}
+      </div>
+
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Primary report metrics">
         {[
-          { label: 'Total Revenue', value: formatCurrency(periodRevenue), change: revChange, icon: DollarSign, color: 'bg-blue-50 text-blue-600', cardClass: 'shadow-[0_2px_8px_rgba(59,130,246,0.06),0_12px_32px_-8px_rgba(59,130,246,0.1)]' },
-          { label: 'Total Orders', value: periodOrders.toString(), change: ordersChange, icon: ShoppingBag, color: 'bg-emerald-50 text-emerald-600', cardClass: 'shadow-[0_2px_8px_rgba(16,185,129,0.06),0_12px_32px_-8px_rgba(16,185,129,0.1)]' },
-          { label: 'Avg. Order Value', value: formatCurrency(periodAvg), change: avgChange, icon: TrendingUp, color: 'bg-violet-50 text-violet-600', cardClass: 'shadow-[0_2px_8px_rgba(139,92,246,0.06),0_12px_32px_-8px_rgba(139,92,246,0.1)]' },
-          { label: 'Unique Customers', value: uniqueCustomers.toString(), change: custChange, icon: Users, color: 'bg-amber-50 text-amber-600', cardClass: 'shadow-[0_2px_8px_rgba(245,158,11,0.07),0_12px_32px_-8px_rgba(245,158,11,0.11)]' },
-        ].map((kpi) => (
-          <div key={kpi.label} className={`bg-white rounded-xl border-0 p-4 ${kpi.cardClass}`}>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{kpi.label}</span>
-              <div className={`w-8 h-8 rounded-lg ${kpi.color} flex items-center justify-center`}>
-                <kpi.icon size={16} />
-              </div>
+          {
+            title: 'Net Collected', value: peso(kpis?.netCollectedRevenue || 0),
+            label: comparisonLabel(comparisons?.netCollectedRevenue.percentChange), icon: <Banknote size={17} />,
+            accent: SALES_ACCENTS.green,
+          },
+          {
+            title: 'Booked Sales', value: peso(kpis?.bookedSalesValue || 0),
+            label: comparisonLabel(comparisons?.bookedSalesValue.percentChange), icon: <ShoppingBag size={17} />,
+            accent: SALES_ACCENTS.blue,
+          },
+          {
+            title: 'Confirmed Orders', value: String(kpis?.confirmedOrders || 0),
+            label: comparisonLabel(comparisons?.confirmedOrders.percentChange), icon: <ReceiptText size={17} />,
+            accent: SALES_ACCENTS.purple,
+          },
+          {
+            title: 'Average Order Value', value: peso(kpis?.averageOrderValue || 0),
+            label: comparisonLabel(comparisons?.averageOrderValue.percentChange), icon: <WalletCards size={17} />,
+            accent: SALES_ACCENTS.orange,
+          },
+        ].map((card) => (
+          <SalesStatCard key={card.title} title={card.title} metric={loading ? '—' : card.value} label={card.label} icon={card.icon} accent={card.accent} />
+        ))}
+      </section>
+
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6" aria-label="Secondary report metrics">
+        {[
+          ['Unique Customers', kpis?.uniqueCustomers || 0, Users],
+          ['Pending Verification', peso(secondary?.pendingVerification || 0), FileClock],
+          ['Outstanding Balance', peso(secondary?.outstandingBalance || 0), BadgeDollarSign],
+          ['Reservation Fees', peso(secondary?.reservationFeesCollected || 0), ReceiptText],
+          ['Refunds', peso(secondary?.refunds || 0), RotateCcw],
+          ['Cancellations', secondary?.cancellations || 0, CalendarDays],
+        ].map(([label, value, Icon]) => (
+          <div key={String(label)} className="rounded-2xl border border-slate-200/70 bg-white px-4 py-3.5 shadow-sm">
+            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              {React.createElement(Icon as typeof Users, { size: 14 })}{String(label)}
             </div>
-            <p className="text-xl font-bold text-slate-900">{isLoading ? '—' : kpi.value}</p>
-            {dateRange !== 'all' && (
-              <div className={`flex items-center gap-1 mt-1 text-[11px] font-semibold ${kpi.change.isUp ? 'text-emerald-600' : 'text-red-500'}`}>
-                {kpi.change.isUp ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-                {kpi.change.value}% vs prev period
-              </div>
-            )}
+            <p className="mt-2 text-lg font-bold tabular-nums text-slate-900">{loading ? '—' : String(value)}</p>
           </div>
         ))}
-      </div>
+      </section>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Revenue Trend Chart */}
-        <div className="lg:col-span-2 card-base p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-800">Revenue Trend</h3>
-              <p className="text-[11px] text-slate-400 mt-0.5">Daily revenue over selected period</p>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-sm bg-blue-500" />
-              <span className="text-[10px] text-slate-500">Revenue</span>
-            </div>
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(340px,1fr)]">
+        <section className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-sm">
+          <div className="mb-5">
+            <h2 className="text-base font-bold text-slate-900">Net Collected Revenue Trend</h2>
+            <p className="mt-1 text-xs text-slate-500">Verified payments less posted refunds, recognized on effective date.</p>
           </div>
-          {isLoading ? (
-            <div className="h-32 flex items-center justify-center">
-              <div className="w-6 h-6 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-            </div>
-          ) : dailyRevenue.length === 0 ? (
-            <div className="h-32 flex items-center justify-center text-xs text-slate-400">No data</div>
-          ) : (
-            <MiniBarChart data={dailyRevenue} color="#3B82F6" />
-          )}
-        </div>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={report?.revenueTrend || []} margin={{ top: 8, right: 10, left: 4, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke="#e2e8f0" strokeDasharray="4 4" />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
+                <YAxis tickFormatter={compactPeso} tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={55} />
+                <Tooltip formatter={(value: number) => peso(value)} />
+                <Line type="monotone" dataKey="netCollected" name="Net collected" stroke="#0f172a" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
 
-        {/* Service Mix Donut */}
-        <div className="card-base p-5">
-          <h3 className="text-sm font-bold text-slate-800 mb-1">Service Mix</h3>
-          <p className="text-[11px] text-slate-400 mb-4">Revenue by service category</p>
-          {isLoading ? (
-            <div className="h-40 flex items-center justify-center">
-              <div className="w-6 h-6 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+        <section className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Service Mix</h2>
+              <p className="mt-1 text-xs text-slate-500">Approved bookings only.</p>
             </div>
-          ) : (
-            <DonutChart data={serviceMix} />
-          )}
-        </div>
+            <select
+              value={serviceMetric}
+              onChange={(event) => setServiceMetric(event.target.value as ServiceMetric)}
+              className="input-base rounded-xl py-2 text-xs"
+            >
+              <option value="orders">Confirmed orders</option>
+              <option value="booked_value">Booked sales value</option>
+            </select>
+          </div>
+          <div className="mt-5 space-y-4">
+            {(report?.serviceMix || []).slice(0, 6).map((service) => (
+              <div key={service.name}>
+                <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+                  <span className="truncate font-semibold text-slate-700">{service.name}</span>
+                  <span className="shrink-0 font-bold text-slate-900">
+                    {serviceMetric === 'orders' ? `${service.value} orders` : peso(service.value)}
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(2, service.percentage)}%` }} />
+                </div>
+              </div>
+            ))}
+            {!loading && !report?.serviceMix.length && <p className="py-16 text-center text-sm text-slate-400">No confirmed bookings in this range.</p>}
+          </div>
+        </section>
       </div>
 
-      {/* Bottom Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Payment Breakdown */}
-        <div className="card-base p-5">
-          <h3 className="text-sm font-bold text-slate-800 mb-1">Payment Methods</h3>
-          <p className="text-[11px] text-slate-400 mb-4">Revenue breakdown by payment method</p>
-          {isLoading ? (
-            <div className="h-24 flex items-center justify-center">
-              <div className="w-6 h-6 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-            </div>
-          ) : paymentBreakdown.length === 0 ? (
-            <div className="h-24 flex items-center justify-center text-xs text-slate-400">No payments recorded</div>
-          ) : (
-            <div className="space-y-3">
-              {paymentBreakdown.map((pm) => {
-                const Icon = PAYMENT_ICONS[pm.method] || Wallet;
-                const totalPm = paymentBreakdown.reduce((s, p) => s + p.total, 0);
-                const pct = totalPm > 0 ? (pm.total / totalPm) * 100 : 0;
-                return (
-                  <div key={pm.method} className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center shrink-0">
-                      <Icon size={15} className="text-slate-500" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-semibold text-slate-700 capitalize">{pm.method.replace(/_/g, ' ')}</span>
-                        <span className="text-xs font-bold text-slate-900">{formatCurrency(pm.total)}</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-blue-500 rounded-full transition-all duration-700"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between mt-0.5">
-                        <span className="text-[10px] text-slate-400">{pm.count} transaction{pm.count !== 1 ? 's' : ''}</span>
-                        <span className="text-[10px] text-slate-400">{Math.round(pct)}%</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <section className="overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm">
+          <div className="px-5 py-4">
+            <h2 className="text-base font-bold text-slate-900">Top Services</h2>
+            <p className="mt-1 text-xs text-slate-500">Demand and collections stay visibly separate.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                <tr><th className="px-5 py-3">Service</th><th className="px-4 py-3">Orders</th><th className="px-4 py-3">Booked</th><th className="px-5 py-3">Collected</th></tr>
+              </thead>
+              <tbody>
+                {(report?.topServices || []).map((service) => (
+                  <tr key={service.name} className="border-t border-slate-100">
+                    <td className="px-5 py-3.5 font-semibold text-slate-800">{service.name}</td>
+                    <td className="px-4 py-3.5 tabular-nums text-slate-600">{service.confirmedOrders}</td>
+                    <td className="px-4 py-3.5 font-semibold tabular-nums text-slate-800">{peso(service.bookedValue)}</td>
+                    <td className="px-5 py-3.5 font-semibold tabular-nums text-emerald-700">{peso(service.collected)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-        {/* Top Services */}
-        <div className="card-base p-5">
-          <h3 className="text-sm font-bold text-slate-800 mb-1">Top Services</h3>
-          <p className="text-[11px] text-slate-400 mb-4">Most popular services by revenue</p>
-          {isLoading ? (
-            <div className="h-24 flex items-center justify-center">
-              <div className="w-6 h-6 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-            </div>
-          ) : serviceBreakdown.length === 0 ? (
-            <div className="h-24 flex items-center justify-center text-xs text-slate-400">No services recorded</div>
-          ) : (
-            <div className="space-y-2.5">
-              {serviceBreakdown.map(([name, data], i) => (
-                <div key={name} className="flex items-center gap-3">
-                  <span className="w-5 h-5 rounded-md bg-blue-50 text-blue-600 text-[10px] font-bold flex items-center justify-center shrink-0">
-                    {i + 1}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-slate-700 truncate">{name}</span>
-                      <span className="text-xs font-bold text-slate-900 ml-2">{formatCurrency(data.revenue)}</span>
-                    </div>
-                    <span className="text-[10px] text-slate-400">{data.count} order{data.count !== 1 ? 's' : ''}</span>
+        <section className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-sm">
+          <h2 className="text-base font-bold text-slate-900">Verified Payment Methods</h2>
+          <p className="mt-1 text-xs text-slate-500">Split tenders are expanded into their actual components.</p>
+          <div className="mt-5 space-y-3">
+            {(report?.paymentMethods || []).map((method) => (
+              <div key={method.method} className="rounded-2xl bg-slate-50 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold capitalize text-slate-800">{method.method.replace(/_/g, ' ')}</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">{method.verifiedTransactions} verified · {method.refunds} refund{method.refunds === 1 ? '' : 's'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold tabular-nums text-slate-900">{peso(method.amount)}</p>
+                    <p className="text-[11px] font-semibold text-slate-400">{method.percentage.toFixed(1)}%</p>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+              </div>
+            ))}
+            {!loading && !report?.paymentMethods.length && <p className="py-14 text-center text-sm text-slate-400">No verified payments in this range.</p>}
+          </div>
+        </section>
       </div>
     </div>
   );

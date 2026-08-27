@@ -11,6 +11,7 @@
     "audit:ar": "node scripts/security-ar-check.mjs",
     "audit:csp": "node scripts/security-csp-check.mjs",
     "test:admin-navigation": "node --experimental-strip-types --test tests/adminHubNavigation.test.ts",
+    "test:sales-analytics": "node --experimental-strip-types --test tests/transactionPayment.test.ts tests/salesAnalyticsContracts.test.ts",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
     "optimize:hero": "node scripts/optimize-hero-images.mjs",

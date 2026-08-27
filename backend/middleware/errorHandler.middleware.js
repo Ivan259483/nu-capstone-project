@@ -4,7 +4,7 @@
 export const errorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
-  let status = err.status || 500;
+  let status = err.statusCode || err.status || 500;
 
   // Log error for dev inspection
   console.error(`[Error] ${err.name || 'Error'}: ${err.message}`);
@@ -47,6 +47,7 @@ export const errorHandler = (err, req, res, next) => {
     success: false,
     status,
     message: error.message || 'Internal Server Error',
+    ...(typeof err.code === 'string' ? { code: err.code } : {}),
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
   });
 };

@@ -127,13 +127,16 @@ async function sendPush(userId, notification) {
     if (Object.keys(result.receiptTokens || {}).length) {
       const receiptTimer = setTimeout(async () => {
         try {
-          const expiredTokens = await getInvalidExpoPushTokensFromReceipts(result.receiptTokens);
-          if (expiredTokens.length) {
-            await User.updateOne(
-              { _id: userId },
-              { $pull: { expoPushTokens: { $in: expiredTokens } } }
-            );
-          }
+          const { runTrackedSystemMutation } = await import('../middleware/systemLifecycle.middleware.js');
+          await runTrackedSystemMutation(async () => {
+            const expiredTokens = await getInvalidExpoPushTokensFromReceipts(result.receiptTokens);
+            if (expiredTokens.length) {
+              await User.updateOne(
+                { _id: userId },
+                { $pull: { expoPushTokens: { $in: expiredTokens } } }
+              );
+            }
+          });
         } catch (error) {
           console.warn('[customerNotifications] Push receipt check failed:', error.message);
         }

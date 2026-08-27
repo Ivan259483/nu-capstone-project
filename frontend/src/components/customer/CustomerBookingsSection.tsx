@@ -452,7 +452,7 @@ export function CustomerBookingsSection({
   };
 
   return (
-    <div className="customer-content-fade-in mx-auto w-full max-w-[1280px] space-y-5 pb-12 pt-1">
+    <div className="customer-content-fade-in min-w-0 w-full flex-1 space-y-5 pb-12 pt-1">
       <header className="relative overflow-hidden rounded-[28px] border border-blue-100 bg-gradient-to-br from-white via-white to-blue-50/80 px-5 pb-14 pt-6 shadow-[0_30px_80px_-50px_rgba(37,99,235,0.34)] sm:px-7 sm:pt-7">
         <div className="pointer-events-none absolute -right-24 -top-32 h-80 w-80 rounded-full bg-blue-200/45 blur-3xl" />
         <div className="pointer-events-none absolute -left-20 bottom-0 h-36 w-72 rounded-full bg-sky-100/65 blur-3xl" />
@@ -495,7 +495,7 @@ export function CustomerBookingsSection({
         </div>
       </header>
 
-      <div className="relative z-10 -mt-10 overflow-x-auto px-3 pb-2 [scrollbar-width:none] sm:px-5 [&::-webkit-scrollbar]:hidden">
+      <div className="relative z-10 -mt-10 w-full overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="grid min-w-[760px] grid-cols-5 gap-2.5">
           {FILTERS.map((filter) => {
             const selected = activeFilter === filter;
@@ -787,7 +787,7 @@ export function CustomerBookingsSection({
       {historyBookings.length > 0 && (
         <section className="space-y-3">
           <SectionLabel label="Service archive" aside={`${historyBookings.length} records`} />
-          <div className="grid items-start gap-3 lg:grid-cols-2">
+          <div className="grid w-full gap-3 md:grid-cols-2 xl:grid-cols-3">
             {historyBookings.map((booking) => {
               const id = bookingId(booking);
               const reference = appointmentReference(booking);
@@ -810,7 +810,7 @@ export function CustomerBookingsSection({
                   ref={(element) => registerBookingRef?.(reference, element)}
                   data-appointment-ref={reference || undefined}
                   className={cn(
-                    'relative flex flex-col gap-3 overflow-hidden rounded-[20px] border bg-[linear-gradient(145deg,#ffffff_0%,#ffffff_72%,#f8fafc_100%)] py-4 pl-6 pr-5 shadow-[0_20px_48px_-38px_rgba(15,23,42,0.56)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_26px_58px_-38px_rgba(15,23,42,0.6)] motion-reduce:transform-none',
+                    'relative flex h-full min-w-0 flex-col gap-3 overflow-hidden rounded-[20px] border bg-[linear-gradient(145deg,#ffffff_0%,#ffffff_72%,#f8fafc_100%)] py-4 pl-6 pr-5 shadow-[0_20px_48px_-38px_rgba(15,23,42,0.56)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_26px_58px_-38px_rgba(15,23,42,0.6)] motion-reduce:transform-none',
                     rejected || cancelled
                       ? 'border-rose-200/90 hover:border-rose-300'
                       : 'border-slate-200/90 hover:border-blue-200',

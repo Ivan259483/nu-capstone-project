@@ -165,6 +165,16 @@ export const validateResetPassword = [
     .matches(/[0-9]/).withMessage('Password must contain at least one number')
     .matches(/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/).withMessage('Password must contain at least one special character'),
 
+  // The web reset form sends confirmation as an additional guard. Keep this
+  // optional for the mobile client, which already validates the same match
+  // before submitting the reset request.
+  body('confirmPassword')
+    .optional()
+    .custom((value, { req }) => {
+      if (value !== req.body.newPassword) throw new Error('Passwords do not match');
+      return true;
+    }),
+
   handleValidationErrors,
 ];
 

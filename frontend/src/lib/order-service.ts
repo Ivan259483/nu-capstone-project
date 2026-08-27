@@ -2,7 +2,7 @@ import api from './api';
 import { cachedGet, TTL, invalidate } from './queryCache';
 import type { Booking } from '@/types';
 import { db } from '@/config/firebase';
-import { collection, query, where, onSnapshot, orderBy, doc, setDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import { resolveReceiptPhone } from './receipt-phone';
 
 export type OrderAvailabilityErrorCode =
@@ -368,26 +368,22 @@ export const OrderService = {
 
         if (response.data.data) {
             const booking = normalizeBooking(response.data.data);
-            // Sync to Firestore for real-time updates (fire-and-forget to prevent UI blocking)
-            this.syncBookingToFirestore(booking).catch(e => {
-                console.error("Firestore sync failed (background):", e);
+            // The HTTP write is authoritative. Bust cached reads so the next
+            // socket-driven or explicit refetch observes the committed record.
+            this.refreshAfterBookingMutation(booking).catch(e => {
+                console.error("Booking cache invalidation failed:", e);
             });
         }
         return response.data;
     },
 
     /**
-     * Syncs a booking object to Firestore to enable real-time updates.
+     * Invalidates cached booking reads after an authoritative HTTP mutation.
+     * Firestore remains a read-only listener/fallback and is never written by
+     * the browser.
      */
-    async syncBookingToFirestore(booking: Booking) {
-        if (!db) return;
-        try {
-            // Ensure Firestore doc has a stable `customerId` field for queries
-            const normalized = normalizeBooking(booking);
-            await setDoc(doc(db, 'bookings', normalized.id), normalized, { merge: true });
-        } catch (e) {
-            console.error("Error syncing to Firestore:", e);
-        }
+    async refreshAfterBookingMutation(_booking?: Partial<Booking>) {
+        invalidate('/bookings');
     },
 
     /**
@@ -400,7 +396,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     },
@@ -425,7 +421,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     },
@@ -442,7 +438,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     },
@@ -465,7 +461,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     },
@@ -504,7 +500,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     },
@@ -535,7 +531,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     },
@@ -548,7 +544,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     },
@@ -562,7 +558,7 @@ export const OrderService = {
         const response = await api.patch(`/bookings/${orderId}/notes`, { content });
         if (response.data.success && response.data.data) {
             // We just update firestore blindly to cause UI reload
-            this.syncBookingToFirestore({ id: orderId, staffNotes: response.data.data.staffNotes } as any).catch(console.error);
+            this.refreshAfterBookingMutation({ id: orderId }).catch(console.error);
         }
         return response.data;
     },
@@ -577,7 +573,7 @@ export const OrderService = {
         const response = await api.patch(`/bookings/${orderId}/photos`, { phase, photoUrl });
         if (response.data.success && response.data.data) {
             // We just update firestore blindly to cause UI reload
-            this.syncBookingToFirestore({ id: orderId, photos: response.data.data.photos } as any).catch(console.error);
+            this.refreshAfterBookingMutation({ id: orderId }).catch(console.error);
         }
         return response.data;
     },
@@ -643,7 +639,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     },
@@ -740,7 +736,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     },
@@ -754,7 +750,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     },
@@ -768,7 +764,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     },
@@ -782,7 +778,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     },
@@ -796,7 +792,7 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             const booking = { ...response.data.data };
             booking.id = booking._id || booking.id;
-            this.syncBookingToFirestore(booking).catch(console.error);
+            this.refreshAfterBookingMutation(booking).catch(console.error);
         }
         return response.data;
     }

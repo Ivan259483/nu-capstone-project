@@ -36,6 +36,7 @@ import {
 import { analyzeWithRoboflow, isRoboflowAvailable } from '../utils/roboflowVision.utils.js';
 import AIScan from '../models/aiScan.model.js';
 import { analyzeWithGPTVision, isOpenAIConfigured } from '../services/gptVision.service.js';
+import { registerCloudinaryManagedAsset } from '../services/managedAsset.service.js';
 import {
   startMeshyImageTo3D,
   getMeshyTaskStatus,
@@ -1873,11 +1874,14 @@ export const scanWithGPTVision = async (req, res) => {
 
     // ── 3. Best-effort upload images so the mobile app can render them ──
     let imageUrls = [];
+    let imageAssets = [];
     if (isCloudinaryConfigured()) {
       try {
-        imageUrls = await uploadVehicleScanImages(req.files, {
+        imageAssets = await uploadVehicleScanImages(req.files, {
           folder: MESHY_CLOUDINARY_FOLDER,
+          returnMetadata: true,
         });
+        imageUrls = imageAssets.map((asset) => asset.secureUrl);
       } catch (uploadErr) {
         console.warn(
           `[AI Scan][${requestId}] Cloudinary upload failed (non-fatal):`,
@@ -1906,6 +1910,13 @@ export const scanWithGPTVision = async (req, res) => {
         estimate,
         modelStatus: 'idle',
       });
+      await Promise.all(imageAssets.map((asset, index) => registerCloudinaryManagedAsset({
+        ...asset,
+        ownerCollection: 'AIScan',
+        ownerId: scanDoc._id,
+        fieldPath: `imageUrls.${index}`,
+        byteSize: asset.bytes,
+      })));
       invalidateResponseCache('ai:scans:');
     } catch (dbErr) {
       console.warn(
