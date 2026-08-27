@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { NotificationService, SystemNotification } from '../lib/notification-service';
@@ -640,6 +641,8 @@ export default function CustomerDashboard() {
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
   const bookingPackages = usePublishedBookingPackages();
+  const [recommendedPackageId, setRecommendedPackageId] = useState<string | null>(null);
+  const prefersReducedMotion = useReducedMotion();
   const bookRouteAutoOpenRef = useRef(false);
   const bookRouteModalOpenedRef = useRef(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -2736,19 +2739,46 @@ export default function CustomerDashboard() {
   const recommendationVehicleType = vehicles[0]?.type || 'hatchback';
   const recommendationPriceKey = getVehiclePriceKey(recommendationVehicleType);
   const recommendationVehicleLabel = formatTitleCaseDisplay(recommendationVehicleType, 'Hatchback');
-  const recommendedPackage = useMemo(() => {
-    let best: { id: string; name: string; duration: string; price: number } | null = null;
-
-    bookingPackages.forEach((pkg) => {
+  const recommendationOptions = useMemo(() => {
+    return bookingPackages.flatMap((pkg) => {
       const price = pkg.prices[recommendationPriceKey as keyof typeof pkg.prices];
-      if (typeof price !== 'number' || price <= 0) return;
-      if (!best || price < best.price) {
-        best = { id: pkg.id, name: pkg.name, duration: pkg.duration, price };
-      }
+      return typeof price === 'number' && price > 0
+        ? [{ id: pkg.id, name: pkg.name, duration: pkg.duration, price }]
+        : [];
+    });
+  }, [bookingPackages, recommendationPriceKey]);
+  const recommendedPackage = useMemo(
+    () => recommendationOptions.find((pkg) => pkg.id === recommendedPackageId) || recommendationOptions[0] || null,
+    [recommendationOptions, recommendedPackageId],
+  );
+  const recommendationBadge = recommendedPackage
+    ? ({
+        spf80: 'Best entry',
+        spf89: 'Most chosen',
+        spf99: 'Best value',
+        spf101: 'All-in',
+      } as Record<string, string>)[recommendedPackage.id] || 'Featured'
+    : 'Featured';
+
+  useEffect(() => {
+    if (activeSection !== 'dashboard' || recommendationOptions.length === 0) return;
+
+    setRecommendedPackageId((currentId) => {
+      if (currentId && recommendationOptions.some((pkg) => pkg.id === currentId)) return currentId;
+      return recommendationOptions[Math.floor(Math.random() * recommendationOptions.length)].id;
     });
 
-    return best;
-  }, [bookingPackages, recommendationPriceKey]);
+    if (recommendationOptions.length === 1) return;
+
+    const rotationTimer = setInterval(() => {
+      setRecommendedPackageId((currentId) => {
+        const nextOptions = recommendationOptions.filter((pkg) => pkg.id !== currentId);
+        return nextOptions[Math.floor(Math.random() * nextOptions.length)].id;
+      });
+    }, 4000);
+
+    return () => clearInterval(rotationTimer);
+  }, [activeSection, recommendationOptions]);
   const DASHBOARD_HOME_PREVIEW_LIMIT = 5;
   const dashboardDocumentPreview = useMemo(
     () => documents.slice(0, DASHBOARD_HOME_PREVIEW_LIMIT),
@@ -5407,65 +5437,8 @@ export default function CustomerDashboard() {
                           </div>
 
                           {/* Progress Steps — horizontal stepper */}
-                          <div className="px-4 py-5 sm:px-6">
+                          <div ref={trackerDetailPanelRef} className="px-4 py-5 sm:px-6">
                             <CustomerLiveTrackerHorizontalStepper currentStep={currentStep} />
-
-                            {currentStep >= 0 && TRACKER_STEPS[currentStep] ? (
-                              <div
-                                ref={trackerDetailPanelRef}
-                                className={`customer-h-tracker-stepper-detail transition-shadow duration-300 ${
-                                  highlightedTrackerStage
-                                    ? 'ring-2 ring-amber-300/80 shadow-[0_0_0_4px_rgba(245,158,11,0.12)]'
-                                    : ''
-                                }`}
-                              >
-                                {(() => {
-                                  const step = TRACKER_STEPS[currentStep];
-                                  const apiStage = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[step.id];
-                                  const desc = resolveTrackerStageDescription(activeBooking as any, apiStage);
-                                  const shots = apiStage ? getCustomerStageSlotPhotos(activeBooking as any, apiStage) : [];
-                                  const thumbDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-                                  const qcEvidenceGrid =
-                                    apiStage === 'quality_check' ? 'mt-3 grid max-w-md grid-cols-1 gap-2' : 'mt-3 grid grid-cols-2 gap-2 max-w-md';
-
-                                  return (
-                                    <>
-                                      <p className="customer-h-tracker-stepper-detail__eyebrow">Right now</p>
-                                      <p className="customer-h-tracker-stepper-detail__title">{step.label}</p>
-                                      <p className="customer-h-tracker-stepper-detail__lede">{step.subtitle}</p>
-                                      <p className="customer-h-tracker-stepper-detail__body">{desc}</p>
-                                      {shots.length > 0 ? (
-                                        <div className={qcEvidenceGrid}>
-                                          {shots.map((s, shotIdx) => (
-                                            <div key={s.label} className="min-w-0">
-                                              <p className="text-[10px] font-semibold text-slate-500 truncate mb-0.5">{s.label}</p>
-                                              <button
-                                                type="button"
-                                                className="block w-full cursor-zoom-in rounded-lg border border-slate-200 overflow-hidden focus:outline-none focus:ring-2 focus:ring-orange-200"
-                                                aria-label={`${step.label} — ${s.label} — enlarge`}
-                                                onClick={() =>
-                                                  setTrackerEvidenceLightbox({
-                                                    stepTitle: step.label,
-                                                    items: shots.map((x) => ({ url: x.url, label: x.label })),
-                                                    index: shotIdx,
-                                                  })
-                                                }
-                                              >
-                                                <img src={toCloudinaryEvidenceThumbUrl(s.url, thumbDpr)} alt="" className="w-full h-24 object-cover" />
-                                              </button>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : apiStage === 'quality_check' && shots.length === 0 ? (
-                                        <p className="text-xs text-slate-500 mt-2 font-medium leading-snug">
-                                          QC report is being prepared — verification photos will appear here shortly.
-                                        </p>
-                                      ) : null}
-                                    </>
-                                  );
-                                })()}
-                              </div>
-                            ) : null}
                           </div>
                         </div>
 
@@ -6790,7 +6763,22 @@ export default function CustomerDashboard() {
                     <aside className="customer-garage-rail grid h-fit content-start gap-3 self-start lg:grid-cols-2 xl:grid-cols-1">
                       <div className="customer-side-card customer-recommendation-card relative overflow-hidden p-4">
                         <div className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-blue-100/80 blur-3xl" />
-                        <div className="relative">
+                        <AnimatePresence initial={false} mode="wait">
+                          <motion.div
+                            key={recommendedPackage?.id || 'recommendation-fallback'}
+                            className="relative transform-gpu"
+                            initial={prefersReducedMotion
+                              ? { opacity: 0 }
+                              : { opacity: 0, y: 12, scale: 0.985, filter: 'blur(5px)' }}
+                            animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+                            exit={prefersReducedMotion
+                              ? { opacity: 0 }
+                              : { opacity: 0, y: -8, scale: 0.99, filter: 'blur(4px)' }}
+                            transition={prefersReducedMotion
+                              ? { duration: 0.15 }
+                              : { duration: 0.48, ease: [0.22, 1, 0.36, 1] }}
+                            style={{ willChange: 'transform, opacity, filter' }}
+                          >
                           <div className="mb-2 flex items-start justify-between gap-3">
                             <div>
                               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Recommended for You</p>
@@ -6826,7 +6814,7 @@ export default function CustomerDashboard() {
                                 </p>
                               </div>
                               <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-blue-700 shadow-sm ring-1 ring-blue-100">
-                                Best entry
+                                {recommendationBadge}
                               </span>
                             </div>
                             {recommendedPackage?.duration && (
@@ -6841,7 +6829,8 @@ export default function CustomerDashboard() {
                             View Services
                             <iconify-icon icon="solar:arrow-right-linear" width="17"></iconify-icon>
                           </button>
-                        </div>
+                          </motion.div>
+                        </AnimatePresence>
                       </div>
 
                       <div className="customer-side-card customer-quick-actions-card p-4">

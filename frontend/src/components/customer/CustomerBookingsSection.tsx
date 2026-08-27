@@ -1,16 +1,21 @@
 import { useMemo, useState } from 'react';
 import {
   AlertCircle,
+  Activity,
   ArrowRight,
+  BadgeCheck,
   CalendarDays,
   Car,
   Check,
   Clock3,
   CreditCard,
+  Grid2X2,
   Info,
   Plus,
   ReceiptText,
   RotateCcw,
+  Sparkles,
+  XCircle,
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { cn, formatCurrency } from '@/lib/utils';
@@ -47,6 +52,14 @@ const FILTER_LABELS: Record<CustomerBookingFilter, string> = {
   completed: 'Completed',
   cancelled: 'Cancelled',
 };
+
+const FILTER_META = {
+  all: { icon: Grid2X2, caption: 'Service records' },
+  upcoming: { icon: CalendarDays, caption: 'Reserved visits' },
+  active: { icon: Activity, caption: 'In the studio' },
+  completed: { icon: BadgeCheck, caption: 'Finished care' },
+  cancelled: { icon: XCircle, caption: 'Closed requests' },
+} as const;
 
 const UPCOMING_STATUSES = new Set([
   'pending',
@@ -309,9 +322,10 @@ function matchesReference(booking: CustomerBooking, targetReference?: string): b
 
 function SectionLabel({ label, aside }: { label: string; aside?: string }) {
   return (
-    <div className="flex items-center gap-3">
-      <p className="shrink-0 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <div className="h-px flex-1 bg-slate-200" />
+    <div className="flex items-center gap-3 px-1">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600 shadow-[0_0_0_4px_rgba(37,99,235,0.10)]" />
+      <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">{label}</p>
+      <div className="h-px flex-1 bg-gradient-to-r from-slate-200 to-transparent" />
       {aside && (
         <p className="shrink-0 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-400">{aside}</p>
       )}
@@ -438,42 +452,55 @@ export function CustomerBookingsSection({
   };
 
   return (
-    <div className="customer-content-fade-in mx-auto w-full max-w-[1280px] space-y-4 pb-10 pt-1">
-      <header className="flex flex-col gap-4 px-1 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="h-px w-7 bg-blue-500" />
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-blue-600">
-              Service appointments · {counts.all} total
+    <div className="customer-content-fade-in mx-auto w-full max-w-[1280px] space-y-5 pb-12 pt-1">
+      <header className="relative overflow-hidden rounded-[28px] border border-blue-100 bg-gradient-to-br from-white via-white to-blue-50/80 px-5 pb-14 pt-6 shadow-[0_30px_80px_-50px_rgba(37,99,235,0.34)] sm:px-7 sm:pt-7">
+        <div className="pointer-events-none absolute -right-24 -top-32 h-80 w-80 rounded-full bg-blue-200/45 blur-3xl" />
+        <div className="pointer-events-none absolute -left-20 bottom-0 h-36 w-72 rounded-full bg-sky-100/65 blur-3xl" />
+        <div className="pointer-events-none absolute bottom-0 left-[28%] h-px w-1/2 bg-gradient-to-r from-transparent via-blue-300/70 to-transparent" />
+        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-blue-600">
+              <Sparkles className="h-3.5 w-3.5" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em]">
+                AutoSPF+ service portfolio · {counts.all} records
+              </p>
+            </div>
+            <h1 className="mt-3 text-[30px] font-semibold tracking-[-0.04em] text-slate-950 sm:text-[34px]">My Bookings</h1>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">
+              A private record of every reservation, studio visit, and completed service journey.
             </p>
           </div>
-          <h1 className="mt-1.5 text-2xl font-semibold tracking-[-0.025em] text-slate-950">My bookings</h1>
-          <p className="mt-1 text-sm text-slate-500">Your garage, bookings, and service progress at a glance.</p>
-        </div>
 
-        <div className="flex items-center gap-4">
-          <div className="min-w-0 text-right">
-            <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-slate-400">Next appointment</p>
-            <p className="mt-1 max-w-[230px] truncate text-xs font-medium text-slate-800">
-              {nextAppointment ? formatSchedule(nextAppointment) : 'No upcoming appointment'}
-            </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-blue-100 bg-white/90 px-4 py-3 shadow-[0_14px_34px_-28px_rgba(37,99,235,0.35)] backdrop-blur-xl">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 text-blue-600">
+                <CalendarDays className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-blue-500">Next appointment</p>
+                <p className="mt-1 max-w-[220px] truncate text-xs font-semibold text-slate-700">
+                  {nextAppointment ? formatSchedule(nextAppointment) : 'No upcoming appointment'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onNewBooking}
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-xs font-semibold text-white shadow-[0_16px_34px_-18px_rgba(37,99,235,0.95)] transition duration-200 hover:-translate-y-0.5 hover:bg-blue-500 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/25 motion-reduce:transform-none"
+            >
+              <Plus className="h-4 w-4" />
+              New booking
+            </button>
           </div>
-          <span className="h-9 w-px bg-slate-200" />
-          <button
-            type="button"
-            onClick={onNewBooking}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-[0_10px_24px_-16px_rgba(37,99,235,0.9)] transition hover:bg-blue-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New booking
-          </button>
         </div>
       </header>
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-[0_14px_34px_-30px_rgba(15,23,42,0.42)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="grid min-w-[680px] grid-cols-5">
-          {FILTERS.map((filter, index) => {
+      <div className="relative z-10 -mt-10 overflow-x-auto px-3 pb-2 [scrollbar-width:none] sm:px-5 [&::-webkit-scrollbar]:hidden">
+        <div className="grid min-w-[760px] grid-cols-5 gap-2.5">
+          {FILTERS.map((filter) => {
             const selected = activeFilter === filter;
+            const meta = FILTER_META[filter];
+            const FilterIcon = meta.icon;
             return (
               <button
                 type="button"
@@ -481,29 +508,31 @@ export function CustomerBookingsSection({
                 aria-pressed={selected}
                 onClick={() => onFilterChange(filter)}
                 className={cn(
-                  'min-h-[86px] px-5 py-3 text-left transition',
-                  index < FILTERS.length - 1 && 'border-r border-slate-200',
+                  'group min-h-[104px] rounded-2xl border px-4 py-3 text-left shadow-[0_18px_38px_-30px_rgba(15,23,42,0.7)] transition duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/15',
                   selected
-                    ? 'bg-blue-50/80 shadow-[inset_0_3px_0_#2563eb]'
-                    : 'bg-white hover:bg-slate-50/80',
+                    ? 'border-blue-500 bg-blue-600 text-white shadow-[0_22px_44px_-28px_rgba(37,99,235,0.95)]'
+                    : 'border-slate-200/90 bg-white text-slate-900 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_22px_44px_-30px_rgba(37,99,235,0.28)] motion-reduce:transform-none',
                 )}
               >
+                <div className="flex items-start justify-between gap-3">
+                  <span className={cn(
+                    'flex h-8 w-8 items-center justify-center rounded-xl border transition-colors',
+                    selected
+                      ? 'border-white/15 bg-white/10 text-white'
+                      : 'border-slate-200 bg-slate-50 text-blue-600 group-hover:border-blue-100 group-hover:bg-blue-50',
+                  )}>
+                    <FilterIcon className="h-4 w-4" />
+                  </span>
+                  <span className={cn(
+                    'text-[28px] font-semibold leading-none tracking-[-0.05em]',
+                    selected ? 'text-white' : 'text-slate-950',
+                  )}>{counts[filter]}</span>
+                </div>
                 <p className={cn(
-                  'text-[28px] font-semibold leading-none tracking-tighter',
-                  selected ? 'text-blue-700' : 'text-slate-950',
-                )}>
-                  {counts[filter]}
-                </p>
-                <p className={cn(
-                  'mt-1 text-[10px] font-medium uppercase tracking-widest',
-                  selected ? 'text-blue-600' : 'text-slate-500',
-                )}>
-                  {filter === 'all' ? 'Total' : FILTER_LABELS[filter]}
-                </p>
-                <span className={cn(
-                  'mt-1.5 block h-1.5 w-1.5 rounded-full',
-                  selected ? 'bg-blue-600' : 'bg-slate-300',
-                )} />
+                  'mt-3 text-[10px] font-semibold uppercase tracking-[0.13em]',
+                  selected ? 'text-blue-100' : 'text-slate-600',
+                )}>{filter === 'all' ? 'All bookings' : FILTER_LABELS[filter]}</p>
+                <p className={cn('mt-0.5 text-[10px]', selected ? 'text-blue-200' : 'text-slate-400')}>{meta.caption}</p>
               </button>
             );
           })}
@@ -511,18 +540,18 @@ export function CustomerBookingsSection({
       </div>
 
       {showConfirmationToast && (
-        <div className="flex w-full max-w-[760px] items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/65 px-3.5 py-2.5">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-blue-600 ring-1 ring-blue-100">
+        <div className="flex w-full items-center gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50/90 to-white px-4 py-3 shadow-[0_14px_34px_-32px_rgba(37,99,235,0.45)]">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 ring-1 ring-blue-100">
             <Info className="h-3.5 w-3.5" />
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-slate-900">Booking confirmed</p>
-            <p className="mt-0.5 text-[11px] text-slate-500">We’ll contact you once your schedule is finalized.</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">Your reservation is secured. We’ll contact you once the studio schedule is finalized.</p>
           </div>
           <button
             type="button"
             onClick={() => setToastVisible(false)}
-            className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100"
+            className="shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100"
           >
             Got it
           </button>
@@ -530,19 +559,21 @@ export function CustomerBookingsSection({
       )}
 
       {heroBooking && (
-        <section className="space-y-2.5">
-          <SectionLabel label="Current service journey" />
+        <section className="space-y-3">
+          <SectionLabel label="Live service journey" aside={`Stage ${progressIndex + 1} of ${PROGRESS_STEPS.length}`} />
 
           <div
             ref={(element) => registerBookingRef?.(heroReference, element)}
             data-appointment-ref={heroReference || undefined}
             className={cn(
-              'relative overflow-hidden rounded-2xl border border-blue-100 bg-[#fffefd] shadow-[0_20px_48px_-34px_rgba(15,23,42,0.48)] transition-shadow hover:shadow-[0_24px_56px_-34px_rgba(37,99,235,0.24)]',
+              'relative overflow-hidden rounded-[24px] border border-slate-200/90 bg-white shadow-[0_26px_70px_-42px_rgba(15,23,42,0.58)] transition-shadow hover:shadow-[0_32px_80px_-42px_rgba(37,99,235,0.24)]',
               matchesReference(heroBooking, highlightedAppointmentRef) && 'ring-4 ring-blue-500/15',
             )}
             style={{ scrollMarginTop: 76 }}
           >
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-[radial-gradient(circle_at_18%_0%,rgba(37,99,235,0.08),transparent_68%)]" />
             <div className={cn('absolute inset-y-0 left-0 w-1.5', heroTone?.rail || 'bg-blue-600')} />
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/70 to-transparent" />
 
             {heroCancelling && (
               <div className="flex flex-col gap-3 border-b border-rose-100 bg-rose-50/80 py-3 pl-7 pr-6 sm:flex-row sm:items-center sm:justify-between">
@@ -572,7 +603,7 @@ export function CustomerBookingsSection({
               </div>
             )}
 
-            <div className="py-4 pl-7 pr-6">
+            <div className="relative py-5 pl-8 pr-6 sm:pr-7">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <div className="mb-1.5 flex flex-wrap items-center gap-2">
@@ -601,15 +632,16 @@ export function CustomerBookingsSection({
                   </p>
                   <p className="mt-0.5 pl-5 text-[11px] text-slate-400">{vehicleDetailLabel(heroBooking)}</p>
                 </div>
-                <div className="shrink-0 text-left sm:text-right">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Service total</p>
-                  <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
+                <div className="shrink-0 rounded-2xl border border-blue-500 bg-gradient-to-br from-blue-600 to-blue-500 px-5 py-4 text-left shadow-[0_18px_38px_-24px_rgba(37,99,235,0.68)] sm:min-w-[190px] sm:text-right">
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-blue-100">Service total</p>
+                  <p className="mt-1.5 text-2xl font-semibold tracking-[-0.035em] text-white">
                     {formatCurrency(amountForBooking(heroBooking))}
                   </p>
+                  <p className="mt-1 text-[9px] font-medium uppercase tracking-wider text-blue-100/80">Reserved service value</p>
                 </div>
               </div>
 
-              <div className="my-3 h-px bg-slate-100" />
+              <div className="my-4 h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
 
               <div className="grid gap-2 sm:grid-cols-3">
                 {[
@@ -631,21 +663,24 @@ export function CustomerBookingsSection({
                 ].map((meta) => (
                   <div
                     key={meta.label}
-                    className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/75 px-3.5 py-2.5"
+                    className="min-w-0 rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-[0_12px_28px_-26px_rgba(15,23,42,0.72)]"
                   >
                     <p className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-400">
                       <meta.icon className="h-3 w-3 text-blue-500" />
                       {meta.label}
                     </p>
-                    <p className="mt-1 truncate text-[12px] font-medium text-slate-700">{meta.value}</p>
+                    <p className="mt-1.5 truncate text-[12px] font-semibold text-slate-700">{meta.value}</p>
                   </div>
                 ))}
               </div>
 
-              <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/50 px-4 py-3">
+              <div className="mt-3.5 overflow-hidden rounded-[18px] border border-blue-100 bg-gradient-to-r from-blue-50/90 via-white to-blue-50/70 px-5 py-4 shadow-[0_20px_46px_-38px_rgba(37,99,235,0.35)]">
                 <div className="flex items-center justify-between gap-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-blue-600">Service timeline</p>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-600">Live journey console</p>
+                    <p className="mt-1 text-[11px] text-slate-500">Your vehicle’s current studio progression</p>
+                  </div>
+                  <p className="rounded-full border border-blue-200 bg-white px-3 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-blue-700 shadow-sm">
                     Stage {progressIndex + 1} of {PROGRESS_STEPS.length}
                   </p>
                 </div>
@@ -660,14 +695,14 @@ export function CustomerBookingsSection({
                           {index < PROGRESS_STEPS.length - 1 && (
                             <span className={cn(
                               'absolute left-[calc(50%+15px)] right-[calc(-50%+15px)] top-[13px] h-0.5 rounded-full',
-                              index < progressIndex ? 'bg-blue-500' : 'bg-blue-200/80',
+                              index < progressIndex ? 'bg-blue-500' : 'bg-blue-100',
                             )} />
                           )}
                           <span className={cn(
                             'relative z-10 flex h-7 w-7 items-center justify-center rounded-full border text-[10px] font-semibold shadow-sm',
                             done && 'border-blue-500 bg-blue-500 text-white',
-                            current && 'border-blue-600 bg-blue-600 text-white ring-4 ring-blue-100',
-                            !done && !current && 'border-slate-300 bg-white text-slate-500',
+                            current && 'border-blue-400 bg-blue-500 text-white ring-4 ring-blue-500/20',
+                            !done && !current && 'border-blue-200 bg-white text-slate-400',
                           )}>
                             {done ? <Check className="h-3.5 w-3.5" /> : index + 1}
                           </span>
@@ -675,7 +710,7 @@ export function CustomerBookingsSection({
                             'mt-2 w-full truncate px-1 text-center text-[9px] font-medium tracking-wide',
                             done && 'text-blue-600',
                             current && 'text-blue-700',
-                            !done && !current && 'text-slate-500',
+                            !done && !current && 'text-slate-400',
                           )}>
                             {step}
                           </p>
@@ -687,7 +722,7 @@ export function CustomerBookingsSection({
               </div>
 
               {heroExpanded && (
-                <div className="mt-4 grid gap-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4 text-xs sm:grid-cols-2">
+                <div className="mt-4 grid gap-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 text-xs sm:grid-cols-2">
                   <div>
                     <p className="text-[9px] font-semibold uppercase tracking-widest text-slate-400">Last update</p>
                     <p className="mt-1 font-medium text-slate-700">{lastUpdateLabel(heroBooking)}</p>
@@ -705,13 +740,13 @@ export function CustomerBookingsSection({
                 </div>
               )}
 
-              <div className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3.5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   {heroCanCancel && (
                     <button
                       type="button"
                       onClick={() => setCancelConfirmId(heroId)}
-                      className="rounded-lg px-2 py-1.5 text-[11px] font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
+                      className="rounded-full px-3 py-2 text-[11px] font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
                     >
                       Cancel booking
                     </button>
@@ -722,7 +757,7 @@ export function CustomerBookingsSection({
                     <button
                       type="button"
                       onClick={() => onViewReceipt(heroId)}
-                      className="rounded-lg border border-slate-200 bg-white px-3.5 py-1.5 text-[11px] font-medium text-slate-600 transition hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
+                      className="rounded-full border border-slate-200 bg-white px-4 py-2 text-[11px] font-medium text-slate-600 transition hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
                     >
                       View receipt
                     </button>
@@ -730,14 +765,14 @@ export function CustomerBookingsSection({
                   <button
                     type="button"
                     onClick={() => setExpandedBookingId(heroExpanded ? null : heroId)}
-                    className="rounded-lg border border-slate-200 bg-white px-3.5 py-1.5 text-[11px] font-medium text-slate-600 transition hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
+                    className="rounded-full border border-slate-200 bg-white px-4 py-2 text-[11px] font-medium text-slate-600 transition hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
                   >
                     {heroExpanded ? 'Hide details' : 'View details'}
                   </button>
                   <button
                     type="button"
                     onClick={onTrackService}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-1.5 text-[11px] font-semibold text-white shadow-[0_10px_22px_-16px_rgba(37,99,235,0.9)] transition hover:bg-blue-700"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-5 py-2 text-[11px] font-semibold text-white shadow-[0_14px_28px_-18px_rgba(37,99,235,0.95)] transition hover:-translate-y-0.5 hover:bg-blue-500 motion-reduce:transform-none"
                   >
                     Track service
                     <ArrowRight className="h-3 w-3" />
@@ -750,9 +785,9 @@ export function CustomerBookingsSection({
       )}
 
       {historyBookings.length > 0 && (
-        <section className="space-y-2.5">
-          <SectionLabel label="Booking history" />
-          <div className="grid items-start gap-2.5 lg:grid-cols-2">
+        <section className="space-y-3">
+          <SectionLabel label="Service archive" aside={`${historyBookings.length} records`} />
+          <div className="grid items-start gap-3 lg:grid-cols-2">
             {historyBookings.map((booking) => {
               const id = bookingId(booking);
               const reference = appointmentReference(booking);
@@ -762,7 +797,7 @@ export function CustomerBookingsSection({
               const cancelled = status === 'cancelled';
               const completed = category === 'completed';
               const expanded = expandedBookingId === id;
-              const receiptAvailable = hasReceipt(booking);
+              const receiptAvailable = completed && !rejected && !cancelled && hasReceipt(booking);
               const tone = statusTone(booking);
               const summary = serviceSummary(booking);
               const paymentPending = !rejected
@@ -775,15 +810,16 @@ export function CustomerBookingsSection({
                   ref={(element) => registerBookingRef?.(reference, element)}
                   data-appointment-ref={reference || undefined}
                   className={cn(
-                    'relative flex flex-col gap-2.5 overflow-hidden rounded-xl border bg-white py-3.5 pl-5 pr-4 shadow-[0_14px_34px_-32px_rgba(15,23,42,0.46)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_42px_-32px_rgba(15,23,42,0.5)] motion-reduce:transform-none',
+                    'relative flex flex-col gap-3 overflow-hidden rounded-[20px] border bg-[linear-gradient(145deg,#ffffff_0%,#ffffff_72%,#f8fafc_100%)] py-4 pl-6 pr-5 shadow-[0_20px_48px_-38px_rgba(15,23,42,0.56)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_26px_58px_-38px_rgba(15,23,42,0.6)] motion-reduce:transform-none',
                     rejected || cancelled
-                      ? 'border-red-500/30 hover:border-red-500/55'
+                      ? 'border-rose-200/90 hover:border-rose-300'
                       : 'border-slate-200/90 hover:border-blue-200',
                     matchesReference(booking, highlightedAppointmentRef) && 'ring-4 ring-blue-500/15',
                   )}
                   style={{ scrollMarginTop: 76 }}
                 >
-                  <span className={cn('absolute inset-y-0 left-0 w-1', tone.rail)} />
+                  <span className={cn('absolute inset-y-0 left-0 w-1.5', tone.rail)} />
+                  <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-slate-300/70 to-transparent" />
 
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex flex-wrap gap-1.5">
@@ -814,11 +850,14 @@ export function CustomerBookingsSection({
                         </span>
                       )}
                     </div>
-                    <p className="shrink-0 text-sm font-semibold text-slate-900">{formatCurrency(amountForBooking(booking))}</p>
+                    <div className="shrink-0 text-right">
+                      <p className="text-[8px] font-semibold uppercase tracking-[0.14em] text-slate-400">Service value</p>
+                      <p className="mt-1 text-sm font-semibold tracking-tight text-slate-950">{formatCurrency(amountForBooking(booking))}</p>
+                    </div>
                   </div>
 
                   <div className="flex items-start gap-2.5">
-                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-100 bg-slate-50 text-blue-600">
+                    <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 text-blue-600 shadow-[0_12px_26px_-20px_rgba(37,99,235,0.45)]">
                       <Car className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
@@ -834,7 +873,7 @@ export function CustomerBookingsSection({
                     </div>
                   </div>
 
-                  <div className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-2.5 py-2 sm:grid-cols-2">
+                  <div className="grid gap-2 rounded-2xl border border-slate-200/70 bg-slate-50/70 px-3.5 py-3 sm:grid-cols-2">
                     <div className="min-w-0">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.07em] text-slate-400">Vehicle</p>
                       <p className="mt-1 truncate text-[11px] font-medium text-slate-600">{vehicleTitle(booking)}</p>
@@ -865,12 +904,12 @@ export function CustomerBookingsSection({
                     </div>
                   )}
 
-                  <div className="flex flex-wrap justify-end gap-1.5 border-t border-slate-100 pt-2.5">
+                  <div className="flex flex-wrap justify-end gap-1.5 border-t border-slate-100 pt-3">
                     {receiptAvailable && (
                       <button
                         type="button"
                         onClick={() => onViewReceipt(id)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-medium text-slate-500 transition hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
+                        className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[10px] font-medium text-slate-500 transition hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
                       >
                         <ReceiptText className="h-3 w-3" />
                         View receipt
@@ -879,14 +918,14 @@ export function CustomerBookingsSection({
                     <button
                       type="button"
                       onClick={() => setExpandedBookingId(expanded ? null : id)}
-                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-medium text-slate-500 transition hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
+                      className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[10px] font-medium text-slate-500 transition hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700"
                     >
                       {expanded ? 'Hide details' : 'View details'}
                     </button>
                     <button
                       type="button"
                       onClick={onNewBooking}
-                      className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50/60 px-2.5 py-1 text-[10px] font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-600 hover:text-white"
+                      className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50/70 px-3 py-1.5 text-[10px] font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-600 hover:text-white"
                     >
                       <RotateCcw className="h-3 w-3" />
                       Book again
