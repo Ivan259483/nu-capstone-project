@@ -279,7 +279,8 @@ export default function Login() {
     const isLoginEmailValid = LOGIN_EMAIL_PATTERN.test(loginEmailValue);
     const isPasswordStep = loginStep === "password";
     const isLoginActionBlocked = isLoading || isButtonLoading || isAuthLoading || isLocked;
-    const isLoginButtonDisabled = isLoginActionBlocked;
+    const isLoginButtonDisabled =
+        isLoginActionBlocked || (isPasswordStep ? !loginForm.password.trim() : !isLoginEmailValid);
     const showLoginButtonDots = isButtonLoading || isLoading;
 
     const registerPwRules = useMemo(() => registerPasswordRules(registerForm.password), [registerForm.password]);
@@ -832,7 +833,7 @@ export default function Login() {
 
             <Link
                 to="/"
-                className="fixed left-5 top-5 z-20 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-500 transition-all duration-200 hover:bg-white/[0.035] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-300/25 sm:left-8 sm:top-8"
+                className="fixed left-5 top-5 z-20 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[15px] font-medium text-zinc-400 transition-all duration-200 hover:bg-white/[0.035] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-300/25 sm:left-8 sm:top-8"
             >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 {t("nav.home")}
@@ -844,25 +845,25 @@ export default function Login() {
                     tab === "register" ? "justify-start sm:justify-center" : "justify-center"
                 )}
             >
-                <div className={cn("w-full animate-fade-in", tab === "register" ? "max-w-[28rem]" : "max-w-[27.5rem]")}>
-                    <div className={cn("auth-login-card", tab === "register" ? "px-4 py-5 sm:px-5 sm:py-6" : "px-2 py-3 sm:px-3 sm:py-4")}>
+                <div className="w-full max-w-[34rem] animate-fade-in">
+                    <div className={cn("auth-login-card", tab === "register" ? "px-2 py-4 sm:px-4 sm:py-5" : "px-2 py-3 sm:px-4 sm:py-4")}>
                         <div className={cn("text-center", tab === "register" ? "mb-6" : "mb-8")}>
                             <Link
                                 to="/"
-                                className="auth-logo-badge group mb-6 inline-flex h-10 w-10 items-center justify-center overflow-hidden"
+                                className="auth-logo-badge group mb-6 inline-flex h-12 w-12 items-center justify-center overflow-hidden"
                                 aria-label="AutoSPF+ Home"
                             >
                                 <img
                                     src="/images/autospf-logo-66.webp"
                                     srcSet="/images/autospf-logo-33.webp 33w, /images/autospf-logo-66.webp 66w"
-                                    sizes="33px"
+                                    sizes="46px"
                                     width={66}
                                     height={39}
                                     alt="AutoSPF+"
                                     loading="eager"
                                     decoding="async"
                                     fetchPriority="high"
-                                    className="h-6 w-auto max-w-[2.05rem] object-contain opacity-100 [filter:none]"
+                                    className="h-7 w-auto max-w-[2.85rem] object-contain opacity-100 [filter:none]"
                                 />
                             </Link>
                             <AnimatePresence initial={false} mode="sync">
@@ -872,7 +873,7 @@ export default function Login() {
                                     animate={{ opacity: 1, y: 0 }}
                                     exit={{ opacity: 0, y: -4 }}
                                     transition={LOGIN_TAB_CONTENT_TRANSITION}
-                                    className="text-[2rem] font-semibold leading-[1.05] tracking-normal text-zinc-50 sm:text-[2.35rem]"
+                                    className="text-[1.75rem] font-semibold leading-[1.12] tracking-[-0.025em] text-zinc-50 sm:text-[1.875rem]"
                                 >
                                     {tab === "register" ? t("login.registerTitle") : t("login.title")}
                                 </motion.h1>
@@ -884,7 +885,7 @@ export default function Login() {
                                     animate={{ opacity: 1 }}
                                     exit={{ opacity: 0 }}
                                     transition={{ ...LOGIN_TAB_CONTENT_TRANSITION, duration: 0.4 }}
-                                    className="mx-auto mt-3 max-w-[20rem] text-sm leading-5 text-zinc-500"
+                                    className="mx-auto mt-3 max-w-[22rem] text-sm leading-5 text-zinc-400"
                                 >
                                     {tab === "register" ? (
                                         <>
@@ -892,7 +893,7 @@ export default function Login() {
                                             <button
                                                 type="button"
                                                 onClick={() => setTab("login")}
-                                                className="font-semibold text-zinc-200 transition-colors hover:text-orange-200"
+                                                className="font-semibold text-zinc-100 transition-colors hover:text-orange-200"
                                             >
                                                 {t("login.signIn")}
                                             </button>
@@ -904,7 +905,7 @@ export default function Login() {
                                             <button
                                                 type="button"
                                                 onClick={() => setTab("register")}
-                                                className="font-semibold text-zinc-200 transition-colors hover:text-orange-200"
+                                                className="font-semibold text-zinc-100 transition-colors hover:text-orange-200"
                                             >
                                                 {t("login.signUp")}
                                             </button>
@@ -930,7 +931,7 @@ export default function Login() {
                                 loginPanel={
                                     <div className="space-y-5">
                                         <div className="space-y-1.5">
-                                            <label htmlFor="login-email" className="block text-[13px] font-medium text-zinc-400">
+                                            <label htmlFor="login-email" className="block text-sm font-medium text-zinc-400">
                                                 {t("login.email")}
                                             </label>
                                             <Input
@@ -946,7 +947,10 @@ export default function Login() {
                                                 }}
                                                 onKeyDown={handleLoginEmailKeyDown}
                                                 placeholder={t("login.emailPlaceholder")}
-                                                className={AUTH_STANDALONE_INPUT_CLASS}
+                                                className={cn(
+                                                    AUTH_STANDALONE_INPUT_CLASS,
+                                                    "rounded-[14px] !border-white/[0.08] text-[15px] font-normal placeholder:text-zinc-500 hover:!border-white/[0.14]"
+                                                )}
                                             />
                                         </div>
 
@@ -963,7 +967,7 @@ export default function Login() {
                                                     <div className="space-y-3">
                                                         <div className="space-y-1.5">
                                                             <div className="flex items-center justify-between gap-4">
-                                                                <label htmlFor="login-password" className="block text-[13px] font-medium text-zinc-400">
+                                                                <label htmlFor="login-password" className="block text-sm font-medium text-zinc-400">
                                                                     {t("login.password")}
                                                                 </label>
                                                                 <button
@@ -990,7 +994,7 @@ export default function Login() {
                                                                     placeholder={t("login.passwordPlaceholder")}
                                                                     className={cn(
                                                                         AUTH_STANDALONE_INPUT_CLASS,
-                                                                        "pr-11",
+                                                                        "rounded-[14px] !border-white/[0.08] pr-11 text-[15px] font-normal placeholder:text-zinc-500 hover:!border-white/[0.14]",
                                                                         loginPasswordError && AUTH_STANDALONE_INPUT_ERROR_CLASS
                                                                     )}
                                                                     aria-invalid={loginPasswordError ? true : undefined}
@@ -1053,7 +1057,7 @@ export default function Login() {
                                                 if (isPasswordStep) void handlePasswordLoginAttempt();
                                                 else void handleLoginEmailContinue();
                                             }}
-                                            className={cn(AUTH_PRIMARY_BUTTON_CLASS, "auth-login-button")}
+                                            className={cn(AUTH_PRIMARY_BUTTON_CLASS, "auth-login-button text-[15px]")}
                                             disabled={isLoginButtonDisabled}
                                             aria-busy={showLoginButtonDots}
                                         >
@@ -1068,7 +1072,7 @@ export default function Login() {
                                             )}
                                         </Button>
 
-                                        <p className="mx-auto max-w-[25rem] text-center text-xs leading-5 text-zinc-500">
+                                        <p className="mx-auto max-w-[28rem] text-center text-[13px] leading-5 text-zinc-500">
                                             {t("login.legalPrefix")}{" "}
                                             <Link to="/#terms-of-service" className="text-zinc-300 underline decoration-white/25 underline-offset-4 transition-colors hover:text-orange-100">
                                                 {t("footer.terms")}

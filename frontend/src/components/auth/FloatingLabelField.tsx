@@ -15,6 +15,8 @@ type FloatingLabelFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "onCh
     compactError?: boolean;
     /** Icon or control aligned to the vertical center of the input shell (e.g. password visibility). */
     endAdornment?: ReactNode;
+    /** Keeps the label visible above the value so every field has the same hierarchy. */
+    alwaysFloat?: boolean;
 };
 
 export function FloatingLabelField({
@@ -26,6 +28,7 @@ export function FloatingLabelField({
     containerClassName,
     compactError = false,
     endAdornment,
+    alwaysFloat = false,
     id: idProp,
     disabled,
     onBlur,
@@ -57,7 +60,9 @@ export function FloatingLabelField({
                     placeholder={placeholder || " "}
                     className={cn(
                         "peer block h-12 w-full bg-transparent px-4 pb-1.5 pt-5 text-sm font-medium text-white",
-                        placeholder
+                        alwaysFloat && placeholder
+                            ? "placeholder:text-zinc-600"
+                            : placeholder
                             ? "placeholder:text-transparent focus:placeholder:text-white/[0.38]"
                             : "placeholder-transparent",
                         placeholder && "auth-floating-field-with-example",
@@ -71,10 +76,14 @@ export function FloatingLabelField({
                     htmlFor={id}
                     className={cn(
                         "pointer-events-none absolute left-4 bg-transparent text-zinc-500 shadow-none transition-all duration-200 ease-out",
-                        "peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm",
-                        "peer-focus:top-1.5 peer-focus:translate-y-0 peer-focus:text-[11px] peer-focus:font-medium peer-focus:text-zinc-300",
-                        (hasValue || inputProps.type === "date") &&
-                            "top-1.5 translate-y-0 text-[11px] font-medium text-zinc-400"
+                        alwaysFloat
+                            ? "top-1.5 translate-y-0 text-[11px] font-medium text-zinc-400"
+                            : cn(
+                                  "peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm",
+                                  "peer-focus:top-1.5 peer-focus:translate-y-0 peer-focus:text-[11px] peer-focus:font-medium peer-focus:text-zinc-300",
+                                  (hasValue || inputProps.type === "date") &&
+                                      "top-1.5 translate-y-0 text-[11px] font-medium text-zinc-400"
+                              )
                     )}
                 >
                     {label}

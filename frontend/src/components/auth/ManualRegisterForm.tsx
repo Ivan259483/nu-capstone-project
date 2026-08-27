@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, Loader2, CheckCircle2 } from "lucide-react";
+import { Check, Eye, EyeOff, Loader2, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -88,6 +88,13 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
         [pwRules]
     );
     const pwStrength = useMemo(() => registerPasswordStrength(password, pwRules, t), [password, pwRules, t]);
+    const passwordRuleCount = [
+        pwRules.length,
+        pwRules.upper,
+        pwRules.lower,
+        pwRules.number,
+        pwRules.special,
+    ].filter(Boolean).length;
     const passwordsMatch = password.length > 0 && confirmPassword.length > 0 && password === confirmPassword;
 
     const phoneError = useMemo(() => {
@@ -147,7 +154,18 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
         }
     }, [password, confirmPassword, touched.confirmPassword, runFieldValidation]);
 
+    const hasValidPhone =
+        phoneNational.replace(/\D/g, "").length > 0 &&
+        validateRegisterNationalDigits(dial, phoneNational).ok;
+    const requiredFieldsValid = Boolean(
+        !validateFirstName(firstName, t) &&
+            !validateLastName(lastName, t) &&
+            !validateEmail(email, t) &&
+            hasValidPhone
+    );
+
     const canSubmit =
+        requiredFieldsValid &&
         legal.legalAcknowledged &&
         pwAllValid &&
         passwordsMatch &&
@@ -265,7 +283,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
         <>
             <form
                 onSubmit={handleSubmit}
-                className="mx-auto max-h-[min(calc(100dvh-13.25rem),39rem)] w-full space-y-3.5 overflow-y-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20"
+                className="mx-auto w-full space-y-3"
                 noValidate
             >
                 {attemptedSubmit && Object.keys(errors).length > 0 ? (
@@ -279,6 +297,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
 
                 <div className="grid gap-3 sm:grid-cols-2">
                     <FloatingLabelField
+                        alwaysFloat
                         compactError
                         id="manual-reg-first-name"
                         label={t("register.firstName")}
@@ -294,8 +313,10 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                         }}
                         error={showFieldError("firstName") ? errors.firstName : undefined}
                         disabled={isSubmitting || otpOpen}
+                        className="font-normal"
                     />
                     <FloatingLabelField
+                        alwaysFloat
                         compactError
                         id="manual-reg-last-name"
                         label={t("register.lastName")}
@@ -311,10 +332,12 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                         }}
                         error={showFieldError("lastName") ? errors.lastName : undefined}
                         disabled={isSubmitting || otpOpen}
+                        className="font-normal"
                     />
                 </div>
 
                 <FloatingLabelField
+                    alwaysFloat
                     compactError
                     id="manual-reg-email"
                     label={t("register.email")}
@@ -333,6 +356,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                     }}
                     error={showFieldError("email") ? errors.email : undefined}
                     disabled={isSubmitting || otpOpen}
+                    className="font-normal"
                 />
 
                 <div
@@ -353,7 +377,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                     </span>
                     <RegisterPhoneField
                         embedded
-                        placeholder=""
+                        placeholder={phoneCountryIso === "PH" ? "9XX XXX XXXX" : "Phone number"}
                         countryIso={phoneCountryIso}
                         onCountryIsoChange={(iso) => {
                             setPhoneCountryIso(iso);
@@ -375,6 +399,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                 ) : null}
 
                 <FloatingLabelField
+                    alwaysFloat
                     compactError
                     id="manual-reg-password"
                     label={t("register.password")}
@@ -391,7 +416,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                     }}
                     error={showFieldError("password") ? errors.password : undefined}
                     disabled={isSubmitting || otpOpen}
-                    className="pr-11"
+                    className="pr-11 font-normal"
                     endAdornment={
                         <button
                             type="button"
@@ -406,6 +431,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                 />
 
                 <FloatingLabelField
+                    alwaysFloat
                     compactError
                     id="manual-reg-confirm-password"
                     label={t("register.confirmPassword")}
@@ -422,7 +448,7 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                     }}
                     error={showFieldError("confirmPassword") ? errors.confirmPassword : undefined}
                     disabled={isSubmitting || otpOpen}
-                    className="pr-11"
+                    className="pr-11 font-normal"
                     endAdornment={
                         showFieldError("confirmPassword") && passwordsMatch && !errors.confirmPassword ? (
                             <CheckCircle2 className="h-4 w-4 text-emerald-400" aria-hidden />
@@ -441,34 +467,55 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                 />
 
                 {password.length > 0 && pwStrength ? (
-                    <p className="px-1 text-[11px] font-semibold text-zinc-400">
-                        {t("register.strengthLabel")} {pwStrength.text}
-                    </p>
-                ) : null}
-
-                {password.length > 0 && !pwAllValid ? (
-                    <div className="flex flex-wrap gap-1.5 px-1">
-                        {(
-                            [
-                                [pwRules.length, "8+ chars"],
-                                [pwRules.upper, "A–Z"],
-                                [pwRules.lower, "a–z"],
-                                [pwRules.number, "0–9"],
-                                [pwRules.special, "!@#…"],
-                            ] as const
-                        ).map(([met, label]) => (
+                    <div className="space-y-2 px-1" aria-live="polite">
+                        <div className="flex items-center justify-between gap-3 text-[11px] font-medium">
+                            <span className="text-zinc-500">{t("register.strengthLabel")}</span>
+                            <span className={pwStrength.textClass}>{pwStrength.text}</span>
+                        </div>
+                        <div className="h-1 overflow-hidden rounded-full bg-white/[0.07]">
                             <span
-                                key={label}
-                                className={cn(
-                                    "rounded-md px-2 py-0.5 text-[10px] font-medium ring-1",
-                                    met
-                                        ? "bg-white/[0.09] text-zinc-200 ring-white/15"
-                                        : "bg-white/[0.025] text-slate-500 ring-white/10"
-                                )}
-                            >
-                                {label}
-                            </span>
-                        ))}
+                                className={cn("block h-full rounded-full transition-[width] duration-300", pwStrength.barClass)}
+                                style={{ width: `${passwordRuleCount * 20}%` }}
+                            />
+                        </div>
+                        {!pwAllValid ? (
+                            <ul className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
+                                {(
+                                    [
+                                        [pwRules.length, t("register.ruleLength")],
+                                        [pwRules.upper, t("register.ruleUppercase")],
+                                        [pwRules.lower, t("register.ruleLowercase")],
+                                        [pwRules.number, t("register.ruleNumber")],
+                                        [pwRules.special, t("register.ruleSpecial")],
+                                    ] as const
+                                ).map(([met, label]) => (
+                                    <li
+                                        key={label}
+                                        className={cn(
+                                            "flex items-center gap-1.5 text-[10px] font-medium transition-colors",
+                                            met ? "text-zinc-300" : "text-zinc-600"
+                                        )}
+                                    >
+                                        <span
+                                            className={cn(
+                                                "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border",
+                                                met
+                                                    ? "border-orange-300/35 bg-orange-300/[0.08] text-orange-200"
+                                                    : "border-white/[0.09] text-transparent"
+                                            )}
+                                        >
+                                            <Check className="h-2.5 w-2.5" aria-hidden />
+                                        </span>
+                                        <span>{label}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <p className="flex items-center gap-1.5 text-[10px] font-medium text-orange-200/90">
+                                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                                {t("register.strengthComplete")}
+                            </p>
+                        )}
                     </div>
                 ) : null}
 
@@ -485,7 +532,8 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
                     <Button
                         type="submit"
                         disabled={!canSubmit}
-                        className="h-[46px] w-full rounded-[14px] border border-white/[0.085] bg-zinc-950/70 text-sm font-semibold text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.075),0_18px_48px_-36px_rgba(255,255,255,0.24)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-white/[0.18] hover:bg-black/80 hover:text-white hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.11),0_22px_58px_-38px_rgba(255,255,255,0.28)] disabled:translate-y-0 disabled:!opacity-100 disabled:border-white/[0.12] disabled:bg-white/[0.045] disabled:text-zinc-300 disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.065),0_16px_42px_-36px_rgba(255,255,255,0.22)]"
+                        aria-busy={isSubmitting}
+                        className="h-[48px] w-full rounded-[14px] border border-white/[0.10] bg-white/[0.045] text-[15px] font-semibold text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_44px_-36px_rgba(0,0,0,0.95)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-orange-300/30 hover:bg-white/[0.06] hover:text-white focus-visible:ring-orange-400/25 disabled:translate-y-0 disabled:!border-white/[0.045] disabled:!bg-white/[0.018] disabled:!text-zinc-600 disabled:!opacity-100 disabled:!shadow-none"
                     >
                         {isSubmitting ? (
                             <>

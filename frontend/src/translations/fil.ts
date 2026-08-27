@@ -337,6 +337,12 @@ export const fil = {
         legalRequiredToast:
             "Kailangan ang dalawang checkbox: tanggapin ang Paint Protection Film terms sa popup, at kumpirmahin ang Terms of Service ng website.",
         strengthLabel: "Lakas ng password:",
+        strengthComplete: "Kumpleto ang password requirements",
+        ruleLength: "8+ character",
+        ruleUppercase: "Malaking titik",
+        ruleLowercase: "Maliit na titik",
+        ruleNumber: "Numero",
+        ruleSpecial: "Special character",
         sendingCode: "Ipinapadala ang verification code…",
         hidePasswords: "Itago ang mga password",
         showPasswords: "Ipakita ang mga password",

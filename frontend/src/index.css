@@ -11601,6 +11601,22 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     box-shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset !important;
 }
 
+/* Login-only refinement: restrained borders and an unmistakable disabled state. */
+.auth-login-button:not(:disabled) {
+    border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.auth-login-button:hover:not(:disabled) {
+    border-color: rgba(253, 186, 116, 0.28) !important;
+}
+
+.auth-login-button:disabled {
+    color: rgba(113, 113, 122, 0.5) !important;
+    border-color: rgba(255, 255, 255, 0.045) !important;
+    background: rgba(255, 255, 255, 0.018) !important;
+    box-shadow: none !important;
+}
+
 .auth-button-dots {
     display: inline-flex;
     align-items: center;

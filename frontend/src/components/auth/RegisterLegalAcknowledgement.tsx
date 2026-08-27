@@ -1,5 +1,6 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { AlertTriangle, CheckCircle2, Clock, RefreshCw, ShieldCheck } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -42,7 +43,7 @@ const LEGAL_CHECKBOX_CHECKED_STYLE: CSSProperties = {
 };
 
 const LEGAL_CHECKBOX_ROW_CLASS =
-    "flex items-start gap-2.5 rounded-[18px] border !border-white/10 !bg-black/45 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-xl transition-[border-color,background-color,box-shadow] duration-300 hover:!border-white/20 hover:!bg-white/[0.045]";
+    "flex items-start gap-2.5 px-3 py-2.5 transition-colors duration-200 hover:bg-white/[0.025]";
 
 export const REGISTER_LEGAL_TOAST_MESSAGE =
     "Both checkboxes are required: accept the Paint Protection Film terms in the popup, and confirm the website Terms of Service.";
@@ -55,10 +56,7 @@ export function useRegisterLegalAcknowledgement() {
     const [ppfTermsAgreed, setPpfTermsAgreed] = useState(false);
     const [registerWebsiteTermsAgreed, setRegisterWebsiteTermsAgreed] = useState(false);
 
-    const legalAcknowledged = useMemo(
-        () => ppfTermsAgreed && registerWebsiteTermsAgreed,
-        [ppfTermsAgreed, registerWebsiteTermsAgreed]
-    );
+    const legalAcknowledged = ppfTermsAgreed && registerWebsiteTermsAgreed;
 
     const resetLegalAcknowledgement = useCallback(() => {
         setPpfTermsAgreed(false);
@@ -130,7 +128,17 @@ export function RegisterLegalCheckboxes({
     const websiteCheckboxId = `${idPrefix}-website-tos`;
 
     return (
-        <div className="space-y-2">
+        <section
+            className="overflow-hidden rounded-[16px] border border-white/[0.08] bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] backdrop-blur-xl"
+            aria-label="Required agreements"
+        >
+            <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                    Required agreements
+                </p>
+                <span className="text-[10px] font-medium text-zinc-600">2 required</span>
+            </div>
+
             <div className={LEGAL_CHECKBOX_ROW_CLASS}>
                 <Checkbox
                     id={ppfCheckboxId}
@@ -149,16 +157,22 @@ export function RegisterLegalCheckboxes({
                 <div className="min-w-0 flex-1">
                     <Label
                         htmlFor={ppfCheckboxId}
-                        className="block cursor-pointer text-left text-[11px] font-normal leading-snug text-zinc-400"
+                        className="block cursor-pointer text-left text-xs font-normal leading-[1.45] text-zinc-400"
                     >
-                        I acknowledge the{" "}
-                        <span className="font-semibold text-zinc-100">
-                            Paint Protection Film General Terms and Conditions
-                        </span>
-                        . Select to review and accept in the popup before continuing.
+                        Review and accept the{" "}
+                        <span className="font-semibold text-zinc-100">Paint Protection Film Terms</span>.
                     </Label>
+                    <button
+                        type="button"
+                        onClick={onOpenPpfTermsModal}
+                        className="mt-0.5 text-[10px] font-medium text-orange-200/75 transition-colors hover:text-orange-100 hover:underline"
+                    >
+                        Open service agreement
+                    </button>
                 </div>
             </div>
+
+            <div className="mx-3 h-px bg-white/[0.055]" aria-hidden />
 
             <div className={LEGAL_CHECKBOX_ROW_CLASS}>
                 <Checkbox
@@ -169,15 +183,33 @@ export function RegisterLegalCheckboxes({
                     className={LEGAL_CHECKBOX_CLASS}
                     style={registerWebsiteTermsAgreed ? LEGAL_CHECKBOX_CHECKED_STYLE : undefined}
                 />
-                <Label
-                    htmlFor={websiteCheckboxId}
-                    className="block min-w-0 flex-1 cursor-pointer text-left text-[11px] font-normal leading-snug text-zinc-400"
-                >
-                    By registering, you confirm the PPF terms (via the popup) and our website{" "}
-                    <span className="font-semibold text-zinc-100 hover:underline">Terms of Service</span>.
-                </Label>
+                <div className="min-w-0 flex-1">
+                    <Label
+                        htmlFor={websiteCheckboxId}
+                        className="block cursor-pointer text-left text-xs font-normal leading-[1.45] text-zinc-400"
+                    >
+                        I agree to the AutoSPF+ website terms.
+                    </Label>
+                    <p className="mt-0.5 text-[10px] leading-relaxed text-zinc-600">
+                        Read our{" "}
+                        <Link
+                            to="/#terms-of-service"
+                            className="font-medium text-zinc-400 underline decoration-white/15 underline-offset-2 transition-colors hover:text-zinc-200"
+                        >
+                            Terms of Service
+                        </Link>{" "}
+                        and{" "}
+                        <Link
+                            to="/#privacy-policy"
+                            className="font-medium text-zinc-400 underline decoration-white/15 underline-offset-2 transition-colors hover:text-zinc-200"
+                        >
+                            Privacy Policy
+                        </Link>
+                        .
+                    </p>
+                </div>
             </div>
-        </div>
+        </section>
     );
 }
 

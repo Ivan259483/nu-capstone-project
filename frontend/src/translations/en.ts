@@ -344,6 +344,12 @@ export const en = {
         legalRequiredToast:
             "Both checkboxes are required: accept the Paint Protection Film terms in the popup, and confirm the website Terms of Service.",
         strengthLabel: "Password strength:",
+        strengthComplete: "All password requirements are met",
+        ruleLength: "8+ characters",
+        ruleUppercase: "Uppercase letter",
+        ruleLowercase: "Lowercase letter",
+        ruleNumber: "Number",
+        ruleSpecial: "Special character",
         sendingCode: "Sending verification code…",
         hidePasswords: "Hide passwords",
         showPasswords: "Show passwords",

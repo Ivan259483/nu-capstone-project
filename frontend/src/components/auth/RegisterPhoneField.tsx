@@ -182,11 +182,9 @@ export function RegisterPhoneField({
         value={nationalDigits}
         onChange={(e) => onNationalChange(e.target.value)}
         placeholder={placeholder}
-        aria-label={
-          placeholder === "" ? (isPh ? "Mobile number, 10 digits" : "Phone number") : undefined
-        }
+        aria-label={isPh ? "Mobile number, 10 digits" : "Phone number"}
         className={cn(
-          "flex-1 rounded-none border-0 bg-transparent text-sm font-medium text-white shadow-none",
+          "flex-1 rounded-none border-0 bg-transparent text-sm font-normal text-white shadow-none",
           "focus-visible:ring-0 focus-visible:ring-offset-0",
           "placeholder:text-white/35",
           embedded
