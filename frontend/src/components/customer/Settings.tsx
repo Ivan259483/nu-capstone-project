@@ -31,6 +31,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { getPasswordPolicyError } from '@/lib/password-policy';
 
 import type { Vehicle } from '@/types';
 import { resolveProfileImage } from '@/lib/profile-image';
@@ -89,6 +90,15 @@ export const Settings: React.FC<SettingsProps> = ({
 
     const handlePasswordSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!currentPassword) {
+            toast.error('Current password is required');
+            return;
+        }
+        const passwordPolicyError = getPasswordPolicyError(newPassword);
+        if (passwordPolicyError) {
+            toast.error(passwordPolicyError);
+            return;
+        }
         if (newPassword !== confirmPassword) {
             toast.error('New passwords do not match');
             return;
@@ -318,6 +328,9 @@ export const Settings: React.FC<SettingsProps> = ({
                                             />
                                         </div>
                                     </div>
+                                    <p className="text-xs text-[var(--text-secondary)]">
+                                        Use 8+ characters with uppercase, lowercase, a number, and a special character (e.g. ! @ # *).
+                                    </p>
                                     <div className="pt-1">
                                         <Button
                                             type="submit"

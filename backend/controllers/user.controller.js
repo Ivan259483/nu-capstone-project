@@ -26,7 +26,11 @@ import {
 } from '../constants/roles.js';
 import { parseOptionalProfilePhone } from '../utils/phone.utils.js';
 import { serializeUserForClient, resolvePhoneForClient, USER_PHONE_FIELDS } from '../utils/phone-client.utils.js';
-import { uploadBufferToCloudinary } from '../utils/cloudinaryStorage.utils.js';
+import {
+  getCloudinaryRuntimeDiagnostics,
+  getCloudinarySafeErrorDetails,
+  uploadBufferToCloudinary,
+} from '../utils/cloudinaryStorage.utils.js';
 import { normalizeEmailForOtp } from '../utils/otp.utils.js';
 import { issueStaffVerificationLink } from '../services/staffVerification.service.js';
 import { deleteOrdersAndReleaseSlotCounters } from '../services/slot.service.js';
@@ -154,6 +158,7 @@ export const getAllUsers = async (req, res, next) => {
         projection: {
           password: 0,
           avatar: 0,
+          avatarPublicId: 0,
           photoURL: 0,
           profileImage: 0,
           profilePhoto: 0,
@@ -327,6 +332,9 @@ export const updateUser = async (req, res, next) => {
     }
 
     const selfRequest = isSelfUser(req, user);
+    if (selfRequest && req.profilePhotoUpload?.publicId) {
+      updatePayload.avatarPublicId = req.profilePhotoUpload.publicId;
+    }
     if (selfRequest && ['role', 'status', 'isActive', 'isDeleted', 'permissions', 'firebaseUid']
       .some((field) => hasOwn(req.body, field))) {
       return res.status(403).json({
@@ -564,20 +572,33 @@ export const updateMyProfile = async (req, res, next) => {
 
       const extension = metadata.format === 'png' ? 'png' : 'jpg';
       const contentType = metadata.format === 'png' ? 'image/png' : 'image/jpeg';
-      const avatarUrl = await uploadBufferToCloudinary(req.file.buffer, {
+      const uploadedAvatar = await uploadBufferToCloudinary(req.file.buffer, {
         folder: 'profile-photos',
         publicId: `user_${req.user.id}_${Date.now()}`,
         filename: `profile.${extension}`,
         contentType,
+        uploadType: 'profile_photo',
+        returnMetadata: true,
       });
 
-      req.body.avatar = avatarUrl;
+      req.body.avatar = uploadedAvatar.secureUrl;
+      req.profilePhotoUpload = uploadedAvatar;
     }
 
     req.params.id = String(req.user.id);
     return updateUser(req, res, next);
   } catch (error) {
-    console.error('Profile photo upload failed:', error);
+    console.error('[PROFILE_PHOTO_UPLOAD_FAILED]', JSON.stringify({
+      event: 'profile_photo_upload_failed',
+      requestId: req.id || null,
+      userId: req.user?.id ? String(req.user.id) : null,
+      uploadType: 'profile_photo',
+      file: req.file
+        ? { mimeType: req.file.mimetype, sizeBytes: req.file.size }
+        : null,
+      runtime: getCloudinaryRuntimeDiagnostics(),
+      error: getCloudinarySafeErrorDetails(error),
+    }));
     const message = error?.code === 'CLOUDINARY_NOT_CONFIGURED'
       ? 'Profile photo storage is unavailable. Please contact support.'
       : 'Profile photo upload failed. Please try again.';

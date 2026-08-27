@@ -1344,13 +1344,6 @@ export default function TrackScreen() {
       { rotate: '-16deg' },
     ],
   }));
-  const bottomPillSweepStyle = useAnimatedStyle(() => ({
-    opacity: 0.16 + premiumPulse.value * 0.08,
-    transform: [
-      { translateX: -42 + premiumSweep.value * 132 },
-      { rotate: '-16deg' },
-    ],
-  }));
 
   // ── Data fetching ──
   const {
@@ -1669,10 +1662,6 @@ export default function TrackScreen() {
     }
   };
 
-  const showBottomBar =
-    hasActive &&
-    !['pending_confirmation', 'rejected', 'pending'].includes(booking?.status || '');
-
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -1939,29 +1928,6 @@ export default function TrackScreen() {
               )}
             </Animated.View>
 
-            {/* ── Service summary ── */}
-            {showBottomBar && (
-              <Animated.View style={s.bottomBar}>
-                <View>
-                  <Text style={s.bottomTitle}>AutoSPF+</Text>
-                  <Text style={s.bottomSub}>Premium Service</Text>
-                </View>
-                <View style={[s.bottomPill, atSecuredSlotStage && s.bottomPillSecured]}>
-                  <Animated.View pointerEvents="none" style={[s.bottomPillSweep, bottomPillSweepStyle]}>
-                    <LinearGradient
-                      colors={stageSweepColors}
-                      start={{ x: 0, y: 0.5 }}
-                      end={{ x: 1, y: 0.5 }}
-                      style={StyleSheet.absoluteFillObject}
-                    />
-                  </Animated.View>
-                  <Text style={[s.bottomPillText, atSecuredSlotStage && s.bottomPillTextSecured]}>
-                    {pct}% COMPLETE
-                  </Text>
-                </View>
-              </Animated.View>
-            )}
-
             {/* ── Vertical Timeline ── */}
             <Animated.View entering={FadeInDown.delay(180).duration(200)}>
               <Text style={s.sectionLabel}>PROGRESS TIMELINE</Text>
@@ -2215,35 +2181,4 @@ const s = StyleSheet.create({
   },
   actionText: { fontSize: 12, fontWeight: '600', color: C.textMut },
 
-  // Service summary
-  bottomBar: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: C.surface,
-    borderTopWidth: 1, borderTopColor: C.border,
-    paddingHorizontal: 22, paddingVertical: 13,
-    ...Platform.select({
-      ios:     { shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.18, shadowRadius: 14 },
-      android: { elevation: 8 },
-    }),
-  },
-  bottomTitle: { fontSize: 13, fontWeight: '800', color: C.text },
-  bottomSub:   { fontSize: 11, color: C.textMut, marginTop: 1 },
-  bottomPill: {
-    position: 'relative',
-    overflow: 'hidden',
-    backgroundColor: C.orangeDim, borderWidth: 1, borderColor: C.orangeBrd,
-    borderRadius: 20, paddingHorizontal: 13, paddingVertical: 6,
-  },
-  bottomPillSweep: {
-    position: 'absolute',
-    top: -16,
-    bottom: -16,
-    width: 38,
-  },
-  bottomPillSecured: {
-    backgroundColor: C.greenDim,
-    borderColor: C.greenBrd,
-  },
-  bottomPillText: { fontSize: 12, fontWeight: '700', color: C.orange },
-  bottomPillTextSecured: { color: C.green },
 });

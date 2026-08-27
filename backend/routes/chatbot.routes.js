@@ -29,6 +29,7 @@ import {
   postSalesNote,
   readCustomerConversation,
   readSalesConversation,
+  removeSalesConversation,
 } from '../controllers/chatSales.controller.js';
 
 const router = express.Router();
@@ -55,6 +56,11 @@ router.get(
   '/sales/conversations/:conversationId',
   ...requireSalesChatAccess,
   getSalesConversationDetail,
+);
+router.delete(
+  '/sales/conversations/:conversationId',
+  ...requireSalesChatAccess,
+  removeSalesConversation,
 );
 router.post(
   '/sales/conversations/:conversationId/messages',

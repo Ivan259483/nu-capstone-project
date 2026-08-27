@@ -48,6 +48,7 @@ import { PaymentService, type PendingPaymentsSummary } from '@/lib/payment-servi
 import { SystemService } from '@/lib/system-service';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
 import { SettingsService } from '@/lib/settings-service';
+import { getPasswordPolicyError } from '@/lib/password-policy';
 import { fetchSlotsByDate, type SlotDetail } from '@/components/sales/calendar/calendarService';
 import {
     AVAILABILITY_UPDATED_EVENT,
@@ -522,16 +523,17 @@ export default function AdminDashboard() {
     };
 
     const handleUpdatePassword = async () => {
-        if (profileNewPassword !== profileConfirmPassword) {
-            toast.error('New passwords do not match');
-            return;
-        }
         if (!profileCurrentPassword) {
             toast.error('Current password is required');
             return;
         }
-        if (profileNewPassword.length < 8) {
-            toast.error('New password must be at least 8 characters');
+        const passwordPolicyError = getPasswordPolicyError(profileNewPassword);
+        if (passwordPolicyError) {
+            toast.error(passwordPolicyError);
+            return;
+        }
+        if (profileNewPassword !== profileConfirmPassword) {
+            toast.error('New passwords do not match');
             return;
         }
         try {
@@ -3365,7 +3367,7 @@ export default function AdminDashboard() {
                                                     </div>
                                                 </div>
                                                 <div className="profile-actions">
-                                                    <span className="update-info">Must be at least 8 characters</span>
+                                                    <span className="update-info">8+ characters with uppercase, lowercase, number, and special character</span>
                                                     <Button size="sm" onClick={handleUpdatePassword} disabled={isUpdatingPassword} className="bg-[var(--surface3)] text-[var(--text2)] hover:bg-[var(--surface3)] hover:text-[var(--text)] transition-colors border border-[var(--border)]">
                                                         {isUpdatingPassword ? 'Updating...' : 'Update password'}
                                                     </Button>

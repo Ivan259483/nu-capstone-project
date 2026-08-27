@@ -27,6 +27,7 @@ import { Palette, BorderRadius } from '@/constants/theme';
 import PremiumInput from '@/components/ui/PremiumInput';
 import PremiumButton from '@/components/ui/PremiumButton';
 import { Toast } from '@/components/ui/PremiumToast';
+import { Validation } from '@/utils/validation';
 
 const SURFACE = '#111114';
 const BORDER = '#2A2A30';
@@ -66,8 +67,8 @@ export default function ChangePasswordScreen() {
     } else if (newPassword.length < 8) {
       setNewError('Must be at least 8 characters');
       hasError = true;
-    } else if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/\d/.test(newPassword)) {
-      setNewError('Must contain upper, lower & numbers');
+    } else if (!Validation.isStrongPassword(newPassword)) {
+      setNewError('Must contain uppercase, lowercase, number, and special character');
       hasError = true;
     }
 
@@ -232,7 +233,7 @@ export default function ChangePasswordScreen() {
                 <PremiumInput
                   label="NEW PASSWORD"
                   iconName="key-outline"
-                  placeholder="Min. 8 chars, upper, lower, numbers"
+                  placeholder="8+ chars, upper, lower, number & special"
                   value={newPassword}
                   onChangeText={(t) => {
                     setNewPassword(t);

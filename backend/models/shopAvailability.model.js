@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 export const AVAILABILITY_TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 export const AVAILABILITY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const SHOP_AVAILABILITY_SINGLETON_KEY = 'primary';
+export const APPOINTMENT_DURATION_MINUTES = 60;
 
 /** Cold start is intentionally fail-closed until an Admin saves availability. */
 export const buildDefaultRecurringSchedule = () => Array.from({ length: 7 }, (_, dow) => ({
@@ -16,6 +17,17 @@ export const buildDefaultRecurringSchedule = () => Array.from({ length: 7 }, (_,
 function toMinutes(hhmm) {
   const [hour, minute] = String(hhmm || '').split(':').map(Number);
   return hour * 60 + minute;
+}
+
+export function countCompleteAppointmentStarts(from, to, duration = APPOINTMENT_DURATION_MINUTES) {
+  if (!AVAILABILITY_TIME_RE.test(String(from || '')) || !AVAILABILITY_TIME_RE.test(String(to || ''))) {
+    return 0;
+  }
+  const windowMinutes = toMinutes(to) - toMinutes(from);
+  const safeDuration = Number.isInteger(duration) && duration > 0
+    ? duration
+    : APPOINTMENT_DURATION_MINUTES;
+  return windowMinutes > 0 ? Math.floor(windowMinutes / safeDuration) : 0;
 }
 
 export function normalizeRecurringSchedule(schedule) {
@@ -54,9 +66,9 @@ export function normalizeRecurringSchedule(schedule) {
 
 /**
  * Validate and sanitize the recurring availability payload shared by every
- * compatibility/admin write path. `slots` is the number of hourly appointment
- * times generated from the day's opening time (bounded by closing time). Each
- * generated time can hold exactly one active appointment.
+ * compatibility/admin write path. `slots` is the maximum number of active
+ * appointments admitted for the day. Operating hours generate the concrete
+ * one-customer appointment times independently.
  */
 export function validateRecurringScheduleInput(schedule, { requireAllDays = true } = {}) {
   if (!Array.isArray(schedule) || schedule.length === 0) {
@@ -97,6 +109,20 @@ export function validateRecurringScheduleInput(schedule, { requireAllDays = true
     const slots = Number(row.slots);
     if (!Number.isInteger(slots) || slots < 0) {
       return { error: `Schedule row ${i + 1} has invalid "slots". Expected a non-negative integer.` };
+    }
+    if (row.open && slots < 1) {
+      return { error: `Schedule row ${i + 1} must allow at least one daily appointment when open is true.` };
+    }
+    if (row.open) {
+      const appointmentStarts = countCompleteAppointmentStarts(row.from, row.to);
+      if (appointmentStarts < 1) {
+        return { error: `Schedule row ${i + 1} must contain at least one complete 60-minute appointment.` };
+      }
+      if (slots > appointmentStarts) {
+        return {
+          error: `Schedule row ${i + 1} daily capacity cannot exceed ${appointmentStarts} appointment time${appointmentStarts === 1 ? '' : 's'} within its operating hours.`,
+        };
+      }
     }
 
     sanitized.push({ dow, open: row.open, from: row.from, to: row.to, slots });

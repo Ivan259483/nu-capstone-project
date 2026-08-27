@@ -22,6 +22,7 @@ export interface AvailableSlotsResponse {
         capacity: number;
         booked: number;
         available: number;
+        blockedByDailyCapacity?: boolean;
         status: 'AVAILABLE' | 'ALMOST_FULL' | 'FULL' | 'OVER_CAPACITY' | 'ELAPSED';
     }[];
     unavailable?: boolean;
@@ -38,6 +39,7 @@ export interface AvailableSlotsResponse {
     bookedCount?: number | null;
     totalCapacity?: number | null;
     dailyCapacity?: number | null;
+    totalSlots?: number | null;
 }
 
 export interface OrderListOptions {

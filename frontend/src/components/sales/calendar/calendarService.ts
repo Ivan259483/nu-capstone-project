@@ -61,6 +61,7 @@ export interface SlotDetail {
   capacity: number;
   booked: number;
   available: number;
+  blockedByDailyCapacity?: boolean;
   status: 'AVAILABLE' | 'ALMOST_FULL' | 'FULL' | 'OVER_CAPACITY' | 'ELAPSED';
   elapsed?: boolean;
   outOfSchedule?: boolean;

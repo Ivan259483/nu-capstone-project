@@ -43,7 +43,7 @@
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  */
 
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet,
   Dimensions, Platform, RefreshControl,
@@ -64,7 +64,15 @@ withDelay, Easing, interpolate, Extrapolation,
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
 import { bookingService } from '@/services/api/bookingService';
-import type { BookingRecord } from '@/services/api/types';
+import { invalidateCache } from '@/services/api/client';
+import {
+  getServicePriceForVehicle,
+  getServiceStartingPrice,
+  getServiceVehiclePriceKey,
+  serviceService,
+} from '@/services/api/serviceService';
+import { vehicleService } from '@/services/api/vehicleService';
+import type { BookingRecord, ServiceOption, Vehicle } from '@/services/api/types';
 import { isBookingCountedAsActiveOnHome } from '@/utils/customerBookingLifecycle';
 import {
   bookingShowsCustomerLiveTracker,
@@ -80,6 +88,8 @@ import { useNotifications } from '@/context/NotificationsContext';
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const { width: W } = Dimensions.get('window');
 const IOS = Platform.OS === 'ios';
+const SERVICE_CARD_WIDTH = (W - 54) / 2;
+const USE_STACKED_SERVICE_FOOTER = SERVICE_CARD_WIDTH < 200;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // DESIGN TOKENS
@@ -146,13 +156,6 @@ const GB = {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Home 8-step rail labels (must match `CUSTOMER_HOME_RAIL_LABELS` in customer-home-rail-step.ts)
 const STEPS = ['Booked', 'Confirmed', 'Assigned', 'Checked in', 'In Service', 'QC', 'Payment', 'Released'];
-
-const SERVICES = [
-  { icon:'color-filter'     as const, name:'Window\nTinting',   tag:'UV  ·  Heat  ·  Privacy',  price:'₱2,500+', g:['#A63B0D','#E66B22'] as const },
-  { icon:'sparkles'         as const, name:'Premium\nDetail',   tag:'Interior  ·  Exterior',     price:'₱3,800+', g:['#171B22','#7D3518'] as const },
-  { icon:'shield-checkmark' as const, name:'Paint\nProtection', tag:'PPF  ·  Ceramic Coat',      price:'₱12,000+',g:['#3A2117','#B84B18'] as const },
-  { icon:'water'            as const, name:'Nano\nCoating',     tag:'Hydrophobic Shield',         price:'₱6,500+', g:['#11151C','#79401F'] as const },
-];
 
 const TRUST = [
   { icon:'shield-checkmark-outline' as const, label:'LTFRB Certified' },
@@ -864,18 +867,90 @@ function QuickSection({ router, completed }: any) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SECTION: Services — horizontal gallery 240 px cards
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function ServicesSection({ router }: any) {
+const SERVICE_CATEGORY_GRADIENTS: Record<string, readonly [string, string]> = {
+  Exterior: ['#713014', '#C75A21'],
+  Interior: ['#182033', '#3B4E72'],
+  Complete: ['#3A2117', '#9A4824'],
+  Engine: ['#18211F', '#406D60'],
+  Premium: ['#211B35', '#68489C'],
+};
+
+const formatServicePrice = (price: number | null, isStartingPrice: boolean) => {
+  if (price === null) return 'Price unavailable';
+  return `${isStartingPrice ? 'From ' : ''}₱${price.toLocaleString('en-PH')}`;
+};
+
+function ServicesSection({
+  router,
+  services,
+  vehicle,
+  isLoading,
+  hasError,
+  onRetry,
+}: {
+  router: ReturnType<typeof useRouter>;
+  services: ServiceOption[];
+  vehicle: Vehicle | null;
+  isLoading: boolean;
+  hasError: boolean;
+  onRetry: () => void;
+}) {
+  const visibleServices = services.slice(0, 4);
+
   return (
     <Animated.View entering={FadeInUp.delay(400).duration(200)}>
       <Eye label="Our Services" cta="View All" onCta={() => router.push('/(customer)/book')} />
+      {isLoading ? (
+        <View style={$.svcLoadingRow}>
+          <Shim w={(W-54)/2} h={240} r={26} />
+          <Shim w={(W-54)/2} h={240} r={26} />
+        </View>
+      ) : hasError ? (
+        <View style={$.svcStateCard}>
+          <Ionicons name="cloud-offline-outline" size={20} color={D.w38} />
+          <Text style={$.svcStateText}>Services are temporarily unavailable.</Text>
+          <Pressable onPress={onRetry} hitSlop={10}>
+            <Text style={$.svcRetry}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : visibleServices.length === 0 ? (
+        <View style={$.svcStateCard}>
+          <Ionicons name="information-circle-outline" size={20} color={D.w38} />
+          <Text style={$.svcStateText}>No services are available right now.</Text>
+        </View>
+      ) : (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingRight:22}}>
-        {SERVICES.map((svc, i) => (
-          <Animated.View key={svc.name} entering={SlideInRight.delay(420+i*65).duration(200)}>
+        {visibleServices.map((service, i) => {
+          const vehiclePriceKey = getServiceVehiclePriceKey(vehicle?.vehicleType);
+          const exactVehiclePrice = vehiclePriceKey
+            ? getServicePriceForVehicle(service, vehicle?.vehicleType)
+            : null;
+          const price = vehiclePriceKey ? exactVehiclePrice : getServiceStartingPrice(service);
+          const gradient = service.catalogCard?.accentFrom && service.catalogCard?.accentTo
+            ? [service.catalogCard.accentFrom, service.catalogCard.accentTo] as const
+            : SERVICE_CATEGORY_GRADIENTS[service.tag] || ['#26211F', '#754125'] as const;
+          const metadata = service.catalogCard?.tagline
+            || service.description
+            || [service.tag, service.duration].filter(Boolean).join(' · ');
+
+          return (
+          <Animated.View key={service.id} entering={SlideInRight.delay(420+i*65).duration(200)}>
             <Tap
-              onPress={() => router.push('/(customer)/book')}
+              onPress={() => router.push({
+                pathname: '/(customer)/book',
+                params: {
+                  serviceId: service.id,
+                  ...(vehicle?.id ? { vehicleId: vehicle.id } : {}),
+                },
+              })}
               style={[$.svcWrap, i===0&&{marginLeft:0}]}
             >
-              <LinearGradient colors={svc.g} start={{x:0,y:0}} end={{x:1,y:1}} style={$.svcCard}>
+              <LinearGradient
+                colors={gradient}
+                start={{x:0,y:0}}
+                end={{x:1,y:1}}
+                style={[$.svcCard, USE_STACKED_SERVICE_FOOTER && $.svcCardNarrow]}
+              >
                 {/* Specular */}
                 <LinearGradient
                   colors={['rgba(255,255,255,0.15)','rgba(255,255,255,0.05)','transparent']}
@@ -892,26 +967,37 @@ function ServicesSection({ router }: any) {
                   style={{width:48,height:48,...sh('#000',0.12,6,2)}}
                 >
                   <View style={{flex:1,alignItems:'center',justifyContent:'center'}}>
-                    <Ionicons name={svc.icon} size={19} color="rgba(255,255,255,0.96)" />
+                    <Ionicons name={service.icon as keyof typeof Ionicons.glyphMap} size={19} color="rgba(255,255,255,0.96)" />
                   </View>
                 </GBCard>
 
                 <View style={{flex:1}} />
-                <Text style={$.svcName}>{svc.name}</Text>
-                <Text style={$.svcTag}>{svc.tag}</Text>
-                <View style={$.svcFoot}>
-                  <View style={$.svcPrBadge}>
-                    <Text style={$.svcPr}>{svc.price}</Text>
+                {service.catalogCard?.badge ? (
+                  <Text style={$.svcBadge} numberOfLines={1}>{service.catalogCard.badge}</Text>
+                ) : null}
+                <Text style={$.svcName} numberOfLines={2}>{service.name}</Text>
+                {metadata ? <Text style={$.svcTag} numberOfLines={2}>{metadata}</Text> : null}
+                <View style={[$.svcFoot, USE_STACKED_SERVICE_FOOTER && $.svcFootNarrow]}>
+                  <View style={[$.svcPrBadge, USE_STACKED_SERVICE_FOOTER && $.svcPrBadgeNarrow]}>
+                    <Text
+                      style={$.svcPr}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.8}
+                    >
+                      {formatServicePrice(price, !vehiclePriceKey)}
+                    </Text>
                   </View>
-                  <View style={$.svcBookPill}>
+                  <View style={[$.svcBookPill, USE_STACKED_SERVICE_FOOTER && $.svcBookPillNarrow]}>
                     <Text style={$.svcBookTxt}>Book  →</Text>
                   </View>
                 </View>
               </LinearGradient>
             </Tap>
           </Animated.View>
-        ))}
+        )})}
       </ScrollView>
+      )}
     </Animated.View>
   );
 }
@@ -1214,11 +1300,32 @@ export default function HomeScreen() {
   const scrollY = useSharedValue(0);
   const { unreadCount } = useNotifications();
 
-  const { data: bookings = [], refetch, isRefetching, isLoading } = useQuery({
+  const { data: bookings = [], refetch: refetchBookings, isRefetching, isLoading } = useQuery({
     queryKey: ['bookings'],
     queryFn: () => bookingService.getMyBookings(),
     enabled: !!profile?.id,
   });
+
+  const servicesQuery = useQuery({
+    queryKey: ['services'],
+    queryFn: () => serviceService.getPublishedServices(),
+    enabled: !!profile?.id,
+  });
+  const vehiclesQuery = useQuery({
+    queryKey: ['vehicles'],
+    queryFn: () => vehicleService.getMyVehicles(),
+    enabled: !!profile?.id,
+  });
+  const pricingVehicle = vehiclesQuery.data?.[0] || null;
+
+  const refreshHome = useCallback(async () => {
+    invalidateCache('/services');
+    await Promise.all([
+      refetchBookings(),
+      servicesQuery.refetch(),
+      vehiclesQuery.refetch(),
+    ]);
+  }, [refetchBookings, servicesQuery, vehiclesQuery]);
 
   const active = bookings
     .filter((b: BookingRecord) => isBookingCountedAsActiveOnHome(b.status))
@@ -1267,7 +1374,7 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         onScroll={onScroll}
         scrollEventThrottle={16}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={D.A} />}
+        refreshControl={<RefreshControl refreshing={isRefetching || servicesQuery.isRefetching || vehiclesQuery.isRefetching} onRefresh={refreshHome} tintColor={D.A} />}
       >
         {/* 1. HEADER */}
         <HeaderSection
@@ -1303,7 +1410,17 @@ export default function HomeScreen() {
 
         {/* 6. SERVICES */}
         <View style={$.sect}>
-          <ServicesSection router={router} />
+          <ServicesSection
+            router={router}
+            services={servicesQuery.data || []}
+            vehicle={pricingVehicle}
+            isLoading={servicesQuery.isLoading || vehiclesQuery.isLoading}
+            hasError={servicesQuery.isError}
+            onRetry={() => {
+              invalidateCache('/services');
+              void servicesQuery.refetch();
+            }}
+          />
         </View>
 
         {/* 7. CURRENT PROMO */}
@@ -1485,15 +1602,24 @@ const $ = StyleSheet.create({
   qaBadgeTxt:   { color:D.G, fontSize:11, fontWeight:'800' },
 
   // ── SERVICES ─────────────────────────────────────────────────
-  svcWrap:  { width:(W-54)/2.0, marginLeft:11, borderRadius:26, overflow:'hidden', ...sh('#000',0.46,18,8) },
+  svcWrap:  { width:SERVICE_CARD_WIDTH, marginLeft:11, borderRadius:26, overflow:'hidden', ...sh('#000',0.46,18,8) },
   svcCard:  { height:240, padding:18, justifyContent:'flex-end' },
+  svcCardNarrow:{ height:252 },
+  svcLoadingRow:{ flexDirection:'row', gap:11 },
+  svcStateCard:{ minHeight:112, borderRadius:20, borderWidth:1, borderColor:D.w07, backgroundColor:D.w04, padding:18, flexDirection:'row', alignItems:'center', gap:12 },
+  svcStateText:{ flex:1, color:D.w55, fontSize:12, fontWeight:'600', lineHeight:18 },
+  svcRetry:{ color:D.A, fontSize:12, fontWeight:'800' },
   svcOrb:   { position:'absolute', top:-55, right:-55, width:150, height:150, borderRadius:75, backgroundColor:'rgba(255,255,255,0.10)' },
+  svcBadge: { alignSelf:'flex-start', color:'rgba(255,255,255,0.82)', fontSize:8, fontWeight:'900', letterSpacing:1.2, marginBottom:7 },
   svcName:  { fontSize:18, fontWeight:'800', color:'#fff', lineHeight:22, marginBottom:4, letterSpacing:-0.4 },
   svcTag:   { fontSize:10, color:'rgba(255,255,255,0.56)', fontWeight:'600', letterSpacing:0.3, marginBottom:12 },
-  svcFoot:  { flexDirection:'row', alignItems:'center', justifyContent:'space-between' },
-  svcPrBadge:{ backgroundColor:'rgba(0,0,0,0.22)', paddingHorizontal:10, paddingVertical:4, borderRadius:10 },
+  svcFoot:  { flexDirection:'row', alignItems:'center', width:'100%', gap:6 },
+  svcFootNarrow:{ flexDirection:'column', alignItems:'stretch' },
+  svcPrBadge:{ flex:1, minWidth:0, backgroundColor:'rgba(0,0,0,0.22)', paddingHorizontal:7, paddingVertical:4, borderRadius:10 },
+  svcPrBadgeNarrow:{ flex:0, alignSelf:'stretch' },
   svcPr:    { fontSize:11, color:'rgba(255,255,255,0.80)', fontWeight:'700' },
-  svcBookPill:{ backgroundColor:'rgba(255,255,255,0.22)', borderWidth:1, borderColor:'rgba(255,255,255,0.15)', paddingHorizontal:12, paddingVertical:6, borderRadius:12 },
+  svcBookPill:{ flexShrink:0, minHeight:30, backgroundColor:'rgba(255,255,255,0.22)', borderWidth:1, borderColor:'rgba(255,255,255,0.15)', paddingHorizontal:10, paddingVertical:6, borderRadius:12, alignItems:'center', justifyContent:'center' },
+  svcBookPillNarrow:{ alignSelf:'stretch' },
   svcBookTxt: { fontSize:10, fontWeight:'800', color:'#fff', letterSpacing:0.6 },
 
   // ── PROMO ────────────────────────────────────────────────────

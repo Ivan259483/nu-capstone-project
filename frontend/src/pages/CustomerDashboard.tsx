@@ -18,6 +18,7 @@ import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
 import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking, normalizePhilippineMobileInput, resolveProfilePhoneDisplay } from '../lib/phone';
 import { normalizePlateNumber } from '../lib/plate';
 import { resolveProfileImage } from '../lib/profile-image';
+import { getPasswordPolicyError } from '../lib/password-policy';
 import { usePublishedBookingPackages, type VehiclePriceKey } from '../lib/customer-booking-catalog';
 import {
   BOOKING_TERMS_DOCUMENT_TITLE,
@@ -51,7 +52,7 @@ import {
   CustomerRewardsSkeleton,
   CustomerServicesSkeleton,
 } from '../components/customer/CustomerSkeleton';
-import { compressImageForBookingProof } from '../lib/compress-image-for-upload';
+import { compressImageForBookingProof, compressProfilePhoto } from '../lib/compress-image-for-upload';
 import {
   createDetailedReceiptPdfBlob,
   receiptFromBooking,
@@ -1321,7 +1322,7 @@ export default function CustomerDashboard() {
   const [step2Errors, setStep2Errors] = useState<Record<string, string>>({});
   // Structured per-slot statuses for the selected date
   type SlotStatus = 'AVAILABLE' | 'FULL' | 'CLOSED';
-  type TimeSlot = { time: string; label?: string; status: SlotStatus };
+  type TimeSlot = { time: string; label?: string; status: SlotStatus; blockedByDailyCapacity?: boolean };
   type DayAvailabilityStatus = 'available' | 'full' | 'closed';
   type AvailableSlotsPayload = {
     success?: boolean;
@@ -1334,6 +1335,7 @@ export default function CustomerDashboard() {
       available?: number;
       booked?: number;
       capacity?: number;
+      blockedByDailyCapacity?: boolean;
     }[];
     unavailable?: boolean;
     errorCode?: string | null;
@@ -1606,6 +1608,7 @@ export default function CustomerDashboard() {
           time: displayTime,
           label: displayTime,
           status: deriveStatusFromApiSlot(slot),
+          blockedByDailyCapacity: slot.blockedByDailyCapacity === true,
         });
         return rows;
       }, []);
@@ -2006,6 +2009,7 @@ export default function CustomerDashboard() {
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileSubmitting, setProfileSubmitting] = useState(false);
+  const [profilePhotoPreparing, setProfilePhotoPreparing] = useState(false);
   const [regionalPrefs, setRegionalPrefs] = useState(() => ({
     language: 'English',
     region: 'Philippines',
@@ -2117,13 +2121,8 @@ export default function CustomerDashboard() {
   function validatePasswords() {
     const errs: Record<string, string> = {};
     if (!passwords.current) errs.current = 'Current password is required.';
-    if (!passwords.newPass || passwords.newPass.length < 8) errs.newPass = 'Password must be at least 8 characters.';
-    else if (!/[A-Z]/.test(passwords.newPass)) errs.newPass = 'Must contain at least one uppercase letter.';
-    else if (!/[a-z]/.test(passwords.newPass)) errs.newPass = 'Must contain at least one lowercase letter.';
-    else if (!/[0-9]/.test(passwords.newPass)) errs.newPass = 'Must contain at least one number.';
-    else if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(passwords.newPass)) {
-      errs.newPass = 'Must contain at least one special character (e.g. ! @ # *).';
-    }
+    const passwordPolicyError = getPasswordPolicyError(passwords.newPass);
+    if (passwordPolicyError) errs.newPass = `${passwordPolicyError}.`;
     if (passwords.newPass && passwords.current && passwords.newPass === passwords.current) {
       errs.newPass = 'New password must be different from your current password.';
     }
@@ -5547,40 +5546,81 @@ export default function CustomerDashboard() {
                             <input
                               id="avatar-upload-input"
                               type="file"
-                              accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                              accept="image/jpeg,image/png,image/heic,image/heif"
                               className="hidden"
-                              onChange={(e) => {
+                              onChange={async (e) => {
                                 const file = e.target.files?.[0];
                                 if (file) {
-                                  if (!['image/jpeg', 'image/png'].includes(file.type)) {
-                                    setProfileErrors((current) => ({ ...current, form: 'Upload a JPG or PNG image.' }));
+                                  if (!user) {
+                                    setProfileErrors((current) => ({ ...current, form: 'Your session expired. Please sign in again.' }));
                                     e.target.value = '';
                                     return;
                                   }
-                                  if (file.size > 2 * 1024 * 1024) {
-                                    setProfileErrors((current) => ({ ...current, form: 'Profile photo must be under 2 MB.' }));
+                                  if (!file.type.startsWith('image/')) {
+                                    setProfileErrors((current) => ({ ...current, form: 'Choose a valid image.' }));
                                     e.target.value = '';
                                     return;
                                   }
-                                  const reader = new FileReader();
-                                  reader.onload = () => {
-                                    const preview = reader.result;
-                                    if (typeof preview !== 'string') {
-                                      setProfileErrors((current) => ({ ...current, form: 'Could not preview this image. Please choose another file.' }));
-                                      return;
-                                    }
+                                  setProfilePhotoPreparing(true);
+                                  setProfileErrors((current) => ({ ...current, form: '' }));
+                                  let uploadFile: File;
+                                  try {
+                                    uploadFile = await compressProfilePhoto(file);
+                                  } catch {
+                                    setProfileErrors((current) => ({ ...current, form: 'Could not prepare this image. Please choose another photo.' }));
+                                    setProfilePhotoPreparing(false);
+                                    e.target.value = '';
+                                    return;
+                                  }
+                                  if (!['image/jpeg', 'image/png'].includes(uploadFile.type) || uploadFile.size > 2 * 1024 * 1024) {
+                                    setProfileErrors((current) => ({ ...current, form: 'This photo could not be optimized. Please choose a JPG or PNG image.' }));
+                                    setProfilePhotoPreparing(false);
+                                    e.target.value = '';
+                                    return;
+                                  }
+                                  try {
+                                    const preview = await new Promise<string>((resolve, reject) => {
+                                      const reader = new FileReader();
+                                      reader.onload = () => typeof reader.result === 'string'
+                                        ? resolve(reader.result)
+                                        : reject(new Error('image-preview-failed'));
+                                      reader.onerror = () => reject(new Error('image-preview-failed'));
+                                      reader.readAsDataURL(uploadFile);
+                                    });
                                     setProfile((current) => ({
                                       ...current,
                                       avatarPreview: preview,
-                                      avatarFile: file,
+                                      avatarFile: uploadFile,
+                                      avatarRemoved: false,
+                                    }));
+
+                                    const result = await updateUser(user, { profilePhoto: uploadFile });
+                                    if (!result.success || result.offline) {
+                                      throw new Error(result.message || 'Could not update the profile photo. Please try again.');
+                                    }
+
+                                    setProfile((current) => ({
+                                      ...current,
+                                      avatarPreview: '',
+                                      avatarFile: null,
                                       avatarRemoved: false,
                                     }));
                                     setProfileErrors((current) => ({ ...current, form: '' }));
-                                  };
-                                  reader.onerror = () => {
-                                    setProfileErrors((current) => ({ ...current, form: 'Could not read this image. Please choose another file.' }));
-                                  };
-                                  reader.readAsDataURL(file);
+                                    setProfileSaved(true);
+                                    setTimeout(() => setProfileSaved(false), 3000);
+                                  } catch (error) {
+                                    setProfile((current) => ({
+                                      ...current,
+                                      avatarPreview: '',
+                                      avatarFile: null,
+                                    }));
+                                    setProfileErrors((current) => ({
+                                      ...current,
+                                      form: error instanceof Error ? error.message : 'Could not update the profile photo. Please try again.',
+                                    }));
+                                  } finally {
+                                    setProfilePhotoPreparing(false);
+                                  }
                                 }
                                 e.target.value = '';
                               }}
@@ -5588,6 +5628,7 @@ export default function CustomerDashboard() {
                             <button
                               type="button"
                               onClick={() => document.getElementById('avatar-upload-input')?.click()}
+                              disabled={profilePhotoPreparing}
                               className="group flex w-full flex-col items-center rounded-lg border border-slate-200 bg-slate-50 px-4 py-5 text-center transition hover:border-blue-200 hover:bg-blue-50/50 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
                             >
                               <span className="relative mb-3 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white bg-white text-2xl font-bold text-blue-700 shadow-sm ring-1 ring-slate-200">
@@ -5600,8 +5641,8 @@ export default function CustomerDashboard() {
                                   <iconify-icon icon="solar:camera-add-linear" width="22" style={{ color: 'white' }}></iconify-icon>
                                 </span>
                               </span>
-                              <span className="text-sm font-semibold text-slate-900">Profile Photo</span>
-                              <span className="mt-1 text-xs leading-5 text-slate-500">JPG or PNG, max 2MB.</span>
+                              <span className="text-sm font-semibold text-slate-900">{profilePhotoPreparing ? 'Updating photo...' : 'Profile Photo'}</span>
+                              <span className="mt-1 text-xs leading-5 text-slate-500">Phone photos are optimized automatically.</span>
                             </button>
                             {settingsProfileImage && (
                               <button
@@ -5695,11 +5736,11 @@ export default function CustomerDashboard() {
                             <div className="flex justify-end border-t border-slate-100 pt-4">
                               <button
                                 type="submit"
-                                disabled={profileSubmitting}
+                                disabled={profileSubmitting || profilePhotoPreparing}
                                 className={`${CUSTOMER_PRIMARY_BUTTON} inline-flex items-center gap-2 disabled:pointer-events-none disabled:opacity-60`}
                               >
                                 <iconify-icon icon="solar:diskette-linear" width="16"></iconify-icon>
-                                {profileSubmitting ? 'Saving...' : 'Save Changes'}
+                                {profilePhotoPreparing ? 'Preparing photo...' : profileSubmitting ? 'Saving...' : 'Save Changes'}
                               </button>
                             </div>
                           </div>
@@ -8290,7 +8331,7 @@ export default function CustomerDashboard() {
                                   <span style={{ width: `${timeOptionFillPct}%` }} />
                                 </div>
                                 <div className="booking-step3-time-grid">
-                                  {slotStatuses.map(({ time: t, status }) => {
+                                  {slotStatuses.map(({ time: t, status, blockedByDailyCapacity }) => {
                                     const isDisabled = status !== 'AVAILABLE';
                                     const isActive = bookingForm.time === t && !isDisabled;
                                     const slotClassName = [
@@ -8300,14 +8341,20 @@ export default function CustomerDashboard() {
                                       status === 'CLOSED' ? 'is-closed' : '',
                                       isActive ? 'is-selected' : '',
                                     ].filter(Boolean).join(' ');
-                                    const label = status === 'FULL' ? 'Booked' : status === 'CLOSED' ? 'Closed' : isActive ? 'Selected' : 'Available';
+                                    const label = status === 'FULL'
+                                      ? blockedByDailyCapacity ? 'Daily cap reached' : 'Booked'
+                                      : status === 'CLOSED' ? 'Closed' : isActive ? 'Selected' : 'Available';
 
                                     return (
                                       <button
                                         key={t}
                                         type="button"
                                         disabled={isDisabled}
-                                        title={status === 'FULL' ? 'This time has already been booked' : status === 'CLOSED' ? 'This time is unavailable' : t}
+                                        title={status === 'FULL'
+                                          ? blockedByDailyCapacity
+                                            ? 'The daily booking capacity has been reached'
+                                            : 'This time has already been booked'
+                                          : status === 'CLOSED' ? 'This time is unavailable' : t}
                                         className={slotClassName}
                                         onClick={() => {
                                           if (isDisabled) return;

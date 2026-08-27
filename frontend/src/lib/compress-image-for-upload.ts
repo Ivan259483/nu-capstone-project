@@ -13,6 +13,7 @@ export type CompressImageOptions = {
   targetMaxBytes?: number;
   skipBelowBytes?: number;
   minQuality?: number;
+  forceJpeg?: boolean;
 };
 
 function canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
@@ -112,7 +113,7 @@ export async function compressImageForUpload(file: File, options?: CompressImage
     blob = await canvasToJpegBlob(canvas, quality);
   }
 
-  if (!blob || blob.size >= file.size) {
+  if (!blob || (!options?.forceJpeg && blob.size >= file.size)) {
     return file;
   }
 
@@ -196,5 +197,16 @@ export async function compressImageForBookingProof(file: File): Promise<File> {
     targetMaxBytes: 420 * 1024,
     skipBelowBytes: 120 * 1024,
     minQuality: 0.48,
+  });
+}
+
+/** Small, web-safe JPEG for customer avatars selected from phone cameras. */
+export async function compressProfilePhoto(file: File): Promise<File> {
+  return compressImageForUpload(file, {
+    maxEdgePx: 720,
+    targetMaxBytes: 450 * 1024,
+    skipBelowBytes: 0,
+    minQuality: 0.48,
+    forceJpeg: true,
   });
 }

@@ -193,6 +193,10 @@ function attachGlobalSocketListeners(socket: Socket): void {
       return;
     }
 
+    if (payload.collection === 'services') {
+      invalidateCache('/services');
+    }
+
     invalidateCollectionQueries(payload.collection, `${payload.collection} db_change`);
     subscribers.forEach((sub) => sub(payload));
   });

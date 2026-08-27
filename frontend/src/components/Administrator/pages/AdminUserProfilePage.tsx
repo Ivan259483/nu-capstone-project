@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { ensureBackendAuthToken } from '@/lib/api';
 import { UserService } from '@/lib/user-service';
+import { getPasswordPolicyError } from '@/lib/password-policy';
 import { getRoleLabel, getSafeUserRole } from '@/lib/roles';
 import AdminEditPersonalInfoModal, {
   type PersonalInfoDraft,
@@ -425,8 +426,9 @@ export default function AdminUserProfilePage({
       toast.error('Current password is required');
       return;
     }
-    if (newPassword.length < 8) {
-      toast.error('New password must be at least 8 characters');
+    const passwordPolicyError = getPasswordPolicyError(newPassword);
+    if (passwordPolicyError) {
+      toast.error(passwordPolicyError);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -630,6 +632,9 @@ export default function AdminUserProfilePage({
                   autoComplete="new-password"
                 />
               </label>
+              <p className="ah-password-policy-hint">
+                Use 8+ characters with uppercase, lowercase, a number, and a special character (e.g. ! @ # *).
+              </p>
               <div className="ah-user-profile-form-actions">
                 <button
                   type="button"

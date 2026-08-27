@@ -290,6 +290,41 @@ export default function SalesConciergeInbox({ onBack }: Props) {
     }
   };
 
+  const deleteConversation = async (): Promise<boolean> => {
+    if (!selectedConversation || mutationBusy) return false;
+    const conversationId = selectedConversation.id;
+    const currentIndex = conversations.findIndex(
+      (item) => item.id === conversationId,
+    );
+    setMutationBusy(true);
+    try {
+      await conciergeApi.remove(conversationId);
+      const remaining = conversations.filter(
+        (item) => item.id !== conversationId,
+      );
+      const nextConversation =
+        remaining[Math.min(Math.max(currentIndex, 0), remaining.length - 1)] ||
+        null;
+      setConversations(remaining);
+      setActiveConversationId(nextConversation?.id || null);
+      setReplyText('');
+      setNoteText('');
+      setActionMode(null);
+      setBookingConversationId((current) =>
+        current === conversationId ? null : current,
+      );
+      toast.success('Conversation deleted');
+      return true;
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message || 'Unable to delete the conversation.',
+      );
+      return false;
+    } finally {
+      setMutationBusy(false);
+    }
+  };
+
   const addNote = async () => {
     if (!selectedConversation || !noteText.trim() || mutationBusy) return;
     setMutationBusy(true);
@@ -372,6 +407,7 @@ export default function SalesConciergeInbox({ onBack }: Props) {
           onReplyChange={setReplyText}
           onSend={() => void sendMessage(replyText)}
           onResolve={(reason) => void updateStatus('Resolved', reason)}
+          onDelete={deleteConversation}
           onReopen={() => void updateStatus('In Conversation')}
           onCreateBooking={() =>
             selectedConversation &&

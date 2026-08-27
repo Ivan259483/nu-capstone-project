@@ -990,6 +990,13 @@
   gap: 16px;
 }
 
+.adminhub-root .ah-password-policy-hint {
+  margin: -4px 0 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .adminhub-root .ah-account-label {
   display: flex;
   flex-direction: column;

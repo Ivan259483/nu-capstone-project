@@ -56,6 +56,7 @@ import {
   normalizeBookingDate,
   normalizeBookingTime,
   orderOccupiesSlot,
+  releaseBookingReservation,
   releaseBookingSlot,
   releaseBookingSlotsForOrders,
   reserveBookingSlot,
@@ -787,9 +788,9 @@ async function notifyAppointmentCapacity(date) {
       : `${date} is nearing full capacity`;
     const message = isFull
       ? totalCapacity > 0
-        ? `All ${totalCapacity} appointment slots for ${date} are booked.`
-        : `All appointment slots for ${date} are booked.`
-      : `${remaining} of ${totalCapacity} appointment slots remain for ${date}.`;
+        ? `The daily booking capacity of ${totalCapacity} appointments for ${date} has been reached.`
+        : `The daily booking capacity for ${date} has been reached.`
+      : `${remaining} of ${totalCapacity} daily booking seats remain for ${date}.`;
     const link = buildAdminDeepLink('appointments', { date });
 
     await createAdminNotification({
@@ -1141,6 +1142,8 @@ export const getAvailableSlots = async (req, res, next) => {
       slotsLimit: snapshot.slotsLimit ?? null,
       dailyCapacity: snapshot.slotsLimit ?? null,
       remaining: snapshot.remaining ?? null,
+      availableSlots: snapshot.remaining ?? null,
+      totalSlots: snapshot.totalSlots ?? 0,
       totalCapacity: snapshot.totalCapacity ?? null,
       overCapacitySlots: snapshot.overCapacitySlots ?? 0,
       overCapacityBy: snapshot.overCapacityBy ?? 0,
@@ -2019,7 +2022,7 @@ export const createOrder = async (req, res, next) => {
   } catch (error) {
     if (reservedSlot) {
       try {
-        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+        await releaseBookingReservation(reservedSlot);
       } catch (releaseError) {
         console.error('[SLOT_RELEASE_ERROR] Failed to release slot after createOrder failure:', releaseError.message);
       }
@@ -2416,7 +2419,14 @@ export const updateOrder = async (req, res, next) => {
     }
 
     if (newDate && newTime && nextConsumesSlot && (!previousConsumedSlot || !sameSlotPair(previousSlot, nextSlot))) {
-      const slotCheck = await reserveBookingSlot(newDate, newTime);
+      const sameDateTransfer = Boolean(
+        previousConsumedSlot
+        && previousSlot?.date === nextSlot?.date
+      );
+      const slotCheck = await reserveBookingSlot(newDate, newTime, {
+        excludeOrderId: order._id,
+        preserveDailyCapacity: sameDateTransfer,
+      });
       if (!slotCheck.ok) {
         return res.status(409).json({
           ...slotErrorResponsePayload(slotCheck, 'DATE_UNAVAILABLE'),
@@ -2441,7 +2451,11 @@ export const updateOrder = async (req, res, next) => {
       (!orderOccupiesSlot(order.status, order.archived, order.isWalkIn)
         || !sameSlotPair(previousSlot, getOrderSlotPair(order)))
     ) {
-      await releaseBookingSlot(previousSlot.date, previousSlot.time);
+      const finalSlot = getOrderSlotPair(order);
+      await releaseBookingSlot(previousSlot.date, previousSlot.time, {
+        releaseDaily: !orderOccupiesSlot(order.status, order.archived, order.isWalkIn)
+          || previousSlot.date !== finalSlot?.date,
+      });
     }
     emitOrderCapacityChange(previousOccupancy, order, 'appointment_updated');
 
@@ -2705,7 +2719,7 @@ export const updateOrder = async (req, res, next) => {
   } catch (error) {
     if (reservedSlot) {
       try {
-        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+        await releaseBookingReservation(reservedSlot);
       } catch (releaseError) {
         console.error('[SLOT_RELEASE_ERROR] Failed to release slot after updateOrder failure:', releaseError.message);
       }
@@ -4091,7 +4105,7 @@ export const operateCheckIn = async (req, res, next) => {
   } catch (error) {
     if (reservedSlot) {
       try {
-        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+        await releaseBookingReservation(reservedSlot);
       } catch (releaseError) {
         console.error('[SLOT_RELEASE_ERROR] Failed to release slot after operateCheckIn failure:', releaseError.message);
       }
@@ -4430,7 +4444,7 @@ export const confirmBooking = async (req, res, next) => {
   } catch (error) {
     if (reservedSlot) {
       try {
-        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+        await releaseBookingReservation(reservedSlot);
       } catch (releaseError) {
         console.error('[SLOT_RELEASE_ERROR] Failed to release slot after confirmBooking failure:', releaseError.message);
       }
@@ -4533,7 +4547,7 @@ export const uploadPaymentProof = async (req, res, next) => {
 
     if (!savedOrder) {
       if (reservedSlot) {
-        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+        await releaseBookingReservation(reservedSlot);
         reservedSlot = null;
       }
       const current = await Order.findById(order._id);
@@ -4611,7 +4625,7 @@ export const uploadPaymentProof = async (req, res, next) => {
   } catch (error) {
     if (reservedSlot) {
       try {
-        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+        await releaseBookingReservation(reservedSlot);
       } catch (releaseError) {
         console.error('[SLOT_RELEASE_ERROR] Failed to release slot after uploadPaymentProof failure:', releaseError.message);
       }
@@ -4853,7 +4867,14 @@ export const rescheduleBooking = async (req, res, next) => {
     const needsTargetCheck = occupiesNewSlot && (!occupiedOldSlot || changesExactTime);
 
     if (needsTargetCheck) {
-      const slotCheck = await reserveBookingSlot(newDate, newTime);
+      const sameDateTransfer = Boolean(
+        occupiedOldSlot
+        && oldSlot?.date === newSlot.date
+      );
+      const slotCheck = await reserveBookingSlot(newDate, newTime, {
+        excludeOrderId: order._id,
+        preserveDailyCapacity: sameDateTransfer,
+      });
       if (!slotCheck.ok) {
         return res.status(409).json({
           ...slotErrorResponsePayload(slotCheck),
@@ -4877,7 +4898,7 @@ export const rescheduleBooking = async (req, res, next) => {
 
     if (!savedOrder) {
       if (reservedSlot) {
-        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+        await releaseBookingReservation(reservedSlot);
         reservedSlot = null;
       }
       const current = await Order.findById(order._id);
@@ -4902,7 +4923,9 @@ export const rescheduleBooking = async (req, res, next) => {
     reservedSlot = null;
 
     if (occupiedOldSlot && oldSlot && !sameSlotPair(oldSlot, newSlot)) {
-      await releaseBookingSlot(oldSlot.date, oldSlot.time);
+      await releaseBookingSlot(oldSlot.date, oldSlot.time, {
+        releaseDaily: oldSlot.date !== newSlot.date,
+      });
     }
     emitOrderCapacityChange(previousOccupancy, savedOrder, 'appointment_rescheduled');
 
@@ -4969,7 +4992,7 @@ export const rescheduleBooking = async (req, res, next) => {
   } catch (error) {
     if (reservedSlot) {
       try {
-        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+        await releaseBookingReservation(reservedSlot);
       } catch (releaseError) {
         console.error('[SLOT_RELEASE_ERROR] Failed to release slot after reschedule failure:', releaseError.message);
       }

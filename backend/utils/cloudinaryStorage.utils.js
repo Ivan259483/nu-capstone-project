@@ -23,6 +23,35 @@ export const getCloudinaryUploadMode = () => {
   return 'none';
 };
 
+/**
+ * Secret-safe runtime diagnostics for startup checks and structured errors.
+ * authFieldNames is derived from the same mode selection used by every upload.
+ */
+export const getCloudinaryRuntimeDiagnostics = () => {
+  const rawApiKey = String(process.env.CLOUDINARY_API_KEY || '');
+  const rawApiSecret = String(process.env.CLOUDINARY_API_SECRET || '');
+  const rawUploadPreset = String(process.env.CLOUDINARY_UPLOAD_PRESET || '');
+  const config = getCloudinaryConfig();
+  const uploadMode = getCloudinaryUploadMode();
+
+  return {
+    cloudName: config.cloudName || null,
+    uploadMode,
+    apiKeyPresent: Boolean(config.apiKey),
+    apiSecretPresent: Boolean(config.apiSecret),
+    uploadPresetPresent: Boolean(config.uploadPreset),
+    uploadPresetLength: config.uploadPreset.length,
+    uploadPresetTrimChanged: rawUploadPreset !== rawUploadPreset.trim(),
+    apiKeyTrimChanged: rawApiKey !== rawApiKey.trim(),
+    apiSecretTrimChanged: rawApiSecret !== rawApiSecret.trim(),
+    authFieldNames: uploadMode === 'signed'
+      ? ['api_key', 'timestamp', 'public_id', 'signature']
+      : uploadMode === 'unsigned'
+        ? ['upload_preset']
+        : [],
+  };
+};
+
 export const isCloudinaryConfigured = () => {
   const config = getCloudinaryConfig();
   return hasSignedCredentials(config) || hasUnsignedPreset(config);
@@ -99,6 +128,7 @@ const inferFailedField = (error, message) => {
 export const getCloudinarySafeErrorDetails = (error) => {
   const upstreamMessage = error?.response?.data?.error?.message
     || error?.response?.data?.message
+    || error?.response?.headers?.['x-cld-error']
     || error?.message
     || 'Cloudinary upload failed.';
   const message = redactCloudinarySecrets(upstreamMessage);
@@ -335,18 +365,45 @@ export const uploadBufferToCloudinary = async (buffer, options = {}) => {
     formData.append('upload_preset', config.uploadPreset);
   }
 
-  const response = await axios.post(endpoint, formData, {
-    headers: formData.getHeaders(),
-    timeout: 60000,
-    maxBodyLength: Infinity,
-    maxContentLength: Infinity,
-  });
+  let response;
+  try {
+    response = await axios.post(endpoint, formData, {
+      headers: formData.getHeaders(),
+      timeout: 60000,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+  } catch (error) {
+    // Keep only non-sensitive operational context. Never attach FormData,
+    // request headers, credentials, signatures, or the image buffer.
+    error.cloudinaryUploadContext = {
+      uploadType: String(options.uploadType || 'buffer').slice(0, 40),
+      uploadedCount: 0,
+    };
+    throw error;
+  }
 
   const secureUrl = response.data?.secure_url;
-  if (!secureUrl || typeof secureUrl !== 'string') {
-    const error = new Error('Cloudinary upload succeeded but no secure_url was returned.');
+  const returnedPublicId = response.data?.public_id;
+  if (
+    !secureUrl
+    || typeof secureUrl !== 'string'
+    || (options.returnMetadata && (!returnedPublicId || typeof returnedPublicId !== 'string'))
+  ) {
+    const error = new Error(
+      'Cloudinary upload succeeded but required secure_url/public_id metadata was not returned.'
+    );
     error.code = 'CLOUDINARY_UPLOAD_INVALID_RESPONSE';
     throw error;
+  }
+
+  if (options.returnMetadata) {
+    return {
+      secureUrl,
+      publicId: returnedPublicId,
+      resourceType: response.data?.resource_type || 'image',
+      bytes: Number(response.data?.bytes) || buffer.length,
+    };
   }
 
   return secureUrl;

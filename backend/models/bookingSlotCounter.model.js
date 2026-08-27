@@ -1,9 +1,9 @@
 import mongoose from 'mongoose';
 
-// One counter row represents one concrete appointment time. The unique index
-// lets reservation requests atomically compete for that time's single seat.
-// Legacy __DAILY__ rows from the retired date-capacity model are harmless and
-// intentionally ignored by current reads and writes.
+// Most rows represent one concrete appointment time, letting reservation
+// requests atomically compete for that time's single seat. A versioned daily
+// sentinel row enforces the Admin-selected date-wide booking capacity. Legacy
+// __DAILY__ rows remain harmless and are intentionally ignored.
 
 const bookingSlotCounterSchema = new mongoose.Schema(
   {

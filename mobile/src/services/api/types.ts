@@ -36,11 +36,31 @@ export interface MobileProfile {
 export interface ServiceOption {
   id: string;
   name: string;
-  description: string;
-  duration: string;
+  description?: string;
+  duration?: string;
   price: number;
   tag: string;
   icon: string;
+  basePrice?: number | null;
+  displayOrder?: number | null;
+  prices?: Partial<Record<'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largesuv' | 'largeSuv' | 'highend', number | null>>;
+  pricing?: Partial<Record<'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largeSuv' | 'highend', {
+    base?: number | null;
+    original?: number | null;
+    addon?: number | null;
+  }>>;
+  catalogCard?: {
+    badge?: string;
+    warrantyLabel?: string;
+    tagline?: string;
+    tierLabel?: string;
+    iconKey?: 'sparkles' | 'shield' | 'star' | 'crown' | 'zap';
+    accentFrom?: string;
+    accentTo?: string;
+    accentMid?: string;
+    popular?: boolean;
+    flagship?: boolean;
+  } | null;
 }
 
 export interface Vehicle {

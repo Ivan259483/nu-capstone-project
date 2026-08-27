@@ -37,6 +37,8 @@ import { authService } from '@/services/api/authService';
 import { useTheme } from '@/hooks/useThemeContext';
 import { Palette, TabBarHeight } from '@/constants/theme';
 import { Toast } from '@/components/ui/PremiumToast';
+import { getApiErrorMessage } from '@/services/api/client';
+import { prepareProfilePhoto } from '@/features/settings/profile-photo';
 
 // ── Shared Profile Header ──
 import ProfileHeader from '@/features/settings/components/ProfileHeader';
@@ -116,7 +118,7 @@ const Div = () => <View style={s.rowDivider} />;
 
 export default function SettingsScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
-  const { profile, user, signOut, refreshProfile } = useAuth();
+  const { profile, signOut, refreshProfile } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -149,22 +151,21 @@ export default function SettingsScreen() {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.5,
-        base64: true,
+        quality: 0.8,
       });
 
-      if (!result.canceled && result.assets[0]?.base64 && user) {
+      const selectedPhoto = result.canceled ? null : result.assets[0];
+      if (!result.canceled && selectedPhoto) {
         setIsUpdatingAvatar(true);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        const base64Avatar = `data:image/jpeg;base64,${result.assets[0].base64}`;
-        await authService.updateUserBackendProfile(user, {
-          avatar: base64Avatar,
-        });
+        const preparedPhoto = await prepareProfilePhoto(selectedPhoto);
+        await authService.updateMyProfilePhoto(preparedPhoto);
         await refreshProfile();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Toast.show('Profile photo updated', 'success');
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update profile picture.');
+      Alert.alert('Error', getApiErrorMessage(error, 'Failed to update profile picture.'));
     } finally {
       setIsUpdatingAvatar(false);
     }

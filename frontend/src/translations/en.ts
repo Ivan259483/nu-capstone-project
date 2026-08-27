@@ -91,7 +91,7 @@ export const en = {
             suv: "SUV",
             pickup: "Pick Up",
             largesuv: "Large SUV / Van",
-            highend: "Premium Sedan",
+            highend: "Highend Sedan",
         },
         inquire: "Inquire",
         perPanel: "Per Panel",

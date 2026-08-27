@@ -147,7 +147,7 @@ export const updateBusinessSettings = async (req, res, next) => {
     if (slotDuration != null && Number(slotDuration) !== FIXED_SLOT_DURATION_MINUTES) {
       return res.status(400).json({
         success: false,
-        message: 'Appointment intervals are fixed at 60 minutes. Configure hours and daily appointment slots in Availability Controls.',
+        message: 'Appointment intervals are fixed at 60 minutes. Configure operating hours and daily booking capacity in Availability Controls.',
       });
     }
     if (customSlotCapacities != null) {

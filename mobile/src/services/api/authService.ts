@@ -11,13 +11,23 @@ import {
   GoogleAuthProvider,
 } from 'firebase/auth';
 import type { User as FirebaseUser } from 'firebase/auth';
+import { fetch as expoFetch } from 'expo/fetch';
+import { File } from 'expo-file-system';
+import { Platform } from 'react-native';
 import { chatbotService } from '@/services/api/chatbotService';
 import { auth } from '@/config/firebase';
+import { API_BASE_URL } from '@/config/env';
 import { apiClient, getApiErrorMessage } from '@/services/api/client';
 import type { ApiEnvelope, BackendUser } from '@/services/api/types';
 import { CUSTOMER_ROLE, isCustomerRole, normalizeToCanonical } from '@/services/api/roles';
 import { authStorage } from '@/services/storage/authStorage';
 import type { PendingLoginOtp } from '@/services/storage/authStorage';
+
+type ProfilePhotoUpload = {
+  uri: string;
+  fileName?: string | null;
+  mimeType?: string | null;
+};
 
 export const MOBILE_CUSTOMER_ONLY_MESSAGE =
   'This account is not authorized to access the Customer Mobile App. Please use the appropriate web portal for your account role.';
@@ -685,12 +695,91 @@ export const authService = {
     await clearLocalSession();
   },
 
-  async updateUserBackendProfile(firebaseUser: FirebaseUser, data: { name?: string, avatar?: string, phone?: string }): Promise<BackendUser> {
-    const response = await apiClient.put<ApiEnvelope<any>>(`/users/${firebaseUser.uid}`, data);
+  async updateMyBackendProfile(data: { name?: string, avatar?: string, phone?: string }): Promise<BackendUser> {
+    const response = await apiClient.patch<ApiEnvelope<any>>('/users/profile', data);
     if (!response.data.success) {
       throw new Error(response.data.message || 'Failed to update user profile.');
     }
-    const syncedUser = normalizeBackendUser(response.data.data, firebaseUser.uid);
+    const syncedUser = normalizeBackendUser(response.data.data);
+    await persistSession(await authStorage.getToken() || '', syncedUser);
+    return syncedUser;
+  },
+
+  async updateMyProfilePhoto(photo: ProfilePhotoUpload): Promise<BackendUser> {
+    const formData = new FormData();
+    const fileName = photo.fileName || `profile-${Date.now()}.jpg`;
+    let payload: ApiEnvelope<any>;
+
+    if (Platform.OS === 'web') {
+      const blob = await fetch(photo.uri).then((result) => {
+        if (!result.ok) throw new Error('Could not prepare the selected photo.');
+        return result.blob();
+      });
+      formData.append('photo', blob, fileName);
+
+      const response = await apiClient.patch<ApiEnvelope<any>>('/users/profile', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 30_000,
+      });
+      payload = response.data;
+    } else {
+      const token = await authStorage.getToken();
+      if (!token) throw new Error('Authentication required. Please sign in again.');
+
+      // Expo File implements Blob on native. Unlike React Native's legacy
+      // { uri, name, type } shim, expo/fetch streams the actual JPEG bytes and
+      // supplies a valid multipart boundary automatically.
+      const file = new File(photo.uri);
+      if (!file.exists || file.size <= 0) {
+        throw new Error('Could not prepare the selected photo.');
+      }
+      formData.append('photo', file, fileName);
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30_000);
+      let response: Awaited<ReturnType<typeof expoFetch>>;
+      try {
+        response = await expoFetch(`${API_BASE_URL}/users/profile`, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Client-Type': 'mobile',
+            'ngrok-skip-browser-warning': 'true',
+          },
+          body: formData,
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new Error('Profile photo upload timed out. Please try again.');
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      let parsed: ApiEnvelope<any> | null = null;
+      try {
+        parsed = await response.json() as ApiEnvelope<any>;
+      } catch {
+        // The status-specific fallback below is clearer than a JSON parse error.
+      }
+
+      if (!response.ok) {
+        throw new Error(parsed?.message || `Profile photo upload failed (${response.status}).`);
+      }
+      payload = parsed || {
+        success: false,
+        message: 'Invalid profile photo response.',
+        data: null,
+      };
+    }
+
+    if (!payload.success) {
+      throw new Error(payload.message || 'Failed to update profile photo.');
+    }
+
+    const syncedUser = normalizeBackendUser(payload.data);
     await persistSession(await authStorage.getToken() || '', syncedUser);
     return syncedUser;
   },

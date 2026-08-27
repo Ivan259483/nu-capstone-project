@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { toast } from 'sonner';
 import { UserService } from '@/lib/user-service';
+import { getPasswordPolicyError } from '@/lib/password-policy';
 import { getRoleLabel, getSafeUserRole } from '@/lib/roles';
 import AdminAccountSheetLayout from './AdminAccountSheetLayout';
 import AdminPasswordInput from './AdminPasswordInput';
@@ -27,8 +28,9 @@ export default function AdminAccountSettingsSheet({ currentUser, onClose }: Prop
       toast.error('Current password is required');
       return;
     }
-    if (newPassword.length < 8) {
-      toast.error('New password must be at least 8 characters');
+    const passwordPolicyError = getPasswordPolicyError(newPassword);
+    if (passwordPolicyError) {
+      toast.error(passwordPolicyError);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -104,6 +106,9 @@ export default function AdminAccountSettingsSheet({ currentUser, onClose }: Prop
               autoComplete="new-password"
             />
           </label>
+          <p className="ah-password-policy-hint">
+            Use 8+ characters with uppercase, lowercase, a number, and a special character (e.g. ! @ # *).
+          </p>
         </div>
       </section>
 

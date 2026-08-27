@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import ChatConversation from '../models/chatConversation.model.js';
 import ChatMessage from '../models/chatMessage.model.js';
 import ChatSession from '../models/chatSession.model.js';
+import Notification from '../models/notification.model.js';
 import User from '../models/user.model.js';
 import Vehicle from '../models/vehicle.model.js';
 import Order from '../models/order.model.js';
@@ -966,6 +967,54 @@ export const getSalesConversation = async (conversationId) => {
     .limit(200)
     .lean();
   return serializeChatConversationPayload(conversation, messages);
+};
+
+export const deleteSalesConversation = async (conversationId) => {
+  const id = clean(conversationId);
+  if (!id) {
+    throw createHttpError(
+      400,
+      'CHAT_CONVERSATION_ID_REQUIRED',
+      'Conversation ID is required',
+    );
+  }
+
+  // Remove the parent first so no new request can discover the conversation
+  // while its dependent chat records are being cleared. Linked Orders are
+  // intentionally preserved; deleting an inbox thread must never delete a
+  // customer booking created from it.
+  const conversation = await ChatConversation.findOneAndDelete({
+    conversationId: id,
+    ...salesConversationFilter(),
+  }).lean();
+  if (!conversation) {
+    throw createHttpError(
+      404,
+      'CHAT_CONVERSATION_NOT_FOUND',
+      'Conversation not found',
+    );
+  }
+
+  const [messages, sessions, notifications] = await Promise.all([
+    ChatMessage.deleteMany({
+      $or: [{ conversationId: id }, { sessionId: id }],
+    }),
+    ChatSession.deleteMany({ sessionId: id }),
+    Notification.deleteMany({
+      $or: [
+        { 'metadata.conversationId': id },
+        { 'metadata.sessionId': id },
+      ],
+    }),
+  ]);
+
+  return {
+    conversationId: id,
+    linkedBookingPreserved: Boolean(conversation.linkedBookingId),
+    deletedMessages: messages.deletedCount || 0,
+    deletedSessions: sessions.deletedCount || 0,
+    deletedNotifications: notifications.deletedCount || 0,
+  };
 };
 
 export const sendSalesConversationMessage = async ({

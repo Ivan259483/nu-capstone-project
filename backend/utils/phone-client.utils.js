@@ -91,6 +91,7 @@ export function serializeUserForClient(userDoc) {
     ? userDoc.toObject({ virtuals: true })
     : { ...userDoc };
   delete userObject.password;
+  delete userObject.avatarPublicId;
   attachPhoneForClient(userDoc, userObject);
   attachProfileImageForClient(userDoc, userObject);
   return userObject;

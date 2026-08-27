@@ -63,6 +63,12 @@ const userSchema = new mongoose.Schema(
     avatar: {
       type: String,
     },
+    // Cloudinary asset identifier for safe replacement/cleanup. It is stored
+    // with the URL but never returned in ordinary user API payloads.
+    avatarPublicId: {
+      type: String,
+      select: false,
+    },
     avatarUrl: {
       type: String,
     },

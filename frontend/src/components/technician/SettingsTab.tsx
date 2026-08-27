@@ -7,6 +7,7 @@ import {
 import { btnHover, btnTap, pageVariants } from './SharedAnimations';
 import { toast } from 'sonner';
 import { UserService } from '@/lib/user-service';
+import { getPasswordPolicyError } from '@/lib/password-policy';
 
 interface SettingsTabProps {
     user: any;
@@ -206,16 +207,17 @@ export function SettingsTab({
     };
 
     const handleChangePassword = async () => {
-        if (!currentPassword || !newPassword) {
-            toast.error('Please fill in both fields.');
+        if (!currentPassword) {
+            toast.error('Current password is required.');
+            return;
+        }
+        const passwordPolicyError = getPasswordPolicyError(newPassword);
+        if (passwordPolicyError) {
+            toast.error(passwordPolicyError);
             return;
         }
         if (newPassword !== confirmPassword) {
             toast.error('Passwords do not match.');
-            return;
-        }
-        if (newPassword.length < 6) {
-            toast.error('Password must be at least 6 characters.');
             return;
         }
         setChangingPassword(true);
@@ -556,7 +558,7 @@ export function SettingsTab({
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                                         <div>
                                             <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 14, fontWeight: 700, color: '#191c1e', margin: 0 }}>Account Password</p>
-                                            <p style={S.desc}>Update your password to keep your account secure.</p>
+                                            <p style={S.desc}>Use 8+ characters with uppercase, lowercase, a number, and a special character.</p>
                                         </div>
                                     </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 12, alignItems: 'flex-end' }}>

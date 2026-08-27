@@ -137,11 +137,13 @@ export function ScannerHeader({
   eyebrow,
   onBack,
   right,
+  hideRightSlot = false,
 }: {
   title: string;
   eyebrow?: string;
   onBack?: () => void;
   right?: React.ReactNode;
+  hideRightSlot?: boolean;
 }) {
   return (
     <View style={styles.header}>
@@ -157,7 +159,9 @@ export function ScannerHeader({
         {eyebrow ? <Text style={styles.headerEyebrow}>{eyebrow}</Text> : null}
         <Text style={styles.headerTitle}>{title}</Text>
       </View>
-      <View style={[styles.headerBtn, !onBack && styles.headerRightWithoutBack]}>{right}</View>
+      {!hideRightSlot ? (
+        <View style={[styles.headerBtn, !onBack && styles.headerRightWithoutBack]}>{right}</View>
+      ) : null}
     </View>
   );
 }

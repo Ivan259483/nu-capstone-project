@@ -132,7 +132,7 @@ export default function AiScanEntry() {
       <ScannerHeader
         eyebrow="Vehicle Intelligence"
         title="AI Inspection"
-        right={<Ionicons name="shield-checkmark-outline" size={20} color={scannerColors.orangeSoft} />}
+        hideRightSlot
       />
       <PipelineStepper currentIndex={0} />
 

@@ -2,6 +2,7 @@ import Notification from '../models/notification.model.js';
 import {
   assignSalesConversation,
   addSalesConversationNote,
+  deleteSalesConversation,
   getCustomerConversationMessages,
   getSalesConversation,
   linkSalesConversationBooking,
@@ -13,6 +14,7 @@ import {
   sendSalesConversationMessage,
   updateSalesConversationStatus,
 } from '../services/chatSalesHandoff.service.js';
+import { getIO } from '../utils/socket.utils.js';
 
 const clean = (value = '') => String(value || '').trim();
 const isCustomerActor = (user) => !user?.id || user.role === 'customer';
@@ -180,6 +182,30 @@ export const getSalesConversationDetail = async (req, res, next) => {
   try {
     const result = await getSalesConversation(clean(req.params.conversationId));
     return res.json({ success: true, ...result });
+  } catch (error) {
+    return sendKnownError(res, error, next);
+  }
+};
+
+export const removeSalesConversation = async (req, res, next) => {
+  try {
+    const result = await deleteSalesConversation(
+      clean(req.params.conversationId),
+    );
+    try {
+      getIO().to('realtime:staff').emit('db_change', {
+        collection: 'chatconversations',
+        operationType: 'delete',
+        documentKey: { conversationId: result.conversationId },
+      });
+    } catch {
+      // HTTP deletion remains authoritative when Socket.IO is unavailable.
+    }
+    return res.json({
+      success: true,
+      message: 'Conversation deleted successfully.',
+      ...result,
+    });
   } catch (error) {
     return sendKnownError(res, error, next);
   }

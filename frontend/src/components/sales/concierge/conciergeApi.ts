@@ -256,6 +256,12 @@ export const conciergeApi = {
     );
   },
 
+  async remove(conversationId: string): Promise<void> {
+    await api.delete(`/chat/sales/conversations/${conversationId}`, {
+      meta: { suppressErrorToast: true },
+    } as any);
+  },
+
   async send(
     conversationId: string,
     message: string,

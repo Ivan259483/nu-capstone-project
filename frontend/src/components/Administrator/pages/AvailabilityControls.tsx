@@ -44,8 +44,9 @@ interface EmergencyStatus {
 const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 const HOURS_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const CLOSURE_REASONS: ClosureReason[] = ['Holiday', 'Renovation', 'Emergency', 'Staff Leave', 'Custom'];
-const REQUIRED_SLOTS_MESSAGE = 'Daily appointment slots is required.';
-const INVALID_SLOTS_MESSAGE = 'Daily appointment slots must be a positive whole number.';
+const REQUIRED_SLOTS_MESSAGE = 'Daily booking capacity is required.';
+const INVALID_SLOTS_MESSAGE = 'Daily booking capacity must be a positive whole number.';
+const AVAILABILITY_TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 // Official nationwide 2026 holidays from Proclamation No. 1006 (fixed dates only).
 const HOLIDAYS_2026: HolidayRow[] = [
@@ -143,12 +144,31 @@ function normalizeSlotDraft(raw: string) {
   return raw.replace(/^0+(?=\d)/, '');
 }
 
-function getSlotValidationMessage(raw: string) {
+function countHourlyStarts(from: string, to: string) {
+  if (!AVAILABILITY_TIME_RE.test(from) || !AVAILABILITY_TIME_RE.test(to)) return 0;
+  const [fromHour, fromMinute] = from.split(':').map(Number);
+  const [toHour, toMinute] = to.split(':').map(Number);
+  return Math.floor(((toHour * 60 + toMinute) - (fromHour * 60 + fromMinute)) / 60);
+}
+
+function getSlotValidationMessage(raw: string, row?: DaySchedule) {
   if (raw.trim() === '') return REQUIRED_SLOTS_MESSAGE;
   if (!/^\d+$/.test(raw)) return INVALID_SLOTS_MESSAGE;
 
   const slots = Number(raw);
   if (!Number.isSafeInteger(slots) || slots < 1) return INVALID_SLOTS_MESSAGE;
+  if (row?.open) {
+    if (!AVAILABILITY_TIME_RE.test(row.from) || !AVAILABILITY_TIME_RE.test(row.to)) {
+      return 'From and To must be valid times.';
+    }
+    const generatedStarts = countHourlyStarts(row.from, row.to);
+    if (generatedStarts < 1) {
+      return 'Operating hours must fit at least one complete 60-minute appointment.';
+    }
+    if (slots > generatedStarts) {
+      return `Daily booking capacity cannot exceed ${generatedStarts} generated hourly time${generatedStarts === 1 ? '' : 's'}.`;
+    }
+  }
   return null;
 }
 
@@ -366,6 +386,12 @@ export default function AvailabilityControls() {
 
   const updateScheduleRow = (dow: number, patch: Partial<DaySchedule>) => {
     setSchedule((prev) => prev.map((row) => (row.dow === dow ? { ...row, ...patch } : row)));
+    setSlotErrors((prev) => {
+      if (!prev[dow]) return prev;
+      const next = { ...prev };
+      delete next[dow];
+      return next;
+    });
   };
 
   const updateSlotDraft = (dow: number, raw: string) => {
@@ -392,7 +418,7 @@ export default function AvailabilityControls() {
       row.open ? mondaySlotDraft : (prev[row.dow] ?? String(row.slots)),
     ])) as Record<number, string>);
     setSlotErrors({});
-    toast.success('Applied Monday hours and appointment slot count to all open days.');
+    toast.success('Applied Monday hours and daily booking capacity to all open days.');
   };
 
   const saveSchedule = async () => {
@@ -400,7 +426,7 @@ export default function AvailabilityControls() {
     for (const row of schedule) {
       if (!row.open) continue;
       const draft = slotDrafts[row.dow] ?? String(row.slots);
-      const message = getSlotValidationMessage(draft);
+      const message = getSlotValidationMessage(draft, row);
       if (message) nextSlotErrors[row.dow] = message;
     }
 
@@ -430,7 +456,7 @@ export default function AvailabilityControls() {
       setSlotErrors({});
       bumpCalendarCache();
       toast.success('Weekly availability saved.', {
-        description: 'Open days, operating hours, and one-customer appointment times are now live everywhere.',
+        description: 'Operating hours now generate all hourly times, while daily capacity limits total appointments.',
       });
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to save weekly availability.'));
@@ -671,7 +697,8 @@ export default function AvailabilityControls() {
         <h3 className="text-sm font-semibold text-slate-900">Weekly Availability</h3>
         <p className="mt-1 text-xs text-slate-600">
           This is the appointment system’s weekly source of truth. Configure open days, operating hours,
-          and how many one-customer appointment times to generate for each day, then save once.
+          and daily booking capacity. Every complete hourly start between From and To is generated;
+          capacity limits how many total appointments the day accepts.
         </p>
         <div className="mt-4 overflow-x-auto rounded-2xl bg-white shadow-[0_2px_12px_-4px_rgba(15,23,42,0.08),0_0_0_1px_rgba(226,232,240,0.55)]">
           <table className="ah-table min-w-[760px]">
@@ -681,7 +708,7 @@ export default function AvailabilityControls() {
                 <th>Open</th>
                 <th>From</th>
                 <th>To</th>
-                <th>Daily Appointment Slots</th>
+                <th>Daily Booking Capacity</th>
               </tr>
             </thead>
             <tbody>
@@ -729,12 +756,13 @@ export default function AvailabilityControls() {
                       <input
                         type="number"
                         min={1}
+                        max={Math.max(1, countHourlyStarts(row.from, row.to))}
                         step={1}
                         inputMode="numeric"
                         className="ah-input !max-w-[120px]"
                         value={slotDrafts[row.dow] ?? String(row.slots)}
                         disabled={!row.open}
-                        aria-label={`Daily appointment slots for ${DOW_LABELS[row.dow]}`}
+                        aria-label={`Daily booking capacity for ${DOW_LABELS[row.dow]}`}
                         aria-invalid={row.open && Boolean(slotErrors[row.dow])}
                         aria-describedby={slotErrors[row.dow] ? `daily-slots-error-${row.dow}` : undefined}
                         onChange={(event) => updateSlotDraft(row.dow, event.target.value)}
@@ -742,6 +770,11 @@ export default function AvailabilityControls() {
                       {row.open && slotErrors[row.dow] ? (
                         <p id={`daily-slots-error-${row.dow}`} className="mt-1 text-xs font-medium text-red-600">
                           {slotErrors[row.dow]}
+                        </p>
+                      ) : null}
+                      {row.open && !slotErrors[row.dow] ? (
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Up to {countHourlyStarts(row.from, row.to)} hourly times
                         </p>
                       ) : null}
                     </div>
@@ -753,7 +786,7 @@ export default function AvailabilityControls() {
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" className="ah-btn-secondary" onClick={applyMondayToOpenDays}>
-            Apply Monday hours to all open days
+            Apply Monday hours and capacity to all open days
           </button>
           <button
             type="button"

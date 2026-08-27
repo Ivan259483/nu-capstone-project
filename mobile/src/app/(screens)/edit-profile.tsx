@@ -29,6 +29,7 @@ import { Palette, BorderRadius } from '@/constants/theme';
 import PremiumInput from '@/components/ui/PremiumInput';
 import PremiumButton from '@/components/ui/PremiumButton';
 import { Toast } from '@/components/ui/PremiumToast';
+import { prepareProfilePhoto } from '@/features/settings/profile-photo';
 
 import * as ImagePicker from 'expo-image-picker';
 
@@ -39,7 +40,7 @@ const BORDER = '#2A2A30';
 export default function EditProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, profile, refreshProfile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
 
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
@@ -98,18 +99,13 @@ export default function EditProfileScreen() {
 
   const handleSave = async () => {
     if (!validateForm()) return;
-    if (!user) {
-      Toast.show('Authentication required. Please re-login.', 'error');
-      return;
-    }
-
     setLoading(true);
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
 
     try {
-      await authService.updateUserBackendProfile(user, {
+      await authService.updateMyBackendProfile({
         name: fullName.trim(),
         phone: phone.trim(),
       });
@@ -145,25 +141,23 @@ export default function EditProfileScreen() {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.5,
-        base64: true,
+        quality: 0.8,
       });
 
-      if (!result.canceled && result.assets[0]?.base64 && user) {
+      const selectedPhoto = result.canceled ? null : result.assets[0];
+      if (!result.canceled && selectedPhoto) {
         setIsUpdatingAvatar(true);
         if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        
-        const base64Avatar = `data:image/jpeg;base64,${result.assets[0].base64}`;
-        await authService.updateUserBackendProfile(user, {
-          avatar: base64Avatar,
-        });
+
+        const preparedPhoto = await prepareProfilePhoto(selectedPhoto);
+        await authService.updateMyProfilePhoto(preparedPhoto);
         await refreshProfile();
         
         if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Toast.show('Profile photo updated successfully!', 'success');
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update profile picture.');
+      Alert.alert('Error', getApiErrorMessage(error, 'Failed to update profile picture.'));
     } finally {
       setIsUpdatingAvatar(false);
     }

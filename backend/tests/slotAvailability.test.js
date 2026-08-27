@@ -53,6 +53,7 @@ const {
   captureOrderSlotOccupancy,
   deleteOrdersAndReleaseSlotCounters,
   getDateAvailabilitySnapshot,
+  generateTimeSlots,
   getShopLocalClock,
   getSlotsForDate,
   getSlotsForRange,
@@ -64,6 +65,7 @@ const {
 const { initSocket } = await import('../utils/socket.utils.js');
 
 const MONDAY = '2099-08-17';
+const TUESDAY = '2099-08-18';
 const SATURDAY = '2099-08-22';
 let mongo;
 let server;
@@ -74,12 +76,13 @@ let sequence = 0;
 const scheduleWithMonday = ({
   capacity = 2,
   mondayOpen = true,
+  from = '08:00',
   to = '11:00',
 } = {}) =>
   buildDefaultRecurringSchedule().map((row) => ({
     ...row,
     open: row.dow === 1 ? mondayOpen : false,
-    from: row.dow === 1 ? '08:00' : row.from,
+    from: row.dow === 1 ? from : row.from,
     to: row.dow === 1 ? to : row.to,
     slots: row.dow === 1 ? capacity : row.slots,
   }));
@@ -181,8 +184,9 @@ const reserveAndPersist = async (
   status = 'pending_confirmation',
 ) => {
   const reservation = await reserveBookingSlot(date, time);
-  if (reservation.ok) await createOccupyingOrder({ date, time, status });
-  return reservation;
+  if (!reservation.ok) return reservation;
+  const order = await createOccupyingOrder({ date, time, status });
+  return { ...reservation, order };
 };
 
 const counterAt = (date, time) =>
@@ -375,6 +379,104 @@ test('each generated appointment time has capacity one and daily availability co
   );
 });
 
+test('operating hours generate every complete hourly start independent of daily capacity', async () => {
+  assert.deepEqual(
+    generateTimeSlots({ open: true, from: '08:00', to: '16:00', slots: 5 }),
+    ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00'],
+  );
+  assert.deepEqual(
+    generateTimeSlots({ open: true, from: '09:00', to: '18:00', slots: 5 }),
+    ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'],
+  );
+  assert.deepEqual(generateTimeSlots({ open: true, from: '08:30', to: '09:29', slots: 1 }), []);
+  assert.deepEqual(generateTimeSlots({ open: false, from: '08:00', to: '16:00', slots: 5 }), []);
+  assert.deepEqual(generateTimeSlots({ open: true, from: 'bad', to: '16:00', slots: 5 }), []);
+});
+
+test('five-seat daily capacity blocks all remaining empty times in an eight-time window', async () => {
+  await setMondayAvailability({ capacity: 5, to: '16:00' });
+  const initial = await getSlotsForDate(MONDAY);
+  assert.equal(initial.totalSlots, 8);
+  assert.equal(initial.dailyCapacity, 5);
+  assert.equal(initial.availableSlots, 5);
+  assert.equal(initial.slots.length, 8);
+
+  for (const time of ['08:00', '09:00', '10:00', '11:00', '12:00']) {
+    assert.equal((await reserveAndPersist(MONDAY, time)).ok, true);
+  }
+
+  const full = await getSlotsForDate(MONDAY);
+  assert.equal(full.bookedCount, 5);
+  assert.equal(full.availableSlots, 0);
+  assert.equal(full.status, 'FULL');
+  for (const time of ['13:00', '14:00', '15:00']) {
+    const slot = full.slots.find((row) => row.time === time);
+    assert.equal(slot.booked, 0);
+    assert.equal(slot.available, 0);
+    assert.equal(slot.status, 'FULL');
+    assert.equal(slot.blockedByDailyCapacity, true);
+  }
+
+  const sixth = await reserveBookingSlot(MONDAY, '13:00');
+  assert.equal(sixth.ok, false);
+  assert.equal(sixth.errorCode, 'DATE_FULL');
+});
+
+test('parallel different-time reservations cannot exceed the daily cap', async () => {
+  await setMondayAvailability({ capacity: 2, to: '16:00' });
+  const attempts = await Promise.all(
+    ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00'].map((time) =>
+      reserveBookingSlot(MONDAY, time)),
+  );
+  assert.equal(attempts.filter((attempt) => attempt.ok).length, 2);
+  assert.equal(
+    attempts.filter((attempt) => attempt.errorCode === 'DATE_FULL').length,
+    4,
+  );
+});
+
+test('same-date rescheduling transfers a time without consuming another daily seat', async () => {
+  await setMondayAvailability({ capacity: 2, to: '12:00' });
+  await reserveAndPersist(MONDAY, '08:00');
+  const moving = await reserveAndPersist(MONDAY, '09:00');
+  const before = captureOrderSlotOccupancy(moving.order);
+  moving.order.bookingTime = '10:00';
+  await saveOrderWithSlotTransition(moving.order, before);
+
+  const day = await getSlotsForDate(MONDAY);
+  assert.equal(day.bookedCount, 2);
+  assert.equal(day.status, 'FULL');
+  assert.equal(day.slots.find((row) => row.time === '10:00').booked, 1);
+  assert.equal(day.slots.find((row) => row.time === '09:00').booked, 0);
+  assert.equal(day.slots.find((row) => row.time === '09:00').blockedByDailyCapacity, true);
+});
+
+test('cross-date rescheduling acquires the target day and releases the source day', async () => {
+  const doc = await ShopAvailability.getSingleton();
+  doc.recurringSchedule = buildDefaultRecurringSchedule().map((row) => ({
+    ...row,
+    open: row.dow === 1 || row.dow === 2,
+    from: row.dow === 1 || row.dow === 2 ? '08:00' : row.from,
+    to: row.dow === 1 || row.dow === 2 ? '10:00' : row.to,
+    slots: row.dow === 1 || row.dow === 2 ? 1 : row.slots,
+  }));
+  await doc.save();
+
+  const moving = await reserveAndPersist(MONDAY, '08:00');
+  const before = captureOrderSlotOccupancy(moving.order);
+  moving.order.bookingDate = TUESDAY;
+  moving.order.bookingTime = '09:00';
+  await saveOrderWithSlotTransition(moving.order, before);
+
+  const monday = await getSlotsForDate(MONDAY);
+  const tuesday = await getSlotsForDate(TUESDAY);
+  assert.equal(monday.bookedCount, 0);
+  assert.equal(monday.availableSlots, 1);
+  assert.equal(tuesday.bookedCount, 1);
+  assert.equal(tuesday.availableSlots, 0);
+  assert.equal(tuesday.slots.find((row) => row.time === '09:00').booked, 1);
+});
+
 test('admin and customer APIs stay synchronized through booking, conflict, and cancellation release', async () => {
   await setMondayAvailability({ capacity: 10, to: '18:00' });
   const { customer, vehicle, service } = await seedBookingActors();
@@ -389,11 +491,21 @@ test('admin and customer APIs stay synchronized through booking, conflict, and c
     requestJson(`/api/slots?date=${MONDAY}`, { headers });
   const readCustomerDay = () =>
     requestJson(`/api/orders/available-slots?date=${MONDAY}`, { headers });
+  const readRangeDay = async () => {
+    const result = await requestJson(`/api/slots/range?start=${MONDAY}&end=${MONDAY}`, { headers });
+    return { ...result, day: result.body.data[0] };
+  };
 
   const initialAdmin = await readAdminDay();
   const initialCustomer = await readCustomerDay();
+  const initialRange = await readRangeDay();
   assert.equal(initialAdmin.body.availableSlots, 10);
   assert.equal(initialCustomer.body.remaining, 10);
+  assert.equal(initialAdmin.body.totalSlots, 10);
+  assert.equal(initialCustomer.body.totalSlots, 10);
+  assert.equal(initialRange.day.totalSlots, 10);
+  assert.equal(initialRange.day.availableSlots, 10);
+  assert.equal(initialRange.day.dailyCapacity, 10);
   assert.equal(
     initialCustomer.body.slots.filter((slot) => slot.status === 'AVAILABLE')
       .length,
@@ -404,8 +516,11 @@ test('admin and customer APIs stay synchronized through booking, conflict, and c
   assert.equal(eight.response.status, 201);
   const afterEightAdmin = await readAdminDay();
   const afterEightCustomer = await readCustomerDay();
+  const afterEightRange = await readRangeDay();
   assert.equal(afterEightAdmin.body.availableSlots, 9);
   assert.equal(afterEightCustomer.body.remaining, 9);
+  assert.equal(afterEightRange.day.availableSlots, 9);
+  assert.equal(afterEightRange.day.bookedSlots, 1);
   assert.equal(
     afterEightAdmin.body.slots.find((slot) => slot.time === '08:00').status,
     'FULL',
@@ -530,11 +645,11 @@ test('cancellation and deletion release only the exact occupied time', async () 
   assert.equal((await counterAt(MONDAY, '09:00')).count, 1);
 });
 
-test('reducing generated slot count preserves an out-of-schedule booking without reopening it', async () => {
+test('reducing operating hours preserves an out-of-schedule booking without reopening it', async () => {
   await setMondayAvailability({ capacity: 3 });
   await reserveAndPersist(MONDAY, '10:00');
 
-  await setMondayAvailability({ capacity: 2 });
+  await setMondayAvailability({ capacity: 2, to: '10:00' });
 
   const day = await getSlotsForDate(MONDAY);
   const ten = day.slots.find((slot) => slot.time === '10:00');
@@ -543,7 +658,7 @@ test('reducing generated slot count preserves an out-of-schedule booking without
   assert.equal(ten.capacity, 0);
 
   const [rangeDay] = await getSlotsForRange(MONDAY, MONDAY);
-  assert.equal(rangeDay.bookedSlots, 0);
+  assert.equal(rangeDay.bookedSlots, 1);
   assert.equal(rangeDay.dailyCapacity, 2);
   assert.equal(rangeDay.overCapacitySlots, 1);
   assert.equal(rangeDay.overCapacityBy, 1);
@@ -594,7 +709,7 @@ test('closed days, scheduled closures, outside-hours times, and nonexistent band
 });
 
 test('only lifecycle statuses that occupy appointments consume capacity', async () => {
-  await setMondayAvailability({ capacity: 20 });
+  await setMondayAvailability({ capacity: 15, to: '23:00' });
   const canonicalConsuming = [
     'pending_confirmation',
     'pending',
@@ -649,7 +764,7 @@ test('only lifecycle statuses that occupy appointments consume capacity', async 
     assert.equal(isSlotConsumingStatus(status), false);
 
   const range = await getSlotsForRange(MONDAY, MONDAY);
-  assert.equal(range[0].bookedSlots, 1);
+  assert.equal(range[0].bookedSlots, consuming.length);
   assert.equal(range[0].overCapacitySlots, 1);
   assert.equal(range[0].pendingCount, 1);
 });
@@ -671,7 +786,7 @@ test('legacy human and ISO date strings remain countable while new writes are ca
 
 test('Admin schedule writes reject fractional capacity and legacy slot settings update ShopAvailability', async () => {
   const { administrator } = await seedBookingActors();
-  await setMondayAvailability({ capacity: 2 });
+  await setMondayAvailability({ capacity: 2, to: '12:00' });
   const auth = { Authorization: `Bearer ${tokenFor(administrator)}` };
 
   const invalidSchedule = scheduleWithMonday({ capacity: 2 });
@@ -707,6 +822,25 @@ test('Admin schedule writes reject fractional capacity and legacy slot settings 
     validateRecurringScheduleInput(invalidSchedule).error.includes('integer'),
     true,
   );
+});
+
+test('open-day validation enforces valid one-hour windows and bounded whole-number capacity', () => {
+  const validateMonday = (patch) => {
+    const schedule = scheduleWithMonday({ capacity: 2 });
+    Object.assign(schedule.find((row) => row.dow === 1), patch);
+    return validateRecurringScheduleInput(schedule);
+  };
+
+  assert.match(validateMonday({ from: 'bad' }).error, /invalid "from"/i);
+  assert.match(validateMonday({ from: '10:00', to: '09:00' }).error, /earlier than/i);
+  assert.match(validateMonday({ from: '08:30', to: '09:00', slots: 1 }).error, /complete 60-minute/i);
+  assert.match(validateMonday({ from: '08:00', to: '10:00', slots: 3 }).error, /cannot exceed 2/i);
+  assert.match(validateMonday({ slots: 0 }).error, /at least one daily appointment/i);
+  assert.match(validateMonday({ slots: 1.5 }).error, /integer/i);
+
+  const closed = validateMonday({ open: false, from: '08:00', to: '08:00', slots: 99 });
+  assert.equal(closed.error, undefined);
+  assert.equal(closed.schedule.find((row) => row.dow === 1).slots, 99);
 });
 
 test('public weekly schedule is canonical but exposes no capacity or occupancy', async () => {
@@ -1206,6 +1340,27 @@ test('lowering capacity does not block approval of an appointment that already o
   assert.equal(slot.booked, 1);
   assert.equal(slot.capacity, 1);
   assert.equal(slot.status, 'FULL');
+});
+
+test('capacity reductions preserve over-capacity bookings and later increases reopen admission', async () => {
+  await setMondayAvailability({ capacity: 3, to: '12:00' });
+  for (const time of ['08:00', '09:00', '10:00']) {
+    assert.equal((await reserveAndPersist(MONDAY, time)).ok, true);
+  }
+
+  await setMondayAvailability({ capacity: 1, to: '12:00' });
+  const reduced = await getSlotsForDate(MONDAY);
+  assert.equal(reduced.bookedCount, 3);
+  assert.equal(reduced.dailyCapacity, 1);
+  assert.equal(reduced.overCapacityBy, 2);
+  assert.equal(reduced.status, 'OVER_CAPACITY');
+  assert.equal(await Order.countDocuments(), 3);
+  const blocked = await reserveBookingSlot(MONDAY, '11:00');
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.errorCode, 'DATE_FULL');
+
+  await setMondayAvailability({ capacity: 4, to: '12:00' });
+  assert.equal((await reserveAndPersist(MONDAY, '11:00')).ok, true);
 });
 
 test('only an authorized admin can persist todays emergency closure and the action is audited', async () => {

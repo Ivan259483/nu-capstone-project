@@ -21,11 +21,14 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Keyboard,
+  type KeyboardEvent,
   KeyboardAvoidingView,
   Platform,
   Alert,
   Image,
   Modal,
+  AppState,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -33,6 +36,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   FadeInDown,
   FadeInRight,
+  FadeOutDown,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -44,11 +48,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { getApiErrorMessage, invalidateCache } from '@/services/api/client';
 import { bookingService } from '@/services/api/bookingService';
-import { serviceService } from '@/services/api/serviceService';
+import {
+  getPackageKeyFromServiceName,
+  getServicePriceForVehicle,
+  serviceService,
+} from '@/services/api/serviceService';
 import { vehicleService } from '@/services/api/vehicleService';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import type { ServiceOption, Vehicle } from '@/services/api/types';
-import { Palette } from '@/constants/theme';
+import { Palette, TabBarContentHeight } from '@/constants/theme';
 import AnimatedHeader from '@/components/ui/AnimatedHeader';
 import GlassCard from '@/components/ui/GlassCard';
 import Badge from '@/components/ui/Badge';
@@ -602,6 +610,7 @@ type AvailableSlotsPayload = {
     available?: number;
     booked?: number;
     capacity?: number;
+    blockedByDailyCapacity?: boolean;
   }[];
   unavailable?: boolean;
   errorCode?: string | null;
@@ -1197,6 +1206,7 @@ export default function BookScreen() {
 
   // Step 1 — Service (loaded on mount)
   const [services, setServices] = useState<ServiceOption[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(true);
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
 
   // Step 1 — Vehicle type for pricing
@@ -1210,6 +1220,8 @@ export default function BookScreen() {
   const [phone, setPhone] = useState('' );
 
   const [notes, setNotes] = useState('');
+  const [isNotesEditing, setIsNotesEditing] = useState(false);
+  const notesInputFocusedRef = useRef(false);
 
   // Add Vehicle form
   const [showAddVehicle, setShowAddVehicle] = useState(false);
@@ -1264,6 +1276,44 @@ export default function BookScreen() {
   });
   selectedDateRef.current = selectedDate;
   stepRef.current = step;
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const handleKeyboardShow = (event: KeyboardEvent) => {
+      if (stepRef.current !== 2 || !notesInputFocusedRef.current) return;
+      Keyboard.scheduleLayoutAnimation(event);
+      setIsNotesEditing(true);
+    };
+    const handleKeyboardHide = (event: KeyboardEvent) => {
+      if (stepRef.current !== 2) return;
+      Keyboard.scheduleLayoutAnimation(event);
+      setIsNotesEditing(false);
+    };
+    const showSubscription = Keyboard.addListener(showEvent, handleKeyboardShow);
+    const hideSubscription = Keyboard.addListener(hideEvent, handleKeyboardHide);
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (step === 2) return;
+    notesInputFocusedRef.current = false;
+    setIsNotesEditing(false);
+  }, [step]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setIsNotesEditing(false);
+      return () => {
+        notesInputFocusedRef.current = false;
+        Keyboard.dismiss();
+      };
+    }, [])
+  );
 
   const fetchMonthAvailability = useCallback(async (y: number, m: number) => {
     const requestId = ++monthAvailabilityRequestRef.current;
@@ -1446,6 +1496,8 @@ export default function BookScreen() {
         const capacity = typeof slot.capacity === 'number' ? slot.capacity : Number.NaN;
         const booked = typeof slot.booked === 'number' ? slot.booked : Number.NaN;
         const available = typeof slot.available === 'number' ? slot.available : Number.NaN;
+        const blockedByDailyCapacity = slot.blockedByDailyCapacity === true;
+        const intrinsicAvailable = Math.max(0, capacity - booked);
         const hasValidCounts = Number.isFinite(capacity)
           && Number.isInteger(capacity)
           && capacity >= 0
@@ -1455,7 +1507,10 @@ export default function BookScreen() {
           && Number.isFinite(available)
           && Number.isInteger(available)
           && available >= 0
-          && available === Math.max(0, capacity - booked);
+          && (
+            available === intrinsicAvailable
+            || (blockedByDailyCapacity && booked === 0 && available === 0 && intrinsicAvailable === 1)
+          );
 
         let status: SlotStatus = 'CLOSED';
         if (knownStatus && hasValidCounts && startMinutes !== null) {
@@ -1492,7 +1547,7 @@ export default function BookScreen() {
     } finally {
       if (requestId === slotAvailabilityRequestRef.current) setSlotsLoading(false);
     }
-  }, [businessDate]);
+  }, []);
 
   useEffect(() => {
     if (step !== 2) return;
@@ -1501,6 +1556,29 @@ export default function BookScreen() {
     setMonthAvailability({});
     fetchMonthAvailability(now.getFullYear(), now.getMonth());
   }, [step, fetchMonthAvailability]);
+
+  const refreshCurrentAvailability = useCallback(() => {
+    if (stepRef.current !== 2) return;
+    const { year, month } = visibleCalendarMonthRef.current;
+    setMonthAvailability({});
+    void fetchMonthAvailability(year, month);
+    if (selectedDateRef.current) {
+      void fetchSlotsForDate(selectedDateRef.current);
+    }
+  }, [fetchMonthAvailability, fetchSlotsForDate]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshCurrentAvailability();
+    }, [refreshCurrentAvailability])
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') refreshCurrentAvailability();
+    });
+    return () => subscription.remove();
+  }, [refreshCurrentAvailability]);
 
   useEffect(() => {
     let disposed = false;
@@ -1581,7 +1659,10 @@ export default function BookScreen() {
             console.warn('Failed to load booking data:', getApiErrorMessage(err));
           }
         } finally {
-          if (mounted) setVehiclesLoading(false);
+          if (mounted) {
+            setVehiclesLoading(false);
+            setServicesLoading(false);
+          }
         }
       };
 
@@ -1605,12 +1686,14 @@ export default function BookScreen() {
   //
   // Supported params:
   //   ?vehicleId=<id>   — pre-select an existing vehicle
+  //   ?serviceId=<id>   — pre-select an exact published backend service
   //   ?pkg=spf80|spf89|spf99|spf101 — pre-select an SPF package
   //   ?notes=<text>     — populate the notes field with the AI summary
   //   ?step=1|2|3       — advance to a later step (default 1 = "Details")
   // ─────────────────────────────────────────────────────────────────────
   const prefillParams = useLocalSearchParams<{
     vehicleId?: string;
+    serviceId?: string;
     pkg?: string;
     notes?: string;
     step?: string;
@@ -1619,18 +1702,21 @@ export default function BookScreen() {
 
   useEffect(() => {
     if (prefillAppliedRef.current) return;
-    if (!prefillParams || (Array.isArray(vehicles) && vehicles.length === 0 && vehiclesLoading)) {
+    if (!prefillParams || vehiclesLoading || servicesLoading) {
       return;
     }
 
     const requestedVehicleId = prefillParams.vehicleId
       ? String(prefillParams.vehicleId)
       : null;
+    const requestedServiceId = prefillParams.serviceId
+      ? String(prefillParams.serviceId)
+      : null;
     const requestedPkg = prefillParams.pkg ? String(prefillParams.pkg).toLowerCase() : null;
     const requestedNotes = prefillParams.notes ? String(prefillParams.notes) : null;
     const requestedStep = prefillParams.step ? Number(prefillParams.step) : NaN;
 
-    if (!requestedVehicleId && !requestedPkg && !requestedNotes && !Number.isFinite(requestedStep)) {
+    if (!requestedVehicleId && !requestedServiceId && !requestedPkg && !requestedNotes && !Number.isFinite(requestedStep)) {
       return;
     }
 
@@ -1642,7 +1728,22 @@ export default function BookScreen() {
       }
     }
 
-    if (requestedPkg && SPF_PACKAGES.some((p) => p.key === requestedPkg)) {
+    const requestedService = requestedServiceId
+      ? services.find((service) => service.id === requestedServiceId)
+      : null;
+    const requestedServicePackageKey = getPackageKeyFromServiceName(requestedService?.name);
+
+    if (requestedService && requestedServicePackageKey && SPF_PACKAGES.some((p) => p.key === requestedServicePackageKey)) {
+      const priceVehicle = vehicles.find((v) => v.id === requestedVehicleId || v._id === requestedVehicleId)
+        || selectedVehicle
+        || vehicles[0];
+      if (!priceVehicle) return;
+      const price = getServicePriceForVehicle(requestedService, priceVehicle?.vehicleType);
+      if (price !== null) {
+        setSelectedPkg(requestedServicePackageKey);
+        setSelectedService({ ...requestedService, price });
+      }
+    } else if (requestedPkg && SPF_PACKAGES.some((p) => p.key === requestedPkg)) {
       const pkg = SPF_PACKAGES.find((p) => p.key === requestedPkg)!;
       const priceKey = getVehiclePriceKey(
         (vehicles.find((v) => v.id === requestedVehicleId)?.vehicleType) || vehicleType || 'sedan'
@@ -1661,7 +1762,7 @@ export default function BookScreen() {
     }
 
     prefillAppliedRef.current = true;
-  }, [prefillParams, vehicles, vehiclesLoading, vehicleType]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [prefillParams, vehicles, vehiclesLoading, services, servicesLoading, selectedVehicle, vehicleType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Navigation ──
   const goNext = () => {
@@ -1676,9 +1777,7 @@ export default function BookScreen() {
   // ── Package selection ────────────────────────────────────────────────────
   const selectPkg = (key: string, price: number) => {
     setSelectedPkg(key);
-    const pkg = SPF_PACKAGES.find(p => p.key === key);
-    const matched = services.find(sv => sv.name.toLowerCase().includes(pkg?.label?.toLowerCase() ?? ''))
-      || (services.length > 0 ? services[0] : null);
+    const matched = services.find((service) => getPackageKeyFromServiceName(service.name) === key) || null;
     if (matched) setSelectedService({ ...matched, price });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
@@ -1703,7 +1802,7 @@ export default function BookScreen() {
   };
   const handleConfirm = async () => {
     const effectivePkg = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
-    const effectivePrice = effectivePkg ? effectivePkg.prices[vehicleType] : selectedService?.price;
+    const effectivePrice = selectedService?.price ?? (effectivePkg ? effectivePkg.prices[vehicleType] : null);
     const effectiveName = selectedService?.name || effectivePkg?.label || '';
     const selectedAvailability = selectedDate ? monthAvailability[selectedDate] : undefined;
     const selectedSlotStillAvailable = !!selectedTime
@@ -1805,6 +1904,7 @@ export default function BookScreen() {
   // ── Computed ──
   const displayCustomerName = (profile?.full_name || '').trim();
   const displayCustomerPhone = (profile?.phone || phone).trim();
+  const tabBarHeight = TabBarContentHeight + insets.bottom;
 
   const selectedDayAvailability = selectedDate ? monthAvailability[selectedDate] : undefined;
   const selectedTimeIsAvailable = !!selectedTime
@@ -1827,7 +1927,7 @@ export default function BookScreen() {
   const selectedPackage = selectedPkg
     ? SPF_PACKAGES.find((pkg) => pkg.key === selectedPkg) ?? null
     : null;
-  const selectedPackagePrice = selectedPackage?.prices[vehicleType] ?? null;
+  const selectedPackagePrice = selectedService?.price ?? selectedPackage?.prices[vehicleType] ?? null;
   const stepOneGuidance = !selectedVehicle
     ? 'Select a vehicle to continue'
     : !selectedPkg
@@ -1871,7 +1971,7 @@ export default function BookScreen() {
         <AnimatedHeader compact />
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+          contentContainerStyle={{ paddingBottom: tabBarHeight + 40 }}
           showsVerticalScrollIndicator={false}
         >
           {/* ── Success Hero ── */}
@@ -2042,7 +2142,7 @@ export default function BookScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' && step !== 2 ? 'padding' : undefined}
       >
         <ScrollView
           style={ss.scroll}
@@ -2052,11 +2152,13 @@ export default function BookScreen() {
               paddingBottom:
                 step === 2
                   ? 32
-                  : insets.bottom + (step === 0 ? 116 : 32),
+                  : tabBarHeight + (step === 0 ? 116 : 32),
             },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios' && step === 2}
         >
           {/* ═══════════════════════════════════════════════════
               STEP 0 — CHOOSE SERVICE  (mirrors web Step 1 of 6)
@@ -2319,7 +2421,7 @@ export default function BookScreen() {
           ═══════════════════════════════════════════════════ */}
           {step === 1 && (() => {
             const effectivePkg = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
-            const effectivePrice: number = effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : (selectedService?.price ?? 0);
+            const effectivePrice: number = selectedService?.price ?? (effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : 0);
             const effectiveName = selectedService?.name || effectivePkg?.label || '—';
             return (
               <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
@@ -2621,6 +2723,14 @@ export default function BookScreen() {
                   numberOfLines={4}
                   textAlignVertical="top"
                   accessibilityLabel="Optional booking notes"
+                  onFocus={() => {
+                    notesInputFocusedRef.current = true;
+                    setIsNotesEditing(true);
+                  }}
+                  onBlur={() => {
+                    notesInputFocusedRef.current = false;
+                    if (!Keyboard.isVisible()) setIsNotesEditing(false);
+                  }}
                 />
               </View>
 
@@ -2632,7 +2742,7 @@ export default function BookScreen() {
           ═══════════════════════════════════════════════════ */}
           {step === 3 && (() => {
             const effectivePkg   = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
-            const effectivePrice: number = effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : (selectedService?.price ?? 0);
+            const effectivePrice: number = selectedService?.price ?? (effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : 0);
             const effectiveName  = selectedService?.name || effectivePkg?.label || '—';
             const RESERVATION_FEE = 500;
             const balance = Math.max(0, effectivePrice - RESERVATION_FEE);
@@ -2903,7 +3013,7 @@ export default function BookScreen() {
           ═══════════════════════════════════════════════════ */}
           {step === 5 && (() => {
             const effectivePkg   = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
-            const effectivePrice: number = effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : (selectedService?.price ?? 0);
+            const effectivePrice: number = selectedService?.price ?? (effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : 0);
             const RESERVATION_FEE = 500;
             const balance = Math.max(0, effectivePrice - RESERVATION_FEE);
             const canSubmit = !!downpaymentProof && !isSubmitting && canConfirmBooking;
@@ -3016,11 +3126,13 @@ export default function BookScreen() {
           })()}
         </ScrollView>
 
-        {step === 2 ? (
-          <View
+        {step === 2 && !isNotesEditing ? (
+          <Animated.View
+            entering={FadeInDown.duration(140)}
+            exiting={FadeOutDown.duration(110)}
             style={[
               sch.actionDock,
-              { paddingBottom: Math.max(insets.bottom, 8) },
+              { marginBottom: tabBarHeight },
             ]}
           >
             <TouchableOpacity
@@ -3058,7 +3170,7 @@ export default function BookScreen() {
                 color={canProceedStep2 ? '#09090A' : '#71717A'}
               />
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         ) : null}
       </KeyboardAvoidingView>
 
@@ -3066,7 +3178,7 @@ export default function BookScreen() {
         <View
           style={[
             bookingCta.container,
-            { bottom: insets.bottom },
+            { bottom: tabBarHeight },
           ]}
         >
           <View style={bookingCta.summaryRow}>

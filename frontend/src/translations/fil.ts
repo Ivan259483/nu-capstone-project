@@ -87,7 +87,7 @@ export const fil = {
             suv: "SUV",
             pickup: "Pick Up",
             largesuv: "Malaking SUV / Van",
-            highend: "Premium Sedan",
+            highend: "Highend Sedan",
         },
         inquire: "Magtanong",
         perPanel: "Bawat Panel",

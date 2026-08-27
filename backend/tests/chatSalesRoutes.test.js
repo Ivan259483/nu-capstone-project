@@ -654,6 +654,92 @@ test('Sales routes require a live allowed role and persist replies, assignment, 
   assert.equal(invalidLegacyWrite.response.status, 400);
 });
 
+test('Sales can permanently delete a conversation and its chat records', async () => {
+  const { conversationId, guestKey } = await seedGuestConversation({
+    conversationId: 'sales-delete-conversation',
+  });
+  await jsonRequest('/api/chat/handoff', {
+    method: 'POST',
+    body: JSON.stringify({ conversationId, guestKey }),
+  });
+  const sales = await User.create({
+    name: 'Deleting Sales',
+    email: 'deleting-sales@example.com',
+    role: 'sales',
+    isVerified: true,
+    status: 'active',
+    isActive: true,
+  });
+  const customer = await User.create({
+    name: 'Delete Denied Customer',
+    email: 'delete-denied-customer@example.com',
+    role: 'customer',
+    isVerified: true,
+    status: 'active',
+    isActive: true,
+  });
+  await ChatMessage.create({
+    sessionId: conversationId,
+    conversationId,
+    sender: 'sales',
+    senderId: sales._id,
+    senderName: sales.name,
+    message: 'This message should be removed with its conversation.',
+  });
+  await Notification.create({
+    title: 'Conversation follow-up',
+    message: 'Stale chat notification',
+    type: 'chat',
+    recipientRole: 'sales',
+    metadata: { sessionId: conversationId },
+  });
+
+  const denied = await jsonRequest(
+    `/api/chat/sales/conversations/${conversationId}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${tokenFor(customer)}` },
+    },
+  );
+  assert.equal(denied.response.status, 403);
+  assert.equal(await ChatConversation.countDocuments({ conversationId }), 1);
+
+  const deleted = await jsonRequest(
+    `/api/chat/sales/conversations/${conversationId}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${tokenFor(sales)}` },
+    },
+  );
+  assert.equal(deleted.response.status, 200);
+  assert.equal(deleted.body.success, true);
+  assert.equal(deleted.body.conversationId, conversationId);
+  assert.equal(deleted.body.deletedMessages >= 2, true);
+  assert.equal(await ChatConversation.countDocuments({ conversationId }), 0);
+  assert.equal(
+    await ChatMessage.countDocuments({
+      $or: [{ conversationId }, { sessionId: conversationId }],
+    }),
+    0,
+  );
+  assert.equal(await ChatSession.countDocuments({ sessionId: conversationId }), 0);
+  assert.equal(
+    await Notification.countDocuments({
+      $or: [
+        { 'metadata.conversationId': conversationId },
+        { 'metadata.sessionId': conversationId },
+      ],
+    }),
+    0,
+  );
+
+  const missing = await jsonRequest(
+    `/api/chat/sales/conversations/${conversationId}`,
+    { headers: { Authorization: `Bearer ${tokenFor(sales)}` } },
+  );
+  assert.equal(missing.response.status, 404);
+});
+
 test('simultaneous first Sales replies join and assign the conversation exactly once', async () => {
   const { conversationId, guestKey } = await seedGuestConversation({
     conversationId: 'concurrent-sales-join',

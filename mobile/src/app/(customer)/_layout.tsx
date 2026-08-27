@@ -13,6 +13,7 @@ import {
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Circle, Line, Path } from 'react-native-svg';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -29,9 +30,7 @@ const SHOW_FLOATING_AI_CHATBOT = false;
 
 const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   index: 'home',
-  book: 'add-circle',
   track: 'navigate',
-  scan: 'scan',
   settings: 'person',
 };
 
@@ -42,6 +41,105 @@ const TAB_LABELS: Record<string, string> = {
   scan: 'AI Scan',
   settings: 'Profile',
 };
+
+const INACTIVE_ICON_COLOR = 'rgba(255, 255, 255, 0.56)';
+
+function BookTabIcon({ isFocused }: { isFocused: boolean }) {
+  const color = isFocused ? Palette.accent : INACTIVE_ICON_COLOR;
+  const strokeWidth = isFocused ? 1.9 : 1.65;
+
+  return (
+    <Svg width={23} height={23} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M7 5.25h10A2.25 2.25 0 0 1 19.25 7.5v9.25A2.25 2.25 0 0 1 17 19H7a2.25 2.25 0 0 1-2.25-2.25V7.5A2.25 2.25 0 0 1 7 5.25Z"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinejoin="round"
+      />
+      <Line
+        x1="4.75"
+        y1="9"
+        x2="19.25"
+        y2="9"
+        stroke={color}
+        strokeWidth={strokeWidth}
+      />
+      <Line
+        x1="8.5"
+        y1="3.75"
+        x2="8.5"
+        y2="6.5"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <Line
+        x1="15.5"
+        y1="3.75"
+        x2="15.5"
+        y2="6.5"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M12 11.5v5M9.5 14h5"
+        stroke={color}
+        strokeWidth={isFocused ? 2.1 : 1.8}
+        strokeLinecap="round"
+      />
+    </Svg>
+  );
+}
+
+function AiScanTabIcon({ isFocused }: { isFocused: boolean }) {
+  const color = isFocused ? Palette.accent : INACTIVE_ICON_COLOR;
+  const strokeWidth = isFocused ? 2 : 1.7;
+
+  return (
+    <Svg width={23} height={23} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M8.25 4.25H6.5A2.25 2.25 0 0 0 4.25 6.5v1.75M15.75 4.25h1.75a2.25 2.25 0 0 1 2.25 2.25v1.75M19.75 15.75v1.75a2.25 2.25 0 0 1-2.25 2.25h-1.75M8.25 19.75H6.5a2.25 2.25 0 0 1-2.25-2.25v-1.75"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M7.5 12h2.75M13.75 12h2.75"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <Circle
+        cx="12"
+        cy="12"
+        r="1.45"
+        fill={isFocused ? Palette.accent : 'none'}
+        stroke={color}
+        strokeWidth={isFocused ? 1.5 : 1.35}
+      />
+    </Svg>
+  );
+}
+
+function TabIcon({ route, isFocused }: { route: string; isFocused: boolean }) {
+  if (route === 'book') return <BookTabIcon isFocused={isFocused} />;
+  if (route === 'scan') return <AiScanTabIcon isFocused={isFocused} />;
+
+  const iconName = TAB_ICONS[route] || 'ellipse';
+  const inactiveIconName = iconName.endsWith('-outline')
+    ? iconName
+    : (`${iconName}-outline` as keyof typeof Ionicons.glyphMap);
+
+  return (
+    <Ionicons
+      name={isFocused ? iconName : inactiveIconName}
+      size={21}
+      color={isFocused ? Palette.accent : INACTIVE_ICON_COLOR}
+    />
+  );
+}
 
 function TabBarButton({
   route,
@@ -63,12 +161,7 @@ function TabBarButton({
     onPress();
   };
 
-  const iconName = TAB_ICONS[route] || 'ellipse';
-  const inactiveIconName = iconName.endsWith('-outline')
-    ? iconName
-    : (`${iconName}-outline` as keyof typeof Ionicons.glyphMap);
   const label = TAB_LABELS[route] || route;
-  const inactiveColor = 'rgba(255, 255, 255, 0.56)';
 
   return (
     <TouchableOpacity
@@ -82,16 +175,14 @@ function TabBarButton({
       accessibilityLabel={label}
     >
       <Animated.View style={[styles.tabButtonInner, animStyle]}>
-        <Ionicons
-          name={isFocused ? iconName : inactiveIconName}
-          size={21}
-          color={isFocused ? Palette.accent : inactiveColor}
-        />
+        <View style={styles.iconSlot}>
+          <TabIcon route={route} isFocused={isFocused} />
+        </View>
         <Animated.Text
           style={[
             styles.tabLabel,
             {
-              color: isFocused ? Palette.accent : inactiveColor,
+              color: isFocused ? Palette.accent : INACTIVE_ICON_COLOR,
               fontWeight: isFocused ? '700' : '500',
             },
           ]}
@@ -114,10 +205,6 @@ function CustomTabBar({ state, navigation }: any) {
     VISIBLE_TAB_NAMES.has(r.name)
   );
   const activeRouteName = (state.routes as any[])[state.index]?.name as string;
-
-  // Booking is a focused transaction. Its own Back / Continue controls replace
-  // the global destinations until the user leaves the booking route.
-  if (activeRouteName === 'book') return null;
 
   return (
     <View
@@ -184,7 +271,6 @@ export default function TabLayout() {
         tabBar={(props) => <CustomTabBar {...props} />}
         screenOptions={{
           headerShown: false,
-          tabBarStyle: { display: 'none' },
           sceneStyle: { backgroundColor: colors.background },
           freezeOnBlur: true,
         }}
@@ -226,14 +312,21 @@ const styles = StyleSheet.create({
   tabButtonInner: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
     width: 62,
-    height: 46,
+    height: 48,
     borderRadius: 16,
+  },
+  iconSlot: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tabLabel: {
     fontSize: 9,
-    marginTop: 1,
+    lineHeight: 12,
+    letterSpacing: 0.12,
+    marginTop: 2,
   },
   activeIndicator: {
     position: 'absolute',
