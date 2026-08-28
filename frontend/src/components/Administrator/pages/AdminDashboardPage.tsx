@@ -711,9 +711,9 @@ export default function AdminDashboardPage({
       },
       {
         key: 'services',
-        label: 'Active Services',
+        label: 'Available Services',
         value: activeServices.length.toLocaleString('en-PH'),
-        detail: `${safeServices.length} total catalog entries`,
+        detail: `${activeServices.length} service${activeServices.length === 1 ? '' : 's'} available for booking`,
         icon: Wrench,
         color: '#7C3AED',
         trend: periodComparisons.services,
