@@ -46,10 +46,10 @@ export default function DashboardKpiCard({
 
   return (
     <article
-      className={`relative flex min-h-[164px] min-w-0 flex-col overflow-hidden rounded-[14px] border border-[#e4e9f0] bg-white px-4 pb-[13px] pt-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_14px_34px_-26px_rgba(15,23,42,0.48)] ${className}`}
+      className={`relative flex min-h-[164px] min-w-0 flex-col overflow-hidden rounded-[18px] border border-slate-200/70 bg-white px-4 pb-[13px] pt-4 shadow-[0_1px_2px_rgba(15,23,42,0.035),0_10px_28px_-22px_rgba(15,23,42,0.32)] transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:border-slate-300/80 hover:shadow-[0_2px_4px_rgba(15,23,42,0.04),0_14px_32px_-22px_rgba(15,23,42,0.34)] ${className}`}
     >
       <span
-        className="pointer-events-none absolute inset-x-0 top-0 h-[3px]"
+        className="pointer-events-none absolute inset-x-3 top-0 h-[2px] rounded-b-full"
         style={{ backgroundColor: accentColor }}
         aria-hidden
       />
