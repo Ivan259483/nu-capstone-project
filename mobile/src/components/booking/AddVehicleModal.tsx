@@ -209,14 +209,23 @@ export type AddVehicleModalProps = {
   visible: boolean;
   onClose: () => void;
   onVehicleAdded: (vehicle: Vehicle) => void;
+  vehicle?: Vehicle | null;
+  onVehicleUpdated?: (vehicle: Vehicle) => void;
 };
 
 type PickerKind = 'type' | 'brand' | 'model' | 'year' | 'transmission' | 'fuel' | null;
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: AddVehicleModalProps) {
+export default function AddVehicleModal({
+  visible,
+  onClose,
+  onVehicleAdded,
+  vehicle = null,
+  onVehicleUpdated,
+}: AddVehicleModalProps) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
+  const isEditing = Boolean(vehicle);
 
   const [form, setForm] = useState<VehicleGarageFormValues>(() => emptyVehicleGarageForm());
   const [customBrandMode, setCustomBrandMode] = useState(false);
@@ -397,6 +406,43 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
     pickerAnim.setValue(0);
   }, [pickerAnim]);
 
+  useEffect(() => {
+    if (!visible) return;
+    if (!vehicle) {
+      reset();
+      return;
+    }
+
+    const brand = vehicle.make || '';
+    const model = vehicle.model || '';
+    const color = vehicle.color || '';
+    const knownBrand = vehicleBrands.includes(brand);
+    const knownModels = knownBrand ? getModelsForBrand(brand) : [];
+
+    setForm({
+      plate: vehicle.plateNumber || '',
+      year: vehicle.year ? String(vehicle.year) : '',
+      brand,
+      model,
+      color,
+      type: vehicle.vehicleType || '',
+      transmission: vehicle.transmission || '',
+      fuelType: vehicle.fuelType || '',
+    });
+    setCustomBrandMode(Boolean(brand) && !knownBrand);
+    setCustomModelMode(Boolean(model) && knownBrand && !knownModels.includes(model));
+    setColorOther(Boolean(color) && !VEHICLE_COLOR_SWATCHES.some((item) => item.name === color));
+    setSaving(false);
+    setApiError('');
+    setErrPlate('');
+    setErrType('');
+    setErrBrand('');
+    setErrModel('');
+    setPicker(null);
+    setPickerSearch('');
+    pickerAnim.setValue(0);
+  }, [pickerAnim, reset, vehicle, visible]);
+
   const handleClose = () => {
     reset();
     onClose();
@@ -425,7 +471,7 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
 
     setSaving(true);
     try {
-      const { vehicle: newV, alreadyOwned } = await vehicleService.addVehicle({
+      const payload = {
         plateNumber: plateNorm,
         year: form.year || '',
         make: brandTrim,
@@ -434,13 +480,28 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
         vehicleType: form.type,
         transmission: form.transmission || undefined,
         fuelType: form.fuelType || undefined,
-      });
+      };
+
+      if (vehicle) {
+        const vehicleId = vehicle._id || vehicle.id;
+        if (!vehicleId) throw new Error('Vehicle ID is unavailable.');
+        const updatedVehicle = await vehicleService.updateVehicle(vehicleId, payload);
+        Toast.show('Vehicle updated!', 'success');
+        reset();
+        onVehicleUpdated?.(updatedVehicle);
+        return;
+      }
+
+      const { vehicle: newV, alreadyOwned } = await vehicleService.addVehicle(payload);
 
       Toast.show(alreadyOwned ? 'Already in your list — selected!' : 'Vehicle added!', 'success');
       reset();
       onVehicleAdded(newV);
     } catch (e: unknown) {
-      const msg = getApiErrorMessage(e, 'Failed to add vehicle. Please try again.');
+      const msg = getApiErrorMessage(
+        e,
+        isEditing ? 'Unable to update vehicle. Please try again.' : 'Failed to add vehicle. Please try again.',
+      );
       const code = (e as { response?: { data?: { code?: string } } })?.response?.data?.code;
 
       if (code === 'PLATE_TAKEN' || msg.toLowerCase().includes('another account')) {
@@ -484,7 +545,7 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={s.header}>
-            <Text style={s.headerTitle}>Add Vehicle</Text>
+            <Text style={s.headerTitle}>{isEditing ? 'Edit Vehicle' : 'Add Vehicle'}</Text>
             <TouchableOpacity onPress={handleClose} hitSlop={12} accessibilityLabel="Close">
               <Ionicons name="close-circle-outline" size={26} color={DIM} />
             </TouchableOpacity>
@@ -707,10 +768,12 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
               />
             </View>
 
-            <View style={s.hintBox}>
-              <Ionicons name="calendar-outline" size={14} color={GREEN} />
-              <Text style={s.hintText}>
-                After you save, open <Text style={{ fontWeight: '700' }}>Book</Text> on your vehicle card to schedule a service with these details pre-filled.
+            <View style={[s.hintBox, isEditing && s.hintBoxEdit]}>
+              <Ionicons name={isEditing ? 'sync-outline' : 'calendar-outline'} size={14} color={isEditing ? AMBER : GREEN} />
+              <Text style={[s.hintText, isEditing && s.hintTextEdit]}>
+                {isEditing
+                  ? 'Your saved vehicle will update without resetting this booking.'
+                  : <>After you save, open <Text style={{ fontWeight: '700' }}>Book</Text> on your vehicle card to schedule a service with these details pre-filled.</>}
               </Text>
             </View>
 
@@ -726,7 +789,7 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
               >
                 {saving
                   ? <ActivityIndicator color="#fafafa" size="small" />
-                  : <Text style={s.btnPrimaryText}>Add Vehicle</Text>
+                  : <Text style={s.btnPrimaryText}>{isEditing ? 'Save Changes' : 'Add Vehicle'}</Text>
                 }
               </TouchableOpacity>
             </View>
@@ -856,6 +919,11 @@ const s = StyleSheet.create({
     marginTop: 16, marginBottom: 20,
   },
   hintText: { flex: 1, fontSize: 12, color: GREEN, fontWeight: '500', lineHeight: 17 },
+  hintBoxEdit: {
+    backgroundColor: 'rgba(255,183,125,0.06)',
+    borderColor: 'rgba(255,183,125,0.18)',
+  },
+  hintTextEdit: { color: DIM },
 
   actions: { flexDirection: 'row', gap: 10 },
   btnCancel: {

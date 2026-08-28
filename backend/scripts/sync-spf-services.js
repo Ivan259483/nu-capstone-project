@@ -9,7 +9,7 @@ import {
   getPackageKeyFromName,
 } from '../constants/spfPricing.js';
 
-const buildServicePayload = (pkg) => ({
+const buildServicePayload = (pkg, existingCatalogCard = null) => ({
   name: pkg.name,
   category: pkg.category,
   description: pkg.description,
@@ -21,6 +21,19 @@ const buildServicePayload = (pkg) => ({
   displayOrder: pkg.displayOrder,
   status: 'Active',
   isPublished: true,
+  catalogCard: {
+    ...pkg.catalogCard,
+    ...(existingCatalogCard || {}),
+    features: existingCatalogCard?.fullInclusions?.length && existingCatalogCard?.features?.length
+      ? existingCatalogCard.features
+      : pkg.catalogCard.features,
+    fullInclusions: existingCatalogCard?.fullInclusions?.length
+      ? existingCatalogCard.fullInclusions
+      : pkg.catalogCard.fullInclusions,
+    ppfCoverage: existingCatalogCard?.ppfCoverage?.length
+      ? existingCatalogCard.ppfCoverage
+      : pkg.catalogCard.ppfCoverage,
+  },
   lastUpdatedBy: 'sync-spf-services',
   lastUpdatedAt: new Date(),
 });
@@ -42,8 +55,9 @@ async function syncSPFServices() {
 
   const results = [];
   for (const [key, pkg] of Object.entries(SPF_PACKAGE_PRICING)) {
-    const payload = buildServicePayload(pkg);
     const existing = existingByKey.get(key);
+    const existingCatalogCard = existing?.catalogCard?.toObject?.() || existing?.catalogCard || null;
+    const payload = buildServicePayload(pkg, existingCatalogCard);
 
     if (existing) {
       existing.set(payload);

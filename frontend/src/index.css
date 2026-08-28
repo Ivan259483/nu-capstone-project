@@ -3292,25 +3292,19 @@ html.dark * {
     padding: 1rem !important;
 }
 
-.customer-garage-section + .customer-docs-activity-section {
-    margin-top: 1rem !important;
-}
-
 .customer-section-header {
     border-bottom-color: rgba(226, 232, 240, 0.74) !important;
 }
 
 .customer-section-header p,
-.customer-side-card p[class*="uppercase"],
-.customer-docs-activity-section p[class*="uppercase"] {
+.customer-side-card p[class*="uppercase"] {
     color: #64748B !important;
     font-weight: 760 !important;
     letter-spacing: 0.1em !important;
 }
 
 .customer-section-header h2,
-.customer-side-card h3,
-.customer-docs-activity-section h2 {
+.customer-side-card h3 {
     color: #0f172a !important;
     font-weight: 820 !important;
     letter-spacing: -0.025em !important;

@@ -21,7 +21,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useThemeContext';
-import { Palette, Glass, TabBarContentHeight } from '@/constants/theme';
+import { Palette, TabBarContentHeight } from '@/constants/theme';
 import AskAiFab from '@/components/ui/AskAiFab';
 import { useAuth } from '@/context/AuthContext';
 import { isCustomerRole } from '@/services/api/roles';
@@ -42,7 +42,8 @@ const TAB_LABELS: Record<string, string> = {
   settings: 'Profile',
 };
 
-const INACTIVE_ICON_COLOR = 'rgba(255, 255, 255, 0.56)';
+const INACTIVE_ICON_COLOR = 'rgba(255, 255, 255, 0.63)';
+const TAB_BLUR_INTENSITY = 28;
 
 function BookTabIcon({ isFocused }: { isFocused: boolean }) {
   const color = isFocused ? Palette.accent : INACTIVE_ICON_COLOR;
@@ -166,9 +167,9 @@ function TabBarButton({
   return (
     <TouchableOpacity
       onPress={handlePress}
-      onPressIn={() => { scale.value = withTiming(0.98, { duration:100 }); }}
-      onPressOut={() => { scale.value = withTiming(1, { duration:140 }); }}
-      activeOpacity={0.7}
+      onPressIn={() => { scale.value = withTiming(0.98, { duration:120 }); }}
+      onPressOut={() => { scale.value = withTiming(1, { duration:160 }); }}
+      activeOpacity={0.84}
       style={styles.tabButton}
       accessibilityRole="tab"
       accessibilityState={{ selected:isFocused }}
@@ -206,6 +207,8 @@ function CustomTabBar({ state, navigation }: any) {
   );
   const activeRouteName = (state.routes as any[])[state.index]?.name as string;
 
+  if (activeRouteName === 'book') return null;
+
   return (
     <View
       style={[
@@ -217,14 +220,14 @@ function CustomTabBar({ state, navigation }: any) {
       ]}
     >
       <BlurView
-        intensity={Glass.intensity}
-        tint={Glass.tint}
+        intensity={TAB_BLUR_INTENSITY}
+        tint="dark"
         style={StyleSheet.absoluteFill}
       />
       <View
         style={[
           StyleSheet.absoluteFill,
-          { backgroundColor: 'rgba(5, 7, 10, 0.90)' },
+          { backgroundColor: 'rgba(5, 7, 10, 0.94)' },
         ]}
       />
       <View style={styles.tabBarInner}>
@@ -331,8 +334,8 @@ const styles = StyleSheet.create({
   activeIndicator: {
     position: 'absolute',
     bottom: 0,
-    width: 18,
-    height: 2,
+    width: 14,
+    height: 1.5,
     borderRadius: 2,
     backgroundColor: Palette.accent,
   },

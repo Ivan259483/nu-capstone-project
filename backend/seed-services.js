@@ -33,6 +33,7 @@ const seedSPFPackages = async () => {
             pricing: buildRichPricing(pkg),
             billingGroup: 'ceramic_spf',
             displayOrder: pkg.displayOrder,
+            catalogCard: pkg.catalogCard,
             status: 'Active',
             isPublished: true,
         }));

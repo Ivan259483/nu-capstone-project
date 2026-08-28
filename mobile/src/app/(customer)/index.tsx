@@ -1,65 +1,50 @@
 /**
- * AutoSPF+ — Home Dashboard · v5 FINAL
+ * AutoSPF+ — Customer Home Dashboard
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  *  ARCHITECTURE
  *  ─────────────────────────────────────────────────
  *  Tokens          → D (design tokens)
- *  Atoms           → Pulse · Shim · Tap · CountUp · FloatBadge
+ *  Atoms           → Pulse · Shim · Tap
  *  Molecules       → GBCard · Specular · Rail · SectionEye
- *  Sections        → HeaderSection · HeroSection · StatsSection
- *                    TrustSection · QuickSection · ServicesSection
- *                    PromoSection · HistorySection · CareSection
- *                    LoyaltySection
+ *  Sections        → HeaderSection · HeroSection · TrustSection
+ *                    QuickSection · ServicesSection · PromoSection
+ *                    HistorySection
  *  Screen          → HomeScreen (orchestrator)
  *  Styles          → $ (shared StyleSheet)
  *
  *  ANIMATIONS (Reanimated v3)
  *  ─────────────────────────────────────────────────
- *  1. Scroll-driven parallax on hero card (translateY)
- *  2. Scroll-driven header fade/scale collapse
- *  3. Scroll-driven frosted app-bar reveal
- *  4. CountUp — animated number counter on stats reveal
- *  5. FloatBadge — continuous sine-wave float on hero icon
- *  6. PulsingDot — live indicator with ring emission
- *  7. GoldShimmer — skeleton loading with animated grad
- *  8. Spring-scale on every Tap pressable (bouncy physics)
- *  9. Staggered FadeInUp on each section (variable delay)
- * 10. SlideInRight on horizontal scroll card entries
- * 11. Rail fill width animates from 0% on mount
- * 12. Loyalty progress bar animates in on section enter
+ *  Motion is intentionally limited to short entrance/press feedback and the
+ *  live-status pulse. The header and canvas do not continuously animate.
  *
  *  HOMEPAGE CONTENT (what belongs here for a car service app)
  *  ─────────────────────────────────────────────────
  *  1. Greeting + profile         (personalisation, trust)
- *  2. Live job tracker / Book CTA (primary intent, most used)
- *  3. Stats summary              (progress, social proof)
- *  4. Trust badges               (authority, credibility)
- *  5. Quick actions bento        (navigation shortcuts)
- *  6. Services gallery           (discovery, upsell)
- *  7. Current promo / deal       (conversion, urgency)
- *  8. Recent history             (re-booking, habit)
- *  9. After-care tips            (retention, care)
- * 10. Loyalty progress           (gamification, retention)
+ *  2. Context-aware booking hero (book / appointment / service / payment)
+ *  3. Compact trust strip
+ *  4. Contextual utility actions
+ *  5. Services gallery
+ *  6. Current offer
+ *  7. Recent service history
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  */
 
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet,
-  Dimensions, Platform, RefreshControl,
+  Dimensions, Platform, RefreshControl, useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn, FadeInDown, FadeInUp, FadeInRight, SlideInRight,
-  useSharedValue, useAnimatedStyle, useAnimatedScrollHandler,
+  useSharedValue, useAnimatedStyle,
   withRepeat, withTiming, withSequence,
-withDelay, Easing, interpolate, Extrapolation,
+  Easing, interpolate,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
@@ -75,6 +60,7 @@ import { vehicleService } from '@/services/api/vehicleService';
 import type { BookingRecord, ServiceOption, Vehicle } from '@/services/api/types';
 import { isBookingCountedAsActiveOnHome } from '@/utils/customerBookingLifecycle';
 import {
+  bookingIsReadyForPickup,
   bookingShowsCustomerLiveTracker,
   pickCustomerLiveTrackerBooking,
 } from '@/utils/customer-live-tracker-pick';
@@ -82,6 +68,7 @@ import {
   resolveCustomerHomeRailStep,
 } from '@/utils/customer-home-rail-step';
 import { useNotifications } from '@/context/NotificationsContext';
+import { TabBarContentHeight } from '@/constants/theme';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // VIEWPORT
@@ -91,42 +78,79 @@ const IOS = Platform.OS === 'ios';
 const SERVICE_CARD_WIDTH = (W - 54) / 2;
 const USE_STACKED_SERVICE_FOOTER = SERVICE_CARD_WIDTH < 200;
 
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const scaleForPhoneWidth = (width: number, min: number, max: number) => {
+  const progress = clamp((width - 320) / 110, 0, 1);
+  return min + (max - min) * progress;
+};
+
+const phoneMetric = (width: number, min: number, max: number) =>
+  Math.round(scaleForPhoneWidth(width, min, max) * 10) / 10;
+
+function getHomeHeroMetrics(width: number) {
+  return {
+    cardHeight:phoneMetric(width, 294, 330),
+    cardRadius:phoneMetric(width, 20, 24),
+    horizontalPadding:phoneMetric(width, 20, 24),
+    topPadding:phoneMetric(width, 20, 21),
+    bottomPadding:phoneMetric(width, 18, 20),
+    headlineSize:phoneMetric(width, 30, 38),
+    headlineLineHeight:phoneMetric(width, 36, 42),
+    headlineTopGap:22,
+    headlineCategoryGap:phoneMetric(width, 10, 12),
+    serviceSize:phoneMetric(width, 9.5, 12.5),
+    serviceGap:phoneMetric(width, 4.5, 7),
+    ctaTopGap:phoneMetric(width, 12, 14),
+    ctaHeight:phoneMetric(width, 50, 54),
+    ctaFontSize:phoneMetric(width, 15.5, 17.5),
+    ctaLeftPadding:phoneMetric(width, 16, 18),
+    ctaTextPadding:phoneMetric(width, 12, 14),
+    ctaArrowWidth:phoneMetric(width, 34, 38),
+    metaTopGap:phoneMetric(width, 18, 20),
+    metaHeight:phoneMetric(width, 22, 26),
+    metaFontSize:phoneMetric(width, 10, 11.5),
+    metaIconSize:phoneMetric(width, 12, 14),
+    brandSize:phoneMetric(width, 8.5, 10),
+    brandTagGap:phoneMetric(width, 4, 6),
+    taglineSize:phoneMetric(width, 8, 9.5),
+    taglineTracking:phoneMetric(width, 0.6, 0.85),
+    carBadgeSize:phoneMetric(width, 46, 50),
+    carIconSize:phoneMetric(width, 20, 23),
+    metaRowGap:phoneMetric(width, 3, 5),
+    metaChipGap:phoneMetric(width, 3, 4),
+    upperCircleSize:phoneMetric(width, 210, 250),
+    lowerCircleSize:phoneMetric(width, 160, 195),
+  };
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // DESIGN TOKENS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const D = {
   // Canvas — obsidian with warmth
-  bg:  '#05070A',
-  s0:  '#070A0F',
-  s1:  '#0A0D13',
-  s2:  '#0F131B',
-  s3:  '#151A24',
+  bg:  '#050505',
+  s1:  '#0C0C0D',
 
   // PRIMARY BRAND — amber/orange
   A:   '#FF7C1E',
   AL:  '#FFA855',
   AD:  '#C55000',
-  Ag:  'rgba(255,124,30,0.24)',
   Af:  'rgba(255,124,30,0.11)',
   Ab:  'rgba(255,124,30,0.18)',
   Ag2: 'rgba(255,124,30,0.05)',
 
-  // GOLD — prestige
-  Go:     '#CFA840',
-  GoL:    '#EEC84A',
-  Gof:    'rgba(207,168,64,0.11)',
-  Gob:    'rgba(207,168,64,0.20)',
+  // Warm copper support tone — never used as a separate accent family
+  Go:     '#D65A1A',
+  Gof:    'rgba(214,90,26,0.10)',
+  Gob:    'rgba(214,90,26,0.20)',
 
   // SEMANTIC
   G: '#2DDBA6', Gf: 'rgba(45,219,166,0.11)', Gb: 'rgba(45,219,166,0.22)',
-  B: '#4F91FF', Bf: 'rgba(79,145,255,0.11)', Bb: 'rgba(79,145,255,0.22)',
-  V: '#9874FF', Vf: 'rgba(152,116,255,0.11)',Vb: 'rgba(152,116,255,0.22)',
-  R: '#F87171', Rf: 'rgba(248,113,113,0.11)',
-  Y: '#F5B820', Yf: 'rgba(245,184,32,0.11)', Yb: 'rgba(245,184,32,0.22)',
-  C: '#22D3EE', Cf: 'rgba(34,211,238,0.11)',
 
   // WHITE ALPHA RAMP
-  w100: '#FFFFFF',
+  w100: '#FBF8F4',
   w92:  'rgba(255,255,255,0.92)',
   w75:  'rgba(255,255,255,0.75)',
   w55:  'rgba(255,255,255,0.55)',
@@ -136,7 +160,6 @@ const D = {
   w10:  'rgba(255,255,255,0.10)',
   w07:  'rgba(255,255,255,0.07)',
   w04:  'rgba(255,255,255,0.04)',
-  w02:  'rgba(255,255,255,0.02)',
 } as const;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -145,11 +168,21 @@ const D = {
 const GB = {
   amber:   [D.Ab, 'rgba(255,124,30,0.06)', D.Ab]    as const,
   neutral: [D.w16, D.w04, D.w10]                   as const,
-  gold:    [D.Gob, D.Gof, D.Gob]                   as const,
-  green:   [D.Gb, D.Gf, D.Gb]                      as const,
-  blue:    [D.Bb, D.Bf, D.Bb]                      as const,
-  violet:  [D.Vb, D.Vf, D.Vb]                      as const,
 };
+
+const SPACE = {
+  xs:4, sm:8, md:12, lg:16, xl:20, xxl:24, section:32, page:20,
+} as const;
+
+const RADIUS = {
+  control:14, icon:16, card:22, hero:28,
+} as const;
+
+const TYPE = {
+  sectionTracking:1.9,
+  bodyColor:D.w55,
+  supportingColor:D.w55,
+} as const;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // STATIC DATA
@@ -158,21 +191,14 @@ const GB = {
 const STEPS = ['Booked', 'Confirmed', 'Assigned', 'Checked in', 'In Service', 'QC', 'Payment', 'Released'];
 
 const TRUST = [
-  { icon:'shield-checkmark-outline' as const, label:'LTFRB Certified' },
-  { icon:'ribbon-outline'           as const, label:'Licensed Shop'   },
-  { icon:'checkmark-circle-outline' as const, label:'Insured Work'    },
-  { icon:'star-outline'             as const, label:'Rated 4.9'       },
+  { icon:'shield-checkmark-outline' as const, label:'LTFRB' },
+  { icon:'ribbon-outline'           as const, label:'Licensed' },
+  { icon:'checkmark-circle-outline' as const, label:'Insured' },
+  { icon:'star-outline'             as const, label:'4.9 Rating' },
 ];
 
 const PROMOS = [
-  { badge:'LIMITED', title:'Free Interior Detailing', sub:'Book any tint package this month', save:'₱800 value', icon:'sparkles' as const },
-];
-
-const CARE_TIPS = [
-  { icon:'close-circle-outline' as const, tag:'Critical',  tip:'Keep windows closed for 7 days after installation.' },
-  { icon:'water-outline'        as const, tag:'Normal',    tip:'Water bubbles are normal — they vanish within 30 days.' },
-  { icon:'brush-outline'        as const, tag:'Reminder',  tip:'Do not clean interior glass for the first 2 weeks.' },
-  { icon:'sunny-outline'        as const, tag:'Pro Tip',   tip:'Shade parking accelerates film curing significantly.' },
+  { badge:'LIMITED', title:'Free Interior Detailing', sub:'Book any tint package this month', save:'₱800 value', icon:'sparkles-outline' as const },
 ];
 
 const greet = (date = new Date()) => {
@@ -296,63 +322,6 @@ function Spec({ op = 0.06 }: { op?: number }) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ATOM: Ambient background orbs (very slow, barely visible)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const OrbConfig = [
-  { w:360, h:360, top:-170, right:-150, color:'rgba(255,124,30,0.16)', d:15000 },
-  { w:260, h:260, top:590, left:-145, color:'rgba(255,124,30,0.08)', d:21000 },
-] as const;
-
-function AmbientOrb({ orb, index }: { orb: typeof OrbConfig[number]; index: number }) {
-  const progress = useSharedValue(0);
-
-  useEffect(() => {
-    progress.value = withRepeat(
-      withTiming(1, { duration: orb.d, easing: Easing.inOut(Easing.sin) }),
-      -1,
-      true
-    );
-  }, [orb.d, progress]);
-
-  const anim = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0,0.5,1],[0.06,0.13,0.06]),
-    transform:[
-      {translateX: interpolate(progress.value,[0,1],[0,index%2===0?42:-36])},
-      {translateY: interpolate(progress.value,[0,1],[0,index%2===0?28:32])},
-    ],
-  }));
-
-  const horizontalPosition =
-    'right' in orb ? { right: orb.right } : { left: orb.left };
-
-  return (
-    <Animated.View
-      style={[
-        $.orb,
-        {
-          width: orb.w,
-          height: orb.h,
-          top: orb.top,
-          backgroundColor: orb.color,
-          ...horizontalPosition,
-        },
-        anim,
-      ]}
-    />
-  );
-}
-
-function Orbs() {
-  return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {OrbConfig.map((orb, index) => (
-        <AmbientOrb key={orb.d} orb={orb} index={index} />
-      ))}
-    </View>
-  );
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ATOM: Pulse dot — live tracking indicator
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Pulse({ color = D.A, size = 7 }: { color?: string; size?: number }) {
@@ -374,23 +343,6 @@ function Pulse({ color = D.A, size = 7 }: { color?: string; size?: number }) {
         ...sh(color, 0.8, 6, 0) }} />
     </View>
   );
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ATOM: Float badge — sine wave up/down animation
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function FloatBadge({ children, style }: { children: React.ReactNode; style?: any }) {
-  const y = useSharedValue(0);
-  useEffect(() => {
-    y.value = withRepeat(
-      withSequence(
-        withTiming(-2, { duration: 2800, easing: Easing.inOut(Easing.sin) }),
-        withTiming( 0, { duration: 2800, easing: Easing.inOut(Easing.sin) }),
-      ), -1, false,
-    );
-  }, [y]);
-  const anim = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
-  return <Animated.View style={[anim, style]}>{children}</Animated.View>;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -422,10 +374,11 @@ function Shim({ w, h, r = 14 }: { w: number; h: number; r?: number }) {
 // ATOM: Haptic spring pressable
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Tap({
-  children, onPress, style, h = 'Light', targetScale = 0.98,
+  children, onPress, style, h = 'Light', targetScale = 0.98, accessibilityLabel,
 }: {
   children: React.ReactNode; onPress?: () => void;
   style?: any; h?: 'Light'|'Medium'|'Heavy'; targetScale?: number;
+  accessibilityLabel?: string;
 }) {
   const sc = useSharedValue(1);
   const anim = useAnimatedStyle(() => ({ transform: [{ scale: sc.value }] }));
@@ -433,9 +386,11 @@ function Tap({
     <Animated.View style={[anim, style]}>
       <Pressable
         onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle[h]); onPress?.(); }}
-        onPressIn={() => { sc.value = withTiming(targetScale, { duration: 220 }); }}
-        onPressOut={() => { sc.value = withTiming(1, { duration: 220 }); }}
+        onPressIn={() => { sc.value = withTiming(targetScale, { duration: 140 }); }}
+        onPressOut={() => { sc.value = withTiming(1, { duration: 160 }); }}
         style={{ flex: 1 }}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
       >{children}</Pressable>
     </Animated.View>
   );
@@ -519,39 +474,34 @@ const rl = StyleSheet.create({
 // SECTION: Header — parallax collapse, name, status pill
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function HeaderSection({
-  profile, name, scrollY, active, completed, router, unreadCount,
+  profile, name, router, unreadCount,
 }: any) {
-  const hdrAnim = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(scrollY.value, [0,110], [0,-10], Extrapolation.CLAMP) }],
-    opacity: interpolate(scrollY.value, [0,80], [1,0], Extrapolation.CLAMP),
-  }));
+  const { width } = useWindowDimensions();
+  const controlSize = phoneMetric(width, 44, 48);
+  const controlRadius = phoneMetric(width, 14, 16);
+  const nameSize = phoneMetric(width, 28, 33.5);
 
   return (
-    <Animated.View style={[$.hdr, hdrAnim]}>
+    <Animated.View entering={FadeIn.duration(260)} style={$.hdr}>
       {/* Name block */}
       <View style={$.hdrCopy}>
         <Animated.Text entering={FadeIn.delay(60).duration(380)} style={$.greet}>
-          {greet()}
+          {greet()},
         </Animated.Text>
-        <Text style={$.nameText} numberOfLines={1}>
+        <Text
+          style={[$.nameText, { fontSize:nameSize, lineHeight:nameSize + 4 }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+        >
           {name}
         </Text>
-        {(active.length > 0 || completed > 0) && (
-          <Animated.View entering={FadeIn.delay(300).duration(400)} style={$.summPill}>
-            <View style={{ width:5, height:5, borderRadius:3, backgroundColor: active.length > 0 ? D.A : D.G }} />
-            <Text style={$.summTxt}>
-              {active.length > 0
-                ? `${active.length} ${active.length === 1 ? 'service' : 'services'} in progress`
-                : 'All services complete'}
-            </Text>
-          </Animated.View>
-        )}
       </View>
 
       {/* Action cluster */}
       <View style={$.hdrActions}>
-        <Tap onPress={() => router.push('/(screens)/notifications')} targetScale={0.92}>
-          <View style={$.bellBtn}>
+        <Tap onPress={() => router.push('/(screens)/notifications')} targetScale={0.97} accessibilityLabel="Open notifications">
+          <View style={[$.bellBtn, { width:controlSize, height:controlSize, borderRadius:controlRadius }]}>
             <Ionicons name="notifications-outline" size={18} color={D.w55} />
             {unreadCount > 0 && (
               <View style={$.notifBubble}>
@@ -560,23 +510,69 @@ function HeaderSection({
             )}
           </View>
         </Tap>
-        <Tap onPress={() => router.push('/(customer)/settings')} targetScale={0.93}>
-          <LinearGradient colors={[D.A, D.Go]} start={{x:0,y:0}} end={{x:1,y:1}} style={$.avRing}>
-            <View style={$.avCore}>
+        <Tap onPress={() => router.push('/(customer)/settings')} targetScale={0.97} accessibilityLabel="Open profile">
+          <View style={[$.avRing, { width:controlSize, height:controlSize, borderRadius:controlRadius }]}>
+            <View style={[$.avCore, { borderRadius:Math.max(0, controlRadius - 2.2) }]}>
               {profile?.avatar_url
                 ? <Image source={profile.avatar_url} style={{width:'100%',height:'100%'}} contentFit="cover" />
                 : <Text style={$.avChar}>{(profile?.full_name?.charAt(0)||'?').toUpperCase()}</Text>
               }
             </View>
-          </LinearGradient>
+          </View>
         </Tap>
       </View>
     </Animated.View>
   );
 }
 
+type HomeHeroMode = 'book' | 'upcoming' | 'active' | 'payment' | 'ready';
+
+function resolveHomeHeroMode(job: BookingRecord | null, step: number): HomeHeroMode {
+  if (!job) return 'book';
+  const status = String(job.status || '').trim().toLowerCase().replace(/-/g, '_');
+  const paymentPaid = String(job.paymentStatus || '').trim().toLowerCase() === 'paid';
+  if (bookingIsReadyForPickup(job)) return 'ready';
+  if (!paymentPaid && (status === 'ready_for_payment' || status === 'completed' || step >= 6)) return 'payment';
+  if (step >= 3) return 'active';
+  return 'upcoming';
+}
+
+function formatBookingSchedule(job: BookingRecord): string {
+  const rawDate = String(job.bookingDate || job.date || '').trim();
+  const rawTime = String(job.bookingTime || job.time || '').trim();
+  let dateLabel = rawDate || 'Date to be confirmed';
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+    const [year, month, day] = rawDate.split('-').map(Number);
+    dateLabel = new Intl.DateTimeFormat('en-PH', { month:'short', day:'numeric' })
+      .format(new Date(year, month - 1, day));
+  } else if (rawDate) {
+    const parsed = new Date(rawDate);
+    if (!Number.isNaN(parsed.getTime())) {
+      dateLabel = new Intl.DateTimeFormat('en-PH', { month:'short', day:'numeric' }).format(parsed);
+    }
+  }
+
+  let timeLabel = rawTime;
+  const timeMatch = rawTime.match(/^(\d{1,2}):(\d{2})/);
+  if (timeMatch) {
+    const hour = Number(timeMatch[1]);
+    const minute = Number(timeMatch[2]);
+    const suffix = hour >= 12 ? 'PM' : 'AM';
+    timeLabel = `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${suffix}`;
+  }
+  return timeLabel ? `${dateLabel} · ${timeLabel}` : dateLabel;
+}
+
+function getOutstandingAmount(job: BookingRecord): number | null {
+  const total = Number(job.totalPrice || job.totalAmount || 0);
+  if (total <= 0) return null;
+  const paid = Number(job.downPaymentAmount || 0) + Number(job.finalPaymentAmount || 0);
+  return Math.max(0, total - paid);
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION: Hero — live tracker OR book CTA (scroll-parallax)
+// SECTION: Hero — booking, appointment, live service, or payment
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function HeroSection({ job, isLoading, step, router }: {
   job: BookingRecord | null;
@@ -584,16 +580,50 @@ function HeroSection({ job, isLoading, step, router }: {
   step: number;
   router: ReturnType<typeof useRouter>;
 }) {
-  if (isLoading) return <Shim w={W-44} h={240} r={32} />;
+  const { width } = useWindowDimensions();
+  const hero = getHomeHeroMetrics(width);
+
+  if (isLoading) return <Shim w={Math.max(0, width - SPACE.page * 2)} h={hero.cardHeight} r={hero.cardRadius} />;
 
   if (job) {
+    const mode = resolveHomeHeroMode(job, step);
     const context = getTrackingContext(job, step);
+    const isUpcoming = mode === 'upcoming';
+    const isPayment = mode === 'payment';
+    const isReady = mode === 'ready';
+    const actionLabel = isPayment ? 'View Payment' : isUpcoming ? 'View Booking' : isReady ? 'View Pickup' : 'Track My Car';
+    const actionRoute = isPayment
+      ? { pathname:'/(screens)/payments' as const, params:{ orderId:job.id } }
+      : { pathname:'/(customer)/track' as const, params:{ id:job.id } };
+    const status = String(job.status || '').trim().toLowerCase().replace(/-/g, '_');
+    const isAwaitingConfirmation = status === 'pending' || status === 'pending_confirmation';
+    const outstandingAmount = getOutstandingAmount(job);
+    const eyebrow = isPayment
+      ? 'PAYMENT PENDING'
+      : isReady
+        ? 'READY FOR PICKUP'
+        : isUpcoming
+          ? (isAwaitingConfirmation ? 'REQUEST RECEIVED' : 'APPOINTMENT CONFIRMED')
+          : 'IN PROGRESS';
+    const headline = isPayment
+      ? 'Service completed'
+      : isReady
+        ? 'Your vehicle is ready for pickup'
+        : isUpcoming
+          ? (isAwaitingConfirmation ? 'We’re confirming your appointment' : 'Your appointment is confirmed')
+          : 'Your vehicle is being serviced';
+
     return (
       <Animated.View entering={FadeIn.duration(240)}>
-        <Tap onPress={() => router.push({ pathname:'/(customer)/track', params:{ id:job.id } })} h="Light">
-          <GBCard colors={GB.amber} radius={26} style={sh(D.A, 0.14, 22, 7)}>
+        <Tap onPress={() => router.push(actionRoute as any)} h="Light" accessibilityLabel={actionLabel}>
+          <GBCard
+            colors={['rgba(238,103,42,0.34)','rgba(130,50,22,0.12)','rgba(238,103,42,0.18)']}
+            radius={26}
+            bg="#120D0B"
+            style={sh('#5B2110', 0.18, 18, 6)}
+          >
             <LinearGradient
-              colors={['rgba(255,124,30,0.11)','rgba(207,168,64,0.04)','transparent']}
+              colors={['rgba(160,55,20,0.34)','rgba(83,31,17,0.17)','transparent']}
               start={{x:0,y:0}} end={{x:1.2,y:1.2}}
               style={StyleSheet.absoluteFill}
             />
@@ -603,23 +633,19 @@ function HeroSection({ job, isLoading, step, router }: {
             <View style={$.trBody}>
               <View style={$.trRow1}>
                 <View style={$.livePill}>
-                  {job.status === 'pending_confirmation' ? (
-                    <>
-                      <Ionicons name="time-outline" size={12} color={D.A} />
-                      <Text style={$.liveTxt} numberOfLines={1} adjustsFontSizeToFit>PENDING CONFIRMATION</Text>
-                    </>
-                  ) : (
-                    <>
-                      <Pulse color={D.A} size={6} />
-                      <Text style={$.liveTxt} numberOfLines={1}>LIVE  TRACKING</Text>
-                    </>
+                  {mode === 'active' ? <Pulse color={D.A} size={6} /> : (
+                    <Ionicons name={isPayment ? 'card-outline' : isReady ? 'car-sport-outline' : 'calendar-outline'} size={12} color={D.A} />
                   )}
+                  <Text style={$.liveTxt} numberOfLines={1} adjustsFontSizeToFit>{eyebrow}</Text>
                 </View>
               </View>
 
-              <Animated.Text entering={FadeInDown.delay(300).duration(200)} style={$.trVeh} numberOfLines={1} adjustsFontSizeToFit>
-                {String(job.vehicleMake||'')} {String(job.vehicleModel||'')}
+              <Animated.Text entering={FadeInDown.delay(180).duration(200)} style={$.trHeadline} numberOfLines={2}>
+                {headline}
               </Animated.Text>
+              <Text style={$.trVeh} numberOfLines={1} adjustsFontSizeToFit>
+                {[job.vehicleMake, job.vehicleModel].filter(Boolean).join(' ') || 'Your vehicle'}
+              </Text>
               <View style={$.trMetaRow}>
                 <View style={$.trSvcRow}>
                   <Ionicons name="sparkles-outline" size={13} color={D.A} />
@@ -631,15 +657,40 @@ function HeroSection({ job, isLoading, step, router }: {
                 </View>
               </View>
 
-              <Rail step={step} />
+              {isUpcoming ? (
+                <View style={$.appointmentSummary}>
+                  <Ionicons name="calendar-clear-outline" size={17} color={D.A} />
+                  <Text style={$.appointmentSchedule}>{formatBookingSchedule(job)}</Text>
+                </View>
+              ) : isPayment ? (
+                <View style={$.paymentSummary}>
+                  <View>
+                    <Text style={$.paymentLabel}>AMOUNT DUE</Text>
+                    <Text style={$.paymentAmount}>
+                      {outstandingAmount === null ? 'Review total' : `₱${outstandingAmount.toLocaleString('en-PH')}`}
+                    </Text>
+                  </View>
+                  <Text style={$.paymentHint}>Complete payment to finish your service</Text>
+                </View>
+              ) : (
+                <Rail step={step} />
+              )}
 
               <View style={$.trFooter}>
                 <View style={$.trContext}>
-                  <Ionicons name={context.icon} size={13} color={D.w38} />
-                  <Text style={$.trContextText} numberOfLines={2}>{context.text}</Text>
+                  <Ionicons name={isUpcoming ? 'information-circle-outline' : context.icon} size={13} color={D.w38} />
+                  <Text style={$.trContextText} numberOfLines={2}>
+                    {isUpcoming
+                      ? 'We’ll keep this status synced with your booking.'
+                      : isPayment
+                        ? 'Your service total is ready for review.'
+                        : isReady
+                          ? 'Review the latest release and pickup details.'
+                        : context.text}
+                  </Text>
                 </View>
                 <View style={$.trViewBtn}>
-                  <Text style={$.trViewTxt}>View Details</Text>
+                  <Text style={$.trViewTxt}>{actionLabel}</Text>
                   <Ionicons name="arrow-forward" size={13} color={D.bg} />
                 </View>
               </View>
@@ -652,74 +703,126 @@ function HeroSection({ job, isLoading, step, router }: {
 
   return (
     <Animated.View entering={FadeIn.duration(240)}>
-      <Tap onPress={() => router.push('/(customer)/book')} h="Medium">
-        <View style={$.heroCard}>
+      <Tap onPress={() => router.push('/(customer)/book')} h="Medium" accessibilityLabel="Book a service">
+        <View style={[$.heroCard, {
+          minHeight:hero.cardHeight,
+          borderRadius:hero.cardRadius,
+        }]}>
           <LinearGradient
-            colors={['#D85A1B','#A3320B','#5F1609']}
-            start={{x:0,y:0}} end={{x:1.1,y:1.1}}
+            colors={['#B4491B','#67230F','#150C09']}
+            locations={[0,0.46,1]}
+            start={{x:0,y:0}} end={{x:1.08,y:1.04}}
             style={StyleSheet.absoluteFill}
           />
-          {/* Specular diagonal shine */}
+          {/* Restrained copper lift; no animated or glossy treatment. */}
           <LinearGradient
-            colors={['rgba(255,255,255,0.09)','rgba(255,255,255,0.03)','transparent']}
-            start={{x:0,y:0}} end={{x:0.8,y:0.55}}
+            colors={['rgba(255,166,105,0.075)','rgba(132,47,20,0.025)','rgba(0,0,0,0.10)']}
+            start={{x:0,y:0}} end={{x:0.92,y:0.72}}
             style={StyleSheet.absoluteFill}
           />
           {/* Depth circles */}
-          <View style={[$.hC, {width:220,height:220,top:-72,right:-72,opacity:0.055}]} />
-          <View style={[$.hC, {width:150,height:150,top:48, right:-18,opacity:0.04}]} />
-          <View style={[$.hC, {width:90, height:90, bottom:-28,left:66,  opacity:0.045}]} />
-          {/* Gold chassis line */}
-          <LinearGradient
-            colors={['transparent','rgba(255,216,110,0.20)','transparent']}
-            start={{x:0,y:0}} end={{x:1,y:0}}
-            style={$.heroLine}
-          />
-          <View style={$.heroBody}>
+          <View style={[$.hC, {
+            width:hero.upperCircleSize,
+            height:hero.upperCircleSize,
+            top:-hero.upperCircleSize * 0.2,
+            right:-hero.upperCircleSize * 0.31,
+          }]} />
+          <View style={[$.hC, {
+            width:hero.lowerCircleSize,
+            height:hero.lowerCircleSize,
+            top:hero.cardHeight * 0.47,
+            right:-hero.lowerCircleSize * 0.32,
+          }]} />
+          <View style={[$.heroBody, {
+            minHeight:hero.cardHeight,
+            paddingHorizontal:hero.horizontalPadding,
+            paddingTop:hero.topPadding,
+            paddingBottom:hero.bottomPadding,
+          }]}>
+            <View style={[$.heroCarBadge, {
+              width:hero.carBadgeSize,
+              height:hero.carBadgeSize,
+              borderRadius:hero.carBadgeSize * 0.3,
+              top:hero.topPadding,
+              right:hero.horizontalPadding,
+            }]}>
+              <Ionicons name="car-sport-outline" size={hero.carIconSize} color="#F2C1A4" />
+            </View>
+
             {/* Top row */}
             <View style={$.heroTopRow}>
-              <View>
-                <Text style={$.heroBrand}>AUTOSPF+</Text>
-                <Text style={$.heroEye}>PREMIUM AUTO CARE · SINCE 2023</Text>
-              </View>
-              {/* Floating car badge */}
-              <FloatBadge>
-                <GBCard
-                  colors={['rgba(255,255,255,0.26)','rgba(255,255,255,0.10)','rgba(255,255,255,0.22)']}
-                  radius={16} bg="transparent"
-                  style={{ width:54, height:54, ...sh('#000',0.18,10,4) }}
+              <View style={[$.heroBrandCopy, {
+                paddingRight:hero.carBadgeSize + SPACE.md,
+              }]}>
+                <Text style={[$.heroBrand, {
+                  fontSize:hero.brandSize,
+                  marginBottom:hero.brandTagGap,
+                }]}>AUTOSPF+</Text>
+                <Text
+                  style={[$.heroEye, {
+                    fontSize:hero.taglineSize,
+                    letterSpacing:hero.taglineTracking,
+                  }]}
+                  numberOfLines={1}
                 >
-                  <View style={{flex:1,alignItems:'center',justifyContent:'center'}}>
-                    <Ionicons name="car-sport" size={24} color="rgba(255,255,255,0.95)" />
-                  </View>
-                </GBCard>
-              </FloatBadge>
+                  PREMIUM AUTO CARE · SINCE 2023
+                </Text>
+              </View>
             </View>
 
             {/* Headline */}
-            <View>
-              <Text style={$.heroH1}>Schedule Your{'\n'}Next Service</Text>
-              <Text style={$.heroSub}>Tinting  ·  PPF  ·  Detailing  ·  Coating</Text>
+            <View style={{ marginTop:hero.headlineTopGap }}>
+              <Text style={[$.heroH1, {
+                fontSize:hero.headlineSize,
+                lineHeight:hero.headlineLineHeight,
+                marginBottom:hero.headlineCategoryGap,
+              }]}>
+                Schedule Your{'\n'}Next Service
+              </Text>
+              <View style={[$.heroServiceRow, { gap:hero.serviceGap }]}>
+                {['Tinting', 'PPF', 'Detailing', 'Coating'].map((label, index) => (
+                  <React.Fragment key={label}>
+                    {index > 0 && (
+                      <Text style={[$.heroServiceDot, { fontSize:hero.serviceSize }]}>·</Text>
+                    )}
+                    <Text style={[$.heroServiceLabel, { fontSize:hero.serviceSize }]}>{label}</Text>
+                  </React.Fragment>
+                ))}
+              </View>
             </View>
 
-            {/* CTA + meta */}
-            <View style={$.heroBot}>
-              <View style={$.heroCTA}>
-                <Text style={$.heroCTATxt}>Book Now</Text>
-                <View style={$.heroCTAdge}>
-                  <Ionicons name="arrow-forward" size={13} color="#81270A" />
+            {/* CTA followed by a stable full-width metadata row */}
+            <View style={[$.heroBot, { marginTop:hero.ctaTopGap }]}>
+              <View style={[$.heroCTA, {
+                height:hero.ctaHeight,
+                borderRadius:hero.ctaHeight * 0.29,
+                paddingLeft:hero.ctaLeftPadding,
+              }]}>
+                <Text style={[$.heroCTATxt, {
+                  fontSize:hero.ctaFontSize,
+                  paddingRight:hero.ctaTextPadding,
+                }]}>Book Now</Text>
+                <View style={[$.heroCTAdge, { width:hero.ctaArrowWidth }]}>
+                  <Ionicons name="arrow-forward" size={phoneMetric(width, 17, 19)} color="#C14D16" />
                 </View>
               </View>
-              <View style={$.heroMeta}>
+              <View style={[$.heroMeta, {
+                minHeight:hero.metaHeight,
+                marginTop:hero.metaTopGap,
+                gap:hero.metaRowGap,
+              }]}>
                 {[
                   {i:'time-outline'  as const, t:'2–4 hrs'},
                   {i:'star-outline'  as const, t:'Rated 4.9'},
                   {i:'ribbon-outline'as const, t:'Certified'},
-                ].map(m=>(
-                  <View key={m.t} style={$.heroMetaChip}>
-                    <Ionicons name={m.i} size={9} color="rgba(255,255,255,0.44)" />
-                    <Text style={$.heroMetaTxt}>{m.t}</Text>
-                  </View>
+                ].map((m, index)=>(
+                  <React.Fragment key={m.t}>
+                    {index > 0 && <View style={$.heroMetaDivider} />}
+                    <View style={[$.heroMetaChip, { gap:hero.metaChipGap }]}>
+                      <Ionicons name={m.i} size={hero.metaIconSize} color="#F07A3D" />
+                      <Text style={[$.heroMetaTxt, { fontSize:hero.metaFontSize }]} numberOfLines={1}>{m.t}</Text>
+                    </View>
+                  </React.Fragment>
                 ))}
               </View>
             </View>
@@ -731,74 +834,20 @@ function HeroSection({ job, isLoading, step, router }: {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION: Stats — restrained three-column summary
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-type StatCellConfig = {
-  n: number;
-  lbl: string;
-  col: string;
-  ic: keyof typeof Ionicons.glyphMap;
-};
-
-function StatCell({
-  cell,
-  index,
-}: {
-  cell: StatCellConfig;
-  index: number;
-}) {
-  return (
-    <React.Fragment>
-      {index > 0 && <View style={$.statDiv} />}
-      <View style={$.statCell}>
-        <Text style={[$.statN, { color:cell.col }]}>{cell.n}</Text>
-        <View style={$.statMeta}>
-          <Ionicons name={cell.ic} size={13} color={cell.col} />
-          <Text style={$.statLbl}>{cell.lbl}</Text>
-        </View>
-      </View>
-    </React.Fragment>
-  );
-}
-
-function StatsSection({ active, completed, total }: { active:number; completed:number; total:number }) {
-  const cells: StatCellConfig[] = [
-    { n:active,    lbl:'Active',    col:D.A,   ic:'flash-outline' },
-    { n:completed, lbl:'Completed', col:D.G,   ic:'checkmark-done-outline' },
-    { n:total,     lbl:'Total Jobs',col:D.w92, ic:'layers-outline' },
-  ];
-
-  return (
-    <Animated.View entering={FadeInUp.delay(260).duration(200)}>
-      <GBCard colors={GB.neutral} radius={22} style={sh('#000',0.20,10,3)}>
-        <View style={$.statsRow}>
-          {cells.map((cell, index) => (
-            <StatCell key={cell.lbl} cell={cell} index={index} />
-          ))}
-        </View>
-      </GBCard>
-    </Animated.View>
-  );
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SECTION: Trust badges — authority horizontal strip
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function TrustSection() {
   return (
     <Animated.View entering={FadeIn.delay(285).duration(500)}>
-      <View style={$.trustGrid}>
+      <View style={$.trustStrip}>
         {TRUST.map((t, i) => (
-          <Animated.View
-            key={t.label}
-            entering={SlideInRight.delay(300 + i * 50).duration(200)}
-            style={$.trustChipWrap}
-          >
-            <View style={$.trustChip}>
-              <Ionicons name={t.icon} size={13} color={D.A} />
-              <Text style={$.trustTxt} numberOfLines={1}>{t.label}</Text>
+          <React.Fragment key={t.label}>
+            {i > 0 && <View style={$.trustDivider} />}
+            <View style={$.trustItem}>
+              <Ionicons name={t.icon} size={12} color={D.A} />
+              <Text style={$.trustTxt} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{t.label}</Text>
             </View>
-          </Animated.View>
+          </React.Fragment>
         ))}
       </View>
     </Animated.View>
@@ -808,58 +857,76 @@ function TrustSection() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SECTION: Quick actions — balanced two-column grid
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function QuickSection({ router, completed }: any) {
-  const actions = [
-    { icon:'calendar-outline' as const, n:'New Booking', sub:'Schedule premium care', r:'/(customer)/book', primary:true, badge:0 },
-    { icon:'navigate-outline' as const, n:'Track My Car', sub:'Follow live progress', r:'/(customer)/track', primary:false, badge:0 },
-    { icon:'scan-outline' as const, n:'AI Scan', sub:'Instant assessment', r:'/(customer)/scan', primary:false, badge:0 },
-    { icon:'receipt-outline' as const, n:'Service Records', sub:'History and receipts', r:'/(screens)/appointments', primary:false, badge:completed },
-  ] as const;
+function QuickSection({ router, completed, job, step, isLoading }: {
+  router: ReturnType<typeof useRouter>;
+  completed: number;
+  job: BookingRecord | null;
+  step: number;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <View>
+        <Eye label="Quick Actions" />
+        <View style={$.qaGrid}>
+          {[0,1,2,3].map((item) => <Shim key={item} w={(W-52)/2} h={94} r={RADIUS.control} />)}
+        </View>
+      </View>
+    );
+  }
+
+  const mode = resolveHomeHeroMode(job, step);
+  const bookingRoute = job
+    ? { pathname:'/(customer)/track' as const, params:{ id:job.id } }
+    : '/(screens)/appointments';
+  const paymentRoute = job && mode === 'payment'
+    ? { pathname:'/(screens)/payments' as const, params:{ orderId:job.id } }
+    : '/(screens)/payments';
+  const actions = mode === 'book' ? [
+    { icon:'car-sport-outline' as const, n:'My Vehicle', sub:'Garage and details', r:'/(screens)/vehicles', badge:0 },
+    { icon:'scan-outline' as const, n:'AI Assessment', sub:'Check visible damage', r:'/(customer)/scan', badge:0 },
+    { icon:'receipt-outline' as const, n:'Service Records', sub:'History and receipts', r:'/(screens)/appointments', badge:completed },
+    { icon:'wallet-outline' as const, n:'Payments', sub:'Transactions and receipts', r:'/(screens)/payments', badge:0 },
+  ] : [
+    { icon:mode === 'payment' ? 'card-outline' as const : mode === 'active' ? 'navigate-outline' as const : mode === 'ready' ? 'car-sport-outline' as const : 'calendar-outline' as const,
+      n:mode === 'payment' ? 'View Payment' : mode === 'active' ? 'Track Service' : mode === 'ready' ? 'Pickup Status' : 'View Booking',
+      sub:mode === 'payment' ? 'Complete your balance' : mode === 'active' ? 'Follow live progress' : mode === 'ready' ? 'Release and pickup details' : 'Appointment details',
+      r:mode === 'payment' ? paymentRoute : bookingRoute, badge:0 },
+    { icon:'car-sport-outline' as const, n:'My Vehicle', sub:'Garage and details', r:'/(screens)/vehicles', badge:0 },
+    { icon:'receipt-outline' as const, n:'Service Records', sub:'History and receipts', r:'/(screens)/appointments', badge:completed },
+    { icon:'wallet-outline' as const, n:'Payments', sub:'Transactions and receipts', r:paymentRoute, badge:0 },
+  ];
 
   return (
     <Animated.View entering={FadeInUp.delay(320).duration(200)}>
-      <Eye label="Quick Access" />
+      <Eye label="Quick Actions" />
       <View style={$.qaGrid}>
         {actions.map((action, i) => (
           <Animated.View key={action.n} entering={FadeInDown.delay(350+i*55).duration(200)} style={$.qaGridItem}>
-            <Tap onPress={() => router.push(action.r as any)} h={action.primary ? 'Medium' : 'Light'} style={{flex:1}}>
-              <GBCard colors={action.primary ? GB.amber : GB.neutral} radius={22} bg={D.s1} style={{flex:1,...sh(action.primary ? D.A : '#000',action.primary ? 0.18 : 0.14,12,4)}}>
-                {action.primary && <LinearGradient colors={[D.Af,'transparent']} start={{x:0,y:0}} end={{x:1,y:1}} style={StyleSheet.absoluteFill} />}
+            <Tap onPress={() => router.push(action.r as any)} h="Light" style={{flex:1}} accessibilityLabel={action.n}>
+              <GBCard colors={GB.neutral} radius={18} bg={D.s1} style={{flex:1}}>
                 <View style={$.qaCardBody}>
                   <View style={$.qaCardTop}>
-                    <View style={[$.qaSmIcon, action.primary && $.qaSmIconPrimary]}>
-                      <Ionicons name={action.icon} size={19} color={D.A} />
+                    <View style={$.qaSmIcon}>
+                      <Ionicons name={action.icon} size={18} color={D.A} />
                     </View>
-                    {action.badge > 0 ? (
-                      <View style={$.qaBadge}><Text style={$.qaBadgeTxt}>{action.badge}</Text></View>
-                    ) : (
-                      <Ionicons name="arrow-up-outline" size={14} color={D.w24} style={{transform:[{rotate:'45deg'}]}} />
-                    )}
+                    <View style={$.qaTopRight}>
+                      {action.badge > 0 && (
+                        <View style={$.qaBadge}><Text style={$.qaBadgeTxt}>{action.badge}</Text></View>
+                      )}
+                      <View style={$.qaArrow}>
+                        <Ionicons name="arrow-forward" size={12} color={D.w38} />
+                      </View>
+                    </View>
                   </View>
-                  <Text style={$.qaSmName}>{action.n}</Text>
-                  <Text style={$.qaSubLbl} numberOfLines={1}>{action.sub}</Text>
+                  <Text style={$.qaSmName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.86}>{action.n}</Text>
+                  <Text style={$.qaSubLbl} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>{action.sub}</Text>
                 </View>
               </GBCard>
             </Tap>
           </Animated.View>
         ))}
       </View>
-      <Animated.View entering={FadeInUp.delay(480).duration(200)} style={{marginTop:10}}>
-        <Tap onPress={() => router.push('/(screens)/payments')}>
-          <GBCard colors={GB.neutral} radius={20} bg={D.s1} style={sh('#000',0.14,10,3)}>
-            <View style={$.qaWideBody}>
-              <View style={$.qaSmIcon}>
-                <Ionicons name="wallet-outline" size={18} color={D.A} />
-              </View>
-              <View style={{flex:1,marginLeft:14}}>
-                <Text style={$.qaSmName}>Payment History</Text>
-                <Text style={$.qaSubLbl}>Transactions and receipts</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={15} color={D.w38} style={{marginLeft:8}} />
-            </View>
-          </GBCard>
-        </Tap>
-      </Animated.View>
     </Animated.View>
   );
 }
@@ -867,16 +934,8 @@ function QuickSection({ router, completed }: any) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SECTION: Services — horizontal gallery 240 px cards
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const SERVICE_CATEGORY_GRADIENTS: Record<string, readonly [string, string]> = {
-  Exterior: ['#713014', '#C75A21'],
-  Interior: ['#182033', '#3B4E72'],
-  Complete: ['#3A2117', '#9A4824'],
-  Engine: ['#18211F', '#406D60'],
-  Premium: ['#211B35', '#68489C'],
-};
-
 const formatServicePrice = (price: number | null, isStartingPrice: boolean) => {
-  if (price === null) return 'Price unavailable';
+  if (price === null) return 'Price on request';
   return `${isStartingPrice ? 'From ' : ''}₱${price.toLocaleString('en-PH')}`;
 };
 
@@ -902,8 +961,8 @@ function ServicesSection({
       <Eye label="Our Services" cta="View All" onCta={() => router.push('/(customer)/book')} />
       {isLoading ? (
         <View style={$.svcLoadingRow}>
-          <Shim w={(W-54)/2} h={240} r={26} />
-          <Shim w={(W-54)/2} h={240} r={26} />
+          <Shim w={(W-54)/2} h={USE_STACKED_SERVICE_FOOTER ? 252 : 220} r={RADIUS.card} />
+          <Shim w={(W-54)/2} h={USE_STACKED_SERVICE_FOOTER ? 252 : 220} r={RADIUS.card} />
         </View>
       ) : hasError ? (
         <View style={$.svcStateCard}>
@@ -926,9 +985,10 @@ function ServicesSection({
             ? getServicePriceForVehicle(service, vehicle?.vehicleType)
             : null;
           const price = vehiclePriceKey ? exactVehiclePrice : getServiceStartingPrice(service);
-          const gradient = service.catalogCard?.accentFrom && service.catalogCard?.accentTo
-            ? [service.catalogCard.accentFrom, service.catalogCard.accentTo] as const
-            : SERVICE_CATEGORY_GRADIENTS[service.tag] || ['#26211F', '#754125'] as const;
+          const isRecommended = /recommend/i.test(service.catalogCard?.badge || '');
+          const gradient = isRecommended
+            ? ['#131820', '#1B222B'] as const
+            : ['#171A20', '#241814'] as const;
           const metadata = service.catalogCard?.tagline
             || service.description
             || [service.tag, service.duration].filter(Boolean).join(' · ');
@@ -953,7 +1013,7 @@ function ServicesSection({
               >
                 {/* Specular */}
                 <LinearGradient
-                  colors={['rgba(255,255,255,0.15)','rgba(255,255,255,0.05)','transparent']}
+                  colors={['rgba(255,255,255,0.09)','rgba(255,255,255,0.025)','transparent']}
                   start={{x:0,y:0}} end={{x:1,y:0.65}}
                   style={StyleSheet.absoluteFill}
                 />
@@ -963,20 +1023,30 @@ function ServicesSection({
                 {/* Glass icon top-left */}
                 <GBCard
                   colors={['rgba(255,255,255,0.28)','rgba(255,255,255,0.10)','rgba(255,255,255,0.22)']}
-                  radius={15} bg="rgba(255,255,255,0.10)"
-                  style={{width:48,height:48,...sh('#000',0.12,6,2)}}
+                  radius={RADIUS.control} bg="rgba(255,255,255,0.075)"
+                  style={{width:44,height:44}}
                 >
                   <View style={{flex:1,alignItems:'center',justifyContent:'center'}}>
-                    <Ionicons name={service.icon as keyof typeof Ionicons.glyphMap} size={19} color="rgba(255,255,255,0.96)" />
+                    <Ionicons name={service.icon as keyof typeof Ionicons.glyphMap} size={18} color="rgba(255,255,255,0.90)" />
                   </View>
                 </GBCard>
 
                 <View style={{flex:1}} />
-                {service.catalogCard?.badge ? (
-                  <Text style={$.svcBadge} numberOfLines={1}>{service.catalogCard.badge}</Text>
-                ) : null}
+                <View style={$.svcBadgeSlot}>
+                  {service.catalogCard?.badge ? (
+                    <View style={[
+                      $.svcBadgePill,
+                      isRecommended && $.svcBadgeRecommended,
+                    ]}>
+                      <Text style={[
+                        $.svcBadge,
+                        isRecommended && $.svcBadgeRecommendedText,
+                      ]} numberOfLines={1}>{service.catalogCard.badge}</Text>
+                    </View>
+                  ) : null}
+                </View>
                 <Text style={$.svcName} numberOfLines={2}>{service.name}</Text>
-                {metadata ? <Text style={$.svcTag} numberOfLines={2}>{metadata}</Text> : null}
+                <Text style={$.svcTag} numberOfLines={2}>{metadata || ' '}</Text>
                 <View style={[$.svcFoot, USE_STACKED_SERVICE_FOOTER && $.svcFootNarrow]}>
                   <View style={[$.svcPrBadge, USE_STACKED_SERVICE_FOOTER && $.svcPrBadgeNarrow]}>
                     <Text
@@ -1007,35 +1077,22 @@ function ServicesSection({
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function PromoSection({ router }: any) {
   const p = PROMOS[0];
-  const glow = useSharedValue(0);
-  useEffect(() => {
-    glow.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 2800, easing: Easing.inOut(Easing.sin) }),
-        withTiming(0, { duration: 2800, easing: Easing.inOut(Easing.sin) }),
-      ), -1, false,
-    );
-  }, [glow]);
-  const glowAnim = useAnimatedStyle(() => ({ opacity: interpolate(glow.value, [0,1], [0.06,0.16]) }));
 
   return (
     <Animated.View entering={FadeInUp.delay(430).duration(200)}>
       <Eye label="Current Offer" />
-      <Tap onPress={() => router.push('/(customer)/book')} h="Medium">
-        <GBCard colors={GB.gold} radius={26} style={sh(D.Go,0.18,22,7)}>
+      <Tap onPress={() => router.push('/(customer)/book')} h="Medium" accessibilityLabel="Book the current offer">
+        <GBCard colors={GB.neutral} radius={RADIUS.card}>
           <LinearGradient
-            colors={['rgba(207,168,64,0.10)','rgba(207,168,64,0.04)','transparent']}
+            colors={['rgba(207,168,64,0.055)','rgba(255,124,30,0.02)','transparent']}
             start={{x:0,y:0}} end={{x:1,y:1}}
             style={StyleSheet.absoluteFill}
           />
-          {/* Breathe glow overlay */}
-          <Animated.View style={[{...StyleSheet.absoluteFillObject, backgroundColor:D.Go}, glowAnim]} pointerEvents="none" />
-          <Spec op={0.04} />
 
           <View style={$.promoBody}>
             <View style={$.promoLeft}>
               <View style={$.promoBadge}>
-                <Ionicons name="flash" size={10} color={D.bg} />
+                <Ionicons name="pricetag-outline" size={10} color={D.bg} />
                 <Text style={$.promoBadgeTxt}>{p.badge}</Text>
               </View>
               <Text style={$.promoTitle}>{p.title}</Text>
@@ -1148,23 +1205,23 @@ function HistorySection({ history, isLoading, totalSpend, router }: any) {
         </GBCard>
 
       ) : (
-        <GBCard colors={GB.neutral} radius={26} style={sh('#000',0.22,12,4)}>
+        <GBCard colors={GB.neutral} radius={RADIUS.card}>
           <LinearGradient colors={['rgba(255,124,30,0.06)','transparent']} style={StyleSheet.absoluteFill} />
           <View style={$.emptyInner}>
             <Animated.View entering={FadeInDown.delay(520).duration(200)} style={$.emptyIconOuter}>
               <LinearGradient colors={[D.Af, D.Ag2]} start={{x:0,y:0}} end={{x:1,y:1}} style={$.emptyIconBg}>
-                <Ionicons name="car-sport-outline" size={32} color={D.A} />
+                <Ionicons name="car-sport-outline" size={26} color={D.A} />
               </LinearGradient>
             </Animated.View>
-            <Text style={$.emptyH}>No service history yet</Text>
-            <Text style={$.emptySub}>Your completed appointments will appear here with one-tap re-booking.</Text>
+            <Text style={$.emptyH}>No services yet</Text>
+            <Text style={$.emptySub}>Your completed services will appear here.</Text>
             <Tap onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push('/(customer)/book'); }}>
               <LinearGradient
                 colors={[D.AL, D.A, D.AD]}
                 start={{x:0,y:0}} end={{x:1,y:0}}
                 style={$.emptyBtn}
               >
-                <Text style={$.emptyBtnTxt}>Schedule First Service</Text>
+                <Text style={$.emptyBtnTxt}>Book Your First Service</Text>
                 <Ionicons name="arrow-forward-circle-outline" size={17} color="#fff" />
               </LinearGradient>
             </Tap>
@@ -1176,131 +1233,21 @@ function HistorySection({ history, isLoading, totalSpend, router }: any) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION: After-care tips (conditional — recent completed job)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function CareSection({ freshJob }: { freshJob: any }) {
-  if (!freshJob) return null;
-  const isTint = freshJob.serviceName?.toLowerCase().includes('tint');
-  const tips = isTint ? CARE_TIPS : CARE_TIPS.slice(1);
-
-  return (
-    <Animated.View entering={FadeInUp.delay(530).duration(200)}>
-      <Eye label="After-Care Guide" />
-      <GBCard colors={GB.gold} radius={26} style={sh(D.Go,0.14,18,5)}>
-        <LinearGradient
-          colors={['rgba(207,168,64,0.08)','transparent']}
-          start={{x:0,y:0}} end={{x:1,y:1}}
-          style={StyleSheet.absoluteFill}
-        />
-        {/* Gold accent top bar */}
-        <LinearGradient colors={[D.Go,D.GoL]} start={{x:0,y:0}} end={{x:1,y:0}} style={$.careBar} />
-        <View style={$.careHead}>
-          <View style={$.careIconBg}>
-            <Ionicons name="bulb-outline" size={16} color={D.Go} />
-          </View>
-          <View style={{flex:1}}>
-            <Text style={$.careEye}>CARE INSTRUCTIONS FOR</Text>
-            <Text style={$.careSvc}>{freshJob.serviceName}</Text>
-          </View>
-          <View style={$.careLiveBadge}>
-            <Pulse color={D.Go} size={5} />
-            <Text style={$.careLiveTxt}>Active</Text>
-          </View>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={$.tipScroll}>
-          {tips.map((t, i) => (
-            <Animated.View key={i} entering={SlideInRight.delay(550+i*60).duration(200)} style={$.tipCard}>
-              <View style={$.tipIconBg}>
-                <Ionicons name={t.icon} size={15} color={D.Go} />
-              </View>
-              <View style={$.tipTagPill}>
-                <Text style={$.tipTagTxt}>{t.tag}</Text>
-              </View>
-              <Text style={$.tipBody}>{t.tip}</Text>
-            </Animated.View>
-          ))}
-        </ScrollView>
-      </GBCard>
-    </Animated.View>
-  );
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION: Loyalty — gamified progress to next tier
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function LoyaltySection({ completed, router }: { completed: number; router: any }) {
-  const barAnim = useSharedValue(0);
-  useEffect(() => {
-    barAnim.value = withDelay(200, withTiming(Math.min(completed / 5, 1), {
-      duration: 1100, easing: Easing.out(Easing.exp),
-    }));
-  }, [barAnim, completed]);
-  const fillWidth = useAnimatedStyle(() => ({ width: `${barAnim.value * 100}%` as any }));
-  const isGold = completed >= 5;
-
-  return (
-    <Animated.View entering={FadeInUp.delay(575).duration(200)}>
-      <Tap onPress={() => router.push('/(screens)/appointments')}>
-        <GBCard colors={GB.gold} radius={26} style={sh(D.Go,0.18,20,7)}>
-          <LinearGradient
-            colors={['rgba(207,168,64,0.11)','rgba(207,168,64,0.03)','transparent']}
-            start={{x:0,y:0}} end={{x:1,y:1}}
-            style={StyleSheet.absoluteFill}
-          />
-          <Spec op={0.04} />
-          <View style={$.loyRow}>
-            <LinearGradient colors={[D.Go,D.GoL]} start={{x:0,y:0}} end={{x:1,y:1}} style={$.loyIconBg}>
-              <Ionicons name="trophy-outline" size={18} color={D.bg} />
-            </LinearGradient>
-            <View style={{flex:1}}>
-              <View style={{flexDirection:'row',alignItems:'center',gap:8,marginBottom:4}}>
-                <Text style={$.loyH}>AutoSPF+ Rewards</Text>
-                {isGold && (
-                  <View style={$.loyGoldBadge}>
-                    <Text style={$.loyGoldTxt}>GOLD  🏆</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={$.loySub}>
-                {isGold
-                  ? `You've completed ${completed} services! Enjoy Gold perks.`
-                  : `${completed} of 5 services — ${5 - completed} more to Gold status`}
-              </Text>
-
-              {/* Animated progress bar */}
-              <View style={$.loyBar}>
-                <Animated.View style={[$.loyFill, fillWidth]}>
-                  <LinearGradient colors={[D.GoL, D.Go]} start={{x:0,y:0}} end={{x:1,y:0}} style={StyleSheet.absoluteFill} />
-                </Animated.View>
-                {/* Milestone dots */}
-                {[1,2,3,4,5].map(n => (
-                  <View key={n} style={[$.loyMileDot, {left:`${(n/5)*100}%` as any, backgroundColor: completed>=n ? D.GoL : D.w16}]} />
-                ))}
-              </View>
-              <View style={{flexDirection:'row',justifyContent:'space-between',marginTop:4}}>
-                <Text style={$.loyMileLbl}>Starter</Text>
-                <Text style={[$.loyMileLbl,isGold&&{color:D.Go}]}>Gold  ✦</Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={14} color={D.w24} style={{marginLeft:12}} />
-          </View>
-        </GBCard>
-      </Tap>
-    </Animated.View>
-  );
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SCREEN ORCHESTRATOR
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 export default function HomeScreen() {
   const { profile } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const scrollY = useSharedValue(0);
   const { unreadCount } = useNotifications();
 
-  const { data: bookings = [], refetch: refetchBookings, isRefetching, isLoading } = useQuery({
+  const {
+    data: bookings = [],
+    refetch: refetchBookings,
+    isRefetching,
+    isLoading,
+    isError: bookingsFailed,
+  } = useQuery({
     queryKey: ['bookings'],
     queryFn: () => bookingService.getMyBookings(),
     enabled: !!profile?.id,
@@ -1327,88 +1274,92 @@ export default function HomeScreen() {
     ]);
   }, [refetchBookings, servicesQuery, vehiclesQuery]);
 
-  const active = bookings
-    .filter((b: BookingRecord) => isBookingCountedAsActiveOnHome(b.status))
-    .sort(
-      (a: BookingRecord, b: BookingRecord) =>
-        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  const { job, completed, history, totalSpend } = useMemo(() => {
+    const activeRows = bookings
+      .filter((b: BookingRecord) => isBookingCountedAsActiveOnHome(b.status))
+      .sort(
+        (a: BookingRecord, b: BookingRecord) =>
+          new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      );
+    const trackerRows = bookings.filter((b: BookingRecord) => bookingShowsCustomerLiveTracker(b));
+    const primaryJob = pickCustomerLiveTrackerBooking(trackerRows) ?? activeRows[0] ?? null;
+    const completedRows = bookings.filter((b: BookingRecord) =>
+      ['completed','released','paid'].includes(String(b.status || '').toLowerCase())
     );
-  const trackerScope = bookings.filter((b: BookingRecord) => bookingShowsCustomerLiveTracker(b));
-  const job = pickCustomerLiveTrackerBooking(trackerScope) ?? active[0] ?? null;
-  const completed = bookings.filter((b: any) => ['completed','released','paid'].includes(b.status));
-  const history = completed.slice(0, 5);
-  const totalSpend = history.reduce((s: number, b: any) => s + (b.totalPrice || 0), 0);
-  const d7 = new Date(); d7.setDate(d7.getDate()-7);
-  const freshJob = completed.find((b: any) =>
-    new Date((b.completedAt||b.updatedAt||new Date()) as string).getTime() > d7.getTime()
-  ) || null;
+    const recentHistory = completedRows.slice(0, 3);
+
+    return {
+      job:primaryJob,
+      completed:completedRows,
+      history:recentHistory,
+      totalSpend:recentHistory.reduce((sum, booking) => sum + Number(booking.totalPrice || 0), 0),
+    };
+  }, [bookings]);
 
   const heroStep = job ? resolveCustomerHomeRailStep(job) : 0;
 
   const name = getFirstName(profile?.full_name);
 
-  const onScroll = useAnimatedScrollHandler({ onScroll: e => { scrollY.value = e.contentOffset.y; } });
-  const barAnim = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.value, [0, 60, 100], [0, 0, 1], Extrapolation.CLAMP),
-  }));
-
   return (
     <View style={$.screen}>
-      <Orbs />
-
-      {/* Frosted scroll app-bar reveals on scroll */}
-      <Animated.View style={[$.appBar, { height:insets.top + 62 }, barAnim]} pointerEvents="none">
-        <BlurView intensity={65} tint="dark" style={StyleSheet.absoluteFill} />
-        <LinearGradient colors={['rgba(5,5,8,0.97)','rgba(5,5,8,0.45)']} style={StyleSheet.absoluteFill} />
-      </Animated.View>
-
+      <View
+        pointerEvents="none"
+        style={[$.topChrome, { height:insets.top + SPACE.md }]}
+      />
       <Animated.ScrollView
         style={$.scroll}
         contentContainerStyle={[
           $.body,
           {
-            paddingTop:insets.top + 14,
-            paddingBottom:86 + insets.bottom,
+            paddingTop:insets.top + SPACE.lg,
+            paddingBottom:TabBarContentHeight + insets.bottom + SPACE.xl,
           },
         ]}
         showsVerticalScrollIndicator={false}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
+        contentInsetAdjustmentBehavior="never"
         refreshControl={<RefreshControl refreshing={isRefetching || servicesQuery.isRefetching || vehiclesQuery.isRefetching} onRefresh={refreshHome} tintColor={D.A} />}
       >
         {/* 1. HEADER */}
         <HeaderSection
-          profile={profile} name={name} scrollY={scrollY}
-          active={active} completed={completed.length} router={router}
+          profile={profile} name={name} router={router}
           unreadCount={unreadCount}
         />
 
-        {/* 2. HERO (parallax + parallax scroll) */}
-        <View style={$.sect}>
+        {/* 2. STATE-AWARE HERO */}
+        <View style={$.heroSection}>
           <HeroSection
             job={job} isLoading={isLoading}
             step={heroStep} router={router}
           />
         </View>
 
-        {/* 3. STATS (only when data exists) */}
-        {bookings.length > 0 && (
-          <View style={$.sectCompact}>
-            <StatsSection active={active.length} completed={completed.length} total={bookings.length} />
+        {bookingsFailed && (
+          <View style={$.inlineError} accessibilityRole="alert">
+            <Ionicons name="cloud-offline-outline" size={17} color={D.w55} />
+            <Text style={$.inlineErrorText}>Unable to load your latest booking status.</Text>
+            <Pressable onPress={() => void refetchBookings()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Retry bookings">
+              <Text style={$.inlineRetry}>Retry</Text>
+            </Pressable>
           </View>
         )}
 
-        {/* 4. TRUST BADGES */}
-        <View style={$.sectSpacious}>
+        {/* 3. COMPACT TRUST STRIP */}
+        <View style={$.sectCompact}>
           <TrustSection />
         </View>
 
-        {/* 5. QUICK ACTIONS */}
+        {/* 4. CONTEXTUAL QUICK ACTIONS */}
         <View style={$.sect}>
-          <QuickSection router={router} completed={completed.length} />
+          <QuickSection
+            router={router}
+            completed={completed.length}
+            job={job}
+            step={heroStep}
+            isLoading={isLoading}
+          />
         </View>
 
-        {/* 6. SERVICES */}
+        {/* 5. SERVICES */}
         <View style={$.sect}>
           <ServicesSection
             router={router}
@@ -1423,52 +1374,16 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* 7. CURRENT PROMO */}
+        {/* 6. CURRENT PROMO */}
         <View style={$.sect}>
           <PromoSection router={router} />
         </View>
 
-        {/* 8. RECENT HISTORY */}
+        {/* 7. RECENT HISTORY */}
         <View style={$.sect}>
           <HistorySection history={history} isLoading={isLoading} totalSpend={totalSpend} router={router} />
         </View>
 
-        {/* 9. AFTER-CARE (conditional) */}
-        {freshJob && (
-          <View style={$.sect}>
-            <CareSection freshJob={freshJob} />
-          </View>
-        )}
-
-        {/* 10. LOYALTY (when has bookings) */}
-        {bookings.length > 0 && (
-          <View style={$.sect}>
-            <LoyaltySection completed={completed.length} router={router} />
-          </View>
-        )}
-
-        {/* FIRST-VISIT brand CTA */}
-        {!job && bookings.length === 0 && !isLoading && (
-          <Animated.View entering={FadeInUp.delay(640).duration(200)} style={[$.sect,{marginBottom:20}]}>
-            <Tap onPress={() => router.push('/(customer)/book')}>
-              <GBCard colors={GB.amber} radius={22} style={sh(D.A,0.10,10,3)}>
-                <LinearGradient colors={['rgba(255,124,30,0.08)','transparent']} start={{x:0,y:0}} end={{x:1,y:1}} style={StyleSheet.absoluteFill} />
-                <View style={$.brandRow}>
-                  <View style={$.brandIconBg}>
-                    <Ionicons name="sparkles" size={18} color={D.Go} />
-                  </View>
-                  <View style={{flex:1}}>
-                    <Text style={$.brandH}>Your vehicle deserves the best.</Text>
-                    <Text style={$.brandSub}>Join 200+ satisfied AutoSPF+ customers today.</Text>
-                  </View>
-                  <View style={$.brandArr}>
-                    <Ionicons name="arrow-forward" size={14} color={D.A} />
-                  </View>
-                </View>
-              </GBCard>
-            </Tap>
-          </Animated.View>
-        )}
       </Animated.ScrollView>
     </View>
   );
@@ -1480,29 +1395,34 @@ export default function HomeScreen() {
 const $ = StyleSheet.create({
   screen:  { flex:1, backgroundColor:D.bg },
   scroll:  { flex:1, zIndex:1 },
-  body:    { paddingHorizontal:20 },
-  sect:    { marginBottom:24 },
-  sectCompact:{ marginBottom:20 },
-  sectSpacious:{ marginBottom:32 },
-  orb:     { position:'absolute', borderRadius:999 },
-  appBar:  { position:'absolute', top:0, left:0, right:0, zIndex:10, overflow:'hidden' },
+  topChrome:{
+    position:'absolute', top:0, left:0, right:0, zIndex:20,
+    backgroundColor:'rgba(5,5,5,0.98)',
+    borderBottomWidth:StyleSheet.hairlineWidth,
+    borderBottomColor:'rgba(255,255,255,0.035)',
+  },
+  body:    { paddingHorizontal:SPACE.page },
+  sect:    { marginBottom:SPACE.section },
+  heroSection:{ marginBottom:22 },
+  sectCompact:{ marginBottom:SPACE.xl },
+  inlineError:{
+    minHeight:48, marginTop:-16, marginBottom:20, paddingHorizontal:14,
+    flexDirection:'row', alignItems:'center', gap:10, borderRadius:14,
+    backgroundColor:D.w04, borderWidth:1, borderColor:D.w07,
+  },
+  inlineErrorText:{ flex:1, color:D.w55, fontSize:11.5, fontWeight:'600' },
+  inlineRetry:{ color:D.A, fontSize:11.5, fontWeight:'800' },
 
   // ── HEADER ────────────────────────────────────────────────────
-  hdr:      { flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', gap:16, marginBottom:36 },
+  hdr:      { flexDirection:'row', justifyContent:'space-between', alignItems:'center', gap:SPACE.md, marginBottom:SPACE.xxl },
   hdrCopy:  { flex:1, minWidth:0, paddingTop:1 },
-  greet:    { fontSize:12, color:D.w38, fontWeight:'600', letterSpacing:0.2, marginBottom:5 },
-  nameText: { fontSize:W <= 375 ? 34 : 38, fontWeight:'800', color:D.w100, letterSpacing:-1.1, lineHeight:W <= 375 ? 38 : 42 },
-  summPill: {
-    flexDirection:'row', alignItems:'center', gap:7, alignSelf:'flex-start',
-    backgroundColor:'rgba(255,255,255,0.045)', borderRadius:20, paddingHorizontal:10, paddingVertical:5,
-    borderWidth:1, borderColor:D.w07, marginTop:14,
-  },
-  summTxt:  { fontSize:10, color:D.w55, fontWeight:'600' },
-  hdrActions:{ flexDirection:'row', alignItems:'center', gap:10, marginTop:2, flexShrink:0 },
+  greet:    { fontSize:13, color:'rgba(237,229,221,0.58)', fontWeight:'500', letterSpacing:0.1 },
+  nameText: { fontWeight:'800', color:D.w100, letterSpacing:-0.9 },
+  hdrActions:{ flexDirection:'row', alignItems:'center', gap:8, flexShrink:0 },
   bellBtn:{
-    width:44, height:44, borderRadius:15, backgroundColor:'rgba(255,255,255,0.045)',
+    backgroundColor:'#101011',
     borderWidth:1, borderColor:'rgba(255,255,255,0.08)', alignItems:'center', justifyContent:'center',
-    ...sh('#000',0.14,7,2),
+    ...sh('#000',0.10,5,2),
   },
   notifBubble:{
     position:'absolute', top:6, right:6, minWidth:16, height:16, borderRadius:8,
@@ -1510,14 +1430,17 @@ const $ = StyleSheet.create({
     alignItems:'center', justifyContent:'center', paddingHorizontal:3,
   },
   notifTxt: { color:'#fff', fontSize:8, fontWeight:'900' },
-  avRing:   { width:44, height:44, borderRadius:15, padding:1.2, ...sh(D.A,0.18,10,3) },
-  avCore:   { flex:1, borderRadius:13.8, backgroundColor:D.s1, alignItems:'center', justifyContent:'center', overflow:'hidden' },
+  avRing:   {
+    padding:1.2, backgroundColor:'#101011', borderWidth:1.2,
+    borderColor:'rgba(255,112,32,0.82)',
+  },
+  avCore:   { flex:1, backgroundColor:'#0C0C0D', alignItems:'center', justifyContent:'center', overflow:'hidden' },
   avChar:   { color:D.w100, fontWeight:'800', fontSize:15 },
 
   // ── TRACKER CARD ──────────────────────────────────────────────
   trGlow: { position:'absolute', top:-90, right:-90, width:220, height:220, borderRadius:110, backgroundColor:'rgba(255,124,30,0.055)' },
-  trBody: { padding:22 },
-  trRow1: { flexDirection:'row', alignItems:'center', marginBottom:20 },
+  trBody: { padding:SPACE.xl },
+  trRow1: { flexDirection:'row', alignItems:'center', marginBottom:SPACE.md },
   livePill:{
     flexDirection:'row', alignItems:'center', gap:8,
     backgroundColor:'rgba(255,124,30,0.085)', paddingHorizontal:11, paddingVertical:7, borderRadius:22,
@@ -1526,7 +1449,8 @@ const $ = StyleSheet.create({
   liveTxt:   { color:D.A, fontSize:9, fontWeight:'900', letterSpacing:1.4, flexShrink:1 },
   plateBadge:{ flexDirection:'row', alignItems:'center', gap:5, backgroundColor:'rgba(255,255,255,0.028)', paddingHorizontal:9, paddingVertical:5, borderRadius:10, borderWidth:1, borderColor:'rgba(255,255,255,0.055)', flexShrink:0 },
   plateNum:  { color:D.w55, fontSize:10, fontWeight:'700', letterSpacing:1.4 },
-  trVeh:     { fontSize:29, fontWeight:'800', color:D.w100, letterSpacing:-0.7, marginBottom:10 },
+  trHeadline:{ fontSize:23, lineHeight:28, fontWeight:'800', color:'#FFF8F1', letterSpacing:-0.5, marginBottom:8 },
+  trVeh:     { fontSize:14, fontWeight:'700', color:D.w75, letterSpacing:-0.2, marginBottom:9 },
   trMetaRow: { flexDirection:'row', alignItems:'center', gap:10 },
   trSvcRow:  { flex:1, minWidth:0, flexDirection:'row', alignItems:'center', gap:7 },
   trSvc:     { fontSize:12, color:D.w55, fontWeight:'600', flex:1 },
@@ -1536,103 +1460,132 @@ const $ = StyleSheet.create({
   trViewBtn: {
     marginLeft:'auto', flexDirection:'row', alignItems:'center', gap:7,
     minHeight:38, paddingHorizontal:14, paddingVertical:8, borderRadius:12,
-    backgroundColor:D.A, ...sh(D.A,0.15,8,3),
+    backgroundColor:'#F2E6D7', ...sh('#000',0.12,6,2),
   },
-  trViewTxt: { color:D.bg, fontSize:11, fontWeight:'800', letterSpacing:0.2 },
+  trViewTxt: { color:'#3A1B10', fontSize:11, fontWeight:'800', letterSpacing:0.2 },
+  appointmentSummary:{
+    minHeight:54, marginTop:17, marginBottom:17, paddingHorizontal:14,
+    flexDirection:'row', alignItems:'center', gap:10, borderRadius:15,
+    backgroundColor:D.w04, borderWidth:1, borderColor:D.w07,
+  },
+  appointmentSchedule:{ color:D.w92, fontSize:14, fontWeight:'700' },
+  paymentSummary:{
+    marginTop:17, marginBottom:17, padding:14, borderRadius:15,
+    flexDirection:'row', alignItems:'flex-end', justifyContent:'space-between', gap:16,
+    backgroundColor:D.w04, borderWidth:1, borderColor:D.w07,
+  },
+  paymentLabel:{ color:D.w38, fontSize:8.5, fontWeight:'800', letterSpacing:1.5, marginBottom:4 },
+  paymentAmount:{ color:D.w100, fontSize:25, fontWeight:'900', letterSpacing:-0.4 },
+  paymentHint:{ flex:1, color:D.w55, fontSize:10.5, lineHeight:15, textAlign:'right', fontWeight:'600' },
 
   // ── HERO BOOK CTA ─────────────────────────────────────────────
-  heroCard:  { borderRadius:30, overflow:'hidden', minHeight:246, ...sh('#B33A12',0.34,28,10) },
-  hC:        { position:'absolute', borderRadius:999, backgroundColor:'#fff' },
-  heroLine:  { position:'absolute', top:'38%', left:0, right:0, height:1.5 },
-  heroBody:  { padding:26, flex:1, minHeight:246, justifyContent:'space-between' },
-  heroTopRow:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start' },
-  heroBrand: { fontSize:9, color:'rgba(255,255,255,0.50)', fontWeight:'800', letterSpacing:2.5, marginBottom:4 },
-  heroEye:   { fontSize:10, color:'rgba(255,255,255,0.44)', fontWeight:'600', letterSpacing:1.6 },
-  heroH1:    { fontSize:33, fontWeight:'900', color:'#fff', lineHeight:38, letterSpacing:-0.9, marginBottom:9 },
-  heroSub:   { fontSize:12, color:'rgba(255,255,255,0.46)', fontWeight:'500', letterSpacing:0.5 },
-  heroBot:   { gap:10 },
-  heroCTA:{
-    flexDirection:'row', alignItems:'center', backgroundColor:'rgba(255,255,255,0.94)',
-    borderRadius:17, alignSelf:'flex-start', paddingVertical:1, paddingLeft:18,
-    borderWidth:1, borderColor:'rgba(255,255,255,0.42)',
-    ...sh('#000',0.16,7,3),
+  heroCard:  {
+    borderRadius:RADIUS.hero, overflow:'hidden',
+    borderWidth:1, borderColor:'rgba(236,112,55,0.24)',
+    ...sh('#4B1B0E',0.18,14,5),
   },
-  heroCTATxt:  { fontSize:14, fontWeight:'800', color:'#81270A', paddingRight:5 },
-  heroCTAdge:  { width:34, height:34, margin:4, borderRadius:13, backgroundColor:'rgba(129,39,10,0.10)', alignItems:'center', justifyContent:'center' },
-  heroMeta:    { flexDirection:'row', gap:12 },
-  heroMetaChip:{ flexDirection:'row', alignItems:'center', gap:4 },
-  heroMetaTxt: { fontSize:11, color:'rgba(255,255,255,0.40)', fontWeight:'500' },
-
-  // ── STATS ────────────────────────────────────────────────────
-  statsRow:   { flexDirection:'row', paddingVertical:17, paddingHorizontal:4 },
-  statDiv:    { width:StyleSheet.hairlineWidth, height:44, backgroundColor:'rgba(255,255,255,0.055)', alignSelf:'center' },
-  statCell:   { flex:1, alignItems:'center', justifyContent:'center', gap:6, paddingHorizontal:6 },
-  statMeta:   { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:5 },
-  statN:      { fontSize:29, lineHeight:31, fontWeight:'800', letterSpacing:-0.5 },
-  statLbl:    { fontSize:8.5, color:D.w38, fontWeight:'700', letterSpacing:0.65, textTransform:'uppercase' },
+  hC:        {
+    position:'absolute', borderRadius:999,
+    backgroundColor:'rgba(17,9,7,0.11)',
+    borderWidth:1, borderColor:'rgba(229,91,35,0.07)',
+  },
+  heroBody:  {
+    flex:1, justifyContent:'flex-start',
+  },
+  heroTopRow:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start' },
+  heroBrandCopy:{ flex:1, minWidth:0 },
+  heroBrand: { color:'#FF8445', fontWeight:'800', letterSpacing:1.55 },
+  heroEye:   { color:'rgba(242,205,183,0.76)', fontWeight:'500' },
+  heroCarBadge:{
+    position:'absolute', zIndex:2, flexShrink:0,
+    backgroundColor:'rgba(45,20,13,0.58)', borderWidth:1,
+    borderColor:'rgba(245,147,95,0.24)', alignItems:'center', justifyContent:'center',
+  },
+  heroH1:    {
+    fontWeight:'800', color:'#FFF8F1', letterSpacing:-1.05,
+  },
+  heroServiceRow:{ flexDirection:'row', alignItems:'center' },
+  heroServiceLabel:{ color:'rgba(239,216,202,0.82)', fontWeight:'500', letterSpacing:-0.05 },
+  heroServiceDot:{ color:'#F16D2E', fontWeight:'800' },
+  heroBot:   { width:'100%', alignItems:'flex-start' },
+  heroCTA:{
+    flexDirection:'row', alignItems:'center', overflow:'hidden',
+    backgroundColor:'#F3E8D9', alignSelf:'flex-start',
+    borderWidth:1, borderColor:'rgba(255,247,235,0.58)',
+    ...sh('#000',0.14,6,2),
+  },
+  heroCTATxt:  { fontWeight:'800', color:'#37190F', letterSpacing:-0.25 },
+  heroCTAdge:  { alignSelf:'stretch', backgroundColor:'rgba(168,63,18,0.085)', alignItems:'center', justifyContent:'center' },
+  heroMeta:    { width:'100%', flexDirection:'row', alignItems:'center' },
+  heroMetaChip:{ flex:1, minWidth:0, flexDirection:'row', alignItems:'center', justifyContent:'center' },
+  heroMetaDivider:{ width:StyleSheet.hairlineWidth, height:18, backgroundColor:'rgba(242,220,205,0.14)' },
+  heroMetaTxt: { color:'rgba(238,219,207,0.80)', fontWeight:'600', letterSpacing:-0.1 },
 
   // ── TRUST ────────────────────────────────────────────────────
-  trustGrid:{ flexDirection:'row', flexWrap:'wrap', gap:8 },
-  trustChipWrap:{ width:'48%' },
-  trustChip:{
-    flexDirection:'row', alignItems:'center', gap:6,
-    backgroundColor:'rgba(255,124,30,0.055)', borderWidth:1, borderColor:'rgba(255,124,30,0.12)',
-    height:42, paddingHorizontal:11, borderRadius:13,
+  trustStrip:{
+    height:48, flexDirection:'row', alignItems:'center', borderRadius:RADIUS.control,
+    backgroundColor:D.w04, borderWidth:1, borderColor:D.w07, paddingHorizontal:SPACE.sm,
   },
-  trustTxt:{ fontSize:10, color:D.w55, fontWeight:'700', flexShrink:1 },
+  trustItem:{ flex:1, minWidth:0, flexDirection:'row', alignItems:'center', justifyContent:'center', gap:5 },
+  trustDivider:{ width:StyleSheet.hairlineWidth, height:16, backgroundColor:D.w07 },
+  trustTxt:{ flex:1, minWidth:0, fontSize:9, color:TYPE.bodyColor, fontWeight:'700', textAlign:'center' },
 
   // ── EYEBROW ──────────────────────────────────────────────────
-  eyeRow: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:14 },
-  eyeL:   { flexDirection:'row', alignItems:'center', gap:8 },
-  eyeDash:{ width:3, height:14, borderRadius:2, backgroundColor:D.A },
-  eyeLabel:{ fontSize:10, color:D.w55, fontWeight:'800', letterSpacing:3.4, textTransform:'uppercase' },
+  eyeRow: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:SPACE.md },
+  eyeL:   { flexDirection:'row', alignItems:'center', gap:SPACE.sm },
+  eyeDash:{ width:2, height:12, borderRadius:1, backgroundColor:D.A },
+  eyeLabel:{ fontSize:10, lineHeight:12, color:D.w55, fontWeight:'800', letterSpacing:TYPE.sectionTracking, textTransform:'uppercase' },
   eyeCta: { fontSize:12, color:D.A, fontWeight:'700', letterSpacing:0.2 },
 
   // ── QUICK ACTIONS ────────────────────────────────────────────
-  qaGrid:       { flexDirection:'row', flexWrap:'wrap', gap:10 },
-  qaGridItem:   { width:'48%', minHeight:132 },
-  qaCardBody:   { flex:1, padding:16 },
-  qaCardTop:    { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:18 },
-  qaSubLbl:     { fontSize:10, color:D.w38, fontWeight:'500', marginTop:5 },
-  qaSmIcon:     { width:38, height:38, borderRadius:13, backgroundColor:D.w04, borderWidth:1, borderColor:D.w07, alignItems:'center', justifyContent:'center' },
-  qaSmIconPrimary:{ backgroundColor:D.Af, borderColor:D.Ab },
-  qaSmName:     { fontSize:14, fontWeight:'700', color:D.w92, letterSpacing:-0.2 },
-  qaWideBody:   { flexDirection:'row', alignItems:'center', padding:14 },
-  qaBadge:      { minWidth:26, height:26, paddingHorizontal:7, borderRadius:9, backgroundColor:D.Gf, borderWidth:1, borderColor:D.Gb, alignItems:'center', justifyContent:'center' },
-  qaBadgeTxt:   { color:D.G, fontSize:11, fontWeight:'800' },
+  qaGrid:       { flexDirection:'row', flexWrap:'wrap', gap:SPACE.md },
+  qaGridItem:   { width:'48%', minHeight:92 },
+  qaCardBody:   { flex:1, padding:SPACE.md },
+  qaCardTop:    { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:SPACE.sm },
+  qaTopRight:   { flexDirection:'row', alignItems:'center', gap:SPACE.xs },
+  qaArrow:      { width:24, height:24, borderRadius:12, alignItems:'center', justifyContent:'center', backgroundColor:D.w04 },
+  qaSubLbl:     { fontSize:9.5, color:TYPE.supportingColor, fontWeight:'500', marginTop:SPACE.xs },
+  qaSmIcon:     { width:32, height:32, borderRadius:12, backgroundColor:D.w04, borderWidth:1, borderColor:D.w07, alignItems:'center', justifyContent:'center' },
+  qaSmName:     { fontSize:13.5, fontWeight:'700', color:D.w92, letterSpacing:-0.15 },
+  qaBadge:      { minWidth:22, height:22, paddingHorizontal:6, borderRadius:8, backgroundColor:D.Gf, borderWidth:1, borderColor:D.Gb, alignItems:'center', justifyContent:'center' },
+  qaBadgeTxt:   { color:D.G, fontSize:10, fontWeight:'800' },
 
   // ── SERVICES ─────────────────────────────────────────────────
-  svcWrap:  { width:SERVICE_CARD_WIDTH, marginLeft:11, borderRadius:26, overflow:'hidden', ...sh('#000',0.46,18,8) },
-  svcCard:  { height:240, padding:18, justifyContent:'flex-end' },
+  svcWrap:  { width:SERVICE_CARD_WIDTH, marginLeft:14, borderRadius:RADIUS.card, overflow:'hidden', ...sh('#000',0.28,12,5) },
+  svcCard:  { height:220, padding:SPACE.lg, justifyContent:'flex-end', borderWidth:1, borderColor:D.w07 },
   svcCardNarrow:{ height:252 },
-  svcLoadingRow:{ flexDirection:'row', gap:11 },
+  svcLoadingRow:{ flexDirection:'row', gap:14 },
   svcStateCard:{ minHeight:112, borderRadius:20, borderWidth:1, borderColor:D.w07, backgroundColor:D.w04, padding:18, flexDirection:'row', alignItems:'center', gap:12 },
   svcStateText:{ flex:1, color:D.w55, fontSize:12, fontWeight:'600', lineHeight:18 },
   svcRetry:{ color:D.A, fontSize:12, fontWeight:'800' },
-  svcOrb:   { position:'absolute', top:-55, right:-55, width:150, height:150, borderRadius:75, backgroundColor:'rgba(255,255,255,0.10)' },
-  svcBadge: { alignSelf:'flex-start', color:'rgba(255,255,255,0.82)', fontSize:8, fontWeight:'900', letterSpacing:1.2, marginBottom:7 },
-  svcName:  { fontSize:18, fontWeight:'800', color:'#fff', lineHeight:22, marginBottom:4, letterSpacing:-0.4 },
-  svcTag:   { fontSize:10, color:'rgba(255,255,255,0.56)', fontWeight:'600', letterSpacing:0.3, marginBottom:12 },
+  svcOrb:   { position:'absolute', top:-52, right:-52, width:138, height:138, borderRadius:69, backgroundColor:'rgba(255,255,255,0.055)' },
+  svcBadgeSlot:{ minHeight:23, justifyContent:'flex-start', marginBottom:SPACE.xs },
+  svcBadgePill:{ alignSelf:'flex-start', paddingHorizontal:7, paddingVertical:4, borderRadius:7, backgroundColor:D.Af },
+  svcBadgeRecommended:{ backgroundColor:D.Gf, borderWidth:1, borderColor:D.Gb },
+  svcBadge: { color:D.AL, fontSize:8, fontWeight:'900', letterSpacing:1 },
+  svcBadgeRecommendedText:{ color:D.G },
+  svcName:  { minHeight:44, fontSize:17, fontWeight:'800', color:'#fff', lineHeight:21, letterSpacing:-0.35 },
+  svcTag:   { minHeight:28, fontSize:10, lineHeight:14, color:'rgba(255,255,255,0.62)', fontWeight:'600', letterSpacing:0.2, marginBottom:SPACE.sm },
   svcFoot:  { flexDirection:'row', alignItems:'center', width:'100%', gap:6 },
   svcFootNarrow:{ flexDirection:'column', alignItems:'stretch' },
-  svcPrBadge:{ flex:1, minWidth:0, backgroundColor:'rgba(0,0,0,0.22)', paddingHorizontal:7, paddingVertical:4, borderRadius:10 },
+  svcPrBadge:{ flex:1, minWidth:0, backgroundColor:'rgba(0,0,0,0.20)', paddingHorizontal:7, paddingVertical:5, borderRadius:10 },
   svcPrBadgeNarrow:{ flex:0, alignSelf:'stretch' },
   svcPr:    { fontSize:11, color:'rgba(255,255,255,0.80)', fontWeight:'700' },
-  svcBookPill:{ flexShrink:0, minHeight:30, backgroundColor:'rgba(255,255,255,0.22)', borderWidth:1, borderColor:'rgba(255,255,255,0.15)', paddingHorizontal:10, paddingVertical:6, borderRadius:12, alignItems:'center', justifyContent:'center' },
+  svcBookPill:{ flexShrink:0, minHeight:32, backgroundColor:'rgba(255,255,255,0.16)', borderWidth:1, borderColor:'rgba(255,255,255,0.12)', paddingHorizontal:10, paddingVertical:6, borderRadius:12, alignItems:'center', justifyContent:'center' },
   svcBookPillNarrow:{ alignSelf:'stretch' },
   svcBookTxt: { fontSize:10, fontWeight:'800', color:'#fff', letterSpacing:0.6 },
 
   // ── PROMO ────────────────────────────────────────────────────
-  promoBody:   { flexDirection:'row', alignItems:'center', padding:20, gap:16 },
-  promoLeft:   { flex:1, gap:6 },
+  promoBody:   { flexDirection:'row', alignItems:'center', padding:SPACE.lg, gap:SPACE.lg },
+  promoLeft:   { flex:1 },
   promoBadge:  { flexDirection:'row', alignItems:'center', gap:5, backgroundColor:D.Go, paddingHorizontal:9, paddingVertical:4, borderRadius:9, alignSelf:'flex-start' },
   promoBadgeTxt:{ fontSize:9, color:D.bg, fontWeight:'900', letterSpacing:1.5 },
-  promoTitle:  { fontSize:17, fontWeight:'800', color:D.w92, letterSpacing:-0.3 },
-  promoSub:    { fontSize:12, color:D.w55, fontWeight:'500' },
-  promoSaveRow:{ flexDirection:'row', alignItems:'center', gap:5 },
+  promoTitle:  { fontSize:17, fontWeight:'800', color:D.w92, letterSpacing:-0.3, marginTop:SPACE.sm },
+  promoSub:    { fontSize:12, lineHeight:17, color:TYPE.bodyColor, fontWeight:'500', marginTop:SPACE.xs },
+  promoSaveRow:{ flexDirection:'row', alignItems:'center', gap:5, marginTop:SPACE.sm },
   promoSaveTxt:{ fontSize:11, color:D.AL, fontWeight:'700' },
   promoRight:  { alignItems:'center', gap:12 },
-  promoIconBg: { width:52, height:52, borderRadius:18, backgroundColor:D.Gof, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:D.Gob },
+  promoIconBg: { width:48, height:48, borderRadius:16, backgroundColor:D.Gof, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:D.Gob },
   promoArrow:  { width:34, height:34, borderRadius:11, backgroundColor:D.Gof, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:D.Gob },
 
   // ── HISTORY ──────────────────────────────────────────────────
@@ -1660,45 +1613,12 @@ const $ = StyleSheet.create({
   histFootTxt:{ fontSize:12, color:D.w38, fontWeight:'600' },
 
   // ── EMPTY STATE ───────────────────────────────────────────────
-  emptyInner:   { alignItems:'center', padding:40, paddingTop:44 },
-  emptyIconOuter:{ marginBottom:22 },
-  emptyIconBg:  { width:84, height:84, borderRadius:28, alignItems:'center', justifyContent:'center', ...sh(D.A,0.25,14,5) },
+  emptyInner:   { minHeight:232, alignItems:'center', justifyContent:'center', padding:SPACE.xl },
+  emptyIconOuter:{ marginBottom:SPACE.md },
+  emptyIconBg:  { width:52, height:52, borderRadius:RADIUS.icon, alignItems:'center', justifyContent:'center' },
   emptyH:       { color:D.w75, fontSize:17, fontWeight:'700', marginBottom:8 },
-  emptySub:     { color:D.w38, fontSize:13, fontWeight:'500', textAlign:'center', lineHeight:20, marginBottom:28 },
-  emptyBtn:     { flexDirection:'row', alignItems:'center', gap:10, paddingHorizontal:26, paddingVertical:14, borderRadius:19, ...sh(D.A,0.46,18,7) },
+  emptySub:     { color:TYPE.supportingColor, fontSize:12.5, fontWeight:'500', textAlign:'center', lineHeight:18, marginBottom:SPACE.lg, maxWidth:260 },
+  emptyBtn:     { minHeight:44, flexDirection:'row', alignItems:'center', gap:9, paddingHorizontal:20, paddingVertical:11, borderRadius:15 },
   emptyBtnTxt:  { color:'#fff', fontSize:14, fontWeight:'800', letterSpacing:0.2 },
 
-  // ── AFTER-CARE ────────────────────────────────────────────────
-  careBar:      { height:2.5 },
-  careHead:     { flexDirection:'row', alignItems:'center', gap:12, padding:18, paddingBottom:14 },
-  careIconBg:   { width:42, height:42, borderRadius:14, backgroundColor:D.Gof, alignItems:'center', justifyContent:'center' },
-  careEye:      { fontSize:9, color:D.Go, fontWeight:'800', letterSpacing:2.8, marginBottom:3 },
-  careSvc:      { fontSize:14, fontWeight:'700', color:D.w92 },
-  careLiveBadge:{ flexDirection:'row', alignItems:'center', gap:5, backgroundColor:D.Gof, paddingHorizontal:10, paddingVertical:5, borderRadius:10, borderWidth:1, borderColor:D.Gob },
-  careLiveTxt:  { fontSize:10, color:D.Go, fontWeight:'700' },
-  tipScroll:    { paddingHorizontal:16, paddingBottom:20, gap:10 },
-  tipCard:      { width:200, borderRadius:18, padding:16, backgroundColor:D.s2, borderWidth:1, borderColor:D.w07, gap:9 },
-  tipIconBg:    { width:34, height:34, borderRadius:11, backgroundColor:D.Gof, alignItems:'center', justifyContent:'center' },
-  tipTagPill:   { backgroundColor:D.Gof, paddingHorizontal:8, paddingVertical:3, borderRadius:7, alignSelf:'flex-start' },
-  tipTagTxt:    { fontSize:9, color:D.Go, fontWeight:'800', letterSpacing:0.5 },
-  tipBody:      { fontSize:12, color:D.w55, lineHeight:18, fontWeight:'500' },
-
-  // ── LOYALTY ───────────────────────────────────────────────────
-  loyRow:     { flexDirection:'row', alignItems:'center', padding:18, gap:14 },
-  loyIconBg:  { width:46, height:46, borderRadius:16, alignItems:'center', justifyContent:'center', flexShrink:0, ...sh(D.Go,0.30,10,3) },
-  loyH:       { fontSize:15, fontWeight:'700', color:D.w92 },
-  loyGoldBadge:{ backgroundColor:D.Gof, paddingHorizontal:8, paddingVertical:3, borderRadius:8, borderWidth:1, borderColor:D.Gob },
-  loyGoldTxt: { fontSize:9, color:D.Go, fontWeight:'800', letterSpacing:0.5 },
-  loySub:     { fontSize:11, color:D.w55, fontWeight:'500', marginBottom:10 },
-  loyBar:     { height:5, backgroundColor:D.w07, borderRadius:3, overflow:'visible', marginBottom:6, position:'relative' },
-  loyFill:    { height:'100%', borderRadius:3 },
-  loyMileDot: { position:'absolute', top:-2, width:9, height:9, borderRadius:5, marginLeft:-4.5 },
-  loyMileLbl: { fontSize:9, color:D.w38, fontWeight:'700' },
-
-  // ── BRAND CTA ─────────────────────────────────────────────────
-  brandRow:   { flexDirection:'row', alignItems:'center', gap:14, padding:18 },
-  brandIconBg:{ width:44, height:44, borderRadius:15, backgroundColor:D.Gof, alignItems:'center', justifyContent:'center', flexShrink:0 },
-  brandH:     { fontSize:14, fontWeight:'700', color:D.w92, marginBottom:4 },
-  brandSub:   { fontSize:12, color:D.w38, fontWeight:'500', lineHeight:18 },
-  brandArr:   { width:34, height:34, borderRadius:11, backgroundColor:D.Af, alignItems:'center', justifyContent:'center', flexShrink:0 },
 });

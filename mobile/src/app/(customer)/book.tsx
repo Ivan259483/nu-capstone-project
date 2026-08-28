@@ -1,15 +1,13 @@
 /**
- * Book Screen — Premium 4-Step Service Booking Wizard
+ * Book Screen — Premium 6-Step Service Booking Wizard
  * ═══════════════════════════════════════════════════════
  * "The Kinetic Gallery" Design System
  * 
  * Obsidian surfaces · Warm amber accents · Editorial typography
  * Glassmorphism · Tonal depth · No hard borders
  * 
- * Step 0: Vehicle selection / add vehicle
- * Step 1: Service & Schedule
- * Step 2: Review & Payment
- * Step 3: Final Confirmation
+ * Step 0: Service · Step 1: Details · Step 2: Schedule
+ * Step 3: Review · Step 4: Terms · Step 5: Payment
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -29,6 +27,10 @@ import {
   Image,
   Modal,
   AppState,
+  BackHandler,
+  Animated as RNAnimated,
+  PanResponder,
+  type LayoutChangeEvent,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -46,46 +48,37 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // expo-blur available if needed for future glassmorphism enhancements
 import { useAuth } from '@/context/AuthContext';
-import { getApiErrorMessage, invalidateCache } from '@/services/api/client';
+import { apiClient, getApiErrorMessage, invalidateCache } from '@/services/api/client';
 import { bookingService } from '@/services/api/bookingService';
 import {
   getPackageKeyFromServiceName,
-  getServicePriceForVehicle,
   serviceService,
 } from '@/services/api/serviceService';
 import { vehicleService } from '@/services/api/vehicleService';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import type { ServiceOption, Vehicle } from '@/services/api/types';
-import { Palette, TabBarContentHeight } from '@/constants/theme';
-import AnimatedHeader from '@/components/ui/AnimatedHeader';
-import GlassCard from '@/components/ui/GlassCard';
-import Badge from '@/components/ui/Badge';
-import PremiumButton from '@/components/ui/PremiumButton';
-import PremiumInput from '@/components/ui/PremiumInput';
+import { Palette } from '@/constants/theme';
 import { Toast } from '@/components/ui/PremiumToast';
 import AddVehicleModal from '@/components/booking/AddVehicleModal';
-import { Validation } from '@/utils/validation';
+import {
+  bookingDraftStorage,
+  type BookingDraftV1,
+} from '@/services/storage/bookingDraftStorage';
 import {
   BOOKING_TERMS_DOCUMENT_TITLE,
   BOOKING_TERMS_INTRO,
   BOOKING_TERMS_SECTIONS,
 } from '@/constants/bookingTerms';
-import {
-  SPF_BASE_PRICES,
-  SPF_TINT_PRICES,
-  type VehicleTypeKey,
-} from '@/constants/spfPricing';
+import type { VehicleTypeKey } from '@/constants/spfPricing';
 
 // ─── Kinetic Gallery Design Tokens ───────────────────────────────────────────
 
 // Surface tiers aligned exactly with global theme.ts colors for UI consistency
-const VOID           = '#040405';   // deepest layer (theme.dark.background)
 const SURFACE_LOW    = '#040405';   // surface_container_lowest
 const SURFACE        = '#0D0D12';   // base surface (theme.dark.card)
 const SURFACE_MID    = '#0D0D12';   // surface_container
 const SURFACE_HIGH   = '#16161D';   // surface_container_high (theme.dark.cardAlt)
 const SURFACE_TOP    = '#27272A';   // surface_container_highest (theme.dark.border)
-const SURFACE_BRIGHT = '#353534';   // hover / subtle interaction
 
 // Brand accents (warm amber — used sparingly)
 const PRIMARY        = '#FFB77D';   // primary
@@ -94,133 +87,9 @@ const ON_PRIMARY     = '#4D2600';   // on_primary (dark text on accent)
 
 // Functional tones
 const SECONDARY      = '#C6C6C7';   // secondary text
-const TERTIARY       = '#85CFFF';   // tech/sensor blue
 const MUTED          = '#555555';   // muted elements
 const DIM_TEXT       = '#777777';   // dim body text
 const GHOST          = 'rgba(255,255,255,0.08)'; // ghost border
-
-// ─── SPF Package Definitions — mirrors Services.tsx exactly ──────────────────
-interface SPFPackage {
-  key: string;
-  label: string;
-  years: string;
-  badge: string;
-  badgeColor: string;   // accent hex
-  tier: string;
-  /** Longer marketing copy — aligned with web RAW_SPF_PACKAGES.description */
-  description: string;
-  prices: Record<VehicleTypeKey, number | null>;
-  tintPrices: Record<VehicleTypeKey, number | null>;
-  features: string[];
-  popular: boolean;
-  flagship: boolean;
-  socialProof?: string;
-  insights?: {
-    icon: keyof typeof Ionicons.glyphMap;
-    heading: string;
-    body: string;
-  }[];
-}
-
-const SPF_PACKAGES: SPFPackage[] = [
-  {
-    key: 'spf80',
-    label: 'SPF 80',
-    years: '3 Years',
-    badge: 'SPECIAL OFFER',
-    badgeColor: '#F97316',
-    tier: 'Essential',
-    description:
-      'Give your car the protection it deserves with our essential ceramic coating package. We apply a high-quality protective layer that helps shield your paint from scratches, UV rays, dirt, and water so your vehicle stays glossier and easier to wash between visits.',
-    prices: SPF_BASE_PRICES.spf80,
-    tintPrices: SPF_TINT_PRICES.spf80,
-    features: [
-      '3 Layers of Graphene Ceramic Coating (Made in Canada)',
-      'Graphene Sealant',
-      'FREE 1 visit Signature AUTOSPF Carwash',
-    ],
-    popular: false,
-    flagship: false,
-  },
-  {
-    key: 'spf89',
-    label: 'SPF 89',
-    years: '5 Years',
-    badge: 'RECOMMENDED',
-    badgeColor: '#10B981',
-    tier: 'Advanced',
-    description:
-      'Step up to a deeper, longer-lasting ceramic stack built for daily drivers. Multiple graphene-rich layers add stronger UV and chemical resistance while keeping water beading tight—so your paint looks richer and stays protected through sun, rain, and road grime.',
-    prices: SPF_BASE_PRICES.spf89,
-    tintPrices: SPF_TINT_PRICES.spf89,
-    features: [
-      '4 Layers of Graphene Ceramic Coating (Made in Canada)',
-      'Graphene Sealant',
-      'FREE 1 visit Reboost/Maintenance (save ₱1,500)',
-    ],
-    popular: true,
-    flagship: false,
-    socialProof: '78% of AutoSPF+ customers choose this package',
-    insights: [
-      {
-        icon: 'shield-checkmark-outline',
-        heading: 'Best balance of cost vs protection',
-        body: '5-year graphene coating at a price point that makes financial sense for most vehicle owners.',
-      },
-      {
-        icon: 'repeat-outline',
-        heading: 'Free annual reboost included',
-        body: 'One Reboost/Maintenance visit (₱1,500 value) keeps your coating performing like new — at no extra cost.',
-      },
-      {
-        icon: 'trending-up-outline',
-        heading: 'Highest resale value boost',
-        body: 'Professionally coated cars retain 8–12% more resale value than uncoated — this package is the minimum threshold.',
-      },
-    ],
-  },
-  {
-    key: 'spf99',
-    label: 'SPF 99',
-    years: '10 Years',
-    badge: '50% OFF PROMO',
-    badgeColor: '#A855F7',
-    tier: 'Premium',
-    description:
-      'Our premium coating program uses professional-grade SONAX Profiline layers for exceptional gloss and durability. Ideal if you want showroom depth, easier maintenance, and a documented maintenance path—including scheduled reboost visits to keep the film chemistry performing year after year.',
-    prices: SPF_BASE_PRICES.spf99,
-    tintPrices: SPF_TINT_PRICES.spf99,
-    features: [
-      '4 Layers of SONAX Profiline CC EVO (Made in Germany)',
-      'FREE Full Recoat After 5 Years',
-      'FREE 2 visits Reboost/Maintenance (save ₱3,000)',
-    ],
-    popular: false,
-    flagship: false,
-  },
-  {
-    key: 'spf101',
-    label: 'SPF 101',
-    years: '10 Years',
-    badge: 'ALL-IN PACKAGE',
-    badgeColor: '#F59E0B',
-    tier: 'Flagship',
-    description:
-      'The ultimate AutoSPF+ experience: strategic PPF coverage for high-impact areas, flagship ceramic coating, full nano-ceramic tint, and bundled maintenance so your vehicle leaves protected from bumper to glass. Built for owners who want maximum resale appeal and peace of mind in one appointment.',
-    prices: SPF_BASE_PRICES.spf101,
-    tintPrices: SPF_TINT_PRICES.spf101,
-    features: [
-      'Paint Protection Film PPF Install on: Hood, Front Bumper, Stepsils, Door Bowls, Side Mirrors, Headlight & Taillight',
-      '4 Layers of SONAX Profiline CC EVO (Made in Germany)',
-      'FREE 5 visits Reboost/Maintenance (save ₱7,500)',
-      'FREE Full Recoat After 5 Years',
-      'Nano Ceramic Window Tint (Full Wrap — Any Shades)',
-      'FREE UnderCoating (Rust Proofing) (save ₱14,000)',
-    ],
-    popular: false,
-    flagship: true,
-  },
-];
 
 const VEHICLE_OPTIONS: { key: VehicleTypeKey; label: string; icon: string }[] = [
   { key: 'hatchback', label: 'Hatchback',       icon: 'car-outline' },
@@ -229,17 +98,47 @@ const VEHICLE_OPTIONS: { key: VehicleTypeKey; label: string; icon: string }[] = 
   { key: 'suv',       label: 'SUV',              icon: 'car-outline' },
   { key: 'pickup',    label: 'Pick Up',          icon: 'car-outline' },
   { key: 'largesuv',  label: 'Large SUV / Van',  icon: 'bus-outline' },
-  { key: 'highend',   label: 'Highend Sedan',    icon: 'diamond-outline' },
+  { key: 'highend',   label: 'High-end Sedan',   icon: 'diamond-outline' },
 ];
 
 const STEP_LABELS = ['Service', 'Details', 'Schedule', 'Review', 'Terms', 'Payment'];
 
-// Package subtitle text — matches web's RAW_SPF_PACKAGES.duration
-const PKG_DURATIONS: Record<string, string> = {
-  spf80:  'Perfect entry-level protection',
-  spf89:  'Our most chosen package',
-  spf99:  'Maximum protection, best price-to-value',
-  spf101: 'The complete transformation experience',
+type BookingPackagePrice =
+  | { status: 'available'; value: number }
+  | { status: 'unavailable'; value: null }
+  | { status: 'error'; value: null };
+
+type BookingCatalogPackage = {
+  key: string;
+  service: ServiceOption;
+  name: string;
+  tier: string;
+  badge: string | null;
+  badgeColor: string;
+  protection: string | null;
+  estimatedDuration: string | null;
+  tagline: string | null;
+  description: string | null;
+  features: string[];
+  fullInclusions: PackageInclusion[];
+  ppfCoverage: string[];
+  tintIncluded: boolean;
+  tintDetails: string | null;
+  undercoatingIncluded: boolean;
+  undercoatingDetails: string | null;
+  undercoatingSavingsLabel: string | null;
+  originalPrice: number | null;
+  bundlePrice: number | null;
+  bundleLabel: string | null;
+  promotionPercent: number | null;
+  price: BookingPackagePrice;
+};
+
+type PackageInclusion = {
+  group: string;
+  title: string;
+  detail?: string | null;
+  savingsLabel?: string | null;
 };
 
 type PackageFeatureParts = {
@@ -250,8 +149,8 @@ type PackageFeatureParts = {
 
 /**
  * Turns the existing package feature strings into presentation-only sections.
- * The source copy remains unchanged in SPF_PACKAGES; this only separates its
- * title, supporting detail, and genuine savings metadata for mobile scanning.
+ * Separates backend feature copy into presentation-only sections without
+ * changing its wording.
  */
 const getPackageFeatureParts = (feature: string): PackageFeatureParts => {
   const savingsMatch = feature.match(/\(save\s+(₱[\d,]+)\)/i);
@@ -281,7 +180,57 @@ const getPackageFeatureParts = (feature: string): PackageFeatureParts => {
   };
 };
 
-// Maps any vehicle-type string (from garage) to the price-key used in SPF_PACKAGES
+const normalizeProtectionLabel = (value?: string | null): string | null => {
+  const label = String(value || '').trim();
+  if (!label) return null;
+  const yearsMatch = label.match(/^(\d+)\s+years?(?:\s+protection)?$/i);
+  if (yearsMatch) return `${yearsMatch[1]}-Year Protection`;
+  if (/protection/i.test(label)) return label;
+  return label;
+};
+
+const normalizeServiceDurationLabel = (value?: string | null): string | null => {
+  const label = String(value || '').trim();
+  if (!label) return null;
+  return label
+    .replace(/(\d)\s*-\s*(\d)/g, '$1–$2')
+    .replace(/\bhours?\b/gi, 'hr');
+};
+
+const getPhilippineMobileDigits = (value?: string | null): string | null => {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (/^639\d{9}$/.test(digits)) return digits.slice(2);
+  if (/^09\d{9}$/.test(digits)) return digits.slice(1);
+  if (/^9\d{9}$/.test(digits)) return digits;
+  return null;
+};
+
+const isValidPhilippineMobile = (value?: string | null): boolean =>
+  getPhilippineMobileDigits(value) !== null;
+
+const formatPhilippineMobile = (value?: string | null): string => {
+  const localDigits = getPhilippineMobileDigits(value);
+  if (!localDigits) return String(value || '').trim() || '—';
+  return `+63 ${localDigits.slice(0, 3)} ${localDigits.slice(3, 6)} ${localDigits.slice(6)}`;
+};
+
+const getPackageDisplayName = (name: string): string =>
+  name.replace(/\s+ALL[-\s]?IN\s*$/i, '').trim();
+
+const getPublishedOptionalPrice = (
+  service: ServiceOption,
+  vehicleType: VehicleTypeKey,
+  field: 'original' | 'addon',
+): number | null => {
+  const apiKey = vehicleType === 'largesuv' ? 'largeSuv' : vehicleType;
+  const raw = service.pricing?.[apiKey]?.[field];
+  if (raw === undefined || raw === null || !Number.isFinite(Number(raw)) || Number(raw) < 0) {
+    return null;
+  }
+  return Number(raw);
+};
+
+// Maps a garage vehicle type to the public service pricing key.
 const getVehiclePriceKey = (type: string): VehicleTypeKey => {
   const map: Record<string, VehicleTypeKey> = {
     'hatchback': 'hatchback', 'sedan': 'sedan', 'midsized': 'midsized',
@@ -292,146 +241,307 @@ const getVehiclePriceKey = (type: string): VehicleTypeKey => {
   return map[type?.toLowerCase()] || 'hatchback';
 };
 
+const getPackageBadgeColor = (service: ServiceOption): string => {
+  const badge = String(service.catalogCard?.badge || '').toLowerCase();
+  if (service.catalogCard?.popular || /recommend|popular/.test(badge)) return '#22C55E';
+  if (/all[-\s]?in|flagship/.test(badge)) return '#C9AF83';
+  if (/promo|offer|off|sale|save/.test(badge)) return '#F59E0B';
+  if (/premium/.test(badge)) return '#A1A1AA';
+  return '#A1A1AA';
+};
+
+const getVisiblePackageBadge = (pkg: BookingCatalogPackage): string | null => {
+  if (!pkg.badge) return null;
+  const promotionBadge = /special|promo|offer|off|sale|save/i.test(pkg.badge);
+  if (promotionBadge && pkg.promotionPercent === null) return null;
+  return pkg.badge;
+};
+
+const getPublishedPriceState = (
+  service: ServiceOption,
+  vehicleType: VehicleTypeKey,
+): BookingPackagePrice => {
+  const apiKey = vehicleType === 'largesuv' ? 'largeSuv' : vehicleType;
+  const richEntry = service.pricing?.[apiKey];
+  const hasRichPrice = !!richEntry && Object.prototype.hasOwnProperty.call(richEntry, 'base');
+  const legacyPrices = service.prices;
+  const hasLegacyPrice = !!legacyPrices && (
+    Object.prototype.hasOwnProperty.call(legacyPrices, vehicleType)
+    || Object.prototype.hasOwnProperty.call(legacyPrices, apiKey)
+  );
+  const hasHatchbackBase = vehicleType === 'hatchback' && service.basePrice !== undefined;
+  const raw = hasRichPrice
+    ? richEntry?.base
+    : hasLegacyPrice
+      ? legacyPrices?.[vehicleType] ?? legacyPrices?.[apiKey]
+      : hasHatchbackBase
+        ? service.basePrice
+        : undefined;
+
+  if (raw === null) return { status: 'unavailable', value: null };
+  if (raw === undefined || !Number.isFinite(Number(raw)) || Number(raw) < 0) {
+    return { status: 'error', value: null };
+  }
+  return { status: 'available', value: Number(raw) };
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 // Month Calendar logic is encapsulated below
 
 // ─── Sub-Components ───────────────────────────────────────────────────────────
 
-/** Compact, meaningful booking progress treatment shared by every step. */
-function StepIndicator({ current }: { current: number }) {
+/** Focused booking chrome shared by every step. */
+function BookingWizardHeader({
+  current,
+  topInset,
+  onBack,
+  onClose,
+}: {
+  current: number;
+  topInset: number;
+  onBack: () => void;
+  onClose: () => void;
+}) {
   const total = STEP_LABELS.length; // 6
   const pct = Math.round(((current + 1) / total) * 100);
   return (
-    <View
-      style={progress.container}
-      accessibilityRole="progressbar"
-      accessibilityValue={{ min: 1, max: total, now: current + 1 }}
-    >
-      <View style={progress.metaRow}>
-        <Text style={progress.stepText}>STEP {current + 1} OF {total}</Text>
-        <View style={progress.metaDot} />
-        <Text style={progress.stepName}>{STEP_LABELS[current]}</Text>
+    <View style={[progress.container, { paddingTop: Math.max(topInset, 10) + 8 }]}>
+      <View style={progress.headerRow}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={current === 0 ? 'Exit booking' : `Back to ${STEP_LABELS[current - 1]}`}
+          hitSlop={8}
+          onPress={onBack}
+          style={progress.iconButton}
+        >
+          <Ionicons name="chevron-back" size={21} color="#F4F4F5" />
+        </TouchableOpacity>
+
+        <View style={progress.titleGroup}>
+          <Text style={progress.title}>Book a Service</Text>
+          <Text style={progress.stepText}>{current + 1} of {total} · {STEP_LABELS[current]}</Text>
+        </View>
+
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Close booking"
+          hitSlop={8}
+          onPress={onClose}
+          style={progress.iconButton}
+        >
+          <Ionicons name="close" size={20} color="#A1A1AA" />
+        </TouchableOpacity>
       </View>
-      <View style={progress.track}>
+
+      <View
+        style={progress.track}
+        accessibilityRole="progressbar"
+        accessibilityLabel={`${STEP_LABELS[current]}, step ${current + 1} of ${total}`}
+        accessibilityValue={{ min: 1, max: total, now: current + 1 }}
+      >
         <View style={[progress.fill, { width: `${pct}%` }]} />
       </View>
     </View>
   );
 }
 
-/** Schedule-only progress treatment: editorial hierarchy with six quiet ticks. */
-function ScheduleProgressHeader() {
+function PackageSelectButton({
+  label,
+  selected,
+  disabled,
+  onPress,
+  children,
+}: {
+  label: string;
+  selected: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+  children: React.ReactNode;
+}) {
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return (
-    <View
-      style={scheduleProgress.container}
-      accessibilityRole="progressbar"
-      accessibilityValue={{ min: 1, max: STEP_LABELS.length, now: 3 }}
-      accessibilityLabel="Schedule, step 3 of 6"
-    >
-      <View style={scheduleProgress.metaRow}>
-        <Text style={scheduleProgress.count}>03 <Text style={scheduleProgress.countQuiet}>of 06</Text></Text>
-        <View style={scheduleProgress.ticks} accessibilityElementsHidden>
-          {STEP_LABELS.map((label, index) => (
-            <View
-              key={label}
-              style={[
-                scheduleProgress.tick,
-                index < 2 && scheduleProgress.tickComplete,
-                index === 2 && scheduleProgress.tickCurrent,
-              ]}
+    <Animated.View style={animatedStyle}>
+      <TouchableOpacity
+        activeOpacity={0.92}
+        accessibilityRole="radio"
+        accessibilityLabel={label}
+        accessibilityHint={disabled ? 'Price could not be loaded' : 'Selects this service package'}
+        accessibilityState={{ checked: selected, disabled: Boolean(disabled) }}
+        disabled={disabled}
+        onPress={onPress}
+        onPressIn={() => { scale.value = withTiming(0.988, { duration: 130 }); }}
+        onPressOut={() => { scale.value = withTiming(1, { duration: 150 }); }}
+        style={pkgCard.selectArea}
+      >
+        {children}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+function BookingContinueButton({
+  enabled,
+  busy,
+  accessibilityLabel,
+  onPress,
+}: {
+  enabled: boolean;
+  busy: boolean;
+  accessibilityLabel: string;
+  onPress: () => void;
+}) {
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <Animated.View style={[bookingCta.buttonWrap, animatedStyle]}>
+      <TouchableOpacity
+        activeOpacity={0.94}
+        disabled={!enabled || busy}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        accessibilityState={{ disabled: !enabled, busy }}
+        onPress={onPress}
+        onPressIn={() => {
+          if (enabled && !busy) scale.value = withTiming(0.98, { duration: 130 });
+        }}
+        onPressOut={() => { scale.value = withTiming(1, { duration: 150 }); }}
+        style={[bookingCta.button, enabled ? bookingCta.buttonEnabled : bookingCta.buttonDisabled]}
+      >
+        {busy ? (
+          <ActivityIndicator size="small" color={ON_PRIMARY} />
+        ) : (
+          <>
+            <Text style={[bookingCta.buttonText, !enabled && bookingCta.buttonTextDisabled]}>
+              Continue
+            </Text>
+            <Ionicons
+              name="arrow-forward"
+              size={18}
+              color={enabled ? ON_PRIMARY : '#85858D'}
             />
-          ))}
+          </>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+function DetailsSectionHeader({
+  icon,
+  label,
+  actionLabel,
+  onAction,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <View style={s1.sectionHeaderRow}>
+      <View style={s1.sectionHeader}>
+        <View style={s1.sectionIconWrap}>
+          <Ionicons name={icon} size={13} color="rgba(255,183,125,0.82)" />
         </View>
+        <Text style={s1.sectionLabel}>{label}</Text>
       </View>
-      <Text style={scheduleProgress.title}>Schedule</Text>
+      {actionLabel && onAction ? (
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={actionLabel}
+          hitSlop={8}
+          onPress={onAction}
+          style={s1.changeAction}
+        >
+          <Text style={s1.changeActionText}>{actionLabel}</Text>
+          <Ionicons name="chevron-forward" size={12} color="rgba(255,183,125,0.64)" />
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
 
-const scheduleProgress = StyleSheet.create({
-  container: {
-    paddingHorizontal: 20,
-    paddingTop: 11,
-    paddingBottom: 8,
-    backgroundColor: SURFACE_LOW,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 3,
-  },
-  title: {
-    color: '#F7F7F8',
-    fontSize: 29,
-    lineHeight: 34,
-    fontWeight: '600',
-    letterSpacing: -0.8,
-  },
-  count: {
-    color: '#D4D4D8',
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '600',
-    letterSpacing: 0.25,
-  },
-  countQuiet: {
-    color: '#71717A',
-    fontSize: 10,
-    fontWeight: '500',
-  },
-  ticks: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  tick: {
-    width: 16,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-  },
-  tickComplete: {
-    backgroundColor: 'rgba(255,255,255,0.28)',
-  },
-  tickCurrent: {
-    backgroundColor: Palette.accent,
-  },
-});
+/** Shared package mark with distinct selected and inclusion treatments. */
+function PackageCheck({
+  size,
+  checkSize,
+  treatment,
+}: {
+  size: number;
+  checkSize: number;
+  treatment: 'selected' | 'inclusion';
+}) {
+  const isSelected = treatment === 'selected';
+
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: isSelected ? PRIMARY_CTR : 'rgba(255,255,255,0.025)',
+        borderWidth: isSelected ? 0 : 1,
+        borderColor: isSelected ? 'transparent' : 'rgba(255,183,125,0.14)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+      }}
+    >
+      <Ionicons
+        name="checkmark"
+        size={checkSize}
+        color={isSelected ? ON_PRIMARY : 'rgba(255,183,125,0.82)'}
+      />
+    </View>
+  );
+}
 
 const progress = StyleSheet.create({
   container: {
     width: '100%',
-    paddingHorizontal: 20,
-    paddingTop: 7,
-    paddingBottom: 6,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
     backgroundColor: SURFACE_LOW,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
-  metaRow: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
-    marginBottom: 6,
+    minHeight: 46,
+    gap: 10,
+    marginBottom: 8,
+  },
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.035)',
+  },
+  titleGroup: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  title: {
+    color: '#F7F7F8',
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '700',
+    letterSpacing: -0.25,
   },
   stepText: {
     color: '#8B8B94',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.7,
-  },
-  metaDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: Palette.accent,
-  },
-  stepName: {
-    color: '#D4D4D8',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.7,
-    textTransform: 'uppercase',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+    marginTop: 1,
   },
   track: {
     height: 2,
@@ -592,14 +702,10 @@ type DayAvailabilityInfo = {
   remaining: number | null;
   booked: number | null;
   capacity: number | null;
+  availableTimes: number | null;
 };
 type DayAvailabilityMap = Record<string, DayAvailabilityInfo>;
-
-const CALENDAR_STATUS_COLORS = {
-  available: '#22C55E',
-  full: '#EF4444',
-  closed: '#94A3B8',
-} as const;
+type SlotStatus = 'AVAILABLE' | 'FULL' | 'CLOSED';
 
 type AvailableSlotsPayload = {
   success?: boolean;
@@ -622,6 +728,12 @@ type AvailableSlotsPayload = {
   businessDate?: string | null;
   businessTimeZone?: string | null;
   timeZone?: string | null;
+  remaining?: number | null;
+  availableSlots?: number | null;
+  bookedCount?: number | null;
+  slotsLimit?: number | null;
+  dailyCapacity?: number | null;
+  totalCapacity?: number | null;
 };
 
 const normalizeAvailableSlotsPayload = (payload: AvailableSlotsPayload) => {
@@ -639,6 +751,25 @@ const normalizeAvailableSlotsPayload = (payload: AvailableSlotsPayload) => {
     : typeof payload?.timeZone === 'string'
       ? payload.timeZone
       : null;
+  const capacity = typeof payload?.dailyCapacity === 'number'
+    ? payload.dailyCapacity
+    : typeof payload?.slotsLimit === 'number'
+      ? payload.slotsLimit
+      : typeof payload?.totalCapacity === 'number'
+        ? payload.totalCapacity
+        : Number.NaN;
+  const booked = typeof payload?.bookedCount === 'number' ? payload.bookedCount : Number.NaN;
+  const remaining = typeof payload?.remaining === 'number'
+    ? payload.remaining
+    : typeof payload?.availableSlots === 'number'
+      ? payload.availableSlots
+      : Number.NaN;
+  const hasValidDailyAvailability = Number.isFinite(capacity)
+    && capacity >= 0
+    && Number.isFinite(booked)
+    && booked >= 0
+    && Number.isFinite(remaining)
+    && remaining >= 0;
   return {
     slots,
     unavailable,
@@ -648,6 +779,52 @@ const normalizeAvailableSlotsPayload = (payload: AvailableSlotsPayload) => {
     emergencyClosed,
     businessDate,
     businessTimeZone,
+    dailyAvailability: hasValidDailyAvailability ? { capacity, booked, remaining } : null,
+  };
+};
+
+type NormalizedAvailableSlotsPayload = ReturnType<typeof normalizeAvailableSlotsPayload>;
+
+const getDayAvailabilityFromSlots = (
+  current: DayAvailabilityInfo | undefined,
+  normalized: NormalizedAvailableSlotsPayload,
+  availableTimes: number,
+): DayAvailabilityInfo => {
+  const daily = normalized.dailyAvailability;
+  const errorCode = normalized.errorCode;
+  const capacityReached = errorCode === 'DATE_FULL'
+    || Boolean(daily && daily.capacity > 0 && daily.remaining <= 0);
+  const closed = normalized.emergencyClosed || (normalized.unavailable && !capacityReached);
+  const status: DayAvailabilityStatus = closed ? 'closed' : capacityReached ? 'full' : 'available';
+  const closureType: DayAvailabilityInfo['closureType'] = normalized.emergencyClosed
+    ? 'emergency'
+    : normalized.closureType === 'recurring'
+      ? 'recurring'
+      : normalized.closureType
+        ? 'closure'
+        : null;
+
+  return {
+    status,
+    unavailable: normalized.unavailable || status !== 'available',
+    reason: normalized.emergencyClosed
+      ? EMERGENCY_CLOSURE_MESSAGE
+      : normalized.message
+        || (status === 'full'
+          ? 'All appointment times for this date are booked.'
+          : status === 'closed'
+            ? 'This date is unavailable for booking.'
+            : ''),
+    errorCode: errorCode || (status === 'full'
+      ? 'DATE_FULL'
+      : status === 'closed'
+        ? current?.errorCode || 'DATE_UNAVAILABLE'
+        : null),
+    closureType: status === 'closed' ? closureType : null,
+    remaining: daily?.remaining ?? current?.remaining ?? null,
+    booked: daily?.booked ?? current?.booked ?? null,
+    capacity: daily?.capacity ?? current?.capacity ?? null,
+    availableTimes,
   };
 };
 
@@ -663,6 +840,7 @@ type SlotRangeRow = {
   availableSlots?: number;
   bookedSlots?: number;
   dailyCapacity?: number;
+  availableTimeOptions?: number;
   status?: string;
 };
 
@@ -683,6 +861,29 @@ const getLocalIsoDate = (date: Date) => {
   return `${y}-${m}-${d}`;
 };
 
+const getDateFromIso = (value: string): Date | null => {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const addDaysToIso = (value: string, days: number): string => {
+  const date = getDateFromIso(value) || new Date();
+  date.setDate(date.getDate() + days);
+  return getLocalIsoDate(date);
+};
+
+const getUpcomingDateWindow = (
+  selectedDate: string | null,
+  businessDate: string | null,
+): string[] => {
+  const earliestDate = isIsoDate(businessDate) ? businessDate : getLocalIsoDate(new Date());
+  const centeredStart = isIsoDate(selectedDate) ? addDaysToIso(selectedDate, -2) : earliestDate;
+  const start = centeredStart < earliestDate ? earliestDate : centeredStart;
+  return Array.from({ length: 5 }, (_, index) => addDaysToIso(start, index));
+};
+
 const formatIsoDateForDisplay = (value: string | null, includeWeekday = false) => {
   if (!value) return '—';
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -696,6 +897,27 @@ const formatIsoDateForDisplay = (value: string | null, includeWeekday = false) =
   return date.toLocaleDateString('en-US', {
     ...(includeWeekday ? { weekday: 'long' as const } : {}),
     year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+};
+
+const formatScheduleFooterDate = (value: string | null): string => {
+  if (!value) return 'Choose an arrival time';
+  const date = getDateFromIso(value);
+  if (!date) return value;
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+};
+
+const formatScheduleSelectedDate = (value: string | null): string => {
+  const date = value ? getDateFromIso(value) : null;
+  if (!date) return value || '—';
+  return date.toLocaleDateString('en-US', {
+    weekday: 'long',
     month: 'long',
     day: 'numeric',
   });
@@ -723,6 +945,50 @@ const getSlotStartMinutes = (value: string): number | null => {
   }
   return hour * 60 + minute;
 };
+
+const deriveSlotStatuses = (
+  slots: NonNullable<AvailableSlotsPayload['slots']>,
+  unavailable: boolean,
+  errorCode: string | null,
+): { time: string; status: SlotStatus }[] => slots.reduce<{ time: string; status: SlotStatus }[]>((rows, slot) => {
+  const displayTime = String(slot.label || slot.time || '').trim();
+  if (!displayTime) return rows;
+
+  const rawStatus = String(slot.status || '').toUpperCase();
+  const startMinutes = getSlotStartMinutes(String(slot.time || slot.label || ''));
+  const knownStatus = ['AVAILABLE', 'ALMOST_FULL', 'FULL', 'OVER_CAPACITY'].includes(rawStatus);
+  const capacity = typeof slot.capacity === 'number' ? slot.capacity : Number.NaN;
+  const booked = typeof slot.booked === 'number' ? slot.booked : Number.NaN;
+  const available = typeof slot.available === 'number' ? slot.available : Number.NaN;
+  const blockedByDailyCapacity = slot.blockedByDailyCapacity === true;
+  const intrinsicAvailable = Math.max(0, capacity - booked);
+  const hasValidCounts = Number.isFinite(capacity)
+    && Number.isInteger(capacity)
+    && capacity >= 0
+    && Number.isFinite(booked)
+    && Number.isInteger(booked)
+    && booked >= 0
+    && Number.isFinite(available)
+    && Number.isInteger(available)
+    && available >= 0
+    && (
+      available === intrinsicAvailable
+      || (blockedByDailyCapacity && booked === 0 && available === 0 && intrinsicAvailable === 1)
+    );
+
+  let status: SlotStatus = 'CLOSED';
+  if (knownStatus && hasValidCounts && startMinutes !== null) {
+    status = rawStatus === 'FULL'
+      || rawStatus === 'OVER_CAPACITY'
+      || available <= 0
+      || booked >= capacity
+      ? 'FULL'
+      : 'AVAILABLE';
+  }
+  if (unavailable) status = errorCode === 'DATE_FULL' ? 'FULL' : 'CLOSED';
+  rows.push({ time: displayTime, status });
+  return rows;
+}, []);
 
 const getSelectedDateParts = (value: string | null) => {
   if (!value) return null;
@@ -765,26 +1031,24 @@ function CalendarDay({
   const isStaticDisabled = !item.isCurrentMonth || item.isPast;
   const dayInfo = item.isCurrentMonth && !item.isPast ? monthAvailability[item.iso] : undefined;
   const availStatus = dayInfo?.status;
-  const isUnavailable = loading || !dayInfo || !!dayInfo.unavailable || availStatus === 'closed' || availStatus === 'full';
+  const isUnavailable = !dayInfo || !!dayInfo.unavailable || availStatus === 'closed' || availStatus === 'full';
   const isToday = item.isCurrentMonth && item.iso === todayKey;
-  const statusColor = dayInfo
-    ? dayInfo.errorCode === 'EMERGENCY_CLOSED'
-      ? CALENDAR_STATUS_COLORS.full
-      : CALENDAR_STATUS_COLORS[dayInfo.status]
-    : null;
-  const statusMarkerStyle = dayInfo?.errorCode === 'EMERGENCY_CLOSED'
-    ? cal.statusIndicatorBooked
+  const isEmergencyClosed = dayInfo?.errorCode === 'EMERGENCY_CLOSED' || dayInfo?.closureType === 'emergency';
+  const statusLabel = isEmergencyClosed
+    ? 'Emergency'
     : dayInfo?.status === 'full'
-      ? cal.statusIndicatorBooked
-      : dayInfo?.status === 'closed'
-        ? cal.statusIndicatorClosed
-        : null;
+    ? 'Full'
+    : dayInfo?.status === 'closed'
+      ? 'Closed'
+      : loading && !dayInfo
+        ? 'Checking'
+        : '';
 
   return (
     <Animated.View style={[cal.dayCell, animatedStyle]}>
       <TouchableOpacity
         activeOpacity={isStaticDisabled || isUnavailable ? 1 : 0.82}
-        disabled={isStaticDisabled}
+        disabled={isStaticDisabled || isUnavailable}
         accessibilityRole="button"
         accessibilityState={{ disabled: isStaticDisabled || isUnavailable, selected: isSelected }}
         accessibilityLabel={dayInfo && !item.isPast
@@ -794,25 +1058,15 @@ function CalendarDay({
               : 'Closed'
             : availStatus === 'full'
               ? 'Fully Booked'
-              : `${dayInfo.remaining ?? 0} appointment${dayInfo.remaining === 1 ? '' : 's'} available`}`
+              : `${dayInfo.availableTimes ?? dayInfo.remaining ?? 0} available start times`}`
           : undefined}
         onPressIn={() => {
-          if (!isStaticDisabled && !isUnavailable) scale.value = withTiming(0.985, { duration: 90 });
+          if (!isStaticDisabled && !isUnavailable) scale.value = withTiming(0.985, { duration: 120 });
         }}
         onPressOut={() => { scale.value = withTiming(1, { duration: 140 }); }}
         onPress={() => {
-          if (isStaticDisabled) return;
-          if (isUnavailable) {
-            Toast.show(
-              loading
-                ? 'Checking live availability…'
-                : dayInfo?.reason || 'Live availability could not be confirmed for this date.',
-              'info',
-            );
-            return;
-          }
+          if (isStaticDisabled || isUnavailable) return;
           onSelectDate(item.dateKey, item.iso);
-          Haptics.selectionAsync();
         }}
         style={cal.dayTouchTarget}
       >
@@ -826,15 +1080,11 @@ function CalendarDay({
         ]}>
           {item.day}
         </Text>
-        <View style={cal.statusIndicatorTrack}>
-          {statusColor && !item.isPast && !isSelected ? (
-            <View style={[
-              cal.statusIndicator,
-              { backgroundColor: statusColor },
-              statusMarkerStyle,
-            ]} />
-          ) : null}
-        </View>
+        <Text style={[
+          cal.dayStatusText,
+          isEmergencyClosed && cal.dayStatusTextEmergency,
+          isSelected && cal.dayStatusTextSelected,
+        ]}>{statusLabel}</Text>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -856,7 +1106,7 @@ function TimeSlotButton({
   const isFull = status === 'FULL';
   const isClosed = status === 'CLOSED';
   const disabled = isFull || isClosed;
-  const statusLabel = isFull ? 'Booked' : isClosed ? 'Closed' : 'Available';
+  const statusLabel = isFull ? 'Unavailable' : isClosed ? 'Closed' : 'Available';
 
   return (
     <Animated.View style={[s2.timeSlotWrapper, animatedStyle]}>
@@ -866,7 +1116,7 @@ function TimeSlotButton({
           onSelect();
         }}
         onPressIn={() => {
-          if (!disabled) scale.value = withTiming(0.985, { duration: 90 });
+          if (!disabled) scale.value = withTiming(0.985, { duration: 120 });
         }}
         onPressOut={() => { scale.value = withTiming(1, { duration: 140 }); }}
         activeOpacity={disabled ? 1 : 0.88}
@@ -884,7 +1134,7 @@ function TimeSlotButton({
         {selected ? (
           <View style={s2.timePillSelectedContent}>
             <Text style={s2.timeTextSelected}>{time}</Text>
-            <Ionicons name="checkmark" size={15} color="#09090A" />
+            <Ionicons name="checkmark" size={14} color={PRIMARY} />
           </View>
         ) : (
           <View style={s2.timePillContent}>
@@ -893,12 +1143,114 @@ function TimeSlotButton({
               isFull && s2.timeTextFull,
               isClosed && s2.timeTextClosed,
             ]}>{time}</Text>
-            {isFull && <Text style={s2.timeStatusBooked}>Booked</Text>}
+            {isFull && <Text style={s2.timeStatusBooked}>Unavailable</Text>}
             {isClosed && <Text style={s2.timeStatusClosed}>Closed</Text>}
           </View>
         )}
       </TouchableOpacity>
     </Animated.View>
+  );
+}
+
+function UpcomingDateRail({
+  selectedDate,
+  businessDate,
+  monthAvailability,
+  loading,
+  calendarOpen,
+  onSelectDate,
+  onToggleCalendar,
+}: {
+  selectedDate: string | null;
+  businessDate: string | null;
+  monthAvailability: DayAvailabilityMap;
+  loading: boolean;
+  calendarOpen: boolean;
+  onSelectDate: (iso: string) => void;
+  onToggleCalendar: () => void;
+}) {
+  const dates = getUpcomingDateWindow(selectedDate, businessDate);
+  const firstDate = getDateFromIso(dates[0]);
+  const lastDate = getDateFromIso(dates[dates.length - 1]);
+  const monthLabel = firstDate && lastDate
+    ? firstDate.getMonth() === lastDate.getMonth()
+      ? firstDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : `${firstDate.toLocaleDateString('en-US', { month: 'short' })}–${lastDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`
+    : '';
+
+  return (
+    <View style={dateRail.container}>
+      <View style={dateRail.header}>
+        <Text style={dateRail.monthLabel}>{monthLabel.toUpperCase()}</Text>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={calendarOpen ? 'Hide full calendar' : 'Open full calendar'}
+          onPress={onToggleCalendar}
+          activeOpacity={0.7}
+          style={dateRail.calendarAction}
+        >
+          <Text style={dateRail.calendarActionText}>{calendarOpen ? 'Hide calendar' : 'View calendar'}</Text>
+          <Ionicons name={calendarOpen ? 'chevron-up' : 'chevron-forward'} size={13} color={PRIMARY} />
+        </TouchableOpacity>
+      </View>
+      {!calendarOpen ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={dateRail.list}
+        >
+          {dates.map((iso) => {
+            const date = getDateFromIso(iso)!;
+            const info = monthAvailability[iso];
+            const selected = selectedDate === iso;
+            const disabled = !info || info.unavailable || info.status !== 'available';
+            const emergencyClosed = info?.errorCode === 'EMERGENCY_CLOSED' || info?.closureType === 'emergency';
+            const availabilityLabel = !info
+              ? loading ? 'Checking' : 'Unavailable'
+              : emergencyClosed
+                ? 'Emergency'
+                : info.status === 'closed'
+                  ? 'Closed'
+                  : info.status === 'full'
+                    ? 'Full'
+                    : info.availableTimes !== null
+                      ? `${info.availableTimes} ${info.availableTimes === 1 ? 'time' : 'times'}`
+                      : 'Available';
+            const accessibilityAvailabilityLabel = emergencyClosed
+              ? 'Emergency closed'
+              : info?.status === 'full'
+                ? 'Fully booked'
+                : availabilityLabel;
+            return (
+              <TouchableOpacity
+                key={iso}
+                accessibilityRole="button"
+                accessibilityState={{ disabled, selected }}
+                accessibilityLabel={`${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}, ${accessibilityAvailabilityLabel}`}
+                disabled={disabled}
+                activeOpacity={0.78}
+                onPress={() => onSelectDate(iso)}
+                style={[dateRail.item, selected && dateRail.itemSelected, disabled && dateRail.itemDisabled]}
+              >
+                <Text style={[dateRail.weekday, selected && dateRail.weekdaySelected]}>
+                  {date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
+                </Text>
+                <View style={[dateRail.dayCircle, selected && dateRail.dayCircleSelected]}>
+                  <Text style={[dateRail.day, selected && dateRail.daySelected]}>{date.getDate()}</Text>
+                </View>
+                <Text style={[
+                  dateRail.availability,
+                  emergencyClosed && dateRail.availabilityEmergency,
+                  selected && dateRail.availabilitySelected,
+                ]} numberOfLines={1}>
+                  {availabilityLabel}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+    </View>
   );
 }
 
@@ -924,9 +1276,12 @@ function MonthCalendar({
   const year  = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
   const todayKey = isIsoDate(businessDate) ? businessDate : getLocalIsoDate(new Date());
+  const earliestMonthKey = todayKey.slice(0, 7);
+  const previousMonth = new Date(year, month - 1, 1);
+  const canGoPrevious = `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, '0')}` >= earliestMonthKey;
 
   useEffect(() => {
-    if (!isIsoDate(businessDate) || appliedBusinessDateRef.current === businessDate) return;
+    if (selectedDate || !isIsoDate(businessDate) || appliedBusinessDateRef.current === businessDate) return;
     appliedBusinessDateRef.current = businessDate;
     const [businessYear, businessMonth, businessDay] = businessDate.split('-').map(Number);
     setCurrentMonth((current) => {
@@ -935,9 +1290,19 @@ function MonthCalendar({
       onMonthChange?.(businessYear, businessMonth - 1);
       return next;
     });
-  }, [businessDate, onMonthChange]);
+  }, [businessDate, onMonthChange, selectedDate]);
+
+  useEffect(() => {
+    if (!isIsoDate(selectedDate)) return;
+    const [selectedYear, selectedMonth, selectedDay] = selectedDate.split('-').map(Number);
+    setCurrentMonth((current) => {
+      if (current.getFullYear() === selectedYear && current.getMonth() === selectedMonth - 1) return current;
+      return new Date(selectedYear, selectedMonth - 1, selectedDay);
+    });
+  }, [selectedDate]);
 
   const prevMonth = () => {
+    if (!canGoPrevious) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const d = new Date(year, month - 1, 1);
     setCurrentMonth(d);
@@ -974,19 +1339,17 @@ function MonthCalendar({
 
   return (
     <View style={cal.container}>
-      {/* Month is the hero; controls stay visually quiet inside 44pt targets. */}
       <View style={cal.header}>
-        <View style={cal.monthLockup}>
-          <Text style={cal.monthTitle}>{MONTH_NAMES_FULL[month]}</Text>
-          <Text style={cal.yearTitle}>{year}</Text>
-        </View>
+        <Text style={cal.monthTitle}>{MONTH_NAMES_FULL[month]} {year}</Text>
         <View style={cal.monthControls}>
           <TouchableOpacity
             onPress={prevMonth}
+            disabled={!canGoPrevious}
             activeOpacity={0.65}
-            style={cal.arrowBtn}
+            style={[cal.arrowBtn, !canGoPrevious && cal.arrowBtnDisabled]}
             accessibilityRole="button"
             accessibilityLabel="Show previous month"
+            accessibilityState={{ disabled: !canGoPrevious }}
           >
             <Ionicons name="chevron-back" size={19} color={SECONDARY} />
           </TouchableOpacity>
@@ -1023,52 +1386,88 @@ function MonthCalendar({
           ))}
         </View>
       </Animated.View>
-
-      <View style={cal.legend} accessibilityLabel="Calendar availability legend">
-        {[
-          { color: CALENDAR_STATUS_COLORS.available, label: 'Available', marker: null },
-          { color: CALENDAR_STATUS_COLORS.full, label: 'Booked', marker: cal.statusIndicatorBooked },
-          { color: CALENDAR_STATUS_COLORS.closed, label: 'Closed', marker: cal.statusIndicatorClosed },
-        ].map((item) => (
-          <View key={item.label} style={cal.legendItem}>
-            <View style={[cal.legendDot, { backgroundColor: item.color }, item.marker]} />
-            <Text style={cal.legendText}>{item.label}</Text>
-          </View>
-        ))}
-      </View>
     </View>
   );
 }
 
+const dateRail = StyleSheet.create({
+  container: { gap: 10 },
+  header: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  monthLabel: {
+    color: '#A1A1AA',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 0.9,
+  },
+  calendarAction: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingLeft: 8,
+  },
+  calendarActionText: { color: PRIMARY, fontSize: 12, lineHeight: 16, fontWeight: '600' },
+  list: { gap: 8, paddingRight: 2 },
+  item: {
+    width: 62,
+    minHeight: 78,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#111113',
+    paddingHorizontal: 5,
+    paddingVertical: 6,
+  },
+  itemSelected: {
+    borderColor: 'rgba(255,140,0,0.55)',
+    backgroundColor: 'rgba(255,140,0,0.07)',
+  },
+  itemDisabled: { opacity: 0.48 },
+  weekday: { color: '#71717A', fontSize: 9, lineHeight: 12, fontWeight: '700', letterSpacing: 0.5 },
+  weekdaySelected: { color: PRIMARY },
+  dayCircle: {
+    width: 30,
+    height: 30,
+    marginVertical: 2,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayCircleSelected: { backgroundColor: PRIMARY_CTR },
+  day: { color: '#F4F4F5', fontSize: 17, lineHeight: 21, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  daySelected: { color: ON_PRIMARY },
+  availability: { width: '100%', color: '#8B8B91', fontSize: 9, lineHeight: 12, textAlign: 'center' },
+  availabilityEmergency: { color: '#F87171' },
+  availabilitySelected: { color: '#D4D4D8', fontWeight: '600' },
+});
+
 const cal = StyleSheet.create({
   container: {
-    paddingTop: 4,
+    paddingTop: 2,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 9,
-  },
-  monthLockup: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 8,
+    marginBottom: 4,
   },
   monthTitle: {
-    fontSize: 30,
-    lineHeight: 36,
-    fontWeight: '600',
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
     color: '#F7F7F8',
-    letterSpacing: -0.85,
-  },
-  yearTitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '500',
-    color: '#71717A',
+    letterSpacing: -0.25,
   },
   monthControls: {
     flexDirection: 'row',
@@ -1081,9 +1480,10 @@ const cal = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  arrowBtnDisabled: { opacity: 0.28 },
   weekdays: {
     flexDirection: 'row',
-    marginBottom: 3,
+    marginBottom: 1,
   },
   weekdayText: {
     width: '14.28%',
@@ -1098,7 +1498,7 @@ const cal = StyleSheet.create({
   },
   dayCell: {
     width: '14.28%',
-    height: 44,
+    height: 36,
   },
   dayTouchTarget: {
     flex: 1,
@@ -1110,11 +1510,11 @@ const cal = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#E4E4E7',
-    width: 30,
-    height: 30,
+    width: 28,
+    height: 28,
     textAlign: 'center',
-    lineHeight: 30,
-    borderRadius: 15,
+    lineHeight: 28,
+    borderRadius: 14,
     overflow: 'hidden',
   },
   dayTextAdjacent: {
@@ -1131,62 +1531,17 @@ const cal = StyleSheet.create({
   },
   dayTextToday: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,107,53,0.60)',
+    borderColor: 'rgba(255,140,0,0.72)',
   },
   dayTextSelected: {
-    backgroundColor: Palette.accent,
-    borderColor: Palette.accent,
-    color: '#FFFFFF',
+    backgroundColor: PRIMARY_CTR,
+    borderColor: PRIMARY_CTR,
+    color: ON_PRIMARY,
     fontWeight: '700',
   },
-  statusIndicatorTrack: {
-    height: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statusIndicator: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-  },
-  statusIndicatorBooked: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-  },
-  statusIndicatorClosed: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: CALENDAR_STATUS_COLORS.closed,
-  },
-  legend: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    columnGap: 14,
-    rowGap: 6,
-    marginTop: 6,
-    paddingTop: 2,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  legendDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-  },
-  legendText: {
-    fontSize: 11,
-    color: '#71717A',
-    fontWeight: '500',
-  },
+  dayStatusText: { height: 8, color: '#5F5F66', fontSize: 6, lineHeight: 8, fontWeight: '600' },
+  dayStatusTextEmergency: { color: '#F87171', fontSize: 6 },
+  dayStatusTextSelected: { color: 'transparent' },
 });
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
@@ -1195,6 +1550,14 @@ export default function BookScreen() {
   const { profile, backendUser } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const prefillParams = useLocalSearchParams<{
+    vehicleId?: string;
+    serviceId?: string;
+    pkg?: string;
+    notes?: string;
+    step?: string;
+  }>();
+  const draftOwnerId = profile?.id || profile?.backend_id || profile?.firebase_uid || '';
 
   // ── State ──
   const [step, setStep] = useState(0);
@@ -1202,11 +1565,13 @@ export default function BookScreen() {
   // Step 0 — Vehicle
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
+  const [vehiclesError, setVehiclesError] = useState('');
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
 
   // Step 1 — Service (loaded on mount)
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [servicesLoading, setServicesLoading] = useState(true);
+  const [servicesError, setServicesError] = useState('');
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
 
   // Step 1 — Vehicle type for pricing
@@ -1225,8 +1590,68 @@ export default function BookScreen() {
 
   // Add Vehicle form
   const [showAddVehicle, setShowAddVehicle] = useState(false);
+  const [showVehiclePicker, setShowVehiclePicker] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+  const vehicleModalTransitionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [packageDetailsKey, setPackageDetailsKey] = useState<string | null>(null);
+  const packageSheetTranslateY = useRef(new RNAnimated.Value(0)).current;
   const [isContinuing, setIsContinuing] = useState(false);
+  const [stepOneDockHeight, setStepOneDockHeight] = useState(0);
+  const [stepTwoDockHeight, setStepTwoDockHeight] = useState(0);
+  const [scheduleDockHeight, setScheduleDockHeight] = useState(0);
+  const [isPhoneEditing, setIsPhoneEditing] = useState(false);
+  const [isDetailsContinuing, setIsDetailsContinuing] = useState(false);
+  const [isScheduleContinuing, setIsScheduleContinuing] = useState(false);
+  const [showFullCalendar, setShowFullCalendar] = useState(false);
+
+  // Durable draft hydration is intentionally separated from ordinary field state
+  // so default vehicle/profile values are never persisted before the customer acts.
+  const [draftDecisionResolved, setDraftDecisionResolved] = useState(false);
+  const [draftDirty, setDraftDirty] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<BookingDraftV1 | null>(null);
+  const draftPromptShownRef = useRef(false);
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restoredStepRef = useRef<number | null>(null);
+  const prefillAppliedRef = useRef(false);
+
+  const closePackageDetails = useCallback(() => {
+    packageSheetTranslateY.setValue(0);
+    setPackageDetailsKey(null);
+  }, [packageSheetTranslateY]);
+
+  const packageSheetPanResponder = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_event, gesture) =>
+      gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onPanResponderMove: (_event, gesture) => {
+      packageSheetTranslateY.setValue(Math.max(0, gesture.dy));
+    },
+    onPanResponderRelease: (_event, gesture) => {
+      if (gesture.dy > 72 || gesture.vy > 0.9) {
+        RNAnimated.timing(packageSheetTranslateY, {
+          toValue: 520,
+          duration: 170,
+          useNativeDriver: true,
+        }).start(closePackageDetails);
+        return;
+      }
+      RNAnimated.spring(packageSheetTranslateY, {
+        toValue: 0,
+        damping: 22,
+        stiffness: 240,
+        mass: 0.8,
+        useNativeDriver: true,
+      }).start();
+    },
+    onPanResponderTerminate: () => {
+      RNAnimated.spring(packageSheetTranslateY, {
+        toValue: 0,
+        damping: 22,
+        stiffness: 240,
+        mass: 0.8,
+        useNativeDriver: true,
+      }).start();
+    },
+  })).current;
 
   // Validation Errors
   const [phoneError, setPhoneError] = useState('');
@@ -1255,10 +1680,13 @@ export default function BookScreen() {
 
   useEffect(() => {
     if (step === 0) setIsContinuing(false);
+    if (step !== 1) {
+      setIsPhoneEditing(false);
+      setIsDetailsContinuing(false);
+    }
   }, [step]);
 
   // ── Calendar availability state (mirrors web CustomerDashboard) ──
-  type SlotStatus = 'AVAILABLE' | 'FULL' | 'CLOSED';
   const [monthAvailability, setMonthAvailability] = useState<DayAvailabilityMap>({});
   const [monthAvailLoading, setMonthAvailLoading] = useState(false);
   const [slotStatuses, setSlotStatuses] = useState<{ time: string; status: SlotStatus }[]>([]);
@@ -1266,15 +1694,18 @@ export default function BookScreen() {
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [businessDate, setBusinessDate] = useState<string | null>(null);
   const [, setBusinessTimeZone] = useState<string | null>(null);
-  const monthAvailabilityRequestRef = useRef(0);
+  const monthAvailabilityRequestRef = useRef<Record<string, number>>({});
+  const pendingMonthAvailabilityRef = useRef(new Set<string>());
   const slotAvailabilityRequestRef = useRef(0);
   const selectedDateRef = useRef<string | null>(null);
+  const selectedTimeRef = useRef<string | null>(null);
   const stepRef = useRef(step);
   const visibleCalendarMonthRef = useRef({
     year: new Date().getFullYear(),
     month: new Date().getMonth(),
   });
   selectedDateRef.current = selectedDate;
+  selectedTimeRef.current = selectedTime;
   stepRef.current = step;
 
   useEffect(() => {
@@ -1316,7 +1747,10 @@ export default function BookScreen() {
   );
 
   const fetchMonthAvailability = useCallback(async (y: number, m: number) => {
-    const requestId = ++monthAvailabilityRequestRef.current;
+    const requestKey = `${y}-${m}`;
+    const requestId = (monthAvailabilityRequestRef.current[requestKey] || 0) + 1;
+    monthAvailabilityRequestRef.current[requestKey] = requestId;
+    pendingMonthAvailabilityRef.current.add(requestKey);
     setMonthAvailLoading(true);
     const fallbackBusinessDate = businessDate || getLocalIsoDate(new Date());
     const daysInM = new Date(y, m + 1, 0).getDate();
@@ -1336,15 +1770,15 @@ export default function BookScreen() {
         remaining: 0,
         booked: null,
         capacity: null,
+        availableTimes: null,
       };
     }
 
     try {
-      const { apiClient } = await import('@/services/api/client');
       const start = `${y}-${String(m + 1).padStart(2, '0')}-01`;
       const end = `${y}-${String(m + 1).padStart(2, '0')}-${String(daysInM).padStart(2, '0')}`;
       const res = await apiClient.get(`/slots/range?start=${start}&end=${end}`);
-      if (requestId !== monthAvailabilityRequestRef.current) return;
+      if (requestId !== monthAvailabilityRequestRef.current[requestKey]) return;
       const rows: SlotRangeRow[] = Array.isArray(res.data?.data) ? res.data.data : [];
       if (res.data?.success !== true || rows.length === 0) {
         throw new Error('Availability range was not returned by the server.');
@@ -1383,6 +1817,9 @@ export default function BookScreen() {
           : Number.NaN;
         const booked = typeof row.bookedSlots === 'number' ? row.bookedSlots : Number.NaN;
         const capacity = typeof row.dailyCapacity === 'number' ? row.dailyCapacity : Number.NaN;
+        const availableTimes = typeof row.availableTimeOptions === 'number'
+          ? row.availableTimeOptions
+          : Number.NaN;
         const hasValidRemaining = Number.isFinite(remaining) && remaining >= 0;
         const hasValidDailyCounts = Number.isFinite(booked)
           && booked >= 0
@@ -1424,17 +1861,21 @@ export default function BookScreen() {
           remaining,
           booked,
           capacity,
+          availableTimes: Number.isFinite(availableTimes) && availableTimes >= 0
+            ? availableTimes
+            : null,
         };
       }
     } catch {
-      if (requestId === monthAvailabilityRequestRef.current) {
+      if (requestId === monthAvailabilityRequestRef.current[requestKey]) {
         Toast.show('Could not load live calendar availability. Please try again.', 'error');
       }
     }
     finally {
-      if (requestId === monthAvailabilityRequestRef.current) {
-        setMonthAvailability(result);
-        setMonthAvailLoading(false);
+      if (requestId === monthAvailabilityRequestRef.current[requestKey]) {
+        setMonthAvailability((current) => ({ ...current, ...result }));
+        pendingMonthAvailabilityRef.current.delete(requestKey);
+        setMonthAvailLoading(pendingMonthAvailabilityRef.current.size > 0);
       }
     }
   }, [businessDate]);
@@ -1446,12 +1887,12 @@ export default function BookScreen() {
     setSlotStatuses([]);
     setScheduleMessage('');
     try {
-      const { apiClient } = await import('@/services/api/client');
       const res = await apiClient.get(`/orders/available-slots?date=${iso}`);
       if (requestId !== slotAvailabilityRequestRef.current) return;
       if (res.data?.success !== true) {
         throw new Error('Availability was not returned by the server.');
       }
+      const normalized = normalizeAvailableSlotsPayload(res.data);
       const {
         unavailable,
         errorCode,
@@ -1460,87 +1901,71 @@ export default function BookScreen() {
         emergencyClosed,
         businessDate: responseBusinessDate,
         businessTimeZone: responseBusinessTimeZone,
-      } = normalizeAvailableSlotsPayload(res.data);
+      } = normalized;
       if (isIsoDate(responseBusinessDate)) setBusinessDate(responseBusinessDate);
       if (responseBusinessTimeZone) setBusinessTimeZone(responseBusinessTimeZone);
 
       if (emergencyClosed) {
         setSlotStatuses([]);
+        selectedTimeRef.current = null;
         setSelectedTime(null);
         setScheduleMessage(EMERGENCY_CLOSURE_MESSAGE);
         setMonthAvailability((current) => ({
           ...current,
-          [iso]: {
-            status: 'closed',
-            unavailable: true,
-            reason: EMERGENCY_CLOSURE_MESSAGE,
-            errorCode: 'EMERGENCY_CLOSED',
-            closureType: 'emergency',
-            remaining: 0,
-            booked: current[iso]?.booked ?? null,
-            capacity: current[iso]?.capacity ?? 0,
-          },
+          [iso]: getDayAvailabilityFromSlots(current[iso], normalized, 0),
         }));
         setStep(2);
         Toast.show(EMERGENCY_CLOSURE_MESSAGE, 'error');
         return;
       }
 
-      const derived = slots.reduce<{ time: string; status: SlotStatus }[]>((rows, slot) => {
-        const displayTime = String(slot.label || slot.time || '').trim();
-        if (!displayTime) return rows;
-
-        const rawStatus = String(slot.status || '').toUpperCase();
-        const startMinutes = getSlotStartMinutes(String(slot.time || slot.label || ''));
-        const knownStatus = ['AVAILABLE', 'ALMOST_FULL', 'FULL', 'OVER_CAPACITY'].includes(rawStatus);
-        const capacity = typeof slot.capacity === 'number' ? slot.capacity : Number.NaN;
-        const booked = typeof slot.booked === 'number' ? slot.booked : Number.NaN;
-        const available = typeof slot.available === 'number' ? slot.available : Number.NaN;
-        const blockedByDailyCapacity = slot.blockedByDailyCapacity === true;
-        const intrinsicAvailable = Math.max(0, capacity - booked);
-        const hasValidCounts = Number.isFinite(capacity)
-          && Number.isInteger(capacity)
-          && capacity >= 0
-          && Number.isFinite(booked)
-          && Number.isInteger(booked)
-          && booked >= 0
-          && Number.isFinite(available)
-          && Number.isInteger(available)
-          && available >= 0
-          && (
-            available === intrinsicAvailable
-            || (blockedByDailyCapacity && booked === 0 && available === 0 && intrinsicAvailable === 1)
-          );
-
-        let status: SlotStatus = 'CLOSED';
-        if (knownStatus && hasValidCounts && startMinutes !== null) {
-          status = rawStatus === 'FULL'
-            || rawStatus === 'OVER_CAPACITY'
-            || available <= 0
-            || booked >= capacity
-            ? 'FULL'
-            : 'AVAILABLE';
-        }
-        if (unavailable) status = errorCode === 'DATE_FULL' ? 'FULL' : 'CLOSED';
-        rows.push({ time: displayTime, status });
-        return rows;
-      }, []);
+      const derived = deriveSlotStatuses(slots, unavailable, errorCode);
+      const previouslySelectedTime = selectedTimeRef.current;
+      const lostSelectedTime = Boolean(
+        previouslySelectedTime
+        && !derived.some((slot) => slot.time === previouslySelectedTime && slot.status === 'AVAILABLE')
+      );
+      const availableTimes = derived.filter((slot) => slot.status === 'AVAILABLE').length;
+      const refreshedDayAvailability = getDayAvailabilityFromSlots(
+        undefined,
+        normalized,
+        availableTimes,
+      );
 
       setSlotStatuses(derived);
+      setMonthAvailability((current) => ({
+        ...current,
+        [iso]: getDayAvailabilityFromSlots(current[iso], normalized, availableTimes),
+      }));
+      if (lostSelectedTime) {
+        selectedTimeRef.current = null;
+        setSelectedTime(null);
+        const previousSlot = derived.find((slot) => slot.time === previouslySelectedTime);
+        const conflictMessage = refreshedDayAvailability.status === 'full'
+          ? `${formatIsoDateForDisplay(iso)} is now fully booked. Choose another available date.`
+          : refreshedDayAvailability.status === 'closed'
+            ? `${formatIsoDateForDisplay(iso)} is now closed. Choose another available date.`
+            : previousSlot?.status === 'FULL'
+              ? `${previouslySelectedTime} was just booked. Choose another available time to continue.`
+              : `${previouslySelectedTime} is no longer available. Choose another available time to continue.`;
+        setScheduleMessage(conflictMessage);
+        Toast.show(conflictMessage, 'warning');
+      }
       setSelectedTime((current) => (
         current && !derived.some((slot) => slot.time === current && slot.status === 'AVAILABLE')
           ? null
           : current
       ));
 
-      if (message) {
+      if (!lostSelectedTime && message) {
         setScheduleMessage(message);
-      } else if (derived.length === 0) {
+      } else if (!lostSelectedTime && derived.length === 0) {
         setScheduleMessage('No bookable time options were generated for this date.');
       }
     } catch {
       if (requestId === slotAvailabilityRequestRef.current) {
         setSlotStatuses([]);
+        selectedTimeRef.current = null;
         setSelectedTime(null);
         setScheduleMessage('Live time availability could not be confirmed. Please try again.');
       }
@@ -1549,23 +1974,75 @@ export default function BookScreen() {
     }
   }, []);
 
+  const selectScheduleDate = useCallback((iso: string) => {
+    if (!iso) return;
+    if (selectedDateRef.current !== iso) {
+      selectedDateRef.current = iso;
+      selectedTimeRef.current = null;
+      setSelectedDate(iso);
+      setSelectedTime(null);
+      setDraftDirty(true);
+    }
+    setSlotStatuses([]);
+    setScheduleMessage('');
+    void fetchSlotsForDate(iso);
+    Haptics.selectionAsync();
+  }, [fetchSlotsForDate]);
+
   useEffect(() => {
     if (step !== 2) return;
+    const selectedParts = selectedDateRef.current?.match(/^(\d{4})-(\d{2})-\d{2}$/);
     const now = new Date();
-    visibleCalendarMonthRef.current = { year: now.getFullYear(), month: now.getMonth() };
-    setMonthAvailability({});
-    fetchMonthAvailability(now.getFullYear(), now.getMonth());
-  }, [step, fetchMonthAvailability]);
+    const year = selectedParts ? Number(selectedParts[1]) : now.getFullYear();
+    const month = selectedParts ? Number(selectedParts[2]) - 1 : now.getMonth();
+    visibleCalendarMonthRef.current = { year, month };
+
+    const railMonths = getUpcomingDateWindow(selectedDate, businessDate).reduce<{ year: number; month: number }[]>(
+      (months, iso) => {
+        const date = getDateFromIso(iso);
+        if (!date) return months;
+        const exists = months.some((entry) => (
+          entry.year === date.getFullYear() && entry.month === date.getMonth()
+        ));
+        if (!exists) months.push({ year: date.getFullYear(), month: date.getMonth() });
+        return months;
+      },
+      [],
+    );
+    if (!railMonths.some((entry) => entry.year === year && entry.month === month)) {
+      railMonths.unshift({ year, month });
+    }
+
+    void Promise.all(railMonths.map((entry) => fetchMonthAvailability(entry.year, entry.month)));
+  }, [businessDate, fetchMonthAvailability, selectedDate, step]);
+
+  useEffect(() => {
+    if (step === 2 && selectedDateRef.current) {
+      void fetchSlotsForDate(selectedDateRef.current);
+    }
+  }, [fetchSlotsForDate, step]);
 
   const refreshCurrentAvailability = useCallback(() => {
     if (stepRef.current !== 2) return;
-    const { year, month } = visibleCalendarMonthRef.current;
-    setMonthAvailability({});
-    void fetchMonthAvailability(year, month);
+    const visibleMonth = visibleCalendarMonthRef.current;
+    const months = getUpcomingDateWindow(selectedDateRef.current, businessDate).reduce<{ year: number; month: number }[]>(
+      (entries, iso) => {
+        const date = getDateFromIso(iso);
+        if (!date) return entries;
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        if (!entries.some((entry) => entry.year === year && entry.month === month)) {
+          entries.push({ year, month });
+        }
+        return entries;
+      },
+      [visibleMonth],
+    );
+    void Promise.all(months.map((entry) => fetchMonthAvailability(entry.year, entry.month)));
     if (selectedDateRef.current) {
       void fetchSlotsForDate(selectedDateRef.current);
     }
-  }, [fetchMonthAvailability, fetchSlotsForDate]);
+  }, [businessDate, fetchMonthAvailability, fetchSlotsForDate]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1591,7 +2068,6 @@ export default function BookScreen() {
       refreshTimer = setTimeout(() => {
         if (disposed) return;
         const { year, month } = visibleCalendarMonthRef.current;
-        setMonthAvailability({});
         void fetchMonthAvailability(year, month);
         if (selectedDateRef.current) {
           void fetchSlotsForDate(selectedDateRef.current);
@@ -1624,6 +2100,14 @@ export default function BookScreen() {
     };
   }, [fetchMonthAvailability, fetchSlotsForDate]);
 
+  useEffect(() => {
+    if (step !== 2 || !isIsoDate(businessDate)) return;
+    const railStart = getDateFromIso(businessDate);
+    const railEnd = getDateFromIso(addDaysToIso(businessDate, 4));
+    if (!railStart || !railEnd || railStart.getMonth() === railEnd.getMonth()) return;
+    void fetchMonthAvailability(railEnd.getFullYear(), railEnd.getMonth());
+  }, [businessDate, fetchMonthAvailability, step]);
+
   // Preview booking reference (generated client-side for display only)
   const previewBookingRef = React.useMemo(() => {
     const now = new Date();
@@ -1635,40 +2119,55 @@ export default function BookScreen() {
   }, []);
 
   // ── Data Loading ──
+  const loadVehicles = useCallback(async () => {
+    setVehiclesLoading(true);
+    setVehiclesError('');
+    try {
+      const nextVehicles = await vehicleService.getMyVehicles();
+      setVehicles(nextVehicles);
+      setSelectedVehicle((current) => {
+        let nextSelected: Vehicle | null = null;
+        if (current) {
+          nextSelected = nextVehicles.find((vehicle) =>
+            vehicle.id === current.id || vehicle._id === current._id
+          ) ?? null;
+        }
+        nextSelected ??= nextVehicles[0] ?? null;
+        return nextSelected;
+      });
+    } catch (error) {
+      setVehiclesError(getApiErrorMessage(error, 'Unable to load your vehicles.'));
+    } finally {
+      setVehiclesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedVehicle) setVehicleType(getVehiclePriceKey(selectedVehicle.vehicleType || ''));
+  }, [selectedVehicle]);
+
+  const loadServices = useCallback(async () => {
+    setServicesLoading(true);
+    setServicesError('');
+    try {
+      setServices(await serviceService.getPublishedServices());
+    } catch (error) {
+      setServicesError(getApiErrorMessage(error, 'Unable to load packages.'));
+    } finally {
+      setServicesLoading(false);
+    }
+  }, []);
+
+  const retryServices = useCallback(() => {
+    invalidateCache('/services/published');
+    return loadServices();
+  }, [loadServices]);
+
   useFocusEffect(
     useCallback(() => {
-      let mounted = true;
-
-      const load = async () => {
-        try {
-          const [v, s] = await Promise.all([
-            vehicleService.getMyVehicles(),
-            serviceService.getPublishedServices(),
-          ]);
-          if (mounted) {
-            setVehicles(v);
-            setServices(s);
-            // Auto-select the first vehicle so package cards are always visible
-            if (v.length > 0) {
-              setSelectedVehicle(prev => prev ?? v[0]);
-              setVehicleType(getVehiclePriceKey(v[0].vehicleType || ''));
-            }
-          }
-        } catch (err) {
-          if (mounted) {
-            console.warn('Failed to load booking data:', getApiErrorMessage(err));
-          }
-        } finally {
-          if (mounted) {
-            setVehiclesLoading(false);
-            setServicesLoading(false);
-          }
-        }
-      };
-
-      load();
-      return () => { mounted = false; };
-    }, [])
+      void loadVehicles();
+      void loadServices();
+    }, [loadServices, loadVehicles])
   );
 
   useEffect(() => {
@@ -1677,6 +2176,272 @@ export default function BookScreen() {
     const p = fromProfile || fromBackend;
     if (p) setPhone(p);
   }, [profile?.phone, backendUser?.phone]);
+
+  const bookingPackages = React.useMemo<BookingCatalogPackage[]>(() => services
+    .map((service) => {
+      const key = getPackageKeyFromServiceName(service.name);
+      if (!key) return null;
+      const features = Array.isArray(service.catalogCard?.features)
+        ? service.catalogCard.features.map((feature) => feature.trim()).filter(Boolean)
+        : [];
+      const structuredInclusions = Array.isArray(service.catalogCard?.fullInclusions)
+        ? service.catalogCard.fullInclusions
+          .map((item) => ({
+            group: String(item.group || '').trim(),
+            title: String(item.title || '').trim(),
+            detail: String(item.detail || '').trim() || null,
+            savingsLabel: String(item.savingsLabel || '').trim() || null,
+          }))
+          .filter((item) => Boolean(item.group && item.title))
+        : [];
+      const fullInclusions: PackageInclusion[] = structuredInclusions.length
+        ? structuredInclusions
+        : features.map((rawFeature) => {
+          const feature = getPackageFeatureParts(rawFeature);
+          return {
+            group: 'Package Inclusions',
+            title: feature.title,
+            detail: feature.detail || null,
+            savingsLabel: feature.savings ? `Save ${feature.savings}` : null,
+          };
+        });
+      const price = getPublishedPriceState(service, vehicleType);
+      const originalPrice = getPublishedOptionalPrice(service, vehicleType, 'original');
+      const bundlePrice = getPublishedOptionalPrice(service, vehicleType, 'addon');
+      const addonLabel = service.catalogCard?.addonLabel?.trim() || null;
+      const hasPublishedBundle = price.status === 'available'
+        && bundlePrice !== null
+        && bundlePrice > price.value
+        && Boolean(addonLabel);
+      const promotionPercent = price.status === 'available'
+        && originalPrice !== null
+        && originalPrice > price.value
+        ? Math.round((1 - (price.value / originalPrice)) * 100)
+        : null;
+      return {
+        key,
+        service,
+        name: getPackageDisplayName(service.name),
+        tier: service.catalogCard?.tierLabel?.trim() || service.tag || 'Service',
+        badge: service.catalogCard?.badge?.trim() || null,
+        badgeColor: getPackageBadgeColor(service),
+        protection: normalizeProtectionLabel(service.catalogCard?.warrantyLabel),
+        estimatedDuration: normalizeServiceDurationLabel(service.duration),
+        tagline: service.catalogCard?.tagline?.trim() || null,
+        description: service.description?.trim() || null,
+        features,
+        fullInclusions,
+        ppfCoverage: Array.isArray(service.catalogCard?.ppfCoverage)
+          ? service.catalogCard.ppfCoverage.map((area) => area.trim()).filter(Boolean)
+          : [],
+        tintIncluded: Boolean(service.catalogCard?.tintIncluded),
+        tintDetails: service.catalogCard?.tintDetails?.trim() || null,
+        undercoatingIncluded: Boolean(service.catalogCard?.undercoatingIncluded),
+        undercoatingDetails: service.catalogCard?.undercoatingDetails?.trim() || null,
+        undercoatingSavingsLabel: service.catalogCard?.undercoatingSavingsLabel?.trim() || null,
+        originalPrice,
+        bundlePrice,
+        bundleLabel: hasPublishedBundle
+          ? `${getPackageDisplayName(service.name)} + ${addonLabel}`
+          : null,
+        promotionPercent,
+        price,
+      } satisfies BookingCatalogPackage;
+    })
+    .filter((pkg): pkg is BookingCatalogPackage => pkg !== null)
+    .sort((a, b) => {
+      const aOrder = a.service.displayOrder ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = b.service.displayOrder ?? Number.MAX_SAFE_INTEGER;
+      return aOrder - bOrder || a.name.localeCompare(b.name);
+    }), [services, vehicleType]);
+
+  useEffect(() => {
+    if (!selectedPkg || servicesLoading || servicesError) return;
+    const currentService = services.find((service) =>
+      getPackageKeyFromServiceName(service.name) === selectedPkg
+    );
+    const priceState = currentService
+      ? getPublishedPriceState(currentService, vehicleType)
+      : null;
+    if (currentService && priceState?.status === 'available') {
+      setSelectedService((current) => (
+        current?.id === currentService.id && current.price === priceState.value
+          ? current
+          : { ...currentService, price: priceState.value }
+      ));
+      return;
+    }
+    if (selectedService) {
+      setSelectedPkg(null);
+      setSelectedService(null);
+      if (draftDecisionResolved) {
+        Toast.show('Your selected package is no longer available for this vehicle.', 'warning');
+      }
+    }
+  }, [draftDecisionResolved, selectedPkg, selectedService, services, servicesError, servicesLoading, vehicleType]);
+
+  const clearLocalDraftFields = useCallback(() => {
+    const defaultVehicle = vehicles[0] ?? null;
+    setStep(0);
+    setSelectedVehicle(defaultVehicle);
+    setVehicleType(getVehiclePriceKey(defaultVehicle?.vehicleType || ''));
+    setSelectedService(null);
+    setSelectedPkg(null);
+    setSelectedDate(null);
+    setSelectedTime(null);
+    selectedDateRef.current = null;
+    selectedTimeRef.current = null;
+    setPhone(profile?.phone || backendUser?.phone || '');
+    setNotes('');
+    setDownpaymentProof(null);
+    setAgreedToTerms(false);
+    setTcScrolledToBottom(false);
+    setIsSuccess(false);
+    setShowAddVehicle(false);
+    setShowVehiclePicker(false);
+    setPackageDetailsKey(null);
+    setIsContinuing(false);
+    setIsPhoneEditing(false);
+    setIsDetailsContinuing(false);
+    setIsScheduleContinuing(false);
+    setShowFullCalendar(false);
+    setPhoneError('');
+    setDraftDirty(false);
+    restoredStepRef.current = null;
+  }, [backendUser?.phone, profile?.phone, vehicles]);
+
+  const selectPackage = useCallback((pkg: BookingCatalogPackage) => {
+    if (pkg.price.status !== 'available') return;
+    setSelectedPkg(pkg.key);
+    setSelectedService({ ...pkg.service, price: pkg.price.value });
+    setDraftDirty(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
+
+  const applyPersistedDraft = useCallback((draft: BookingDraftV1) => {
+    const draftVehicle = vehicles.find((vehicle) =>
+      vehicle.id === draft.selectedVehicleId || vehicle._id === draft.selectedVehicleId
+    ) ?? null;
+    const resolvedVehicle = draftVehicle || vehicles[0] || null;
+    const nextVehicleType = getVehiclePriceKey(resolvedVehicle?.vehicleType || '');
+    const draftService = services.find((service) => service.id === draft.selectedServiceId)
+      || services.find((service) => getPackageKeyFromServiceName(service.name) === draft.packageKey)
+      || null;
+    const packageKey = getPackageKeyFromServiceName(draftService?.name);
+    const priceState = draftService
+      ? getPublishedPriceState(draftService, nextVehicleType)
+      : null;
+
+    setSelectedVehicle(resolvedVehicle);
+    setVehicleType(nextVehicleType);
+    if (draftService && packageKey && priceState?.status === 'available') {
+      setSelectedPkg(packageKey);
+      setSelectedService({ ...draftService, price: priceState.value });
+    } else {
+      setSelectedPkg(null);
+      setSelectedService(null);
+    }
+    setPhone(draft.phone || profile?.phone || backendUser?.phone || '');
+    setNotes(draft.notes);
+    setSelectedDate(draft.selectedDate);
+    setSelectedTime(draft.selectedTime);
+    setAgreedToTerms(false);
+    setTcScrolledToBottom(false);
+    setDownpaymentProof(null);
+
+    let targetStep = Math.min(4, Math.max(0, draft.intendedStep));
+    if (!draftVehicle || !draftService || priceState?.status !== 'available') targetStep = 0;
+    else if (draft.phone.replace(/\D/g, '').length < 10) targetStep = Math.min(targetStep, 1);
+    else if (targetStep > 2) {
+      restoredStepRef.current = targetStep;
+      targetStep = 2;
+    }
+    setStep(targetStep);
+    setDraftDirty(true);
+    setDraftDecisionResolved(true);
+    setPendingDraft(null);
+    prefillAppliedRef.current = true;
+
+    if (!draftVehicle || !draftService) {
+      Toast.show('Some saved booking details changed. Please review your vehicle and package.', 'warning');
+    } else if (priceState?.status !== 'available') {
+      Toast.show('Your saved package is no longer available for this vehicle.', 'warning');
+    }
+  }, [backendUser?.phone, profile?.phone, services, vehicles]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!draftOwnerId) {
+        setDraftDecisionResolved(true);
+        return undefined;
+      }
+      let active = true;
+      setDraftDecisionResolved(false);
+      setPendingDraft(null);
+      draftPromptShownRef.current = false;
+      prefillAppliedRef.current = false;
+      void bookingDraftStorage.load(draftOwnerId)
+        .then((draft) => {
+          if (!active) return;
+          setPendingDraft(draft);
+          if (!draft) setDraftDecisionResolved(true);
+        })
+        .catch(() => {
+          if (active) setDraftDecisionResolved(true);
+        });
+      return () => { active = false; };
+    }, [draftOwnerId])
+  );
+
+  useEffect(() => {
+    const draft = pendingDraft;
+    if (
+      !draft
+      || draftPromptShownRef.current
+      || vehiclesLoading
+      || servicesLoading
+      || Boolean(vehiclesError)
+      || Boolean(servicesError)
+    ) return;
+    draftPromptShownRef.current = true;
+    const hasIncomingSelection = Boolean(
+      prefillParams.vehicleId || prefillParams.serviceId || prefillParams.pkg || prefillParams.notes
+    );
+    Alert.alert(
+      'Resume booking?',
+      hasIncomingSelection
+        ? 'You have a saved booking. Resume it, or start with the new selection you just opened?'
+        : 'Continue your saved AutoSPF+ booking, or start over?',
+      [
+        {
+          text: hasIncomingSelection ? 'Use New Selection' : 'Start Over',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await bookingDraftStorage.clear();
+              clearLocalDraftFields();
+              setPendingDraft(null);
+              setDraftDecisionResolved(true);
+            } catch {
+              Toast.show('Unable to clear the saved booking. Please try again.', 'error');
+              applyPersistedDraft(draft);
+            }
+          },
+        },
+        { text: 'Resume Booking', onPress: () => applyPersistedDraft(draft) },
+      ],
+      { cancelable: false },
+    );
+  }, [
+    applyPersistedDraft,
+    clearLocalDraftFields,
+    pendingDraft,
+    prefillParams,
+    servicesError,
+    servicesLoading,
+    vehiclesError,
+    vehiclesLoading,
+  ]);
 
   // ── AI Scan Pre-fill ─────────────────────────────────────────────────
   // Optional deep-link query params let other screens (e.g. AI Scan flow)
@@ -1691,18 +2456,9 @@ export default function BookScreen() {
   //   ?notes=<text>     — populate the notes field with the AI summary
   //   ?step=1|2|3       — advance to a later step (default 1 = "Details")
   // ─────────────────────────────────────────────────────────────────────
-  const prefillParams = useLocalSearchParams<{
-    vehicleId?: string;
-    serviceId?: string;
-    pkg?: string;
-    notes?: string;
-    step?: string;
-  }>();
-  const prefillAppliedRef = useRef(false);
-
   useEffect(() => {
     if (prefillAppliedRef.current) return;
-    if (!prefillParams || vehiclesLoading || servicesLoading) {
+    if (!prefillParams || vehiclesLoading || servicesLoading || !draftDecisionResolved) {
       return;
     }
 
@@ -1728,87 +2484,241 @@ export default function BookScreen() {
       }
     }
 
+    const priceVehicle = vehicles.find((vehicle) =>
+      vehicle.id === requestedVehicleId || vehicle._id === requestedVehicleId
+    ) || selectedVehicle || vehicles[0];
     const requestedService = requestedServiceId
       ? services.find((service) => service.id === requestedServiceId)
-      : null;
+      : requestedPkg
+        ? services.find((service) => getPackageKeyFromServiceName(service.name) === requestedPkg)
+        : null;
     const requestedServicePackageKey = getPackageKeyFromServiceName(requestedService?.name);
-
-    if (requestedService && requestedServicePackageKey && SPF_PACKAGES.some((p) => p.key === requestedServicePackageKey)) {
-      const priceVehicle = vehicles.find((v) => v.id === requestedVehicleId || v._id === requestedVehicleId)
-        || selectedVehicle
-        || vehicles[0];
-      if (!priceVehicle) return;
-      const price = getServicePriceForVehicle(requestedService, priceVehicle?.vehicleType);
-      if (price !== null) {
-        setSelectedPkg(requestedServicePackageKey);
-        setSelectedService({ ...requestedService, price });
-      }
-    } else if (requestedPkg && SPF_PACKAGES.some((p) => p.key === requestedPkg)) {
-      const pkg = SPF_PACKAGES.find((p) => p.key === requestedPkg)!;
-      const priceKey = getVehiclePriceKey(
-        (vehicles.find((v) => v.id === requestedVehicleId)?.vehicleType) || vehicleType || 'sedan'
+    let prefillCanAdvance = false;
+    if (requestedService && requestedServicePackageKey && priceVehicle) {
+      const priceState = getPublishedPriceState(
+        requestedService,
+        getVehiclePriceKey(priceVehicle.vehicleType || ''),
       );
-      const price = pkg.prices[priceKey] || pkg.prices.sedan || 0;
-      // Re-use the existing select handler to drive its animations
-      setTimeout(() => selectPkg(pkg.key, price ?? 0), 60);
+      if (priceState.status === 'available') {
+        setSelectedPkg(requestedServicePackageKey);
+        setSelectedService({ ...requestedService, price: priceState.value });
+        prefillCanAdvance = true;
+      }
     }
 
     if (requestedNotes) {
       setNotes(requestedNotes);
     }
 
-    if (Number.isFinite(requestedStep) && requestedStep > 0) {
+    if (Number.isFinite(requestedStep) && requestedStep > 0 && prefillCanAdvance) {
       setTimeout(() => setStep(Math.min(5, Math.max(0, requestedStep))), 120);
+    } else if (Number.isFinite(requestedStep) && requestedStep > 0) {
+      Toast.show('Please choose an available vehicle and package to continue.', 'warning');
     }
 
+    setDraftDirty(true);
     prefillAppliedRef.current = true;
-  }, [prefillParams, vehicles, vehiclesLoading, services, servicesLoading, selectedVehicle, vehicleType]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [draftDecisionResolved, prefillParams, vehicles, vehiclesLoading, services, servicesLoading, selectedVehicle]);
 
   // ── Navigation ──
   const goNext = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setStep(step + 1);
+    setDraftDirty(true);
+    setStep((current) => Math.min(5, current + 1));
   };
   const goBack = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setStep((s) => Math.max(0, s - 1));
   };
 
-  // ── Package selection ────────────────────────────────────────────────────
-  const selectPkg = (key: string, price: number) => {
-    setSelectedPkg(key);
-    const matched = services.find((service) => getPackageKeyFromServiceName(service.name) === key) || null;
-    if (matched) setSelectedService({ ...matched, price });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
+  const selectVehicle = useCallback((vehicle: Vehicle) => {
+    const nextType = getVehiclePriceKey(vehicle.vehicleType || '');
+    setSelectedVehicle(vehicle);
+    setVehicleType(nextType);
+    setShowVehiclePicker(false);
+    setDraftDirty(true);
+
+    if (selectedPkg) {
+      const matchingService = services.find((service) =>
+        getPackageKeyFromServiceName(service.name) === selectedPkg
+      );
+      const priceState = matchingService
+        ? getPublishedPriceState(matchingService, nextType)
+        : null;
+      if (matchingService && priceState?.status === 'available') {
+        setSelectedService({ ...matchingService, price: priceState.value });
+      } else {
+        setSelectedPkg(null);
+        setSelectedService(null);
+        Toast.show('Your selected package is not available for this vehicle type. Please choose another package.', 'warning');
+      }
+    }
+    Haptics.selectionAsync();
+  }, [selectedPkg, services]);
+
+  const openVehicleEditor = useCallback((vehicle: Vehicle) => {
+    setShowVehiclePicker(false);
+    if (vehicleModalTransitionRef.current) clearTimeout(vehicleModalTransitionRef.current);
+    vehicleModalTransitionRef.current = setTimeout(() => {
+      setEditingVehicle(vehicle);
+      vehicleModalTransitionRef.current = null;
+    }, 240);
+    Haptics.selectionAsync();
+  }, []);
+
+  const closeVehicleEditor = useCallback(() => {
+    setEditingVehicle(null);
+    if (vehicleModalTransitionRef.current) clearTimeout(vehicleModalTransitionRef.current);
+    vehicleModalTransitionRef.current = setTimeout(() => {
+      setShowVehiclePicker(true);
+      vehicleModalTransitionRef.current = null;
+    }, 240);
+  }, []);
+
+  const handleVehicleUpdated = useCallback((updatedVehicle: Vehicle) => {
+    const updatedId = updatedVehicle._id || updatedVehicle.id;
+    const selectedId = selectedVehicle?._id || selectedVehicle?.id;
+    const wasSelected = Boolean(updatedId && selectedId && updatedId === selectedId);
+
+    setVehicles((current) => current.map((vehicle) => (
+      (vehicle._id || vehicle.id) === updatedId ? updatedVehicle : vehicle
+    )));
+
+    if (wasSelected) selectVehicle(updatedVehicle);
+    closeVehicleEditor();
+  }, [closeVehicleEditor, selectVehicle, selectedVehicle]);
+
+  useEffect(() => () => {
+    if (vehicleModalTransitionRef.current) clearTimeout(vehicleModalTransitionRef.current);
+  }, []);
+
+  const flushBookingDraft = useCallback(async () => {
+    if (!draftOwnerId || !draftDecisionResolved || !draftDirty) return;
+    await bookingDraftStorage.save({
+      ownerId: draftOwnerId,
+      intendedStep: step,
+      selectedVehicleId: selectedVehicle?._id || selectedVehicle?.id || null,
+      selectedServiceId: selectedService?.id || null,
+      packageKey: selectedPkg,
+      phone,
+      notes,
+      selectedDate,
+      selectedTime,
+    });
+  }, [
+    draftDecisionResolved,
+    draftDirty,
+    draftOwnerId,
+    notes,
+    phone,
+    selectedDate,
+    selectedPkg,
+    selectedService?.id,
+    selectedTime,
+    selectedVehicle?._id,
+    selectedVehicle?.id,
+    step,
+  ]);
+
+  useEffect(() => {
+    if (!draftDecisionResolved || !draftDirty) return;
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => {
+      void flushBookingDraft().catch(() => undefined);
+    }, 350);
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    };
+  }, [draftDecisionResolved, draftDirty, flushBookingDraft]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'inactive' || nextState === 'background') {
+        void flushBookingDraft().catch(() => undefined);
+      }
+    });
+    return () => subscription.remove();
+  }, [flushBookingDraft]);
+
+  const leaveBooking = useCallback(() => {
+    clearLocalDraftFields();
+    setDraftDecisionResolved(false);
+    router.replace('/(customer)');
+  }, [clearLocalDraftFields, router]);
+
+  const requestExit = useCallback(() => {
+    if (!draftDirty) {
+      leaveBooking();
+      return;
+    }
+    Alert.alert(
+      'Leave booking?',
+      'Save this booking to resume later, or discard your selections.',
+      [
+        { text: 'Keep Booking', style: 'cancel' },
+        {
+          text: 'Discard Booking',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await bookingDraftStorage.clear();
+              setDraftDirty(false);
+              leaveBooking();
+            } catch {
+              Toast.show('Unable to discard the saved booking. Please try again.', 'error');
+            }
+          },
+        },
+        {
+          text: 'Save & Exit',
+          onPress: () => {
+            void flushBookingDraft()
+              .then(leaveBooking)
+              .catch(() => Toast.show('Unable to save your booking. Please try again.', 'error'));
+          },
+        },
+      ],
+    );
+  }, [draftDirty, flushBookingDraft, leaveBooking]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (packageDetailsKey) {
+        closePackageDetails();
+        return true;
+      }
+      if (showVehiclePicker) {
+        setShowVehiclePicker(false);
+        return true;
+      }
+      if (showAddVehicle) {
+        setShowAddVehicle(false);
+        return true;
+      }
+      if (step > 0) {
+        goBack();
+        return true;
+      }
+      requestExit();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [closePackageDetails, packageDetailsKey, requestExit, showAddVehicle, showVehiclePicker, step]);
 
   const reset = () => {
-    setStep(0);
-    setSelectedVehicle(null);
-    setSelectedService(null);
-    setSelectedPkg(null);
-    setSelectedDate(null);
-    setSelectedTime(null);
-    setPhone('');
-    setNotes('');
-    setDownpaymentProof(null);
-    setAgreedToTerms(false);
-    setTcScrolledToBottom(false);
-    setIsSuccess(false);
-    setShowAddVehicle(false);
-    setPackageDetailsKey(null);
-    setIsContinuing(false);
-    setPhoneError('');
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    void bookingDraftStorage.clear();
+    clearLocalDraftFields();
   };
   const handleConfirm = async () => {
-    const effectivePkg = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
-    const effectivePrice = selectedService?.price ?? (effectivePkg ? effectivePkg.prices[vehicleType] : null);
-    const effectiveName = selectedService?.name || effectivePkg?.label || '';
+    const effectivePrice = selectedService?.price ?? null;
+    const effectiveName = selectedService?.name || '';
     const selectedAvailability = selectedDate ? monthAvailability[selectedDate] : undefined;
     const selectedSlotStillAvailable = !!selectedTime
       && slotStatuses.some((slot) => slot.time === selectedTime && slot.status === 'AVAILABLE');
     if (
       !effectiveName
+      || effectivePrice === null
       || !selectedDate
       || !selectedTime
       || slotsLoading
@@ -1830,7 +2740,7 @@ export default function BookScreen() {
       // 🔍 DEBUG: Verify outbound booking payload (remove after verification)
       console.log('🔍 [BOOKING_PAYLOAD] Outbound:', {
         customerName: profile?.full_name,
-        customerPhone: (profile?.phone || phone).trim() || undefined,
+        customerPhone: (phone || profile?.phone || backendUser?.phone || '').trim() || undefined,
         vehiclePlate: selectedVehicle?.plateNumber,
         vehicleYear: selectedVehicle?.year?.toString(),
         vehicleMake: selectedVehicle?.make,
@@ -1842,11 +2752,11 @@ export default function BookScreen() {
         time: selectedTime,
       });
       await bookingService.createBooking({
-        service: selectedService || { id: selectedPkg!, name: effectiveName, price: effectivePrice!, tag: 'Premium', description: '', icon: 'sparkles-outline', duration: '' },
+        service: selectedService!,
         date: selectedDate,
         time: selectedTime,
         customerName: (profile?.full_name || '').trim(),
-        customerPhone: (profile?.phone || phone).trim(),
+        customerPhone: (phone || profile?.phone || backendUser?.phone || '').trim(),
         notes: notes.trim() || undefined,
         vehiclePlate: selectedVehicle?.plateNumber,
         vehicleYear: selectedVehicle?.year?.toString(),
@@ -1869,11 +2779,20 @@ export default function BookScreen() {
       const emergencyClosed = errorCode === 'EMERGENCY_CLOSED'
         || errorPayload?.emergencyClosed === true
         || String(errorPayload?.closureType || errorPayload?.closedReason || '').toLowerCase() === 'emergency';
+      const dailyCapacityReached = errorCode === 'DATE_FULL'
+        || errorCode === 'DAILY_CAPACITY_REACHED'
+        || errorCode === 'DAILY_CAPACITY_EXCEEDED';
+      const conflictedTime = selectedTime;
       const message = emergencyClosed
         ? EMERGENCY_CLOSURE_MESSAGE
+        : status === 409 && dailyCapacityReached && selectedDate
+          ? `${formatIsoDateForDisplay(selectedDate)} is now fully booked. Choose another available date.`
+        : status === 409 && conflictedTime
+          ? `${conflictedTime} was just booked. Choose another available time to continue.`
         : getApiErrorMessage(error, 'Something went wrong. Please try again.');
       if (emergencyClosed || status === 409) {
         const affectedDate = selectedDate;
+        selectedTimeRef.current = null;
         setSelectedTime(null);
         setScheduleMessage(message);
         setStep(2);
@@ -1889,12 +2808,17 @@ export default function BookScreen() {
               remaining: 0,
               booked: current[affectedDate]?.booked ?? null,
               capacity: current[affectedDate]?.capacity ?? 0,
+              availableTimes: 0,
             },
           }));
         }
         const { year, month } = visibleCalendarMonthRef.current;
         void fetchMonthAvailability(year, month);
-        if (affectedDate) void fetchSlotsForDate(affectedDate);
+        if (affectedDate) {
+          void fetchSlotsForDate(affectedDate).then(() => {
+            if (selectedDateRef.current === affectedDate) setScheduleMessage(message);
+          });
+        }
       }
       Toast.show(message, 'error');
     } finally {
@@ -1904,8 +2828,10 @@ export default function BookScreen() {
 
   // ── Computed ──
   const displayCustomerName = (profile?.full_name || '').trim();
-  const displayCustomerPhone = (profile?.phone || phone).trim();
-  const tabBarHeight = TabBarContentHeight + insets.bottom;
+  const displayCustomerPhone = (phone || profile?.phone || backendUser?.phone || '').trim();
+  const profilePhoneDigits = String(profile?.phone || backendUser?.phone || '').replace(/\D/g, '');
+  const phoneIsFromProfile = Boolean(profilePhoneDigits)
+    && phone.replace(/\D/g, '') === profilePhoneDigits;
 
   const selectedDayAvailability = selectedDate ? monthAvailability[selectedDate] : undefined;
   const selectedTimeIsAvailable = !!selectedTime
@@ -1913,44 +2839,311 @@ export default function BookScreen() {
   const scheduleIsKnownAvailable = !!selectedDate
     && selectedTimeIsAvailable
     && !slotsLoading
+    && !monthAvailLoading
     && selectedDayAvailability?.status === 'available'
-    && !selectedDayAvailability.unavailable;
-  const canProceedStep0 = !!selectedVehicle && (!!selectedService || !!selectedPkg); // Service: vehicle MUST be selected + package
-  const canProceedStep1 = phone.replace(/\D/g, '').length >= 10;                  // Details: valid contact no.
-  const canProceedStep2 = scheduleIsKnownAvailable;                                // Schedule: server-confirmed date + time
+    && !selectedDayAvailability.unavailable
+    && typeof selectedDayAvailability.remaining === 'number'
+    && selectedDayAvailability.remaining > 0
+    && typeof selectedDayAvailability.capacity === 'number'
+    && selectedDayAvailability.capacity > 0
+    && typeof selectedDayAvailability.booked === 'number';
+  const canProceedStep0 = !vehiclesLoading
+    && !servicesLoading
+    && !vehiclesError
+    && !servicesError
+    && !!selectedVehicle
+    && !!selectedService
+    && Number.isFinite(selectedService.price);
+  const canProceedStep1 = isValidPhilippineMobile(phone);                         // Details: valid PH mobile no.
+  const canProceedStep2 = scheduleIsKnownAvailable
+    && !!selectedVehicle
+    && !!selectedService
+    && !!selectedPkg
+    && !isScheduleContinuing;                                                       // Schedule: server-confirmed date + time
   const canProceedStep3 = scheduleIsKnownAvailable;                                // Review remains guarded during live refresh
   const canProceedStep4 = agreedToTerms && tcScrolledToBottom && scheduleIsKnownAvailable;
   const canConfirmBooking = canProceedStep4 && scheduleIsKnownAvailable;
   const packageDetails = packageDetailsKey
-    ? SPF_PACKAGES.find((pkg) => pkg.key === packageDetailsKey) ?? null
+    ? bookingPackages.find((pkg) => pkg.key === packageDetailsKey) ?? null
     : null;
-  const packageDetailsPrice = packageDetails?.prices[vehicleType] ?? null;
+  const packageDetailGroups = React.useMemo(() => {
+    if (!packageDetails) return [];
+    const grouped = new Map<string, PackageInclusion[]>();
+    packageDetails.fullInclusions.forEach((inclusion) => {
+      const items = grouped.get(inclusion.group) || [];
+      items.push(inclusion);
+      grouped.set(inclusion.group, items);
+    });
+    return Array.from(grouped.entries()).map(([title, inclusions]) => ({ title, inclusions }));
+  }, [packageDetails]);
+  const packageDetailsBadge = packageDetails ? getVisiblePackageBadge(packageDetails) : null;
   const selectedPackage = selectedPkg
-    ? SPF_PACKAGES.find((pkg) => pkg.key === selectedPkg) ?? null
+    ? bookingPackages.find((pkg) => pkg.key === selectedPkg) ?? null
     : null;
-  const selectedPackagePrice = selectedService?.price ?? selectedPackage?.prices[vehicleType] ?? null;
-  const stepOneGuidance = !selectedVehicle
-    ? 'Select a vehicle to continue'
-    : !selectedPkg
-      ? 'Select a package to continue'
-      : `${selectedPackage?.label ?? 'Package'} selected`;
+  const selectedPackagePrice = selectedPackage?.price.status === 'available'
+    ? selectedPackage.price.value
+    : null;
+  const stepOneGuidance = vehiclesLoading || servicesLoading
+    ? 'Loading booking options'
+    : vehiclesError || servicesError
+      ? 'Retry loading to continue'
+      : !selectedVehicle
+        ? 'Select a vehicle to continue'
+        : !selectedService
+          ? 'Select a package to continue'
+          : selectedPackage?.name ?? selectedService.name;
 
   const handleStepOneContinue = () => {
     if (!canProceedStep0 || isContinuing) return;
     setIsContinuing(true);
+    setDraftDirty(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setStep(1);
   };
+
+  const handleDetailsContinue = async () => {
+    if (isDetailsContinuing) return;
+    if (!isValidPhilippineMobile(phone)) {
+      setPhoneError('Enter a valid Philippine mobile number.');
+      setIsPhoneEditing(true);
+      return;
+    }
+    if (!selectedVehicle || !selectedService || !selectedPkg) {
+      Toast.show('Please review your vehicle and service selection.', 'warning');
+      setStep(0);
+      return;
+    }
+
+    setIsDetailsContinuing(true);
+    try {
+      invalidateCache('/customers/vehicles');
+      invalidateCache('/services/published');
+      const [freshVehicles, freshServices] = await Promise.all([
+        vehicleService.getMyVehicles(),
+        serviceService.getPublishedServices(),
+      ]);
+      setVehicles(freshVehicles);
+      setServices(freshServices);
+
+      const selectedVehicleId = selectedVehicle._id || selectedVehicle.id;
+      const currentVehicle = freshVehicles.find((vehicle) =>
+        vehicle._id === selectedVehicleId || vehicle.id === selectedVehicleId
+      ) ?? null;
+      if (!currentVehicle) {
+        setSelectedVehicle(null);
+        setSelectedService(null);
+        setSelectedPkg(null);
+        setStep(0);
+        Toast.show('Your selected vehicle is no longer available. Please choose another vehicle.', 'warning');
+        return;
+      }
+
+      const currentVehicleType = getVehiclePriceKey(currentVehicle.vehicleType || '');
+      const currentService = freshServices.find((service) => service.id === selectedService.id)
+        || freshServices.find((service) => getPackageKeyFromServiceName(service.name) === selectedPkg)
+        || null;
+      const currentPrice = currentService
+        ? getPublishedPriceState(currentService, currentVehicleType)
+        : null;
+
+      setSelectedVehicle(currentVehicle);
+      setVehicleType(currentVehicleType);
+      if (!currentService || currentPrice?.status !== 'available') {
+        setSelectedService(null);
+        setSelectedPkg(null);
+        setStep(0);
+        Toast.show('Your selected package is no longer available for this vehicle.', 'warning');
+        return;
+      }
+
+      const priceChanged = selectedService.price !== currentPrice.value;
+      setSelectedService({ ...currentService, price: currentPrice.value });
+      setDraftDirty(true);
+      if (priceChanged) {
+        Toast.show('Package pricing changed. Please review the updated total.', 'warning');
+        return;
+      }
+
+      goNext();
+    } catch (error) {
+      Toast.show(getApiErrorMessage(error, 'Unable to verify your booking details. Please try again.'), 'error');
+    } finally {
+      setIsDetailsContinuing(false);
+    }
+  };
+
+  const handleScheduleContinue = async () => {
+    if (!canProceedStep2 || !selectedDate || !selectedTime || !selectedVehicle || !selectedService || !selectedPkg) {
+      return;
+    }
+
+    const requestedDate = selectedDate;
+    const requestedTime = selectedTime;
+    const requestedVehicleId = selectedVehicle._id || selectedVehicle.id;
+    setIsScheduleContinuing(true);
+
+    try {
+      invalidateCache('/customers/vehicles');
+      invalidateCache('/services/published');
+      const [availabilityResponse, freshVehicles, freshServices] = await Promise.all([
+        apiClient.get(`/orders/available-slots?date=${requestedDate}`),
+        vehicleService.getMyVehicles(),
+        serviceService.getPublishedServices(),
+      ]);
+
+      if (selectedDateRef.current !== requestedDate || selectedTimeRef.current !== requestedTime) return;
+      if (availabilityResponse.data?.success !== true) {
+        throw new Error('Availability was not returned by the server.');
+      }
+
+      const normalized = normalizeAvailableSlotsPayload(availabilityResponse.data);
+      const refreshedSlots = deriveSlotStatuses(
+        normalized.slots,
+        normalized.unavailable,
+        normalized.errorCode,
+      );
+      const refreshedAvailableTimes = refreshedSlots.filter((slot) => slot.status === 'AVAILABLE').length;
+      const refreshedDayAvailability = getDayAvailabilityFromSlots(
+        undefined,
+        normalized,
+        refreshedAvailableTimes,
+      );
+      setSlotStatuses(refreshedSlots);
+      setMonthAvailability((current) => ({
+        ...current,
+        [requestedDate]: getDayAvailabilityFromSlots(
+          current[requestedDate],
+          normalized,
+          refreshedAvailableTimes,
+        ),
+      }));
+      if (isIsoDate(normalized.businessDate)) setBusinessDate(normalized.businessDate);
+      if (normalized.businessTimeZone) setBusinessTimeZone(normalized.businessTimeZone);
+
+      const selectedSlot = refreshedSlots.find((slot) => slot.time === requestedTime);
+      if (
+        normalized.unavailable
+        || refreshedDayAvailability.status !== 'available'
+        || selectedSlot?.status !== 'AVAILABLE'
+      ) {
+        selectedTimeRef.current = null;
+        setSelectedTime(null);
+        setDraftDirty(true);
+        const conflictMessage = normalized.emergencyClosed
+          ? EMERGENCY_CLOSURE_MESSAGE
+          : refreshedDayAvailability.status === 'full'
+            ? `${formatIsoDateForDisplay(requestedDate)} is now fully booked. Choose another available date.`
+            : refreshedDayAvailability.status === 'closed'
+              ? `${formatIsoDateForDisplay(requestedDate)} is now closed. Choose another available date.`
+              : selectedSlot?.status === 'FULL'
+                ? `${requestedTime} was just booked. Choose another available time to continue.`
+                : `${requestedTime} is no longer available. Choose another available time to continue.`;
+        setScheduleMessage(conflictMessage);
+        const { year, month } = visibleCalendarMonthRef.current;
+        void fetchMonthAvailability(year, month);
+        Toast.show(conflictMessage, normalized.emergencyClosed ? 'error' : 'warning');
+        return;
+      }
+      if (!normalized.dailyAvailability) {
+        const capacityMessage = 'Daily booking capacity could not be confirmed. Please try again.';
+        setScheduleMessage(capacityMessage);
+        Toast.show(capacityMessage, 'error');
+        return;
+      }
+
+      const currentVehicle = freshVehicles.find((vehicle) =>
+        vehicle._id === requestedVehicleId || vehicle.id === requestedVehicleId
+      ) ?? null;
+      if (!currentVehicle) {
+        setVehicles(freshVehicles);
+        setSelectedVehicle(null);
+        setSelectedService(null);
+        setSelectedPkg(null);
+        setStep(0);
+        Toast.show('Your selected vehicle is no longer available. Please choose another vehicle.', 'warning');
+        return;
+      }
+
+      const currentVehicleType = getVehiclePriceKey(currentVehicle.vehicleType || '');
+      const currentService = freshServices.find((service) => service.id === selectedService.id)
+        || freshServices.find((service) => getPackageKeyFromServiceName(service.name) === selectedPkg)
+        || null;
+      const currentPrice = currentService
+        ? getPublishedPriceState(currentService, currentVehicleType)
+        : null;
+
+      setVehicles(freshVehicles);
+      setServices(freshServices);
+      setSelectedVehicle(currentVehicle);
+      setVehicleType(currentVehicleType);
+      if (!currentService || currentPrice?.status !== 'available') {
+        setSelectedService(null);
+        setSelectedPkg(null);
+        setStep(0);
+        Toast.show('Your selected package is no longer available for this vehicle.', 'warning');
+        return;
+      }
+
+      const priceChanged = selectedService.price !== currentPrice.value;
+      setSelectedService({ ...currentService, price: currentPrice.value });
+      setScheduleMessage('');
+      setDraftDirty(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (priceChanged) {
+        Toast.show('Package pricing was updated. Review the current total on the next step.', 'warning');
+      }
+      setStep(3);
+    } catch (error) {
+      Toast.show(getApiErrorMessage(error, 'Unable to verify this arrival time. Please try again.'), 'error');
+    } finally {
+      setIsScheduleContinuing(false);
+    }
+  };
+
+  useEffect(() => {
+    const targetStep = restoredStepRef.current;
+    if (targetStep === null || step !== 2 || slotsLoading || monthAvailLoading) return;
+    if (!selectedDate || !selectedDayAvailability) return;
+    restoredStepRef.current = null;
+    if (scheduleIsKnownAvailable) {
+      setStep(targetStep);
+    } else {
+      Toast.show('Your saved appointment time changed. Please choose an available slot.', 'warning');
+    }
+  }, [
+    monthAvailLoading,
+    scheduleIsKnownAvailable,
+    selectedDate,
+    selectedDayAvailability,
+    slotsLoading,
+    step,
+  ]);
 
   const availableTimeOptionCount = slotStatuses.filter((slot) => slot.status === 'AVAILABLE').length;
   const selectedDateParts = getSelectedDateParts(selectedDate);
   const timeOptionCountLabel = !selectedDate
     ? 'Select a date first'
     : slotsLoading
-      ? 'Checking availability'
+      ? 'Checking available start times'
       : selectedDayAvailability?.status === 'full' || selectedDayAvailability?.status === 'closed'
-        ? 'No appointments available'
-        : `${availableTimeOptionCount} appointment${availableTimeOptionCount === 1 ? '' : 's'} available`;
+        ? '0 available start times'
+        : `${availableTimeOptionCount} available start ${availableTimeOptionCount === 1 ? 'time' : 'times'}`;
+  const selectedDateEmergencyClosed = selectedDayAvailability?.errorCode === 'EMERGENCY_CLOSED'
+    || selectedDayAvailability?.closureType === 'emergency';
+  const selectedDateCapacityLabel = !selectedDate
+    ? ''
+    : selectedDateEmergencyClosed
+      ? 'Emergency closed'
+      : selectedDayAvailability?.status === 'full'
+        ? 'Fully booked'
+        : selectedDayAvailability?.status === 'closed'
+          ? 'Closed'
+          : typeof selectedDayAvailability?.remaining === 'number'
+            ? `${selectedDayAvailability.remaining} booking slot${selectedDayAvailability.remaining === 1 ? '' : 's'} remaining`
+            : 'Checking daily capacity';
+  const selectedServiceDuration = selectedPackage?.estimatedDuration
+    || normalizeServiceDurationLabel(selectedService?.duration);
+  const scheduleMessageIsConflict = /no longer available|just booked|now fully booked|emergency closure/i.test(scheduleMessage);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Success screen
@@ -1969,10 +3162,10 @@ export default function BookScreen() {
 
     return (
       <View style={[ss.screen, { backgroundColor: SURFACE_LOW }]}>
-        <AnimatedHeader compact />
+        <View style={{ height: insets.top }} />
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: tabBarHeight + 40 }}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
           showsVerticalScrollIndicator={false}
         >
           {/* ── Success Hero ── */}
@@ -2012,7 +3205,7 @@ export default function BookScreen() {
             <View style={s4.quickCard}>
               {[
                 { icon: 'car-outline', label: 'Vehicle', value: selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : '—' },
-                { icon: 'sparkles-outline', label: 'Service', value: selectedService?.name || (selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg)?.label || '—' : '—') + (selectedPkg ? ` (${VEHICLE_OPTIONS.find(v => v.key === vehicleType)?.label})` : '') },
+                { icon: 'sparkles-outline', label: 'Service', value: `${selectedService?.name || '—'}${selectedService ? ` (${VEHICLE_OPTIONS.find(v => v.key === vehicleType)?.label})` : ''}` },
                 { icon: 'calendar-outline', label: 'Schedule', value: `${formatIsoDateForDisplay(selectedDate)} • ${selectedTime}` },
               ].map((item, i, arr) => (
                 <View key={i} style={[s4.quickRow, i < arr.length - 1 && { marginBottom: 16 }]}>
@@ -2138,8 +3331,12 @@ export default function BookScreen() {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <View style={[ss.screen, { backgroundColor: SURFACE_LOW }]}>
-      <AnimatedHeader compact />
-      {step === 2 ? <ScheduleProgressHeader /> : <StepIndicator current={step} />}
+      <BookingWizardHeader
+        current={step}
+        topInset={insets.top}
+        onBack={step === 0 ? requestExit : goBack}
+        onClose={requestExit}
+      />
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -2151,9 +3348,13 @@ export default function BookScreen() {
             ss.content,
             {
               paddingBottom:
-                step === 2
-                  ? 32
-                  : tabBarHeight + (step === 0 ? 116 : 32),
+                step === 0
+                  ? Math.max(stepOneDockHeight, 80) + 12
+                  : step === 1
+                    ? Math.max(stepTwoDockHeight, 76) + 12
+                  : step === 2
+                    ? Math.max(scheduleDockHeight, 92) + 12
+                    : insets.bottom + 32,
             },
           ]}
           showsVerticalScrollIndicator={false}
@@ -2169,9 +3370,15 @@ export default function BookScreen() {
 
               {/* ── Hero ── */}
               <Animated.View entering={FadeInDown.delay(60).duration(200)} style={ss.heroSection}>
-                <Text style={ss.heroLabel}>STEP 1 OF 6</Text>
-                <Text style={ss.heroTitle}>Book a Service</Text>
-                <Text style={ss.heroSub}>Choose your vehicle, then pick a package.</Text>
+                <Text
+                  style={ss.heroTitle}
+                  numberOfLines={2}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.86}
+                >
+                  Choose your service
+                </Text>
+                <Text style={ss.heroSub}>Select a package for your vehicle.</Text>
               </Animated.View>
 
               {/* ══ SECTION 1: YOUR VEHICLE ══ */}
@@ -2184,9 +3391,24 @@ export default function BookScreen() {
                 </View>
 
                 {vehiclesLoading ? (
-                  <View style={ss.loadingBox}>
-                    <ActivityIndicator size="small" color={PRIMARY} />
-                    <Text style={ss.loadingText}>Loading vehicles…</Text>
+                  <View style={[svc.vehicleRow, skeleton.row]} accessibilityLabel="Loading vehicles">
+                    <View style={[svc.vehicleIconWrap, skeleton.block]} />
+                    <View style={{ flex: 1, gap: 8 }}>
+                      <View style={[skeleton.line, { width: '58%' }]} />
+                      <View style={[skeleton.lineSmall, { width: '34%' }]} />
+                    </View>
+                    <View style={[svc.radioOuter, skeleton.circle]} />
+                  </View>
+                ) : vehiclesError ? (
+                  <View style={svc.inlineError}>
+                    <Ionicons name="alert-circle-outline" size={18} color="#FCA5A5" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={svc.inlineErrorTitle}>Unable to load your vehicles.</Text>
+                      <Text style={svc.inlineErrorBody}>{vehiclesError}</Text>
+                    </View>
+                    <TouchableOpacity accessibilityRole="button" onPress={() => void loadVehicles()} hitSlop={8}>
+                      <Text style={svc.retryText}>Retry</Text>
+                    </TouchableOpacity>
                   </View>
                 ) : vehicles.length === 0 ? (
                   /* Empty state — tap to add first vehicle */
@@ -2207,53 +3429,37 @@ export default function BookScreen() {
                     </View>
                   </TouchableOpacity>
                 ) : (
-                  /* Vehicle row cards — full-width, easy to tap */
-                  <View style={{ gap: 8 }}>
-                    {vehicles.map((v) => {
-                      const isActive = selectedVehicle?.id === v.id;
-                      const typeLabel = VEHICLE_OPTIONS.find(o =>
-                        o.key === getVehiclePriceKey(v.vehicleType || '')
-                      )?.label || v.vehicleType || '';
-                      return (
-                        <TouchableOpacity
-                          key={v.id}
-                          activeOpacity={0.82}
-                          accessibilityRole="radio"
-                          accessibilityLabel={`${v.make} ${v.model}, ${typeLabel}`}
-                          accessibilityState={{ checked: isActive }}
-                          onPress={() => {
-                            setSelectedVehicle(v);
-                            setVehicleType(getVehiclePriceKey(v.vehicleType || ''));
-                            setSelectedPkg(null);
-                            setSelectedService(null);
-                            Haptics.selectionAsync();
-                          }}
-                          style={[svc.vehicleRow, isActive && svc.vehicleRowActive]}
-                        >
-                          {/* Car icon */}
-                          <View style={[svc.vehicleIconWrap, isActive && svc.vehicleIconWrapActive]}>
-                            <Ionicons name="car-sport-outline" size={20} color={isActive ? ON_PRIMARY : PRIMARY} />
+                  <View style={{ gap: 4 }}>
+                    {selectedVehicle ? (
+                      <TouchableOpacity
+                        activeOpacity={0.86}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Selected vehicle, ${selectedVehicle.make} ${selectedVehicle.model}. Change vehicle`}
+                        onPress={() => setShowVehiclePicker(true)}
+                        style={[svc.vehicleRow, svc.vehicleRowActive]}
+                      >
+                        <View style={[svc.vehicleIconWrap, svc.vehicleIconWrapActive]}>
+                          <Ionicons name="car-sport-outline" size={20} color={ON_PRIMARY} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[svc.vehicleRowName, { color: '#FFFFFF' }]} numberOfLines={1}>
+                            {`${selectedVehicle.make} ${selectedVehicle.model}`.trim()}
+                          </Text>
+                          <Text style={svc.vehicleRowType} numberOfLines={1}>
+                            {VEHICLE_OPTIONS.find((option) => option.key === vehicleType)?.label || selectedVehicle.vehicleType || 'Vehicle'}
+                          </Text>
+                          <View style={svc.selectedVehicleMeta}>
+                            <Ionicons name="checkmark-circle" size={13} color={PRIMARY} />
+                            <Text style={svc.selectedVehicleMetaText}>Selected</Text>
                           </View>
+                        </View>
+                        <View style={svc.changeVehicleAction}>
+                          <Text style={svc.changeVehicleText}>Change</Text>
+                          <Ionicons name="chevron-forward" size={15} color={PRIMARY} />
+                        </View>
+                      </TouchableOpacity>
+                    ) : null}
 
-                          {/* Name + type */}
-                          <View style={{ flex: 1 }}>
-                            <Text style={[svc.vehicleRowName, isActive && { color: PRIMARY }]}>
-                              {`${v.make} ${v.model}`.trim()}
-                            </Text>
-                            {typeLabel ? (
-                              <Text style={svc.vehicleRowType}>{typeLabel}</Text>
-                            ) : null}
-                          </View>
-
-                          {/* Radio indicator */}
-                          <View style={[svc.radioOuter, isActive && svc.radioOuterActive]}>
-                            {isActive && <View style={svc.radioInner} />}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-
-                    {/* Add another vehicle — subtle secondary action */}
                     <TouchableOpacity
                       activeOpacity={0.8}
                       onPress={() => { setShowAddVehicle(true); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
@@ -2267,17 +3473,119 @@ export default function BookScreen() {
               </Animated.View>
 
               <AddVehicleModal
-                visible={showAddVehicle}
-                onClose={() => setShowAddVehicle(false)}
+                visible={showAddVehicle || Boolean(editingVehicle)}
+                vehicle={editingVehicle}
+                onClose={() => {
+                  if (editingVehicle) closeVehicleEditor();
+                  else setShowAddVehicle(false);
+                }}
                 onVehicleAdded={(v) => {
                   setVehicles((prev) => [...prev, v]);
-                  setSelectedVehicle(v);
-                  setVehicleType(getVehiclePriceKey(v.vehicleType || ''));
-                  setSelectedPkg(null);
-                  setSelectedService(null);
+                  selectVehicle(v);
                   setShowAddVehicle(false);
                 }}
+                onVehicleUpdated={handleVehicleUpdated}
               />
+
+              <Modal
+                visible={showVehiclePicker}
+                transparent
+                animationType="slide"
+                statusBarTranslucent
+                onRequestClose={() => setShowVehiclePicker(false)}
+              >
+                <View style={vehiclePicker.overlay}>
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close vehicle selector"
+                    onPress={() => setShowVehiclePicker(false)}
+                    style={vehiclePicker.backdrop}
+                  />
+                  <View style={[vehiclePicker.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+                    <View style={vehiclePicker.handle} />
+                    <View style={vehiclePicker.header}>
+                      <View>
+                        <Text style={vehiclePicker.eyebrow}>YOUR GARAGE</Text>
+                        <Text style={vehiclePicker.title}>Choose a vehicle</Text>
+                      </View>
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel="Close vehicle selector"
+                        onPress={() => setShowVehiclePicker(false)}
+                        style={vehiclePicker.closeButton}
+                      >
+                        <Ionicons name="close" size={19} color="#E4E4E7" />
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView contentContainerStyle={vehiclePicker.list} showsVerticalScrollIndicator={false}>
+                      {vehicles.map((vehicle) => {
+                        const active = selectedVehicle?.id === vehicle.id || selectedVehicle?._id === vehicle._id;
+                        const typeLabel = VEHICLE_OPTIONS.find((option) =>
+                          option.key === getVehiclePriceKey(vehicle.vehicleType || '')
+                        )?.label || vehicle.vehicleType || 'Vehicle';
+                        return (
+                          <View
+                            key={vehicle.id || vehicle._id}
+                            style={[vehiclePicker.row, active && vehiclePicker.rowActive]}
+                          >
+                            <TouchableOpacity
+                              activeOpacity={0.84}
+                              accessibilityRole="radio"
+                              accessibilityState={{ checked: active }}
+                              accessibilityLabel={`${vehicle.make} ${vehicle.model}, ${typeLabel}`}
+                              onPress={() => selectVehicle(vehicle)}
+                              style={vehiclePicker.selectArea}
+                            >
+                              <Ionicons name="car-sport-outline" size={19} color={active ? PRIMARY : '#A1A1AA'} />
+                              <View style={{ flex: 1 }}>
+                                <Text style={vehiclePicker.rowTitle}>{`${vehicle.make} ${vehicle.model}`.trim()}</Text>
+                                <Text style={vehiclePicker.rowSubtitle}>{typeLabel}</Text>
+                              </View>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              activeOpacity={0.72}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Edit ${vehicle.make} ${vehicle.model}`}
+                              onPress={() => openVehicleEditor(vehicle)}
+                              style={vehiclePicker.editAction}
+                              hitSlop={{ top: 6, bottom: 6 }}
+                            >
+                              <Ionicons name="pencil-outline" size={13} color={PRIMARY} />
+                              <Text style={vehiclePicker.editText}>Edit</Text>
+                              <Ionicons name="chevron-forward" size={12} color={PRIMARY} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              activeOpacity={0.75}
+                              accessibilityRole="radio"
+                              accessibilityState={{ checked: active }}
+                              accessibilityLabel={`${active ? 'Selected' : 'Select'} ${vehicle.make} ${vehicle.model}`}
+                              onPress={() => selectVehicle(vehicle)}
+                              style={vehiclePicker.radioAction}
+                            >
+                              <View style={[svc.radioOuter, active && svc.radioOuterActive]}>
+                                {active ? <View style={svc.radioInner} /> : null}
+                              </View>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                    </ScrollView>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        setShowVehiclePicker(false);
+                        setShowAddVehicle(true);
+                      }}
+                      style={vehiclePicker.addButton}
+                    >
+                      <Ionicons name="add" size={18} color={ON_PRIMARY} />
+                      <Text style={vehiclePicker.addButtonText}>Add another vehicle</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </Modal>
 
               {/* ══ SECTION 2: CHOOSE PACKAGE ══ */}
               <Animated.View entering={FadeInDown.delay(200).duration(200)} style={{ gap: 10 }}>
@@ -2298,114 +3606,150 @@ export default function BookScreen() {
                     <Ionicons name="lock-closed-outline" size={20} color={MUTED} />
                     <Text style={svc.packageLockedText}>Select your vehicle above to see packages</Text>
                   </View>
+                ) : servicesLoading ? (
+                  <View style={{ gap: 10 }} accessibilityLabel="Loading packages">
+                    {[0, 1].map((item) => (
+                      <View key={item} style={[pkgCard.base, skeleton.packageCard]}>
+                        <View style={[skeleton.lineSmall, { width: '28%' }]} />
+                        <View style={[skeleton.line, { width: '66%', marginTop: 12 }]} />
+                        <View style={[skeleton.lineLarge, { width: '42%', marginTop: 10 }]} />
+                        <View style={[skeleton.lineSmall, { width: '76%', marginTop: 14 }]} />
+                        <View style={[skeleton.lineSmall, { width: '68%', marginTop: 8 }]} />
+                      </View>
+                    ))}
+                  </View>
+                ) : servicesError ? (
+                  <View style={svc.inlineError}>
+                    <Ionicons name="alert-circle-outline" size={18} color="#FCA5A5" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={svc.inlineErrorTitle}>Unable to load packages.</Text>
+                      <Text style={svc.inlineErrorBody}>{servicesError}</Text>
+                    </View>
+                    <TouchableOpacity accessibilityRole="button" onPress={() => void retryServices()} hitSlop={8}>
+                      <Text style={svc.retryText}>Retry</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : bookingPackages.filter((pkg) => pkg.price.status !== 'unavailable').length === 0 ? (
+                  <View style={svc.packageLockedCard}>
+                    <Ionicons name="information-circle-outline" size={20} color={MUTED} />
+                    <Text style={svc.packageLockedText}>No packages are available for this vehicle right now.</Text>
+                  </View>
                 ) : (
-                  <View style={{ gap: 12 }}>
-                    {SPF_PACKAGES.map((pkg, idx) => {
-                      const price = pkg.prices[vehicleType];
-                      if (price === null) return null;
-                      const isHero = pkg.key === 'spf89';
+                  <View style={{ gap: 10 }}>
+                    {bookingPackages.filter((pkg) => pkg.price.status !== 'unavailable').map((pkg, idx) => {
                       const isSelected = selectedPkg === pkg.key;
+                      const visibleBadge = getVisiblePackageBadge(pkg);
+                      const packageSummary = pkg.tagline || pkg.description;
                       const compactFeatures = pkg.features
                         .slice(0, 3)
                         .map(getPackageFeatureParts);
+                      const priceLabel = pkg.price.status === 'available'
+                        ? `₱${pkg.price.value.toLocaleString()}`
+                        : 'Unable to load price';
                       return (
                         <Animated.View
                           key={pkg.key}
                           entering={FadeInDown.delay(idx * 40).duration(200)}
                           style={[
                             pkgCard.base,
-                            isHero && pkgCard.hero,
                             isSelected && pkgCard.selected,
-                            isSelected && isHero && pkgCard.heroSelected,
                           ]}
                         >
-                          {isHero && (
-                            <LinearGradient
-                              colors={['#1A1208', '#0F0F0F']}
-                              start={{ x: 0, y: 0 }}
-                              end={{ x: 1, y: 1 }}
-                              style={StyleSheet.absoluteFill}
-                            />
-                          )}
-
-                          <TouchableOpacity
-                            activeOpacity={0.82}
-                            accessibilityRole="radio"
-                            accessibilityLabel={`${pkg.label} ${pkg.tier}, ₱${price.toLocaleString()}`}
-                            accessibilityHint="Selects this service package"
-                            accessibilityState={{ checked: isSelected }}
-                            onPress={() => selectPkg(pkg.key, price)}
-                            style={pkgCard.selectArea}
+                          <PackageSelectButton
+                            label={`${pkg.name}, ${priceLabel}`}
+                            selected={isSelected}
+                            disabled={pkg.price.status !== 'available'}
+                            onPress={() => selectPackage(pkg)}
                           >
                             <View style={pkgCard.topRow}>
                               <Text style={pkgCard.tier}>{pkg.tier.toUpperCase()}</Text>
-                              <View
-                                style={[
-                                  pkgCard.badge,
-                                  {
-                                    borderColor: `${pkg.badgeColor}55`,
-                                    backgroundColor: `${pkg.badgeColor}18`,
-                                  },
-                                ]}
-                              >
-                                <Text style={[pkgCard.badgeText, { color: pkg.badgeColor }]}>
-                                  {pkg.badge}
-                                </Text>
-                              </View>
+                              {visibleBadge ? (
+                                <View
+                                  style={[
+                                    pkgCard.badge,
+                                    {
+                                      borderColor: `${pkg.badgeColor}55`,
+                                      backgroundColor: `${pkg.badgeColor}16`,
+                                    },
+                                  ]}
+                                >
+                                  <Text style={[pkgCard.badgeText, { color: pkg.badgeColor }]}>{visibleBadge}</Text>
+                                </View>
+                              ) : null}
                             </View>
 
                             <View style={pkgCard.nameRow}>
-                              <Text style={pkgCard.name}>{pkg.label} — {pkg.tier}</Text>
-                              <View style={[pkgCard.checkCircle, isSelected && pkgCard.checkCircleActive]}>
-                                {isSelected ? (
-                                  <Ionicons name="checkmark" size={14} color="#0A0A0A" />
-                                ) : null}
-                              </View>
+                              <Text style={pkgCard.name} numberOfLines={2}>{pkg.name}</Text>
+                              {isSelected ? (
+                                <PackageCheck size={26} checkSize={14} treatment="selected" />
+                              ) : (
+                                <View style={pkgCard.checkCircle} />
+                              )}
                             </View>
 
-                            <Text style={[pkgCard.price, isHero && pkgCard.heroPrice]}>
-                              ₱{price.toLocaleString()}
+                            <Text style={[pkgCard.price, pkg.price.status === 'error' && pkgCard.priceError]}>
+                              {priceLabel}
                             </Text>
 
-                            <View style={pkgCard.metadataRow}>
-                              <View style={pkgCard.metadataPill}>
-                                <Ionicons name="shield-checkmark-outline" size={13} color={PRIMARY} />
-                                <Text style={pkgCard.metadataText}>{pkg.years}</Text>
-                              </View>
-                              <Text style={pkgCard.tagline} numberOfLines={1}>
-                                {PKG_DURATIONS[pkg.key]}
+                            {packageSummary ? (
+                              <Text style={pkgCard.tagline} numberOfLines={2} ellipsizeMode="tail">
+                                {packageSummary}
                               </Text>
-                            </View>
+                            ) : null}
 
-                            <View style={pkgCard.featurePreview}>
-                              {compactFeatures.map((feature) => (
-                                <View key={`${pkg.key}-${feature.title}`} style={pkgCard.featureRow}>
-                                  <Ionicons name="checkmark-circle" size={15} color={PRIMARY} />
-                                  <Text style={pkgCard.featureText} numberOfLines={1}>
-                                    {feature.title}
-                                  </Text>
-                                </View>
-                              ))}
-                            </View>
-
-                            {isSelected ? (
-                              <View style={pkgCard.selectedLabel}>
-                                <Ionicons name="checkmark-circle" size={14} color={PRIMARY} />
-                                <Text style={pkgCard.selectedLabelText}>Selected package</Text>
+                            {pkg.protection || pkg.estimatedDuration ? (
+                              <View style={pkgCard.metadataRow}>
+                                {pkg.protection ? (
+                                  <View style={pkgCard.metadataPill}>
+                                    <Ionicons name="shield-checkmark-outline" size={12} color={PRIMARY} />
+                                    <Text style={pkgCard.metadataText}>{pkg.protection}</Text>
+                                  </View>
+                                ) : null}
+                                {pkg.estimatedDuration ? (
+                                  <View style={[pkgCard.metadataPill, pkgCard.metadataPillNeutral]}>
+                                    <Ionicons name="time-outline" size={12} color="#A1A1AA" />
+                                    <Text style={[pkgCard.metadataText, pkgCard.metadataTextNeutral]}>
+                                      {pkg.estimatedDuration} Service
+                                    </Text>
+                                  </View>
+                                ) : null}
                               </View>
                             ) : null}
-                          </TouchableOpacity>
+
+                            {compactFeatures.length ? (
+                              <View style={pkgCard.featurePreview}>
+                                {compactFeatures.map((feature) => (
+                                  <View key={`${pkg.key}-${feature.title}`} style={pkgCard.featureRow}>
+                                    <PackageCheck size={14} checkSize={9} treatment="inclusion" />
+                                    <Text style={pkgCard.featureText}>{feature.title}</Text>
+                                  </View>
+                                ))}
+                              </View>
+                            ) : null}
+                          </PackageSelectButton>
+
+                          {pkg.price.status === 'error' ? (
+                            <TouchableOpacity
+                              accessibilityRole="button"
+                              accessibilityLabel={`Retry pricing for ${pkg.name}`}
+                              onPress={() => void retryServices()}
+                              style={pkgCard.priceRetry}
+                            >
+                              <Ionicons name="refresh" size={13} color={PRIMARY} />
+                              <Text style={pkgCard.priceRetryText}>Retry pricing</Text>
+                            </TouchableOpacity>
+                          ) : null}
 
                           <View style={pkgCard.divider} />
                           <TouchableOpacity
                             activeOpacity={0.72}
                             accessibilityRole="button"
-                            accessibilityLabel={`View full details for ${pkg.label}`}
+                            accessibilityLabel={`View full details for ${pkg.name}`}
                             onPress={() => setPackageDetailsKey(pkg.key)}
                             style={pkgCard.detailsButton}
                           >
-                            <Text style={pkgCard.detailsButtonText}>View full details</Text>
-                            <Ionicons name="chevron-forward" size={15} color={PRIMARY} />
+                            <Text style={pkgCard.detailsButtonText}>View package details</Text>
+                            <Ionicons name="chevron-forward" size={12} color="rgba(255,183,125,0.64)" />
                           </TouchableOpacity>
                         </Animated.View>
                       );
@@ -2421,141 +3765,140 @@ export default function BookScreen() {
               STEP 1 — YOUR DETAILS  (web Step 2 of 6)
           ═══════════════════════════════════════════════════ */}
           {step === 1 && (() => {
-            const effectivePkg = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
-            const effectivePrice: number = selectedService?.price ?? (effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : 0);
-            const effectiveName = selectedService?.name || effectivePkg?.label || '—';
+            const effectivePrice: number = selectedService?.price ?? 0;
+            const effectiveName = selectedService?.name || '—';
+            const vehicleTypeLabel = VEHICLE_OPTIONS.find((option) => option.key === vehicleType)?.label
+              || selectedVehicle?.vehicleType
+              || 'Vehicle';
+            const serviceMetadata = [
+              selectedPackage?.protection,
+              selectedPackage?.estimatedDuration ? `${selectedPackage.estimatedDuration} Service` : null,
+            ].filter(Boolean).join(' · ');
             return (
-              <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
-                <View style={ss.editorialHeader}>
-                  <Text style={ss.editorialLabel}>STEP 2 OF 6</Text>
-                  <Text style={ss.editorialTitle}>Your{'\n'}Details</Text>
-                  <Text style={ss.editorialSub}>Confirm your contact details and review your selection.</Text>
+              <Animated.View entering={FadeInDown.duration(200)} style={[ss.stepWrap, dt.stepWrap]}>
+                <View style={dt.pageHeader}>
+                  <Text style={dt.pageTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.88}>
+                    Review your details
+                  </Text>
+                  <Text style={dt.pageSubtitle}>Confirm your information before continuing.</Text>
                 </View>
 
                 {/* ── Customer Info ── */}
                 <Animated.View entering={FadeInDown.delay(80).duration(200)}>
-                  <View style={s1.sectionHeader}>
-                    <View style={s1.sectionIconWrap}>
-                      <Ionicons name="person-outline" size={14} color={PRIMARY} />
-                    </View>
-                    <Text style={ss.sectionLabel}>CUSTOMER INFO</Text>
-                  </View>
-
-                  {/* Full Name – read-only */}
-                  <View style={dt.fieldGroup}>
-                    <Text style={dt.fieldLabel}>FULL NAME</Text>
-                    <View style={dt.readOnlyRow}>
-                      <Ionicons name="person-outline" size={15} color={MUTED} />
-                      <Text style={dt.readOnlyValue} numberOfLines={1}>{profile?.full_name || '—'}</Text>
-                      <View style={dt.autoFillBadge}><Text style={dt.autoFillText}>Auto-filled</Text></View>
-                    </View>
-                    <Text style={dt.hintText}>Auto-filled from your profile</Text>
-                  </View>
-
-                  {/* Contact No. – editable */}
-                  <View style={[dt.fieldGroup, { marginTop: 12 }]}>
-                    <Text style={dt.fieldLabel}>CONTACT NO. <Text style={{ color: '#ef4444' }}>*</Text></Text>
-                    <PremiumInput
-                      label=""
-                      iconName="call-outline"
-                      placeholder="09XXXXXXXXX"
-                      value={phone}
-                      onChangeText={(t) => { setPhone(t); setPhoneError(''); }}
-                      keyboardType="phone-pad"
-                      maxLength={13}
-                    />
-                    {phoneError ? <Text style={dt.errorText}>{phoneError}</Text> : null}
+                  <DetailsSectionHeader icon="person-outline" label="CUSTOMER" />
+                  <View style={dt.summaryCard}>
+                    <Text style={dt.customerName} numberOfLines={1}>{displayCustomerName || '—'}</Text>
+                    {isPhoneEditing ? (
+                      <View style={dt.phoneEditBlock}>
+                        <Text style={dt.editLabel}>
+                          CONTACT NUMBER <Text style={dt.requiredMark}>*</Text>
+                        </Text>
+                        <View style={[dt.phoneInputRow, phoneError && dt.phoneInputRowError]}>
+                          <Ionicons name="call-outline" size={15} color="#8B8B94" />
+                          <TextInput
+                            autoFocus
+                            value={phone}
+                            onChangeText={(value) => {
+                              setPhone(value);
+                              setPhoneError('');
+                              setDraftDirty(true);
+                            }}
+                            onSubmitEditing={() => {
+                              if (!isValidPhilippineMobile(phone)) {
+                                setPhoneError('Enter a valid Philippine mobile number.');
+                                return;
+                              }
+                              setIsPhoneEditing(false);
+                            }}
+                            keyboardType="phone-pad"
+                            returnKeyType="done"
+                            maxLength={18}
+                            placeholder="09XXXXXXXXX"
+                            placeholderTextColor="#55555F"
+                            style={dt.phoneInput}
+                          />
+                          <TouchableOpacity
+                            accessibilityRole="button"
+                            accessibilityLabel="Save contact number"
+                            hitSlop={8}
+                            onPress={() => {
+                              if (!isValidPhilippineMobile(phone)) {
+                                setPhoneError('Enter a valid Philippine mobile number.');
+                                return;
+                              }
+                              setIsPhoneEditing(false);
+                            }}
+                          >
+                            <Text style={dt.doneText}>Done</Text>
+                          </TouchableOpacity>
+                        </View>
+                        {phoneError ? <Text style={dt.errorText}>{phoneError}</Text> : null}
+                      </View>
+                    ) : (
+                      <View style={dt.phoneReviewRow}>
+                        <Text style={dt.customerPhone}>{formatPhilippineMobile(displayCustomerPhone)}</Text>
+                        <TouchableOpacity
+                          accessibilityRole="button"
+                          accessibilityLabel="Edit contact number"
+                          hitSlop={8}
+                          onPress={() => setIsPhoneEditing(true)}
+                          style={dt.inlineAction}
+                        >
+                          <Text style={dt.inlineActionText}>Edit</Text>
+                          <Ionicons name="chevron-forward" size={12} color="rgba(255,183,125,0.64)" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                    <Text style={dt.helperText}>
+                      {phoneIsFromProfile ? 'From your profile' : 'Contact number for this booking'}
+                    </Text>
                   </View>
                 </Animated.View>
 
-                {/* ── Vehicle Details – 2×2 grid (mirrors web) ── */}
+                {/* ── Vehicle summary ── */}
                 <Animated.View entering={FadeInDown.delay(140).duration(200)}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <View style={s1.sectionHeader}>
-                      <View style={s1.sectionIconWrap}>
-                        <Ionicons name="car-outline" size={14} color={PRIMARY} />
+                  <DetailsSectionHeader icon="car-outline" label="VEHICLE" actionLabel="Change" onAction={() => setStep(0)} />
+                  <View style={dt.summaryCard}>
+                    <View style={dt.vehicleIdentity}>
+                      <View style={dt.vehicleIcon}>
+                        <Ionicons name="car-sport-outline" size={18} color="rgba(255,183,125,0.82)" />
                       </View>
-                      <Text style={ss.sectionLabel}>VEHICLE DETAILS</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={dt.vehicleName} numberOfLines={1}>
+                          {[selectedVehicle?.make, selectedVehicle?.model].filter(Boolean).join(' ') || '—'}
+                        </Text>
+                        <Text style={dt.vehicleType}>{vehicleTypeLabel}</Text>
+                      </View>
                     </View>
-                    <TouchableOpacity onPress={() => setStep(0)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <Text style={{ fontSize: 11, fontWeight: '600', color: PRIMARY }}>Edit Vehicle</Text>
-                    </TouchableOpacity>
+                    <View style={dt.cardDivider} />
+                    <View style={dt.vehicleDetails}>
+                      {[
+                        { label: 'Brand', value: selectedVehicle?.make || '—' },
+                        { label: 'Model', value: selectedVehicle?.model || '—' },
+                        { label: 'Color', value: selectedVehicle?.color || '—' },
+                        { label: 'Plate', value: selectedVehicle?.plateNumber?.toUpperCase() || '—' },
+                      ].map((item, index, items) => (
+                        <React.Fragment key={item.label}>
+                          <View style={dt.detailRow}>
+                            <Text style={dt.detailLabel}>{item.label}</Text>
+                            <Text style={dt.detailValue} numberOfLines={1}>{item.value}</Text>
+                          </View>
+                          {index < items.length - 1 ? <View style={dt.detailDivider} /> : null}
+                        </React.Fragment>
+                      ))}
+                    </View>
                   </View>
-
-                  {/* 2×2 grid: Brand | Model then Color | Plate */}
-                  <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-                    {[
-                      { label: 'Brand', icon: 'car-outline', value: selectedVehicle?.make || '—' },
-                      { label: 'Model', icon: 'car-sport-outline', value: selectedVehicle?.model || '—' },
-                    ].map(({ label, icon, value }) => (
-                      <View key={label} style={[dt.gridCell, { flex: 1 }]}>
-                        <Text style={dt.gridLabel}>{label.toUpperCase()}</Text>
-                        <View style={dt.gridValueRow}>
-                          <Ionicons name={icon as any} size={13} color={MUTED} />
-                          <Text style={dt.gridValue} numberOfLines={1}>{value}</Text>
-                          <Ionicons name="lock-closed-outline" size={11} color="#d1d5db" />
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: 10 }}>
-                    {[
-                      { label: 'Color', icon: 'color-palette-outline', value: selectedVehicle?.color || '—' },
-                      { label: 'Plate No.', icon: 'card-outline', value: selectedVehicle?.plateNumber?.toUpperCase() || '—' },
-                    ].map(({ label, icon, value }) => (
-                      <View key={label} style={[dt.gridCell, { flex: 1 }]}>
-                        <Text style={dt.gridLabel}>{label.toUpperCase()}</Text>
-                        <View style={dt.gridValueRow}>
-                          <Ionicons name={icon as any} size={13} color={MUTED} />
-                          <Text style={dt.gridValue} numberOfLines={1}>{value}</Text>
-                          <Ionicons name="lock-closed-outline" size={11} color="#d1d5db" />
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                  <Text style={[dt.hintText, { marginTop: 6 }]}>Auto-filled from your garage</Text>
                 </Animated.View>
 
-                {/* ── Car Service – read-only with Edit button ── */}
+                {/* ── Service summary ── */}
                 <Animated.View entering={FadeInDown.delay(200).duration(200)}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <View style={s1.sectionHeader}>
-                      <View style={s1.sectionIconWrap}>
-                        <Ionicons name="sparkles-outline" size={14} color={PRIMARY} />
-                      </View>
-                      <Text style={ss.sectionLabel}>CAR SERVICE</Text>
-                    </View>
-                    <TouchableOpacity onPress={() => setStep(0)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <Text style={{ fontSize: 11, fontWeight: '600', color: PRIMARY }}>Edit Service</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <View style={dt.serviceCard}>
-                    <Ionicons name="shield-checkmark-outline" size={18} color={PRIMARY} />
+                  <DetailsSectionHeader icon="shield-checkmark-outline" label="SERVICE" actionLabel="Change" onAction={() => setStep(0)} />
+                  <View style={[dt.summaryCard, dt.serviceCard]}>
                     <Text style={dt.serviceName} numberOfLines={2}>{effectiveName}</Text>
+                    {serviceMetadata ? <Text style={dt.serviceMetadata}>{serviceMetadata}</Text> : null}
                     <Text style={dt.servicePrice}>₱{effectivePrice.toLocaleString()}</Text>
                   </View>
                 </Animated.View>
-
-                <View style={ss.btnRow}>
-                  <TouchableOpacity activeOpacity={0.85} onPress={goBack} style={[ss.outlineBtn, { flex: 1 }]}>
-                    <Text style={ss.outlineBtnText}>Back</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    activeOpacity={0.88}
-                    disabled={!canProceedStep1}
-                    onPress={() => {
-                      const digits = phone.replace(/\D/g, '');
-                      if (digits.length < 10) { setPhoneError('Enter a valid contact number'); return; }
-                      goNext();
-                    }}
-                    style={{ flex: 2, opacity: canProceedStep1 ? 1 : 0.4 }}
-                  >
-                    <LinearGradient colors={[PRIMARY_CTR, PRIMARY]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={ss.gradientBtn}>
-                      <Text style={ss.gradientBtnText}>Continue</Text>
-                      <Ionicons name="chevron-forward" size={18} color={ON_PRIMARY} />
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
               </Animated.View>
             );
           })()}
@@ -2566,67 +3909,87 @@ export default function BookScreen() {
           {step === 2 && (
             <Animated.View entering={FadeInDown.duration(200)} style={[ss.stepWrap, sch.scheduleWrap]}>
 
-              {/* ── Calendar ── */}
-              <MonthCalendar
+              <View style={sch.pageHeading}>
+                <Text style={sch.pageTitle}>Choose a date &amp; time</Text>
+                <Text style={sch.pageSubtitle}>Select an available appointment.</Text>
+              </View>
+
+              <UpcomingDateRail
                 selectedDate={selectedDate}
-                onSelectDate={(dateKey, iso) => {
-                  setSelectedDate(iso || dateKey);
-                  setSelectedTime('');
-                  setSlotStatuses([]);
-                  setScheduleMessage('');
-                  fetchSlotsForDate(iso);
-                }}
+                businessDate={businessDate}
                 monthAvailability={monthAvailability}
                 loading={monthAvailLoading}
-                businessDate={businessDate}
-                onMonthChange={(y, m) => {
-                  visibleCalendarMonthRef.current = { year: y, month: m };
-                  setMonthAvailability({});
-                  setSelectedDate(null);
-                  setSelectedTime('');
-                  setSlotStatuses([]);
-                  setScheduleMessage('');
-                  fetchMonthAvailability(y, m);
-                }}
+                calendarOpen={showFullCalendar}
+                onSelectDate={selectScheduleDate}
+                onToggleCalendar={() => setShowFullCalendar((current) => !current)}
               />
 
-              {/* ── Selected appointment → preferred time ── */}
+              {showFullCalendar ? (
+                <Animated.View entering={FadeInDown.duration(160)} style={sch.fullCalendarSurface}>
+                  <MonthCalendar
+                    selectedDate={selectedDate}
+                    onSelectDate={(_dateKey, iso) => {
+                      selectScheduleDate(iso);
+                      setShowFullCalendar(false);
+                    }}
+                    monthAvailability={monthAvailability}
+                    loading={monthAvailLoading}
+                    businessDate={businessDate}
+                    onMonthChange={(y, m) => {
+                      visibleCalendarMonthRef.current = { year: y, month: m };
+                      void fetchMonthAvailability(y, m);
+                    }}
+                  />
+                </Animated.View>
+              ) : null}
+
               <View style={sch.sectionCard}>
                 {selectedDate && selectedDateParts ? (
-                  <View style={sch.selectedAppointment}>
-                    <View style={sch.selectedAppointmentMeta}>
-                      <Text style={sch.selectedAppointmentLabel}>Selected appointment</Text>
+                  <View style={sch.selectedDateSummary}>
+                    <Text style={sch.selectedDateLabel}>SELECTED DATE</Text>
+                    <Text style={sch.selectedDateText}>{formatScheduleSelectedDate(selectedDate)}</Text>
+                    <View style={sch.dailyCapacityRow}>
                       <View style={sch.availabilityRow}>
                         <View style={[
                           sch.availabilityDot,
                           (!selectedDayAvailability || slotsLoading) && sch.availabilityDotPending,
                           selectedDayAvailability?.status === 'full' && sch.availabilityDotFull,
                           selectedDayAvailability?.status === 'closed' && sch.availabilityDotClosed,
+                          selectedDateEmergencyClosed && sch.availabilityDotEmergency,
                         ]} />
-                        <Text style={sch.timeOptionCount}>{timeOptionCountLabel}</Text>
+                        <Text style={[
+                          sch.dailyCapacityText,
+                          selectedDayAvailability?.status === 'available' && sch.dailyCapacityTextAvailable,
+                          selectedDateEmergencyClosed && sch.dailyCapacityTextEmergency,
+                        ]}>{selectedDateCapacityLabel}</Text>
                       </View>
                     </View>
-                    <View style={sch.dateLockup}>
-                      <Text style={sch.dateDay}>{selectedDateParts.day}</Text>
-                      <View style={sch.dateIdentity}>
-                        <Text style={sch.dateWeekday}>{selectedDateParts.weekday}</Text>
-                        <Text style={sch.dateMonthYear}>{selectedDateParts.monthYear}</Text>
-                      </View>
-                    </View>
+                    <Text style={sch.availableStartTimesText}>{timeOptionCountLabel}</Text>
                   </View>
                 ) : null}
 
                 <View style={sch.timeSectionHeader}>
-                  <View>
-                    <Text style={sch.timeSectionLabel}>Preferred time</Text>
-                    <Text style={sch.timeSectionHint}>Choose your arrival window</Text>
+                  <View style={sch.timeSectionTitleRow}>
+                    <Text style={sch.timeSectionLabel}>ARRIVAL TIME</Text>
+                    <Text style={sch.timeRequirement}>Required</Text>
                   </View>
+                  <Text style={sch.timeOptionCount}>{timeOptionCountLabel}</Text>
+                  <Text style={sch.timeSectionHint}>Choose when you&apos;ll bring your vehicle in.</Text>
+                  {selectedServiceDuration ? (
+                    <Text style={sch.serviceDuration}>Estimated service duration: {selectedServiceDuration}</Text>
+                  ) : null}
                 </View>
 
                 {!!scheduleMessage && (
-                  <View style={sch.scheduleMessage}>
-                    <Ionicons name="information-circle-outline" size={16} color={Palette.accent} />
-                    <Text style={sch.scheduleMessageText}>{scheduleMessage}</Text>
+                  <View style={[sch.scheduleMessage, scheduleMessageIsConflict && sch.scheduleMessageConflict]}>
+                    <Ionicons
+                      name={scheduleMessageIsConflict ? 'alert-circle-outline' : 'information-circle-outline'}
+                      size={16}
+                      color={scheduleMessageIsConflict ? '#F87171' : PRIMARY}
+                    />
+                    <Text style={[sch.scheduleMessageText, scheduleMessageIsConflict && sch.scheduleMessageTextConflict]}>
+                      {scheduleMessage}
+                    </Text>
                   </View>
                 )}
 
@@ -2697,7 +4060,10 @@ export default function BookScreen() {
                           status={status}
                           selected={selectedTime === t}
                           onSelect={() => {
+                            selectedTimeRef.current = t;
                             setSelectedTime(t);
+                            setScheduleMessage('');
+                            setDraftDirty(true);
                             Haptics.selectionAsync();
                           }}
                         />
@@ -2710,18 +4076,22 @@ export default function BookScreen() {
               {/* ── Notes ── */}
               <View style={sch.sectionCard}>
                 <View style={sch.notesHeader}>
-                  <Text style={sch.sectionLabel}>Notes</Text>
+                  <Text style={sch.notesLabel}>Anything we should know?</Text>
                   <Text style={[sch.counter, notes.length > 180 && { color: '#EF4444' }]}>Optional · {notes.length}/200</Text>
                 </View>
                 <TextInput
                   style={sch.notesInput}
-                  placeholder="Anything we should know before your appointment?"
+                  placeholder="Special requests, vehicle concerns, or arrival notes..."
                   placeholderTextColor="#71717A"
                   value={notes}
-                  onChangeText={setNotes}
+                  onChangeText={(value) => { setNotes(value); setDraftDirty(true); }}
                   maxLength={200}
                   multiline
                   numberOfLines={4}
+                  scrollEnabled
+                  returnKeyType="done"
+                  blurOnSubmit
+                  onSubmitEditing={() => Keyboard.dismiss()}
                   textAlignVertical="top"
                   accessibilityLabel="Optional booking notes"
                   onFocus={() => {
@@ -2742,9 +4112,8 @@ export default function BookScreen() {
               STEP 3 — REVIEW BOOKING  (web Step 4 of 6)
           ═══════════════════════════════════════════════════ */}
           {step === 3 && (() => {
-            const effectivePkg   = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
-            const effectivePrice: number = selectedService?.price ?? (effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : 0);
-            const effectiveName  = selectedService?.name || effectivePkg?.label || '—';
+            const effectivePrice: number = selectedService?.price ?? 0;
+            const effectiveName  = selectedService?.name || '—';
             const RESERVATION_FEE = 500;
             const balance = Math.max(0, effectivePrice - RESERVATION_FEE);
 
@@ -2932,7 +4301,6 @@ export default function BookScreen() {
           {step === 4 && (
             <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
               <View style={ss.editorialHeader}>
-                  <Text style={ss.editorialLabel}>STEP 5 OF 6</Text>
                 <Text style={ss.editorialTitle}>Terms &amp;{'\n'}Conditions</Text>
                 <Text style={ss.editorialSub}>Read and agree to proceed to payment.</Text>
               </View>
@@ -3013,15 +4381,13 @@ export default function BookScreen() {
               STEP 5 — GCASH PAYMENT  (web Step 6 of 6)
           ═══════════════════════════════════════════════════ */}
           {step === 5 && (() => {
-            const effectivePkg   = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
-            const effectivePrice: number = selectedService?.price ?? (effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : 0);
+            const effectivePrice: number = selectedService?.price ?? 0;
             const RESERVATION_FEE = 500;
             const balance = Math.max(0, effectivePrice - RESERVATION_FEE);
             const canSubmit = !!downpaymentProof && !isSubmitting && canConfirmBooking;
             return (
               <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
                 <View style={ss.editorialHeader}>
-                  <Text style={ss.editorialLabel}>STEP 6 OF 6</Text>
                   <Text style={ss.editorialTitle}>GCash{'\n'}Payment</Text>
                   <Text style={ss.editorialSub}>Scan the QR and upload your receipt to confirm your booking.</Text>
                 </View>
@@ -3133,44 +4499,58 @@ export default function BookScreen() {
             exiting={FadeOutDown.duration(110)}
             style={[
               sch.actionDock,
-              { marginBottom: tabBarHeight },
+              { paddingBottom: Math.max(insets.bottom, 12) },
             ]}
+            onLayout={(event: LayoutChangeEvent) => setScheduleDockHeight(event.nativeEvent.layout.height)}
           >
-            <TouchableOpacity
-              activeOpacity={0.68}
-              onPress={goBack}
-              style={sch.dockBackButton}
-              accessibilityRole="button"
-              accessibilityLabel="Go back to booking details"
-            >
-              <Ionicons name="chevron-back" size={18} color="#A1A1AA" />
-              <Text style={sch.dockBackText}>Back</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              activeOpacity={0.82}
-              disabled={!canProceedStep2}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setStep(3);
-              }}
-              style={[
-                sch.dockContinueButton,
-                !canProceedStep2 && sch.dockContinueButtonDisabled,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Continue to booking review"
-              accessibilityState={{ disabled: !canProceedStep2 }}
-            >
-              <Text style={[
-                sch.dockContinueText,
-                !canProceedStep2 && sch.dockContinueTextDisabled,
-              ]}>Continue</Text>
-              <Ionicons
-                name="arrow-forward"
-                size={18}
-                color={canProceedStep2 ? '#09090A' : '#71717A'}
-              />
-            </TouchableOpacity>
+            <View style={sch.dockContext} accessibilityLiveRegion="polite">
+              <Text style={sch.dockContextDate} numberOfLines={1}>
+                {selectedDate && selectedTime ? formatScheduleFooterDate(selectedDate) : 'Choose an arrival time'}
+              </Text>
+              {selectedDate && selectedTime ? <Text style={sch.dockContextTime}>{selectedTime}</Text> : null}
+            </View>
+            <View style={sch.dockActions}>
+              <TouchableOpacity
+                activeOpacity={0.68}
+                onPress={goBack}
+                style={sch.dockBackButton}
+                accessibilityRole="button"
+                accessibilityLabel="Go back to booking details"
+              >
+                <Ionicons name="chevron-back" size={17} color="#A1A1AA" />
+                <Text style={sch.dockBackText}>Back</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.82}
+                disabled={!canProceedStep2}
+                onPress={() => void handleScheduleContinue()}
+                style={[
+                  sch.dockContinueButton,
+                  !canProceedStep2 && sch.dockContinueButtonDisabled,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={canProceedStep2
+                  ? `Continue with ${formatScheduleFooterDate(selectedDate)} at ${selectedTime}`
+                  : 'Choose an available date and arrival time to continue'}
+                accessibilityState={{ disabled: !canProceedStep2, busy: isScheduleContinuing }}
+              >
+                {isScheduleContinuing ? (
+                  <ActivityIndicator size="small" color={ON_PRIMARY} />
+                ) : (
+                  <>
+                    <Text style={[
+                      sch.dockContinueText,
+                      !canProceedStep2 && sch.dockContinueTextDisabled,
+                    ]}>Continue</Text>
+                    <Ionicons
+                      name="arrow-forward"
+                      size={17}
+                      color={canProceedStep2 ? ON_PRIMARY : '#71717A'}
+                    />
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </Animated.View>
         ) : null}
       </KeyboardAvoidingView>
@@ -3179,46 +4559,74 @@ export default function BookScreen() {
         <View
           style={[
             bookingCta.container,
-            { bottom: tabBarHeight },
+            { paddingBottom: Math.max(insets.bottom, 8) },
           ]}
+          onLayout={(event: LayoutChangeEvent) => setStepOneDockHeight(event.nativeEvent.layout.height)}
         >
           <View style={bookingCta.summaryRow}>
-            <Text style={[bookingCta.guidance, canProceedStep0 && bookingCta.guidanceReady]}>
+            <Text
+              style={[bookingCta.guidance, canProceedStep0 && bookingCta.guidanceReady]}
+              numberOfLines={1}
+            >
               {stepOneGuidance}
             </Text>
             {selectedPackagePrice !== null ? (
               <Text style={bookingCta.summaryPrice}>₱{selectedPackagePrice.toLocaleString()}</Text>
             ) : null}
           </View>
-          <TouchableOpacity
-            activeOpacity={0.88}
-            disabled={!canProceedStep0 || isContinuing}
-            accessibilityRole="button"
-            accessibilityLabel="Continue to booking details"
-            accessibilityState={{ disabled: !canProceedStep0, busy: isContinuing }}
+          <BookingContinueButton
+            enabled={canProceedStep0}
+            busy={isContinuing}
+            accessibilityLabel={canProceedStep0
+              ? `Continue with ${selectedPackage?.name || selectedService?.name}`
+              : 'Continue to booking details'}
             onPress={handleStepOneContinue}
+          />
+        </View>
+      ) : null}
+
+      {step === 1 && !isPhoneEditing ? (
+        <View
+          style={[detailsDock.container, { paddingBottom: Math.max(insets.bottom, 8) }]}
+          onLayout={(event: LayoutChangeEvent) => setStepTwoDockHeight(event.nativeEvent.layout.height)}
+        >
+          <TouchableOpacity
+            activeOpacity={0.76}
+            accessibilityRole="button"
+            accessibilityLabel="Back to service selection"
+            onPress={goBack}
+            style={detailsDock.backButton}
           >
-            <LinearGradient
-              colors={canProceedStep0 ? [PRIMARY_CTR, PRIMARY] : ['#292929', '#1C1C1C']}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={bookingCta.button}
-            >
-              {isContinuing ? (
-                <ActivityIndicator size="small" color={ON_PRIMARY} />
-              ) : (
-                <>
-                  <Text style={[bookingCta.buttonText, !canProceedStep0 && bookingCta.buttonTextDisabled]}>
-                    Continue
-                  </Text>
-                  <Ionicons
-                    name="arrow-forward"
-                    size={18}
-                    color={canProceedStep0 ? ON_PRIMARY : MUTED}
-                  />
-                </>
-              )}
-            </LinearGradient>
+            <Ionicons name="chevron-back" size={16} color="#C6C6C7" />
+            <Text style={detailsDock.backText}>Back</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel="Continue to schedule"
+            accessibilityState={{ disabled: !canProceedStep1, busy: isDetailsContinuing }}
+            disabled={!canProceedStep1 || isDetailsContinuing}
+            onPress={() => void handleDetailsContinue()}
+            style={[
+              detailsDock.continueButton,
+              !canProceedStep1 && detailsDock.continueButtonDisabled,
+            ]}
+          >
+            {isDetailsContinuing ? (
+              <ActivityIndicator size="small" color={ON_PRIMARY} />
+            ) : (
+              <>
+                <Text style={[
+                  detailsDock.continueText,
+                  !canProceedStep1 && detailsDock.continueTextDisabled,
+                ]}>Continue</Text>
+                <Ionicons
+                  name="arrow-forward"
+                  size={17}
+                  color={canProceedStep1 ? ON_PRIMARY : '#85858D'}
+                />
+              </>
+            )}
           </TouchableOpacity>
         </View>
       ) : null}
@@ -3228,37 +4636,58 @@ export default function BookScreen() {
         transparent
         animationType="slide"
         statusBarTranslucent
-        onRequestClose={() => setPackageDetailsKey(null)}
+        onRequestClose={closePackageDetails}
       >
         <View style={packageDetailsStyles.overlay}>
           <TouchableOpacity
             activeOpacity={1}
             accessibilityRole="button"
             accessibilityLabel="Close package details"
-            onPress={() => setPackageDetailsKey(null)}
+            onPress={closePackageDetails}
             style={packageDetailsStyles.backdrop}
           />
 
-          {packageDetails && packageDetailsPrice !== null ? (
-            <View
+          {packageDetails ? (
+            <RNAnimated.View
               style={[
                 packageDetailsStyles.sheet,
                 { paddingBottom: Math.max(insets.bottom, 16) },
+                { transform: [{ translateY: packageSheetTranslateY }] },
               ]}
             >
-              <View style={packageDetailsStyles.handle} />
+              <View
+                style={packageDetailsStyles.handleTouchArea}
+                {...packageSheetPanResponder.panHandlers}
+              >
+                <View style={packageDetailsStyles.handle} />
+              </View>
               <View style={packageDetailsStyles.header}>
                 <View style={{ flex: 1 }}>
-                  <Text style={packageDetailsStyles.eyebrow}>{packageDetails.tier}</Text>
-                  <Text style={packageDetailsStyles.title}>
-                    {packageDetails.label} — {packageDetails.tier}
-                  </Text>
+                  <View style={packageDetailsStyles.headerMetaRow}>
+                    <Text style={packageDetailsStyles.eyebrow}>{packageDetails.tier}</Text>
+                    {packageDetailsBadge ? (
+                      <View
+                        style={[
+                          packageDetailsStyles.headerBadge,
+                          {
+                            borderColor: `${packageDetails.badgeColor}55`,
+                            backgroundColor: `${packageDetails.badgeColor}16`,
+                          },
+                        ]}
+                      >
+                        <Text style={[packageDetailsStyles.headerBadgeText, { color: packageDetails.badgeColor }]}>
+                          {packageDetailsBadge}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={packageDetailsStyles.title}>{packageDetails.name}</Text>
                 </View>
                 <TouchableOpacity
                   activeOpacity={0.75}
                   accessibilityRole="button"
                   accessibilityLabel="Close package details"
-                  onPress={() => setPackageDetailsKey(null)}
+                  onPress={closePackageDetails}
                   style={packageDetailsStyles.closeButton}
                 >
                   <Ionicons name="close" size={20} color="#FFFFFF" />
@@ -3270,74 +4699,120 @@ export default function BookScreen() {
                 contentContainerStyle={packageDetailsStyles.content}
                 showsVerticalScrollIndicator={false}
               >
-                <Text style={packageDetailsStyles.price}>
-                  ₱{packageDetailsPrice.toLocaleString()}
+                <Text style={[
+                  packageDetailsStyles.price,
+                  packageDetails.price.status !== 'available' && packageDetailsStyles.priceUnavailable,
+                ]}>
+                  {packageDetails.price.status === 'available'
+                    ? `₱${packageDetails.price.value.toLocaleString()}`
+                    : 'Unable to load price'}
                 </Text>
-                <Text style={packageDetailsStyles.tagline}>
-                  {PKG_DURATIONS[packageDetails.key]}
-                </Text>
-
-                <View style={packageDetailsStyles.durationRow}>
-                  <Ionicons name="shield-checkmark-outline" size={17} color={PRIMARY} />
-                  <View>
-                    <Text style={packageDetailsStyles.durationLabel}>Protection</Text>
-                    <Text style={packageDetailsStyles.durationValue}>{packageDetails.years}</Text>
-                  </View>
-                </View>
-
-                <Text style={packageDetailsStyles.description}>{packageDetails.description}</Text>
-
-                {packageDetails.socialProof ? (
-                  <View style={packageDetailsStyles.highlight}>
-                    <Ionicons name="people-outline" size={17} color={PRIMARY} />
-                    <Text style={packageDetailsStyles.highlightText}>
-                      {packageDetails.socialProof}
+                {packageDetails.promotionPercent !== null && packageDetails.originalPrice !== null ? (
+                  <View style={packageDetailsStyles.promotionRow}>
+                    <View style={packageDetailsStyles.promotionBadge}>
+                      <Text style={packageDetailsStyles.promotionBadgeText}>
+                        {packageDetails.promotionPercent}% OFF PROMO
+                      </Text>
+                    </View>
+                    <Text style={packageDetailsStyles.originalPrice}>
+                      Original ₱{packageDetails.originalPrice.toLocaleString()}
                     </Text>
                   </View>
                 ) : null}
+                {packageDetails.tagline ? (
+                  <Text style={packageDetailsStyles.tagline}>{packageDetails.tagline}</Text>
+                ) : null}
 
-                <View style={packageDetailsStyles.section}>
-                  <Text style={packageDetailsStyles.sectionTitle}>What&apos;s included</Text>
-                  <View style={packageDetailsStyles.inclusionList}>
-                    {packageDetails.features.map((rawFeature) => {
-                      const feature = getPackageFeatureParts(rawFeature);
-                      return (
-                        <View key={rawFeature} style={packageDetailsStyles.inclusionRow}>
-                          <View style={packageDetailsStyles.checkIcon}>
-                            <Ionicons name="checkmark" size={13} color={ON_PRIMARY} />
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={packageDetailsStyles.inclusionTitle}>{feature.title}</Text>
-                            {feature.detail ? (
-                              <Text style={packageDetailsStyles.inclusionDetail}>{feature.detail}</Text>
-                            ) : null}
-                            {feature.savings ? (
-                              <Text style={packageDetailsStyles.savings}>
-                                Included · Save {feature.savings}
-                              </Text>
-                            ) : null}
-                          </View>
+                {packageDetails.protection || packageDetails.estimatedDuration ? (
+                  <View style={packageDetailsStyles.specifications}>
+                    {packageDetails.protection ? (
+                      <View style={packageDetailsStyles.specificationColumn}>
+                        <View style={packageDetailsStyles.specificationIcon}>
+                          <Ionicons name="shield-checkmark-outline" size={17} color={PRIMARY} />
                         </View>
-                      );
-                    })}
+                        <View style={{ flex: 1 }}>
+                          <Text style={packageDetailsStyles.specificationLabel}>Protection</Text>
+                          <Text style={packageDetailsStyles.specificationValue}>{packageDetails.protection}</Text>
+                        </View>
+                      </View>
+                    ) : null}
+                    {packageDetails.estimatedDuration ? (
+                      <View style={packageDetailsStyles.specificationColumn}>
+                        <View style={[packageDetailsStyles.specificationIcon, packageDetailsStyles.durationIcon]}>
+                          <Ionicons name="time-outline" size={17} color="#A1A1AA" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={packageDetailsStyles.specificationLabel}>Estimated Service Time</Text>
+                          <Text style={packageDetailsStyles.specificationValue}>{packageDetails.estimatedDuration}</Text>
+                        </View>
+                      </View>
+                    ) : null}
                   </View>
-                </View>
+                ) : null}
 
-                {packageDetails.insights?.length ? (
+                {packageDetailGroups.length ? (
                   <View style={packageDetailsStyles.section}>
-                    <Text style={packageDetailsStyles.sectionTitle}>Why customers love this</Text>
-                    <View style={packageDetailsStyles.insightList}>
-                      {packageDetails.insights.map((insight) => (
-                        <View key={insight.heading} style={packageDetailsStyles.insightRow}>
-                          <View style={packageDetailsStyles.insightIcon}>
-                            <Ionicons name={insight.icon} size={17} color={PRIMARY} />
+                    <Text style={packageDetailsStyles.sectionTitle}>What&apos;s included</Text>
+                    <View style={packageDetailsStyles.detailGroups}>
+                      {packageDetailGroups.map((group) => (
+                        <View key={group.title} style={packageDetailsStyles.detailGroup}>
+                          <Text style={packageDetailsStyles.groupTitle}>{group.title}</Text>
+                          <View style={packageDetailsStyles.inclusionList}>
+                            {group.inclusions.map((inclusion, inclusionIndex) => (
+                              <View
+                                key={`${group.title}-${inclusion.title}-${inclusionIndex}`}
+                                style={packageDetailsStyles.inclusionRow}
+                              >
+                                <PackageCheck size={22} checkSize={12} treatment="inclusion" />
+                                <View style={{ flex: 1 }}>
+                                  <Text style={packageDetailsStyles.inclusionTitle}>{inclusion.title}</Text>
+                                  {inclusion.detail ? (
+                                    <Text style={packageDetailsStyles.inclusionDetail}>{inclusion.detail}</Text>
+                                  ) : null}
+                                  {inclusion.savingsLabel ? (
+                                    <Text style={packageDetailsStyles.savings}>{inclusion.savingsLabel}</Text>
+                                  ) : null}
+                                </View>
+                              </View>
+                            ))}
                           </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={packageDetailsStyles.insightTitle}>{insight.heading}</Text>
-                            <Text style={packageDetailsStyles.insightBody}>{insight.body}</Text>
-                          </View>
+                          {group.title === 'Paint Protection Film' && packageDetails.ppfCoverage.length ? (
+                            <View style={packageDetailsStyles.coverageBlock}>
+                              <Text style={packageDetailsStyles.coverageTitle}>PPF Coverage</Text>
+                              <View style={packageDetailsStyles.coverageGrid}>
+                                {packageDetails.ppfCoverage.map((area) => (
+                                  <View key={area} style={packageDetailsStyles.coverageItem}>
+                                    <View style={packageDetailsStyles.coverageDot} />
+                                    <Text style={packageDetailsStyles.coverageText}>{area}</Text>
+                                  </View>
+                                ))}
+                              </View>
+                            </View>
+                          ) : null}
                         </View>
                       ))}
+                    </View>
+                  </View>
+                ) : null}
+
+                {packageDetails.description ? (
+                  <View style={packageDetailsStyles.section}>
+                    <Text style={packageDetailsStyles.sectionTitle}>Package notes</Text>
+                    <Text style={packageDetailsStyles.description}>{packageDetails.description}</Text>
+                  </View>
+                ) : null}
+
+                {packageDetails.bundleLabel && packageDetails.bundlePrice !== null ? (
+                  <View style={packageDetailsStyles.section}>
+                    <Text style={packageDetailsStyles.sectionTitle}>Related package</Text>
+                    <View style={packageDetailsStyles.bundleRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={packageDetailsStyles.bundleName}>{packageDetails.bundleLabel}</Text>
+                        <Text style={packageDetailsStyles.bundleNote}>Separate bundle · Not included in this package</Text>
+                      </View>
+                      <Text style={packageDetailsStyles.bundlePrice}>
+                        ₱{packageDetails.bundlePrice.toLocaleString()}
+                      </Text>
                     </View>
                   </View>
                 ) : null}
@@ -3346,20 +4821,20 @@ export default function BookScreen() {
               {selectedPkg === packageDetails.key ? (
                 <View
                   accessibilityRole="text"
-                  accessibilityLabel={`${packageDetails.label} is selected`}
+                  accessibilityLabel={`${packageDetails.name} is selected`}
                   style={packageDetailsStyles.selectedAction}
                 >
-                  <Ionicons name="checkmark-circle" size={19} color={PRIMARY} />
+                  <PackageCheck size={19} checkSize={12} treatment="selected" />
                   <Text style={packageDetailsStyles.selectedActionText}>Selected package</Text>
                 </View>
-              ) : (
+              ) : packageDetails.price.status === 'available' ? (
                 <TouchableOpacity
                   activeOpacity={0.86}
                   accessibilityRole="button"
-                  accessibilityLabel={`Select ${packageDetails.label}`}
+                  accessibilityLabel={`Select ${packageDetails.name}`}
                   onPress={() => {
-                    selectPkg(packageDetails.key, packageDetailsPrice);
-                    setPackageDetailsKey(null);
+                    selectPackage(packageDetails);
+                    closePackageDetails();
                   }}
                 >
                   <LinearGradient
@@ -3369,13 +4844,24 @@ export default function BookScreen() {
                     style={packageDetailsStyles.selectButton}
                   >
                     <Text style={packageDetailsStyles.selectButtonText}>
-                      Select {packageDetails.label}
+                      Select package
                     </Text>
                     <Ionicons name="checkmark" size={18} color={ON_PRIMARY} />
                   </LinearGradient>
                 </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  activeOpacity={0.82}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry package pricing"
+                  onPress={() => void retryServices()}
+                  style={packageDetailsStyles.retryAction}
+                >
+                  <Ionicons name="refresh" size={17} color={PRIMARY} />
+                  <Text style={packageDetailsStyles.retryActionText}>Retry pricing</Text>
+                </TouchableOpacity>
               )}
-            </View>
+            </RNAnimated.View>
           ) : null}
         </View>
       </Modal>
@@ -3393,12 +4879,12 @@ const ss = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 8 },
   stepWrap: { gap: 28 },
-  stepOneWrap: { gap: 24 },
+  stepOneWrap: { gap: 20 },
 
   // ── Editorial Hero (Step 0) ──
   heroSection: {
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingTop: 6,
+    paddingBottom: 2,
   },
   heroLabel: {
     fontSize: 11,
@@ -3409,12 +4895,12 @@ const ss = StyleSheet.create({
     marginBottom: 8,
   },
   heroTitle: {
-    fontSize: 38,
+    fontSize: 32,
     fontWeight: '700',
     color: '#FFFFFF',
-    letterSpacing: -0.02 * 38,
-    lineHeight: 42,
-    marginBottom: 10,
+    letterSpacing: -0.02 * 32,
+    lineHeight: 36,
+    marginBottom: 8,
   },
   heroSub: {
     fontSize: 15,
@@ -3820,8 +5306,8 @@ const s2 = StyleSheet.create({
   },
   timePill: {
     width: '100%',
-    height: 50,
-    borderRadius: 13,
+    height: 56,
+    borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#121214',
     borderWidth: StyleSheet.hairlineWidth,
@@ -3829,8 +5315,9 @@ const s2 = StyleSheet.create({
     justifyContent: 'center',
   },
   timePillSelected: {
-    backgroundColor: Palette.accent,
-    borderColor: Palette.accent,
+    backgroundColor: 'rgba(255,140,0,0.09)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,140,0,0.58)',
   },
   timePillSelectedContent: {
     flex: 1,
@@ -3852,24 +5339,24 @@ const s2 = StyleSheet.create({
     textAlign: 'center',
   },
   timeTextSelected: {
-    color: '#09090A',
-    fontWeight: '600',
+    color: '#F8F8F8',
+    fontWeight: '700',
     fontSize: 15,
   },
-  timeTextFull: { color: '#F87171' },
+  timeTextFull: { color: '#71717A' },
   timeTextClosed: { color: '#A1A1AA' },
-  timeStatusBooked: { fontSize: 9, color: '#F87171', fontWeight: '700' },
+  timeStatusBooked: { fontSize: 9, color: '#626269', fontWeight: '600' },
   timeStatusClosed: { fontSize: 9, color: '#A1A1AA', fontWeight: '600' },
 
   /* ── Time slot status variants ── */
   timePillFull: {
     backgroundColor: '#0D0D0F',
-    borderColor: 'rgba(239,68,68,0.08)',
+    borderColor: 'rgba(255,255,255,0.045)',
     opacity: 0.46,
   },
   timePillClosed: {
     backgroundColor: '#0D0D0F',
-    borderColor: 'rgba(148,163,184,0.08)',
+    borderColor: 'rgba(255,255,255,0.05)',
     opacity: 0.42,
   },
 
@@ -3979,9 +5466,9 @@ const pay = StyleSheet.create({
   infoBox: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
     padding: 14, borderRadius: 12,
-    backgroundColor: 'rgba(133,207,255,0.06)', borderWidth: 1, borderColor: 'rgba(133,207,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.035)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
   },
-  infoText: { flex: 1, fontSize: 12, color: TERTIARY, lineHeight: 19 },
+  infoText: { flex: 1, fontSize: 12, color: '#A1A1AA', lineHeight: 19 },
 });
 
 /** Review Booking step */
@@ -4716,76 +6203,245 @@ const avf = StyleSheet.create({
 /** Step 0 — Vehicle selection glassmorphism */
 /** Step 1 — Details screen styles */
 const dt = StyleSheet.create({
-  fieldGroup: { gap: 4 },
-  fieldLabel: { fontSize: 10, fontWeight: '700', color: MUTED, letterSpacing: 0.8, marginBottom: 4 },
-  readOnlyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: SURFACE_HIGH,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    borderWidth: 1,
-    borderColor: GHOST,
+  stepWrap: {
+    gap: 22,
   },
-  readOnlyValue: { flex: 1, fontSize: 14, color: SECONDARY, fontWeight: '500' },
-  autoFillBadge: { backgroundColor: 'rgba(74,222,128,0.08)', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
-  autoFillText: { fontSize: 10, color: '#4ade80', fontWeight: '600' },
-  hintText: { fontSize: 11, color: MUTED, marginTop: 4, paddingHorizontal: 2 },
-  errorText: { fontSize: 11, color: '#ef4444', marginTop: 3 },
+  pageHeader: {
+    paddingTop: 5,
+    paddingBottom: 1,
+  },
+  pageTitle: {
+    color: '#F7F7F8',
+    fontSize: 29,
+    lineHeight: 34,
+    fontWeight: '700',
+    letterSpacing: -0.55,
+  },
+  pageSubtitle: {
+    color: '#77777F',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '400',
+    marginTop: 6,
+  },
   summaryCard: {
-    backgroundColor: SURFACE_HIGH,
-    borderRadius: 14,
+    backgroundColor: '#121216',
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: GHOST,
-    overflow: 'hidden',
+    borderColor: 'rgba(255,255,255,0.07)',
+    paddingHorizontal: 16,
+    paddingVertical: 15,
   },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 13 },
-  summaryKey: { fontSize: 13, color: DIM_TEXT },
-  summaryVal: { fontSize: 14, color: SECONDARY, fontWeight: '600', textAlign: 'right', flex: 1, marginLeft: 16 },
-  summaryDivider: { height: 1, backgroundColor: GHOST, marginHorizontal: 16 },
-  serviceCard: {
+  customerName: {
+    color: '#F4F4F5',
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '600',
+  },
+  phoneReviewRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: `${PRIMARY}12`,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: `${PRIMARY}30`,
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 7,
   },
-  serviceName: { flex: 1, fontSize: 14, color: '#FFFFFF', fontWeight: '600' },
-  servicePrice: { fontSize: 16, color: PRIMARY, fontWeight: '700' },
-  gridCell: {
-    backgroundColor: SURFACE_HIGH,
+  customerPhone: {
+    flex: 1,
+    color: '#D4D4D8',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '500',
+  },
+  inlineAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    minHeight: 36,
+  },
+  inlineActionText: {
+    color: 'rgba(255,183,125,0.68)',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+  },
+  helperText: {
+    color: '#66666E',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '500',
+    marginTop: 5,
+  },
+  phoneEditBlock: {
+    marginTop: 10,
+  },
+  editLabel: {
+    color: '#77777F',
+    fontSize: 9,
+    lineHeight: 13,
+    fontWeight: '600',
+    letterSpacing: 0.65,
+    marginBottom: 6,
+  },
+  requiredMark: {
+    color: '#F87171',
+  },
+  phoneInputRow: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: GHOST,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: '#0C0C0F',
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 4,
   },
-  gridLabel: { fontSize: 9, fontWeight: '700', color: MUTED, letterSpacing: 0.8 },
-  gridValueRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  gridValue: { flex: 1, fontSize: 13, fontWeight: '600', color: SECONDARY },
+  phoneInputRowError: {
+    borderColor: 'rgba(248,113,113,0.50)',
+  },
+  phoneInput: {
+    flex: 1,
+    height: 44,
+    paddingVertical: 0,
+    color: '#F4F4F5',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  doneText: {
+    color: PRIMARY,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  errorText: {
+    color: '#F87171',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '500',
+    marginTop: 6,
+  },
+  vehicleIdentity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+  },
+  vehicleIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,183,125,0.07)',
+  },
+  vehicleName: {
+    color: '#F4F4F5',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  vehicleType: {
+    color: '#77777F',
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 1,
+  },
+  cardDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginVertical: 13,
+  },
+  vehicleDetails: {
+    gap: 0,
+  },
+  detailRow: {
+    minHeight: 31,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 18,
+  },
+  detailLabel: {
+    color: '#71717A',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '400',
+  },
+  detailValue: {
+    flex: 1,
+    color: '#D4D4D8',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+    textAlign: 'right',
+  },
+  detailDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.045)',
+  },
+  serviceCard: {
+    paddingVertical: 16,
+  },
+  serviceName: {
+    color: '#F4F4F5',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  serviceMetadata: {
+    color: '#77777F',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '500',
+    marginTop: 4,
+  },
+  servicePrice: {
+    color: PRIMARY,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '700',
+    marginTop: 12,
+  },
 });
 
 const s1 = StyleSheet.create({
+  sectionHeaderRow: {
+    minHeight: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 14,
+    gap: 8,
   },
   sectionIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    backgroundColor: 'rgba(255,183,125,0.08)',
+    width: 25,
+    height: 25,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,183,125,0.055)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  sectionLabel: {
+    color: '#8B8B94',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '600',
+    letterSpacing: 0.65,
+  },
+  changeAction: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  changeActionText: {
+    color: 'rgba(255,183,125,0.64)',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
   },
   glassCard: {
     backgroundColor: SURFACE_MID,
@@ -4807,7 +6463,25 @@ const s1 = StyleSheet.create({
 // ── Schedule step — quiet automotive cockpit composition ──────────────────
 const sch = StyleSheet.create({
   scheduleWrap: {
-    gap: 28,
+    gap: 20,
+  },
+  pageHeading: { gap: 4, marginBottom: 1 },
+  pageTitle: {
+    color: '#F7F7F8',
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: '700',
+    letterSpacing: -0.55,
+  },
+  pageSubtitle: { color: '#8B8B91', fontSize: 13, lineHeight: 18 },
+  fullCalendarSurface: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#0D0D0F',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 6,
   },
   sectionCard: {
     backgroundColor: 'transparent',
@@ -4837,6 +6511,32 @@ const sch = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     fontWeight: '500',
+  },
+  selectedDateSummary: {
+    paddingBottom: 15,
+    marginBottom: 17,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    gap: 7,
+  },
+  selectedDateLabel: {
+    color: '#71717A',
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+  },
+  selectedDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  selectedDateText: {
+    color: '#F4F4F5',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
   },
   dateLockup: {
     flexDirection: 'row',
@@ -4870,9 +6570,31 @@ const sch = StyleSheet.create({
   availabilityRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
     gap: 6,
     flexShrink: 1,
+  },
+  dailyCapacityRow: {
+    minHeight: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  dailyCapacityText: {
+    flexShrink: 1,
+    color: '#A1A1AA',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+  },
+  dailyCapacityTextAvailable: { color: '#86D9A0' },
+  dailyCapacityTextEmergency: { color: '#FCA5A5' },
+  availableStartTimesText: {
+    color: '#71717A',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
   },
   availabilityDot: {
     width: 5,
@@ -4882,7 +6604,7 @@ const sch = StyleSheet.create({
     flexShrink: 0,
   },
   availabilityDotFull: {
-    backgroundColor: '#EF4444',
+    backgroundColor: '#71717A',
   },
   availabilityDotPending: {
     backgroundColor: '#71717A',
@@ -4890,17 +6612,27 @@ const sch = StyleSheet.create({
   availabilityDotClosed: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#94A3B8',
+    borderColor: '#8B8B91',
+  },
+  availabilityDotEmergency: {
+    backgroundColor: '#EF4444',
+    borderWidth: 0,
   },
   timeSectionHeader: {
     marginBottom: 13,
   },
+  timeSectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   timeSectionLabel: {
-    color: '#F4F4F5',
-    fontSize: 20,
-    lineHeight: 25,
-    fontWeight: '600',
-    letterSpacing: -0.35,
+    color: '#B8B8BC',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 1.05,
   },
   timeSectionHint: {
     color: '#71717A',
@@ -4908,19 +6640,39 @@ const sch = StyleSheet.create({
     lineHeight: 17,
     marginTop: 3,
   },
-  timeOptionCount: {
-    flexShrink: 1,
+  timeRequirement: {
+    color: '#A1A1AA',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '600',
+  },
+  serviceDuration: {
     color: '#A1A1AA',
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: '500',
-    textAlign: 'right',
+    marginTop: 2,
+  },
+  timeOptionCount: {
+    color: '#A1A1AA',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+    marginTop: 4,
   },
   scheduleMessage: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 8,
     marginBottom: 13,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,183,125,0.045)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,183,125,0.10)',
+  },
+  scheduleMessageConflict: {
+    backgroundColor: 'rgba(239,68,68,0.055)',
+    borderColor: 'rgba(239,68,68,0.16)',
   },
   scheduleMessageText: {
     flex: 1,
@@ -4928,6 +6680,7 @@ const sch = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  scheduleMessageTextConflict: { color: '#FCA5A5' },
   inlineState: {
     minHeight: 60,
     flexDirection: 'row',
@@ -4958,8 +6711,8 @@ const sch = StyleSheet.create({
   },
   slotSkeleton: {
     width: '48%',
-    height: 50,
-    borderRadius: 13,
+    height: 56,
+    borderRadius: 12,
     backgroundColor: 'rgba(255,255,255,0.045)',
   },
   notesHeader: {
@@ -4967,6 +6720,13 @@ const sch = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 9,
+  },
+  notesLabel: {
+    flex: 1,
+    color: '#D4D4D8',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
   },
   counter: {
     fontSize: 11,
@@ -4984,22 +6744,31 @@ const sch = StyleSheet.create({
     color: '#F4F4F5',
     backgroundColor: '#121214',
     minHeight: 94,
+    maxHeight: 124,
     textAlignVertical: 'top',
   },
   actionDock: {
-    minHeight: 70,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    minHeight: 92,
+    gap: 6,
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 7,
     backgroundColor: '#09090A',
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.06)',
   },
+  dockContext: {
+    minHeight: 27,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  dockContextDate: { flex: 1, color: '#D4D4D8', fontSize: 12, lineHeight: 16, fontWeight: '600' },
+  dockContextTime: { color: PRIMARY, fontSize: 12, lineHeight: 16, fontWeight: '700' },
+  dockActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   dockBackButton: {
-    minWidth: 74,
-    minHeight: 50,
+    width: '35%',
+    minHeight: 46,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-start',
@@ -5011,16 +6780,15 @@ const sch = StyleSheet.create({
     fontWeight: '500',
   },
   dockContinueButton: {
-    width: '62%',
-    maxWidth: 210,
-    minHeight: 52,
+    flex: 1,
+    minHeight: 48,
     marginLeft: 'auto',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     borderRadius: 15,
-    backgroundColor: Palette.accent,
+    backgroundColor: PRIMARY_CTR,
   },
   dockContinueButtonDisabled: {
     backgroundColor: 'transparent',
@@ -5028,7 +6796,7 @@ const sch = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.07)',
   },
   dockContinueText: {
-    color: '#09090A',
+    color: ON_PRIMARY,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -5095,23 +6863,20 @@ const svc = StyleSheet.create({
   },
   // ── Full-width vehicle row card ──
   vehicleRow: {
+    minHeight: 88,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     backgroundColor: SURFACE_HIGH,
-    borderRadius: 14,
+    borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderWidth: 1,
     borderColor: GHOST,
   },
   vehicleRowActive: {
-    backgroundColor: `${PRIMARY_CTR}18`,
-    borderColor: `${PRIMARY}70`,
-    ...Platform.select({
-      ios: { shadowColor: PRIMARY, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10 },
-      android: { elevation: 4 },
-    }),
+    backgroundColor: 'rgba(255,140,0,0.025)',
+    borderColor: 'rgba(255,183,125,0.20)',
   },
   vehicleIconWrap: {
     width: 44,
@@ -5135,6 +6900,30 @@ const svc = StyleSheet.create({
     fontWeight: '500',
     color: MUTED,
     marginTop: 2,
+  },
+  selectedVehicleMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 5,
+  },
+  selectedVehicleMetaText: {
+    color: PRIMARY,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  changeVehicleAction: {
+    minWidth: 66,
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 2,
+  },
+  changeVehicleText: {
+    color: PRIMARY,
+    fontSize: 12,
+    fontWeight: '700',
   },
   // Radio button
   radioOuter: {
@@ -5184,9 +6973,38 @@ const svc = StyleSheet.create({
     borderStyle: 'dashed',
   },
   packageLockedText: {
+    flex: 1,
     fontSize: 13,
     color: MUTED,
     fontWeight: '500',
+  },
+  inlineError: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(127,29,29,0.12)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(248,113,113,0.20)',
+  },
+  inlineErrorTitle: {
+    color: '#F4F4F5',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  inlineErrorBody: {
+    color: '#8B8B94',
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 2,
+  },
+  retryText: {
+    color: PRIMARY,
+    fontSize: 12,
+    fontWeight: '800',
   },
   // Package card check badge placeholder (unselected)
   checkBadgeEmpty: {
@@ -5367,61 +7185,213 @@ const svc = StyleSheet.create({
   },
 });
 
+const skeleton = StyleSheet.create({
+  row: {
+    borderColor: 'rgba(255,255,255,0.04)',
+  },
+  packageCard: {
+    minHeight: 184,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+  },
+  block: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  circle: {
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  line: {
+    height: 13,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+  },
+  lineSmall: {
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: 'rgba(255,255,255,0.055)',
+  },
+  lineLarge: {
+    height: 25,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.075)',
+  },
+});
+
+const vehiclePicker = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+  },
+  sheet: {
+    maxHeight: '76%',
+    paddingHorizontal: 18,
+    paddingTop: 11,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    backgroundColor: '#111113',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,183,125,0.20)',
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 14,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  header: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  eyebrow: {
+    color: PRIMARY,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+  },
+  title: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '800',
+    marginTop: 3,
+  },
+  closeButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  list: {
+    gap: 8,
+    paddingBottom: 12,
+  },
+  row: {
+    minHeight: 68,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: '#17171B',
+    overflow: 'hidden',
+  },
+  rowActive: {
+    borderColor: 'rgba(255,183,125,0.55)',
+    backgroundColor: 'rgba(255,140,0,0.08)',
+  },
+  selectArea: {
+    minHeight: 66,
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingLeft: 14,
+    paddingVertical: 11,
+  },
+  editAction: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: 7,
+  },
+  editText: {
+    color: PRIMARY,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+  },
+  radioAction: {
+    width: 44,
+    minHeight: 66,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingRight: 10,
+  },
+  rowTitle: {
+    color: '#F4F4F5',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '700',
+  },
+  rowSubtitle: {
+    color: '#71717A',
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  addButton: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    borderRadius: 15,
+    backgroundColor: PRIMARY,
+  },
+  addButtonText: {
+    color: ON_PRIMARY,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+});
+
 // ── Compact package selection cards ──────────────────────────────────────────
 const pkgCard = StyleSheet.create({
   base: {
-    borderRadius: 20,
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
+    borderColor: 'rgba(255,255,255,0.065)',
     backgroundColor: '#111111',
     overflow: 'hidden',
   },
-  hero: {
-    borderColor: 'rgba(249,115,22,0.28)',
-    ...Platform.select({
-      ios: { shadowColor: '#F97316', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.12, shadowRadius: 18 },
-      android: { elevation: 5 },
-    }),
-  },
   selected: {
-    borderColor: PRIMARY,
-    backgroundColor: 'rgba(255,140,0,0.07)',
-  },
-  heroSelected: {
-    borderColor: '#F97316',
-    ...Platform.select({
-      ios: { shadowOpacity: 0.25, shadowRadius: 24 },
-    }),
+    borderColor: 'rgba(255,183,125,0.34)',
+    backgroundColor: 'rgba(255,140,0,0.035)',
   },
   selectArea: {
-    paddingHorizontal: 18,
-    paddingTop: 17,
-    paddingBottom: 15,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 14,
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
-    marginBottom: 8,
+    marginBottom: 5,
   },
   tier: {
     fontSize: 9,
-    fontWeight: '700',
+    fontWeight: '600',
     letterSpacing: 2.2,
     color: 'rgba(255,255,255,0.48)',
     textTransform: 'uppercase',
   },
   badge: {
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 12,
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
     flexShrink: 1,
   },
   badgeText: {
     fontSize: 8,
-    fontWeight: '800',
+    lineHeight: 11,
+    fontWeight: '700',
     letterSpacing: 0.7,
   },
   nameRow: {
@@ -5431,52 +7401,65 @@ const pkgCard = StyleSheet.create({
     gap: 8,
   },
   name: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
     color: '#FFFFFF',
     flex: 1,
-    lineHeight: 23,
+    lineHeight: 22,
   },
   price: {
-    fontSize: 27,
-    fontWeight: '900',
+    fontSize: 23,
+    fontWeight: '800',
     color: '#FFFFFF',
-    letterSpacing: -1,
-    lineHeight: 33,
+    letterSpacing: -0.7,
+    lineHeight: 28,
     marginTop: 3,
   },
-  heroPrice: {
-    color: '#F97316',
+  priceError: {
+    color: '#FCA5A5',
+    fontSize: 15,
+    lineHeight: 22,
+    letterSpacing: 0,
+    marginTop: 7,
   },
   metadataRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 9,
+    flexWrap: 'wrap',
+    gap: 7,
     marginTop: 8,
   },
   metadataPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
+    gap: 4,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
     backgroundColor: 'rgba(255,183,125,0.08)',
+  },
+  metadataPillNeutral: {
+    backgroundColor: 'rgba(255,255,255,0.045)',
   },
   metadataText: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '600',
     color: PRIMARY,
   },
+  metadataTextNeutral: {
+    color: '#A1A1AA',
+  },
   tagline: {
-    flex: 1,
-    fontSize: 11,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.50)',
+    width: '100%',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.52)',
+    marginTop: 6,
   },
   featurePreview: {
-    gap: 7,
-    marginTop: 14,
+    gap: 8,
+    marginTop: 16,
   },
   featureRow: {
     flexDirection: 'row',
@@ -5486,57 +7469,52 @@ const pkgCard = StyleSheet.create({
   featureText: {
     flex: 1,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '500',
     color: 'rgba(255,255,255,0.72)',
     lineHeight: 17,
   },
-  selectedLabel: {
+  priceRetry: {
+    minHeight: 38,
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 12,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,183,125,0.10)',
+    marginHorizontal: 16,
+    marginBottom: 6,
   },
-  selectedLabelText: {
-    fontSize: 10,
-    fontWeight: '800',
+  priceRetryText: {
     color: PRIMARY,
+    fontSize: 11,
+    fontWeight: '700',
   },
   checkCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.18)',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.018)',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
-  checkCircleActive: {
-    backgroundColor: '#F97316',
-    borderColor: '#F97316',
-  },
   divider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    marginHorizontal: 18,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginHorizontal: 20,
   },
   detailsButton: {
-    minHeight: 46,
+    minHeight: 38,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 7,
   },
   detailsButtonText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: PRIMARY,
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,183,125,0.64)',
   },
 });
 
@@ -5545,54 +7523,68 @@ const bookingCta = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
+    bottom: 0,
     zIndex: 30,
+    minHeight: 80,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     paddingHorizontal: 16,
-    paddingTop: 9,
-    paddingBottom: 11,
+    paddingTop: 6,
+    paddingBottom: 8,
     backgroundColor: 'rgba(4,4,5,0.97)',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,183,125,0.18)',
+    borderTopColor: 'rgba(255,255,255,0.06)',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: -5 },
-        shadowOpacity: 0.22,
-        shadowRadius: 14,
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 6,
       },
-      android: { elevation: 12 },
+      android: { elevation: 4 },
     }),
   },
   summaryRow: {
-    minHeight: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 7,
+    flex: 1,
+    minHeight: 42,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    gap: 3,
   },
   guidance: {
-    flex: 1,
     fontSize: 11,
     fontWeight: '600',
     color: '#71717A',
+    maxWidth: '100%',
   },
   guidanceReady: {
     color: PRIMARY,
   },
   summaryPrice: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '800',
     color: '#FFFFFF',
   },
+  buttonWrap: {
+    width: 148,
+    flexShrink: 0,
+  },
   button: {
-    minHeight: 50,
-    borderRadius: 18,
+    minHeight: 46,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     paddingHorizontal: 22,
-    paddingVertical: 14,
+    paddingVertical: 11,
+  },
+  buttonEnabled: {
+    backgroundColor: PRIMARY_CTR,
+  },
+  buttonDisabled: {
+    backgroundColor: '#202024',
   },
   buttonText: {
     fontSize: 15,
@@ -5600,7 +7592,74 @@ const bookingCta = StyleSheet.create({
     color: ON_PRIMARY,
   },
   buttonTextDisabled: {
-    color: MUTED,
+    color: '#85858D',
+  },
+});
+
+const detailsDock = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 30,
+    minHeight: 76,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+    backgroundColor: 'rgba(4,4,5,0.98)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 6,
+      },
+      android: { elevation: 4 },
+    }),
+  },
+  backButton: {
+    flex: 0.38,
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#121216',
+  },
+  backText: {
+    color: '#C6C6C7',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  continueButton: {
+    flex: 0.62,
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    borderRadius: 16,
+    backgroundColor: PRIMARY_CTR,
+  },
+  continueButtonDisabled: {
+    backgroundColor: '#202024',
+  },
+  continueText: {
+    color: ON_PRIMARY,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  continueTextDisabled: {
+    color: '#85858D',
   },
 });
 
@@ -5614,7 +7673,7 @@ const packageDetailsStyles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.72)',
   },
   sheet: {
-    maxHeight: '88%',
+    maxHeight: '90%',
     backgroundColor: '#111111',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
@@ -5624,13 +7683,18 @@ const packageDetailsStyles = StyleSheet.create({
     borderColor: 'rgba(249,115,22,0.24)',
     overflow: 'hidden',
   },
+  handleTouchArea: {
+    minHeight: 28,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
   handle: {
     width: 36,
     height: 4,
     borderRadius: 2,
     backgroundColor: 'rgba(255,255,255,0.16)',
     alignSelf: 'center',
-    marginBottom: 14,
+    marginTop: 1,
   },
   header: {
     flexDirection: 'row',
@@ -5638,13 +7702,31 @@ const packageDetailsStyles = StyleSheet.create({
     gap: 12,
     paddingBottom: 14,
   },
+  headerMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 6,
+  },
   eyebrow: {
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 2,
     color: PRIMARY,
     textTransform: 'uppercase',
-    marginBottom: 4,
+  },
+  headerBadge: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  headerBadgeText: {
+    fontSize: 8,
+    lineHeight: 11,
+    fontWeight: '700',
+    letterSpacing: 0.7,
   },
   title: {
     fontSize: 20,
@@ -5667,7 +7749,7 @@ const packageDetailsStyles = StyleSheet.create({
   },
   content: {
     paddingTop: 16,
-    paddingBottom: 22,
+    paddingBottom: 28,
   },
   price: {
     fontSize: 30,
@@ -5676,6 +7758,12 @@ const packageDetailsStyles = StyleSheet.create({
     letterSpacing: -1.2,
     color: '#F97316',
   },
+  priceUnavailable: {
+    color: '#FCA5A5',
+    fontSize: 17,
+    lineHeight: 24,
+    letterSpacing: 0,
+  },
   tagline: {
     fontSize: 13,
     lineHeight: 19,
@@ -5683,61 +7771,106 @@ const packageDetailsStyles = StyleSheet.create({
     color: 'rgba(255,255,255,0.52)',
     marginTop: 2,
   },
-  durationRow: {
-    alignSelf: 'flex-start',
+  promotionRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 9,
-    marginTop: 16,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,183,125,0.08)',
+    marginTop: 6,
   },
-  durationLabel: {
+  promotionBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(245,158,11,0.13)',
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.28)',
+  },
+  promotionBadgeText: {
     fontSize: 9,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.45)',
+    lineHeight: 12,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    color: '#FBBF24',
+  },
+  originalPrice: {
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.42)',
+    textDecorationLine: 'line-through',
+  },
+  specifications: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 14,
+    marginTop: 20,
+    paddingVertical: 15,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  specificationColumn: {
+    minWidth: 140,
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  specificationIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,183,125,0.09)',
+  },
+  durationIcon: {
+    backgroundColor: 'rgba(255,255,255,0.055)',
+  },
+  specificationLabel: {
+    fontSize: 8,
+    lineHeight: 12,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.42)',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
-  durationValue: {
+  specificationValue: {
     fontSize: 12,
+    lineHeight: 17,
     fontWeight: '800',
-    color: PRIMARY,
+    color: '#F4F4F5',
+    marginTop: 2,
   },
   description: {
     fontSize: 13,
     lineHeight: 20,
     color: 'rgba(255,255,255,0.66)',
-    marginTop: 18,
-  },
-  highlight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    marginTop: 16,
-    padding: 12,
-    borderRadius: 14,
-    backgroundColor: 'rgba(249,115,22,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(249,115,22,0.20)',
-  },
-  highlightText: {
-    flex: 1,
-    fontSize: 11,
-    lineHeight: 16,
-    fontWeight: '700',
-    color: PRIMARY,
   },
   section: {
     marginTop: 24,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.58)',
+    marginBottom: 14,
+  },
+  detailGroups: {
+    gap: 24,
+  },
+  detailGroup: {
+    gap: 13,
+  },
+  groupTitle: {
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '800',
     color: '#FFFFFF',
-    marginBottom: 13,
   },
   inclusionList: {
     gap: 15,
@@ -5746,15 +7879,6 @@ const packageDetailsStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 11,
-  },
-  checkIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: PRIMARY,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
   },
   inclusionTitle: {
     fontSize: 13,
@@ -5772,37 +7896,72 @@ const packageDetailsStyles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
     fontWeight: '700',
-    color: '#4ADE80',
+    color: PRIMARY,
     marginTop: 3,
   },
-  insightList: {
-    gap: 14,
+  coverageBlock: {
+    paddingTop: 3,
   },
-  insightRow: {
+  coverageTitle: {
+    fontSize: 9,
+    lineHeight: 13,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.42)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 9,
+  },
+  coverageGrid: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 11,
+    flexWrap: 'wrap',
+    columnGap: 12,
+    rowGap: 8,
   },
-  insightIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 11,
-    backgroundColor: 'rgba(249,115,22,0.10)',
+  coverageItem: {
+    width: '47%',
+    minHeight: 24,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
+    gap: 7,
   },
-  insightTitle: {
+  coverageDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: PRIMARY,
+  },
+  coverageText: {
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: '800',
-    color: '#FFFFFF',
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.68)',
   },
-  insightBody: {
+  bundleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  bundleName: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    color: '#F4F4F5',
+  },
+  bundleNote: {
     fontSize: 11,
-    lineHeight: 17,
+    lineHeight: 16,
     color: 'rgba(255,255,255,0.50)',
     marginTop: 2,
+  },
+  bundlePrice: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '900',
+    color: PRIMARY,
   },
   selectedAction: {
     minHeight: 50,
@@ -5836,5 +7995,21 @@ const packageDetailsStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: ON_PRIMARY,
+  },
+  retryAction: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,183,125,0.28)',
+    backgroundColor: 'rgba(255,183,125,0.07)',
+  },
+  retryActionText: {
+    color: PRIMARY,
+    fontSize: 14,
+    fontWeight: '800',
   },
 });

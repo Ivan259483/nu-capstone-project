@@ -54,12 +54,29 @@ export interface ServiceOption {
     warrantyLabel?: string;
     tagline?: string;
     tierLabel?: string;
+    features?: string[];
+    fullInclusions?: {
+      group: string;
+      title: string;
+      detail?: string | null;
+      savingsLabel?: string | null;
+    }[];
+    highlighted?: string[];
+    ppfCoverage?: string[];
+    tintIncluded?: boolean;
+    tintDetails?: string;
+    undercoatingIncluded?: boolean;
+    undercoatingDetails?: string;
+    undercoatingSavingsLabel?: string;
+    addonLabel?: string;
+    discountBadge?: string;
     iconKey?: 'sparkles' | 'shield' | 'star' | 'crown' | 'zap';
     accentFrom?: string;
     accentTo?: string;
     accentMid?: string;
     popular?: boolean;
     flagship?: boolean;
+    originalPriceMultiplier?: number | null;
   } | null;
 }
 

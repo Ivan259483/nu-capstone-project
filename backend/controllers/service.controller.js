@@ -1,5 +1,6 @@
 import Service from '../models/service.model.js';
 import ActivityLog from '../models/activityLog.model.js';
+import { SPF_PACKAGE_PRICING, getPackageKeyFromName } from '../constants/spfPricing.js';
 
 const VEHICLE_PRICING_KEYS = ['hatchback', 'sedan', 'midsized', 'suv', 'pickup', 'largeSuv', 'highend'];
 const LEGACY_PRICE_KEYS = {
@@ -59,8 +60,12 @@ const toNumberOrNull = (value) => {
     return Number.isFinite(numeric) ? numeric : null;
 };
 
-const normalizeServicePricing = (service) => {
+export const normalizeServicePricing = (service) => {
     const normalized = typeof service.toObject === 'function' ? service.toObject() : { ...service };
+    const packageKey = getPackageKeyFromName(normalized.name);
+    const canonicalPackage = packageKey ? SPF_PACKAGE_PRICING[packageKey] : null;
+    const storedCatalogCard = normalized.catalogCard || {};
+    const canonicalCatalogCard = canonicalPackage?.catalogCard || {};
     const pricing = {};
 
     VEHICLE_PRICING_KEYS.forEach((vehicleKey) => {
@@ -78,6 +83,26 @@ const normalizeServicePricing = (service) => {
 
     return {
         ...normalized,
+        description: normalized.description || canonicalPackage?.description,
+        duration: normalized.duration || canonicalPackage?.duration,
+        catalogCard: canonicalPackage
+            ? {
+                ...canonicalCatalogCard,
+                ...storedCatalogCard,
+                features: storedCatalogCard.fullInclusions?.length && storedCatalogCard.features?.length
+                    ? storedCatalogCard.features
+                    : canonicalCatalogCard.features,
+                fullInclusions: storedCatalogCard.fullInclusions?.length
+                    ? storedCatalogCard.fullInclusions
+                    : canonicalCatalogCard.fullInclusions,
+                highlighted: storedCatalogCard.highlighted?.length
+                    ? storedCatalogCard.highlighted
+                    : canonicalCatalogCard.highlighted,
+                ppfCoverage: storedCatalogCard.ppfCoverage?.length
+                    ? storedCatalogCard.ppfCoverage
+                    : canonicalCatalogCard.ppfCoverage,
+            }
+            : normalized.catalogCard,
         pricing,
     };
 };

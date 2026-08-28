@@ -16,10 +16,12 @@ import type { PendingLoginOtp } from '@/services/storage/authStorage';
 import type { BackendUser, MobileProfile } from '@/services/api/types';
 import { clearQueue } from '@/services/offlineQueue';
 import { aiScanStore } from '@/features/ai-scan/scanStore';
+import { BOOKING_DRAFT_STORAGE_KEY } from '@/services/storage/bookingDraftStorage';
 
 const SENSITIVE_CUSTOMER_STORAGE_KEYS = [
   '@autospf_addresses',
   '@autospf_latest_scan_context',
+  BOOKING_DRAFT_STORAGE_KEY,
 ];
 
 type AuthResult = {

@@ -7,6 +7,10 @@
  */
 
 import type { BookingRecord } from '@/services/api/types';
+import {
+  CUSTOMER_TRACKER_GATE_MIN_PHOTOS,
+  getCustomerStageSlotPhotos,
+} from '@/utils/customer-tracker-stage-media';
 
 export function normTrackerStr(s: unknown): string {
   return String(s ?? '')
@@ -61,6 +65,28 @@ export function bookingShowsCustomerLiveTracker(b: unknown): boolean {
   const status = normTrackerStr(row.status);
   if (CUSTOMER_TRACKER_FINAL_STATUS_SET.has(status)) return false;
   return CUSTOMER_TRACKER_STATUS_SET.has(status);
+}
+
+/**
+ * Authoritative customer-facing Ready for Pickup decision shared by Home and
+ * Tracker. This preserves Tracker's status/stage fallbacks and evidence gate.
+ */
+export function bookingIsReadyForPickup(
+  booking: BookingRecord | null | undefined
+): boolean {
+  if (!booking) return false;
+  const status = normTrackerStr(booking.status);
+  const stage = normTrackerStr(booking.serviceTrackingStage);
+  const customerStatus = normTrackerStr(booking.customerStatus);
+  const hasReadyPickupEvidence =
+    getCustomerStageSlotPhotos(booking, 'ready_pickup').length >= CUSTOMER_TRACKER_GATE_MIN_PHOTOS;
+
+  return (
+    ['ready_pickup', 'completed', 'released'].includes(stage) ||
+    ['ready_for_payment', 'completed', 'paid', 'released', 'done'].includes(status) ||
+    customerStatus === 'ready' ||
+    hasReadyPickupEvidence
+  );
 }
 
 /**

@@ -9,6 +9,16 @@ const priceBreakdownSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const catalogInclusionSchema = new mongoose.Schema(
+  {
+    group: { type: String, required: true, trim: true },
+    title: { type: String, required: true, trim: true },
+    detail: { type: String, default: null, trim: true },
+    savingsLabel: { type: String, default: null, trim: true },
+  },
+  { _id: false }
+);
+
 /** Public /services page SPF card overrides (optional; falls back to app defaults) */
 const catalogCardSchema = new mongoose.Schema(
   {
@@ -17,7 +27,14 @@ const catalogCardSchema = new mongoose.Schema(
     tagline: String,
     tierLabel: String,
     features: [{ type: String }],
+    fullInclusions: { type: [catalogInclusionSchema], default: undefined },
     highlighted: [{ type: String }],
+    ppfCoverage: [{ type: String }],
+    tintIncluded: Boolean,
+    tintDetails: String,
+    undercoatingIncluded: Boolean,
+    undercoatingDetails: String,
+    undercoatingSavingsLabel: String,
     addonLabel: String,
     discountBadge: String,
     iconKey: {
@@ -52,6 +69,7 @@ const serviceSchema = new mongoose.Schema(
       default: 'uncategorized',
     },
     displayOrder: { type: Number, default: 0 },
+    description: String,
     duration: String,
     basePrice: {
       type: Number,

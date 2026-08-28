@@ -52,13 +52,13 @@ import { useQuery } from '@tanstack/react-query';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { isDefaultTrackBookingRow } from '@/utils/customerBookingLifecycle';
 import {
+  bookingIsReadyForPickup,
   bookingShowsCustomerLiveTracker,
   pickCustomerLiveTrackerBooking,
 } from '@/utils/customer-live-tracker-pick';
 import {
   bumpCustomerTrackerIndexForInProgressGateComplete,
   bumpCustomerTrackerIndexForReceivedGateComplete,
-  CUSTOMER_TRACKER_GATE_MIN_PHOTOS,
   customerGateMinSlotCount,
   getCustomerStageSlotPhotos,
   MOBILE_TRACKER_STEP_MEDIA_STAGE,
@@ -165,7 +165,7 @@ function trackerKey(value: unknown): string {
 function resolveStep(booking: any): number {
   const s = trackerKey(booking?.status);
   if (['cancelled', 'failed'].includes(s)) return -1;
-  if (isReadyForPickupDisplay(booking)) return 4;
+  if (bookingIsReadyForPickup(booking)) return 4;
 
   // 1. serviceTrackingStage is the ONLY reliable field that separates:
   //    Step 4 (quality_check) from Step 5 (ready_pickup) because the backend
@@ -181,24 +181,6 @@ function resolveStep(booking: any): number {
 
   // 3. order.status — last resort; cannot distinguish quality_check from ready_pickup
   return STATUS_TO_STEP[s] ?? 0;
-}
-
-function bookingHasReadyPickupEvidence(booking: BookingRecord | null | undefined): boolean {
-  return getCustomerStageSlotPhotos(booking, 'ready_pickup').length >= CUSTOMER_TRACKER_GATE_MIN_PHOTOS;
-}
-
-function isReadyForPickupDisplay(booking: BookingRecord | null | undefined): boolean {
-  if (!booking) return false;
-  const status = trackerKey(booking.status);
-  const stage = trackerKey(booking.serviceTrackingStage);
-  const customerStatus = trackerKey(booking.customerStatus);
-
-  return (
-    ['ready_pickup', 'completed', 'released'].includes(stage) ||
-    ['ready_for_payment', 'completed', 'paid', 'released', 'done'].includes(status) ||
-    customerStatus === 'ready' ||
-    bookingHasReadyPickupEvidence(booking)
-  );
 }
 
 function isPostPaymentCompleteDisplay(booking: BookingRecord | null | undefined): boolean {
@@ -1532,14 +1514,11 @@ export default function TrackScreen() {
     if (tsKey === 'quality_check' && qcGatePhotoCount >= customerGateMinSlotCount('quality_check')) {
       resolvedStepBumped = Math.max(resolvedStepBumped, TRACKER_STEPS.length - 1);
     }
-    if (bookingHasReadyPickupEvidence(booking)) {
-      resolvedStepBumped = Math.max(resolvedStepBumped, TRACKER_STEPS.length - 1);
-    }
     resolvedStepBumped = bumpCustomerTrackerIndexForReceivedGateComplete(booking, resolvedStepBumped, 'dashboard5');
     resolvedStepBumped = bumpCustomerTrackerIndexForInProgressGateComplete(booking, resolvedStepBumped, 'dashboard5');
   }
   const stepIdx = forceStepIdx !== null ? forceStepIdx : resolvedStepBumped;
-  const readyForPickupComplete = isReadyForPickupDisplay(booking);
+  const readyForPickupComplete = bookingIsReadyForPickup(booking);
   const postPayComplete = isPostPaymentCompleteDisplay(booking);
   const appointmentSecuredComplete = isAppointmentSecuredDisplay(booking);
   const atSecuredSlotStage =
