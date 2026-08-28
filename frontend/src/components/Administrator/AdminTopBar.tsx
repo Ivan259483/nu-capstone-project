@@ -19,7 +19,8 @@ import AdminNotificationBell from './notifications/AdminNotificationBell';
 type CommandPage = { id: string; label: string; icon: LucideIcon };
 
 interface AdminTopBarProps {
-  collapsed: boolean;
+  isMobileViewport: boolean;
+  mobileSidebarOpen: boolean;
   onToggleSidebar: () => void;
   navSearch: string;
   onNavSearchChange: (value: string) => void;
@@ -65,7 +66,8 @@ function TopBarAvatar({
 }
 
 export default function AdminTopBar({
-  collapsed,
+  isMobileViewport,
+  mobileSidebarOpen,
   onToggleSidebar,
   navSearch,
   onNavSearchChange,
@@ -141,15 +143,19 @@ export default function AdminTopBar({
   return (
     <header className="ah-topbar">
       <div className="ah-topbar-start">
-        <button
-          type="button"
-          className="ah-topbar-icon-btn"
-          onClick={onToggleSidebar}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-expanded={!collapsed}
-        >
-          <Menu size={17} strokeWidth={1.75} aria-hidden />
-        </button>
+        {isMobileViewport ? (
+          <button
+            id="adminhub-mobile-sidebar-toggle"
+            type="button"
+            className="ah-topbar-icon-btn"
+            onClick={onToggleSidebar}
+            aria-label={mobileSidebarOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={mobileSidebarOpen}
+            aria-controls="adminhub-sidebar"
+          >
+            <Menu size={17} strokeWidth={1.75} aria-hidden />
+          </button>
+        ) : null}
 
         <div className="ah-topbar-command-wrap">
           <label className="ah-topbar-command">

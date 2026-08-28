@@ -52,6 +52,7 @@ export async function getSystemOverview(user) {
   const [
     classificationSummary,
     usersByRole,
+    protectedAdministrator,
     orderCount,
     activeOrderCount,
     latestBackup,
@@ -64,6 +65,12 @@ export async function getSystemOverview(user) {
       { $match: { isDeleted: { $ne: true } } },
       { $group: { _id: '$role', count: { $sum: 1 } } },
     ]),
+    state.protectedAdministratorId
+      ? User.findOne({
+        _id: state.protectedAdministratorId,
+        isDeleted: { $ne: true },
+      }).select('_id name email role status isActive isVerified').lean()
+      : null,
     Order.countDocuments({}),
     Order.countDocuments({
       status: { $nin: ['completed', 'paid', 'released', 'cancelled', 'rejected'] },
@@ -87,6 +94,17 @@ export async function getSystemOverview(user) {
       operationalDataEpoch: state.operationalDataEpoch,
       protectedAdministratorId: state.protectedAdministratorId
         ? String(state.protectedAdministratorId)
+        : null,
+      protectedAdministrator: protectedAdministrator
+        ? {
+          id: String(protectedAdministrator._id),
+          name: protectedAdministrator.name,
+          email: protectedAdministrator.email,
+          role: protectedAdministrator.role,
+          status: protectedAdministrator.status,
+          isActive: protectedAdministrator.isActive !== false,
+          isVerified: protectedAdministrator.isVerified === true,
+        }
         : null,
       turnoverCompletedAt: state.turnoverCompletedAt,
       inventoryBaselineVerifiedAt: state.inventoryBaselineVerifiedAt,

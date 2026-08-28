@@ -3,7 +3,7 @@ import { cachedGet, invalidate, TTL } from './queryCache';
 
 export const UserService = {
     async getAllUsers(options?: { suppressErrorToast?: boolean }) {
-        const data = await cachedGet('/users', { meta: options } as any, TTL.LIVE);
+        const data = await cachedGet('/users?scope=manageable', { meta: options } as any, TTL.LIVE);
         // Map _id to id consistently
         if (data.success && Array.isArray(data.data)) {
             data.data = data.data.map((u: any) => ({

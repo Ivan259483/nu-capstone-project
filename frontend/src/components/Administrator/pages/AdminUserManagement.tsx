@@ -376,14 +376,14 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
       <div className="ah-users-page-header">
         <div>
           <h1 className="ah-page-title">User Management</h1>
-          <p style={{ fontSize: 14, color: '#64748b', marginTop: 6, marginBottom: 0 }}>Manage all registered accounts, roles, and access levels</p>
+          <p style={{ fontSize: 14, color: '#64748b', marginTop: 6, marginBottom: 0 }}>Manage staff and customer accounts. Protected ownership is handled in System Management.</p>
         </div>
         <button className="ah-btn-primary" onClick={() => setCreateOpen(true)}><Plus size={15} /> Create User</button>
       </div>
 
       <div className="ah-users-kpi-grid">
         {[
-          { label: 'Total users', value: totalUsersCount, color: '#2563eb', helper: 'All accounts' },
+          { label: 'Total users', value: totalUsersCount, color: '#2563eb', helper: 'Manageable accounts' },
           { label: 'Active accounts', value: activeAccountsCount, color: '#059669', helper: 'Can sign in' },
           { label: 'Online right now', value: onlineNowCount, color: '#16a34a', helper: 'Seen in last 3 mins' },
           { label: 'Pending verification', value: pendingAccountsCount, color: '#d97706', helper: 'Needs activation' },

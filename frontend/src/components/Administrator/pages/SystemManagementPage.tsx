@@ -870,6 +870,12 @@ function OverviewSection({ overview, onSelectOperation }: { overview: SystemOver
     protectedAdmin?.name ?? protectedAdmin?.email ?? state.protectedAdministratorId,
     'Not assigned',
   );
+  const protectedAdministratorEmail = primitiveText(protectedAdmin?.email, 'Not recorded');
+  const protectedAdministratorRole = titleCase(protectedAdmin?.role ?? 'administrator');
+  const protectedAdministratorStatus = protectedAdmin
+    ? titleCase(protectedAdmin.isActive === false ? 'inactive' : protectedAdmin.status ?? 'active')
+    : 'Not assigned';
+  const protectedAdministratorId = primitiveText(protectedAdmin?.id ?? state.protectedAdministratorId, 'Not assigned');
   const metrics = [
     { label: 'Operational epoch', value: finiteNumber(state.operationalDataEpoch) },
     { label: 'Unclassified roots', value: finiteNumber(classificationSummary?.unclassified) },
@@ -890,6 +896,10 @@ function OverviewSection({ overview, onSelectOperation }: { overview: SystemOver
             <div><dt>Registration</dt><dd>{registrationEnabled ? 'Enabled' : 'Blocked'}</dd></div>
             <div><dt>Bookings</dt><dd>{bookingsEnabled ? 'Enabled' : 'Blocked'}</dd></div>
             <div><dt>Protected administrator</dt><dd>{protectedAdministrator}</dd></div>
+            <div><dt>Email</dt><dd>{protectedAdministratorEmail}</dd></div>
+            <div><dt>Status</dt><dd>{protectedAdministratorStatus}</dd></div>
+            <div><dt>Role</dt><dd>{protectedAdministratorRole}</dd></div>
+            <div><dt>Internal user ID</dt><dd className="sm-mono">{protectedAdministratorId}</dd></div>
           </dl>
         </article>
         <article className="sm-card">

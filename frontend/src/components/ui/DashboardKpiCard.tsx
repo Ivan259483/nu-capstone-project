@@ -11,6 +11,7 @@ export type DashboardKpiComparison = {
 type DashboardKpiCardProps = {
   title: string;
   value: string;
+  valueTitle?: string;
   icon: LucideIcon;
   accentColor: string;
   comparison?: DashboardKpiComparison;
@@ -28,6 +29,7 @@ const comparisonToneClasses: Record<DashboardKpiComparison['tone'], string> = {
 export default function DashboardKpiCard({
   title,
   value,
+  valueTitle,
   icon: Icon,
   accentColor,
   comparison,
@@ -82,7 +84,10 @@ export default function DashboardKpiCard({
         }`}
       >
         <div className="relative z-[2] min-w-0">
-          <strong className="block truncate text-[clamp(23px,2vw,30px)] font-extrabold leading-[1.05] tracking-[-0.035em] text-slate-950 tabular-nums">
+          <strong
+            className="block truncate text-[clamp(23px,2vw,30px)] font-extrabold leading-[1.05] tracking-[-0.035em] text-slate-950 tabular-nums"
+            title={valueTitle}
+          >
             {value}
           </strong>
           {comparison ? (

@@ -43,7 +43,11 @@ import { reconcileQualityJobRecipient } from '../services/qualityNotification.se
 import { runInBackground } from '../utils/performance.utils.js';
 import { Expo } from 'expo-server-sdk';
 import { normalizeAuthVersion } from '../utils/authVersion.utils.js';
-import { assertAdministratorMutationAllowed } from '../services/administratorProtection.service.js';
+import {
+  assertAdministratorMutationAllowed,
+  assertOrdinaryUserManagementTarget,
+  getProtectedAdministratorDirectoryExclusion,
+} from '../services/administratorProtection.service.js';
 import { registerCloudinaryManagedAsset } from '../services/managedAsset.service.js';
 
 const getQueryByIdOrFirebaseUid = (id) => {
@@ -149,7 +153,11 @@ export const touchMyActivity = async (req, res, next) => {
  */
 export const getAllUsers = async (req, res, next) => {
   try {
-    const filter = { isDeleted: false };
+    const protectedAdministratorId = await getProtectedAdministratorDirectoryExclusion();
+    const filter = {
+      isDeleted: false,
+      _id: { $ne: protectedAdministratorId },
+    };
     if (req.query.email) {
       const normalizedEmail = String(req.query.email).trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
@@ -209,6 +217,7 @@ export const getAllUsers = async (req, res, next) => {
     res.json({
       success: true,
       data,
+      scope: 'manageable_users',
     });
   } catch (error) {
     next(error);
@@ -229,6 +238,8 @@ export const getUserById = async (req, res, next) => {
         message: 'User not found',
       });
     }
+
+    await assertOrdinaryUserManagementTarget({ targetUser: user });
 
     if (!canViewUser(req, user)) {
       return res.status(403).json({
@@ -324,6 +335,12 @@ export const updateUser = async (req, res, next) => {
       });
     }
 
+
+    const selfRequest = isSelfUser(req, user);
+    if (!req.isSelfProfileUpdate) {
+      await assertOrdinaryUserManagementTarget({ targetUser: user });
+    }
+
     const targetUserCanonical = normalizeToCanonical(user.role);
     const actorCanonical = normalizeToCanonical(actorRole);
     if (targetUserCanonical === 'administrator' && actorCanonical !== 'administrator') {
@@ -343,7 +360,6 @@ export const updateUser = async (req, res, next) => {
       });
     }
 
-    const selfRequest = isSelfUser(req, user);
     if (selfRequest && req.profilePhotoUpload?.publicId) {
       updatePayload.avatarPublicId = req.profilePhotoUpload.publicId;
     }
@@ -618,6 +634,7 @@ export const updateMyProfile = async (req, res, next) => {
     }
 
     req.params.id = String(req.user.id);
+    req.isSelfProfileUpdate = true;
     return updateUser(req, res, next);
   } catch (error) {
     console.error('[PROFILE_PHOTO_UPLOAD_FAILED]', JSON.stringify({
@@ -652,6 +669,9 @@ export const deleteUser = async (req, res, next) => {
         message: 'User not found',
       });
     }
+
+
+    await assertOrdinaryUserManagementTarget({ targetUser: user });
 
     if (isSelfUser(req, user)) {
       return res.status(400).json({
@@ -794,6 +814,9 @@ export const archiveUser = async (req, res, next) => {
       });
     }
 
+
+    await assertOrdinaryUserManagementTarget({ targetUser: user });
+
     if (isSelfUser(req, user)) {
       return res.status(400).json({
         success: false,
@@ -875,6 +898,9 @@ export const activateUser = async (req, res, next) => {
         message: 'User not found',
       });
     }
+
+
+    await assertOrdinaryUserManagementTarget({ targetUser: user });
 
     if (isSelfUser(req, user)) {
       return res.status(400).json({
@@ -1239,6 +1265,7 @@ export const resendStaffVerification = async (req, res, next) => {
     if (!user || user.isDeleted) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
+    await assertOrdinaryUserManagementTarget({ targetUser: user });
     if (!canManageUserRole(req.user?.role, user.role)) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }

@@ -14,6 +14,24 @@ const protectedMutationError = () => {
   return error;
 };
 
+const protectedUserManagementError = () => {
+  const error = new Error(
+    'The protected administrator is managed exclusively through System Management ownership workflows.',
+  );
+  error.code = 'PROTECTED_ADMINISTRATOR_SYSTEM_MANAGED';
+  error.statusCode = 403;
+  return error;
+};
+
+const protectedAdministratorNotInitializedError = () => {
+  const error = new Error(
+    'User Management is unavailable until the protected administrator has been initialized.',
+  );
+  error.code = 'PROTECTED_ADMINISTRATOR_NOT_INITIALIZED';
+  error.statusCode = 503;
+  return error;
+};
+
 const lastAdministratorError = () => {
   const error = new Error('At least one active, verified Administrator account must remain available.');
   error.code = 'LAST_ADMINISTRATOR';
@@ -46,6 +64,36 @@ const isUsableAdministrator = (account) => (
   && account.isVerified === true
   && account.status === 'active'
 );
+
+/**
+ * Returns the server-owned ID that ordinary directory queries must exclude.
+ * Fails closed instead of exposing Administrator accounts when lifecycle
+ * initialization has not completed.
+ */
+export const getProtectedAdministratorDirectoryExclusion = async ({ session } = {}) => {
+  const state = await getSystemState({ session, lean: true });
+  if (!state.protectedAdministratorId) {
+    throw protectedAdministratorNotInitializedError();
+  }
+  return state.protectedAdministratorId;
+};
+
+/**
+ * Prevents direct URL/API access from turning the ordinary user directory into
+ * an alternate ownership-management surface. Protected self-service profile
+ * updates remain separate and System Management handover bypasses this guard.
+ */
+export const assertOrdinaryUserManagementTarget = async ({ targetUser, session } = {}) => {
+  if (!targetUser?._id) return;
+  const state = await getSystemState({ session, lean: true });
+  // Legacy/pre-migration mutation paths retain their existing role and
+  // last-administrator guards. Once the binding exists, this check becomes
+  // authoritative and ID-based.
+  if (!state.protectedAdministratorId) return;
+  if (await isProtectedAdministrator(targetUser, state)) {
+    throw protectedUserManagementError();
+  }
+};
 
 /**
  * Fail-closed guard shared by every ordinary account mutation path. The only

@@ -26,12 +26,30 @@ import StatusBadge from '@/components/inventory/ui/StatusBadge';
 import StockProgressBar from '@/components/inventory/ui/StockProgressBar';
 import { TableRowSkeleton } from '@/components/inventory/ui/LoadingSkeleton';
 import ConfirmModal from '@/components/inventory/ui/ConfirmModal';
+import DashboardKpiCard from '@/components/ui/DashboardKpiCard';
 import AddEditItemModal from './AddEditItemModal';
 import BulkActionBar from './BulkActionBar';
 
 const CATEGORIES: Array<'All' | ItemCategory> = ['All', 'Chemicals', 'Microfiber', 'Equipment', 'Consumables', 'Packaging'];
 type SortField = 'name' | 'quantity' | 'status' | 'category' | 'costPerUnit' | 'lastRestocked';
 type SortDir = 'asc' | 'desc';
+
+const INVENTORY_DATA_COLUMNS: ReadonlyArray<{
+  key: SortField | 'supplierName';
+  label: string;
+  width: number;
+  sortable: boolean;
+}> = [
+  { key: 'name', label: 'Item Name', width: 236, sortable: true },
+  { key: 'category', label: 'Category', width: 160, sortable: true },
+  { key: 'quantity', label: 'Stock Level', width: 210, sortable: true },
+  { key: 'status', label: 'Status', width: 136, sortable: true },
+  { key: 'costPerUnit', label: 'Unit Cost', width: 124, sortable: true },
+  { key: 'supplierName', label: 'Supplier', width: 150, sortable: false },
+  { key: 'lastRestocked', label: 'Last Restock', width: 132, sortable: true },
+];
+
+const INVENTORY_COLUMN_WIDTHS = [44, ...INVENTORY_DATA_COLUMNS.map((column) => column.width), 112];
 
 const STATUS_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'all', label: 'All Statuses' },
@@ -201,30 +219,29 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
       value: items.length.toLocaleString('en-PH'),
       detail: `${categoryTotal} categor${categoryTotal === 1 ? 'y' : 'ies'}`,
       icon: Boxes,
-      tone: 'blue',
+      accentColor: '#2563EB',
     },
     {
       label: 'Stock Value',
       value: compactInventoryValue,
-      title: formattedInventoryValue,
+      valueTitle: formattedInventoryValue,
       detail: 'Current inventory',
       icon: BadgeDollarSign,
-      tone: 'emerald',
-      valueKind: 'money',
+      accentColor: '#10B981',
     },
     {
       label: 'Need Restock',
       value: attentionCount.toLocaleString('en-PH'),
       detail: attentionCount > 0 ? 'Review soon' : 'Healthy levels',
       icon: AlertTriangle,
-      tone: attentionCount > 0 ? 'amber' : 'emerald',
+      accentColor: attentionCount > 0 ? '#EF4444' : '#F59E0B',
     },
     {
       label: 'Last Restock',
       value: latestRestockedLabel,
       detail: 'Latest update',
       icon: CalendarClock,
-      tone: 'cyan',
+      accentColor: '#0891B2',
     },
   ];
 
@@ -254,19 +271,18 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
         </div>
 
         <div className="inv-metric-grid">
-          {inventoryMetrics.map((metric) => {
-            const Icon = metric.icon;
-            return (
-              <div key={metric.label} className={`inv-metric-card inv-metric-card--${metric.tone}`}>
-                <div className="inv-metric-icon"><Icon size={17} /></div>
-                <div className="inv-metric-copy">
-                  <span>{metric.label}</span>
-                  <strong className={metric.valueKind === 'money' ? 'inv-metric-value--money' : undefined} title={metric.title || metric.value}>{metric.value}</strong>
-                  <p>{metric.detail}</p>
-                </div>
-              </div>
-            );
-          })}
+          {inventoryMetrics.map((metric) => (
+            <DashboardKpiCard
+              key={metric.label}
+              title={metric.label}
+              value={metric.value}
+              valueTitle={metric.valueTitle || metric.value}
+              subtitle={metric.detail}
+              icon={metric.icon}
+              accentColor={metric.accentColor}
+              className="inv-dashboard-kpi h-full"
+            />
+          ))}
         </div>
 
         <div className="inv-category-tabs">
@@ -312,22 +328,20 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
           <div className="inv-items-table-scroll w-full overflow-x-auto">
             <table className="inv-items-table w-full table-fixed">
               <colgroup>
-                <col style={{ width: 44 }} />
-                <col />
-                <col style={{ width: '15%' }} />
-                <col style={{ width: '16%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '12%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: 96 }} />
+                {INVENTORY_COLUMN_WIDTHS.map((width, index) => (
+                  <col key={`inventory-col-${index}`} style={{ width }} />
+                ))}
               </colgroup>
               <thead>
                 <tr>
-                  <th className="w-10 px-4 py-3.5"><button onClick={toggleSelectAll} className={`inv-check-button ${selectedIds.size === paginated.length && paginated.length > 0 ? 'is-checked' : ''}`}>{selectedIds.size === paginated.length && paginated.length > 0 ? <CheckSquare size={16} /> : <Square size={16} />}</button></th>
-                  {([{ key: 'name', label: 'Item Name' }, { key: 'category', label: 'Category' }, { key: 'quantity', label: 'Stock Level' }, { key: 'status', label: 'Status' }, { key: 'costPerUnit', label: 'Unit Cost' }, { key: 'supplierName', label: 'Supplier' }, { key: 'lastRestocked', label: 'Last Restock' }] as Array<{ key: SortField | 'supplierName'; label: string }>).map((col) => (
-                    <th key={`th-${col.key}`} className="inv-table-th group" onClick={() => { if (['name', 'quantity', 'status', 'category', 'costPerUnit', 'lastRestocked'].includes(col.key)) toggleSort(col.key as SortField); }}>
-                      <div className="flex items-center gap-1">{col.label}{['name', 'quantity', 'status', 'category', 'costPerUnit', 'lastRestocked'].includes(col.key) && <SortIcon field={col.key as SortField} />}</div>
+                  <th className="inv-table-check-cell"><button onClick={toggleSelectAll} className={`inv-check-button ${selectedIds.size === paginated.length && paginated.length > 0 ? 'is-checked' : ''}`}>{selectedIds.size === paginated.length && paginated.length > 0 ? <CheckSquare size={16} /> : <Square size={16} />}</button></th>
+                  {INVENTORY_DATA_COLUMNS.map((column) => (
+                    <th
+                      key={`th-${column.key}`}
+                      className={`inv-table-th group${column.sortable ? ' is-sortable' : ''}`}
+                      onClick={() => { if (column.sortable) toggleSort(column.key as SortField); }}
+                    >
+                      <div className="inv-table-heading">{column.label}{column.sortable && <SortIcon field={column.key as SortField} />}</div>
                     </th>
                   ))}
                   <th className="inv-table-th inv-table-th--right">Actions</th>
@@ -345,16 +359,16 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
                   </td></tr>
                 ) : paginated.map((item) => (
                   <tr key={item.id} className={`inv-table-row group ${selectedIds.has(item.id) ? 'is-selected' : ''}`}>
-                    <td className="px-4 py-3.5 w-10"><button onClick={() => toggleSelect(item.id)} className={`inv-check-button ${selectedIds.has(item.id) ? 'is-checked' : ''}`}>{selectedIds.has(item.id) ? <CheckSquare size={16} /> : <Square size={16} />}</button></td>
-                    <td className="px-4 py-4">
+                    <td className="inv-table-check-cell"><button onClick={() => toggleSelect(item.id)} className={`inv-check-button ${selectedIds.has(item.id) ? 'is-checked' : ''}`}>{selectedIds.has(item.id) ? <CheckSquare size={16} /> : <Square size={16} />}</button></td>
+                    <td>
                       <div className="flex flex-col gap-0.5">
                         <span className="inv-item-name">{item.name}</span>
                         <span className="inv-item-sku">{item.sku}</span>
                       </div>
                     </td>
-                    <td className="inv-table-cell--category px-4 py-4"><span className={`inv-category-badge ${getCategoryToneClass(item.category)}`}>{item.category}</span></td>
-                    <td className="px-4 py-4">
-                      <div className="flex w-full min-w-0 items-center gap-2">
+                    <td className="inv-table-cell--category"><span className={`inv-category-badge ${getCategoryToneClass(item.category)}`}>{item.category}</span></td>
+                    <td>
+                      <div className="inv-stock-cell">
                         {editingQtyId === item.id ? (
                           <div className="flex items-center gap-1">
                             <input type="number" value={editingQtyValue} onChange={(e) => setEditingQtyValue(e.target.value)} className="w-16 text-sm font-semibold text-gray-800 border border-blue-300 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-blue-200 font-tabular" onKeyDown={(e) => { if (e.key === 'Enter') handleInlineQtySave(item); if (e.key === 'Escape') setEditingQtyId(null); }} autoFocus />
@@ -362,8 +376,8 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
                             <button onClick={() => setEditingQtyId(null)} className="text-xs text-gray-400 hover:text-gray-600 px-1 py-1">✕</button>
                           </div>
                         ) : (
-                          <div className="flex flex-col gap-1 w-full">
-                            <div className="flex items-center justify-between">
+                          <div className="inv-stock-content">
+                            <div className="inv-stock-summary">
                               <span className="inv-stock-value" onClick={() => handleInlineQtyEdit(item)} title="Click to edit quantity">{item.quantity}<span>{item.unit}</span></span>
                               <span className="inv-stock-max">/{item.maxQuantity}</span>
                             </div>
@@ -372,12 +386,12 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-4"><StatusBadge status={item.status} size="sm" /></td>
-                    <td className="px-4 py-4"><span className="inv-money-value">₱{item.costPerUnit.toFixed(2)}</span></td>
-                    <td className="px-4 py-4"><span className="inv-supplier-name">{item.supplierName || '—'}</span></td>
-                    <td className="px-4 py-4"><span className="inv-date-value">{new Date(item.lastRestocked).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></td>
-                    <td className="px-4 py-4">
-                      <div className={`flex items-center justify-end gap-0.5 ${embedded ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'} transition-opacity duration-200`}>
+                    <td><StatusBadge status={item.status} size="sm" /></td>
+                    <td><span className="inv-money-value">₱{item.costPerUnit.toFixed(2)}</span></td>
+                    <td><span className="inv-supplier-name">{item.supplierName || '—'}</span></td>
+                    <td><span className="inv-date-value">{new Date(item.lastRestocked).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></td>
+                    <td className="inv-table-actions-cell">
+                      <div className={`inv-table-actions ${embedded ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'} transition-opacity duration-200`}>
                         <button onClick={() => handleInlineQtyEdit(item)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all duration-150" title="Quick edit quantity"><Edit2 size={14} /></button>
                         <button onClick={() => { setEditingItem(item); setAddEditOpen(true); }} className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all duration-150" title="Edit item details"><Eye size={14} /></button>
                         <button onClick={() => setDeleteId(item.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all duration-150" title="Delete"><Trash2 size={14} /></button>

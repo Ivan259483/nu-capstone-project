@@ -17,6 +17,8 @@ import {
   Package,
   Bell,
   ServerCog,
+  ChevronLeft,
+  ChevronRight,
   type LucideIcon,
 } from 'lucide-react';
 import AdminTopBar from './AdminTopBar';
@@ -89,17 +91,17 @@ interface Props {
   onMarkAllNotificationsRead?: () => Promise<unknown> | unknown;
 }
 
-const SIDEBAR_WIDTH_EXPANDED = 260;
-const SIDEBAR_WIDTH_COLLAPSED = 64;
+const SIDEBAR_WIDTH_EXPANDED = 248;
+const SIDEBAR_WIDTH_COLLAPSED = 72;
 const ADMINHUB_THEME_STORAGE_KEY = 'adminhub_theme';
 const ADMINHUB_SIDEBAR_STORAGE_KEY = 'adminhub_sidebar_collapsed';
-const ADMINHUB_NARROW_VIEWPORT_QUERY = '(max-width: 720px)';
+const ADMINHUB_MOBILE_VIEWPORT_QUERY = '(max-width: 720px)';
 
-function isAdminHubNarrowViewport(): boolean {
+function isAdminHubMobileViewport(): boolean {
   return (
     typeof window !== 'undefined' &&
     typeof window.matchMedia === 'function' &&
-    window.matchMedia(ADMINHUB_NARROW_VIEWPORT_QUERY).matches
+    window.matchMedia(ADMINHUB_MOBILE_VIEWPORT_QUERY).matches
   );
 }
 
@@ -150,7 +152,7 @@ const NAV_SECTION_LABELS: Record<string, string> = {
   dashboard: 'GENERAL',
   operations: 'OPERATIONS',
   catalog: 'CATALOG',
-  management: 'USERS',
+  management: 'ACCESS & USERS',
   system: 'SYSTEM',
 };
 
@@ -330,11 +332,13 @@ function AdminHubPanelInner({
   const activePage = resolveAdminHubPage(location.search, isQualityChecker, hasSystemManagementAccess);
   const [visitedPages, setVisitedPages] = useState<Set<string>>(() => new Set([activePage]));
   const [systemManagementBusy, setSystemManagementBusy] = useState(false);
-  const [isNarrowViewport, setIsNarrowViewport] = useState(isAdminHubNarrowViewport);
+  const [isMobileViewport, setIsMobileViewport] = useState(isAdminHubMobileViewport);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const mobileSidebarWasOpenRef = useRef(false);
   const [sidebarCollapsedPreference, setSidebarCollapsedPreference] = useState(
     readAdminHubSidebarPreference,
   );
-  const collapsed = isNarrowViewport || sidebarCollapsedPreference;
+  const collapsed = !isMobileViewport && sidebarCollapsedPreference;
   const [users, setUsers] = useState<any[]>([]);
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [isUsersLoading, setIsUsersLoading] = useState(true);
@@ -354,24 +358,59 @@ function AdminHubPanelInner({
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
 
-    const narrowViewport = window.matchMedia(ADMINHUB_NARROW_VIEWPORT_QUERY);
-    const syncNarrowViewport = (event?: MediaQueryListEvent) => {
-      setIsNarrowViewport(event?.matches ?? narrowViewport.matches);
+    const mobileViewport = window.matchMedia(ADMINHUB_MOBILE_VIEWPORT_QUERY);
+    const syncMobileViewport = (event?: MediaQueryListEvent) => {
+      const matches = event?.matches ?? mobileViewport.matches;
+      setIsMobileViewport(matches);
+      if (!matches) setMobileSidebarOpen(false);
     };
 
-    syncNarrowViewport();
-    narrowViewport.addEventListener('change', syncNarrowViewport);
-    return () => narrowViewport.removeEventListener('change', syncNarrowViewport);
+    syncMobileViewport();
+    mobileViewport.addEventListener('change', syncMobileViewport);
+    return () => mobileViewport.removeEventListener('change', syncMobileViewport);
   }, []);
 
   const toggleSidebar = useCallback(() => {
-    if (isNarrowViewport) return;
+    if (isMobileViewport) {
+      setMobileSidebarOpen((current) => !current);
+      return;
+    }
     setSidebarCollapsedPreference((current) => {
       const next = !current;
       writeAdminHubSidebarPreference(next);
       return next;
     });
-  }, [isNarrowViewport]);
+  }, [isMobileViewport]);
+
+  useEffect(() => {
+    if (!isMobileViewport || !mobileSidebarOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileSidebarOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [isMobileViewport, mobileSidebarOpen]);
+
+  useEffect(() => {
+    if (!isMobileViewport) {
+      mobileSidebarWasOpenRef.current = false;
+      return;
+    }
+
+    const wasOpen = mobileSidebarWasOpenRef.current;
+    mobileSidebarWasOpenRef.current = mobileSidebarOpen;
+    if (wasOpen === mobileSidebarOpen) return;
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const target = mobileSidebarOpen
+        ? document.querySelector<HTMLElement>('#adminhub-sidebar .ah-nav-item.active')
+          ?? document.querySelector<HTMLElement>('#adminhub-sidebar .ah-nav-item')
+        : document.getElementById('adminhub-mobile-sidebar-toggle');
+      target?.focus();
+    });
+
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [isMobileViewport, mobileSidebarOpen]);
 
   /** Auth context often replaces `user` with a new object reference; depending on it here caused endless refetch + loading skeletons. */
   const currentUserRef = useRef(currentUser);
@@ -392,14 +431,9 @@ function AdminHubPanelInner({
   const sidebarDisplayName =
     rawProfileName.toLowerCase() === 'admin' ? 'Administrator' : rawProfileName || 'Signed in';
   const applyCurrentUserFallback = useCallback(() => {
-    const cu = currentUserRef.current;
-    if (!cu) return;
-    setUsers([{
-      ...cu,
-      id: cu._id || cu.id,
-      role: getSafeUserRole(cu.role),
-      status: cu.status || 'active',
-    }]);
+    // Fail closed: the signed-in account may be the protected Administrator,
+    // which must never be reinserted into the ordinary management directory.
+    setUsers([]);
   }, []);
 
   const fetchUsers = useCallback(async (options?: { showBlockingLoader?: boolean }) => {
@@ -549,8 +583,9 @@ function AdminHubPanelInner({
       const id =
         isQualityChecker && requestedId !== 'profile' ? 'live_tracking' : requestedId;
       navigateToHubPage(id, true);
+      if (isMobileViewport) setMobileSidebarOpen(false);
     },
-    [isQualityChecker, navigateToHubPage, systemManagementBusy],
+    [isMobileViewport, isQualityChecker, navigateToHubPage, systemManagementBusy],
   );
 
   useEffect(() => {
@@ -562,7 +597,7 @@ function AdminHubPanelInner({
 
   const sidebarW = collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED;
   const { isDraggingSchedule } = useCalendarScheduleDnD();
-  const sidebarWEffective = sidebarW;
+  const sidebarWEffective = isMobileViewport ? 0 : sidebarW;
 
   const toggleHubTheme = useCallback(() => {
     setHubTheme((current) => {
@@ -718,6 +753,9 @@ function AdminHubPanelInner({
 
   const collapsedNavPages = useMemo(() => flattenNavPages(navTree), [navTree]);
   const commandPages = collapsedNavPages;
+  const sidebarUnreadCount = notificationUnreadCount
+    ?? notifications.filter((notification) => !notification.isRead).length;
+  const sidebarUnreadLabel = sidebarUnreadCount > 99 ? '99+' : String(sidebarUnreadCount);
 
   const incomingBookings = useMemo(() => (Array.isArray(bookings) ? bookings : []), [bookings]);
   const [dashboardBookings, setDashboardBookings] = useState<any[]>(incomingBookings);
@@ -793,13 +831,24 @@ function AdminHubPanelInner({
       } as React.CSSProperties}
     >
       {/* ── Sidebar (premium layout) ── */}
+      {isMobileViewport ? (
+        <button
+          type="button"
+          className={`ah-sidebar-backdrop${mobileSidebarOpen ? ' is-visible' : ''}`}
+          onClick={() => setMobileSidebarOpen(false)}
+          aria-label="Close navigation menu"
+          tabIndex={mobileSidebarOpen ? 0 : -1}
+        />
+      ) : null}
       <aside
-        className={`ah-sidebar${collapsed ? ' is-collapsed' : ''}`}
+        id="adminhub-sidebar"
+        className={`ah-sidebar${collapsed ? ' is-collapsed' : ''}${isMobileViewport ? ' is-mobile' : ''}${mobileSidebarOpen ? ' is-open' : ''}`}
         style={{
-          width: sidebarWEffective,
-          transition: 'width 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
+          width: isMobileViewport ? SIDEBAR_WIDTH_EXPANDED : sidebarW,
         }}
         aria-label="Admin navigation"
+        aria-hidden={isMobileViewport && !mobileSidebarOpen}
+        inert={isMobileViewport && !mobileSidebarOpen}
       >
         <div className="ah-sidebar-header">
           <div className="ah-sidebar-brand">
@@ -808,7 +857,16 @@ function AdminHubPanelInner({
             </div>
             {!collapsed && <span className="ah-sidebar-brand-name">AutoSPF+</span>}
           </div>
-
+          {isMobileViewport ? (
+            <button
+              type="button"
+              className="ah-sidebar-mobile-close"
+              onClick={() => setMobileSidebarOpen(false)}
+              aria-label="Close navigation menu"
+            >
+              <X size={19} strokeWidth={1.8} aria-hidden />
+            </button>
+          ) : null}
         </div>
 
         <nav className="ah-sidebar-nav">
@@ -828,9 +886,17 @@ function AdminHubPanelInner({
                           type="button"
                           className={`ah-nav-item${activePage === page.id ? ' active' : ''}`}
                           onClick={() => selectNavPage(page.id)}
-                          aria-label={page.label}
+                          aria-label={page.id === 'notifications' && sidebarUnreadCount > 0
+                            ? `${page.label}, ${sidebarUnreadCount} unread`
+                            : page.label}
+                          aria-current={activePage === page.id ? 'page' : undefined}
                         >
                           <Icon size={18} strokeWidth={1.6} className="ah-nav-icon" aria-hidden />
+                          {page.id === 'notifications' && sidebarUnreadCount > 0 ? (
+                            <span className="ah-nav-badge ah-nav-badge--collapsed" aria-hidden>
+                              {sidebarUnreadLabel}
+                            </span>
+                          ) : null}
                         </button>
                       </TooltipTrigger>
                       <TooltipContent side="right" align="center" sideOffset={10} className="ah-sidebar-tooltip">
@@ -852,6 +918,7 @@ function AdminHubPanelInner({
                     type="button"
                     className={`ah-nav-item ah-nav-leaf${isActive ? ' active' : ''}`}
                     onClick={() => selectNavPage(entry.id)}
+                    aria-current={isActive ? 'page' : undefined}
                   >
                     <Icon size={18} strokeWidth={1.5} className="ah-nav-icon" aria-hidden />
                     <span className="ah-nav-label">{entry.label}</span>
@@ -874,9 +941,16 @@ function AdminHubPanelInner({
                           type="button"
                           className={`ah-nav-item ah-nav-row${isActive ? ' active' : ''}`}
                           onClick={() => selectNavPage(child.id)}
+                          aria-label={child.id === 'notifications' && sidebarUnreadCount > 0
+                            ? `${child.label}, ${sidebarUnreadCount} unread`
+                            : child.label}
+                          aria-current={isActive ? 'page' : undefined}
                         >
                           <ChildIcon size={18} strokeWidth={1.7} className="ah-nav-icon" aria-hidden />
                           <span className="ah-nav-label">{child.label}</span>
+                          {child.id === 'notifications' && sidebarUnreadCount > 0 ? (
+                            <span className="ah-nav-badge" aria-hidden>{sidebarUnreadLabel}</span>
+                          ) : null}
                         </button>
                       );
                     })}
@@ -887,8 +961,8 @@ function AdminHubPanelInner({
           )}
         </nav>
 
-        {!fullMode && onClose ? (
-          <div className="ah-sidebar-footer">
+        <div className="ah-sidebar-footer">
+          {!fullMode && onClose ? (
             <div className="ah-sidebar-secondary">
               <button
                 type="button"
@@ -901,14 +975,36 @@ function AdminHubPanelInner({
                 {!collapsed && <span className="ah-nav-label">Back</span>}
               </button>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+          {!isMobileViewport ? (
+            <button
+              type="button"
+              className="ah-sidebar-collapse-btn"
+              onClick={toggleSidebar}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!collapsed}
+              title={collapsed ? 'Expand sidebar' : undefined}
+            >
+              {collapsed ? (
+                <ChevronRight size={18} strokeWidth={1.8} aria-hidden />
+              ) : (
+                <ChevronLeft size={18} strokeWidth={1.8} aria-hidden />
+              )}
+              {!collapsed ? <span>Collapse sidebar</span> : null}
+            </button>
+          ) : null}
+        </div>
       </aside>
 
       {/* ── Main column: top bar + content ── */}
-      <div className="ah-main-column">
+      <div
+        className="ah-main-column"
+        aria-hidden={isMobileViewport && mobileSidebarOpen}
+        inert={isMobileViewport && mobileSidebarOpen}
+      >
         <AdminTopBar
-          collapsed={collapsed}
+          isMobileViewport={isMobileViewport}
+          mobileSidebarOpen={mobileSidebarOpen}
           onToggleSidebar={toggleSidebar}
           navSearch={navSearch}
           onNavSearchChange={setNavSearch}

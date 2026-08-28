@@ -3,13 +3,13 @@ import { motion } from 'framer-motion';
 import { Car, CarFront, Crown, Truck } from 'lucide-react';
 import type { Service } from '@/types';
 import { cn } from '@/lib/utils';
-import { AdminEditableLuxuryCard } from '@/components/admin/AdminEditableLuxuryCard';
+import { LuxuryServiceCard } from '@/components/services/LuxuryServiceCard';
 import {
     mergePublishedPricingIntoPackages,
     spfPackages,
+    type SPFPackage,
     type VehicleType,
 } from '@/components/services/services-catalog-data';
-import { findPublishedServiceForPackage } from '@/lib/service-pricing';
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -25,26 +25,34 @@ const vehicleOptions: { type: VehicleType; label: string; icon: ElementType }[] 
 
 interface AdminServicesLivePreviewProps {
     services: Service[];
-    /** Highlights the card for the package selected in the editor (spf80, spf89, …) */
+    packages?: SPFPackage[];
     selectedPackageKey?: string | null;
-    /** Reload services after inline card save */
-    onRefresh?: () => void | Promise<void>;
+    vehicleType?: VehicleType;
+    onVehicleTypeChange?: (vehicleType: VehicleType) => void;
 }
 
-/**
- * Same visual language as the public /services pricing strip: vehicle tabs + luxury cards.
- * Cards are editable inline; saving persists pricing + catalog card for that package.
- */
-export function AdminServicesLivePreview({ services, selectedPackageKey, onRefresh }: AdminServicesLivePreviewProps) {
-    const [vehicleType, setVehicleType] = useState<VehicleType>('sedan');
-
+/** Customer-facing package cards in a non-navigating admin preview. */
+export function AdminServicesLivePreview({
+    services,
+    packages,
+    selectedPackageKey,
+    vehicleType: controlledVehicleType,
+    onVehicleTypeChange,
+}: AdminServicesLivePreviewProps) {
+    const [internalVehicleType, setInternalVehicleType] = useState<VehicleType>('sedan');
+    const vehicleType = controlledVehicleType || internalVehicleType;
     const displayPackages = useMemo(
-        () => mergePublishedPricingIntoPackages(spfPackages, services),
-        [services],
+        () => packages || mergePublishedPricingIntoPackages(spfPackages, services),
+        [packages, services],
     );
 
+    const setVehicleType = (next: VehicleType) => {
+        if (onVehicleTypeChange) onVehicleTypeChange(next);
+        else setInternalVehicleType(next);
+    };
+
     const pricingGridClassName = cn(
-        'grid gap-4 lg:gap-5 items-stretch mx-auto w-full',
+        'grid items-stretch gap-4 lg:gap-5 mx-auto w-full',
         displayPackages.length <= 1 && 'grid-cols-1 max-w-md mx-auto',
         displayPackages.length === 2 && 'grid-cols-1 sm:grid-cols-2 max-w-3xl',
         displayPackages.length === 3 && 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 max-w-6xl',
@@ -52,80 +60,41 @@ export function AdminServicesLivePreview({ services, selectedPackageKey, onRefre
     );
 
     return (
-        <section className="flex flex-col overflow-hidden rounded-[22px] border-0 bg-slate-50/90 shadow-[0_1px_3px_rgba(15,23,42,0.05),0_12px_40px_-18px_rgba(15,23,42,0.12)]">
-            <div className="relative z-20 shrink-0 bg-white/95 px-4 py-2.5 shadow-[0_4px_24px_-12px_rgba(15,23,42,0.08)] backdrop-blur sm:px-5">
-                <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+        <section className="flex flex-col overflow-hidden rounded-[20px] bg-slate-50 shadow-[0_12px_40px_-24px_rgba(15,23,42,0.24)]">
+            <div className="relative z-20 shrink-0 bg-white px-4 py-3 sm:px-5">
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                     <div className="min-w-0">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600">Live catalog editor</p>
-                        <h2 className="mt-1 text-base font-bold tracking-tight text-slate-950">Pricing strip preview</h2>
-                        <p className="mt-0.5 max-w-2xl text-xs font-medium leading-relaxed text-slate-500">
-                            Edit the public SPF package cards directly from this preview.
-                        </p>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600">Customer preview</p>
+                        <h2 className="mt-1 text-base font-bold tracking-tight text-slate-950">Public package cards</h2>
+                        <p className="mt-0.5 text-xs font-medium text-slate-500">This is the package design customers see.</p>
                     </div>
 
-                    <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.45, ease: EASE }}
-                        className="w-full xl:w-auto"
-                    >
-                    <div className="flex w-full justify-start gap-1 overflow-x-auto rounded-xl bg-slate-100/90 p-1 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.8)] xl:w-auto">
-                        {vehicleOptions.map((opt) => {
-                            const VIcon = opt.icon;
-                            const isActive = vehicleType === opt.type;
+                    <div className="flex w-full justify-start gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1 xl:w-auto">
+                        {vehicleOptions.map((option) => {
+                            const Icon = option.icon;
+                            const active = vehicleType === option.type;
                             return (
-                                <motion.button
-                                    key={opt.type}
+                                <button
+                                    key={option.type}
                                     type="button"
-                                    onClick={() => setVehicleType(opt.type)}
-                                    whileHover={{ scale: isActive ? 1 : 1.04 }}
-                                    whileTap={{ scale: 0.96 }}
+                                    onClick={() => setVehicleType(option.type)}
                                     className={cn(
-                                        'relative flex shrink-0 items-center gap-1.5 overflow-hidden rounded-lg px-3 py-2 text-xs font-semibold transition-all duration-300 ease-in-out sm:px-3.5',
-                                        !isActive && 'text-slate-600 hover:bg-white hover:text-slate-900 hover:shadow-sm',
+                                        'flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-colors',
+                                        active ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-950',
                                     )}
-                                    style={
-                                        isActive
-                                            ? {
-                                                  background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-                                                  color: '#fff',
-                                                  boxShadow: '0 8px 28px -10px rgba(37,99,235,0.5)',
-                                              }
-                                            : {}
-                                    }
                                 >
-                                    {isActive && (
-                                        <motion.div
-                                            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent"
-                                            initial={{ x: '-100%' }}
-                                            animate={{ x: '100%' }}
-                                            transition={{ duration: 1.5, repeat: Infinity, repeatDelay: 3 }}
-                                        />
-                                    )}
-                                    <VIcon className="relative z-10 h-3.5 w-3.5" />
-                                    <span className="hidden sm:inline relative z-10">{opt.label}</span>
-                                    <span className="sm:hidden text-xs relative z-10">{opt.label.split(' ')[0]}</span>
-                                </motion.button>
+                                    <Icon className="h-3.5 w-3.5" />
+                                    <span className="hidden sm:inline">{option.label}</span>
+                                    <span className="sm:hidden">{option.label.split(' ')[0]}</span>
+                                </button>
                             );
                         })}
                     </div>
-                    </motion.div>
                 </div>
-
-                <motion.p
-                    key={vehicleType}
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0, transition: { duration: 0.25 } }}
-                    className="mt-2 text-left text-[10px] font-bold uppercase tracking-[0.24em] text-slate-400 xl:text-right"
-                >
-                    Showing prices for{' '}
-                    <span className="font-bold text-blue-600">{vehicleOptions.find((v) => v.type === vehicleType)?.label}</span>{' '}
-                    vehicles
-                </motion.p>
             </div>
 
-            <section className="relative overflow-hidden bg-gradient-to-b from-white via-slate-50/80 to-slate-50 px-3 pt-3 pb-4 sm:px-5 sm:pt-3 sm:pb-5 lg:px-6">
-                <div className="relative z-10 mx-auto w-full max-w-[1440px]">
+            <section className="bg-[#0a0f1c] px-3 py-4 sm:px-5 sm:py-5 lg:px-6">
+                <div className="mx-auto w-full max-w-[1440px]">
                     <motion.div
                         key={vehicleType}
                         initial={{ opacity: 0, y: 6 }}
@@ -133,18 +102,14 @@ export function AdminServicesLivePreview({ services, selectedPackageKey, onRefre
                         transition={{ duration: 0.2, ease: EASE }}
                         className={pricingGridClassName}
                     >
-                        {displayPackages.map((pkg, i) => (
-                            <AdminEditableLuxuryCard
+                        {displayPackages.map((pkg, index) => (
+                            <LuxuryServiceCard
                                 key={pkg.key}
                                 pkg={pkg}
-                                index={i}
+                                index={index}
                                 vehicleType={vehicleType}
-                                service={findPublishedServiceForPackage(services, pkg.key, pkg.label)}
                                 adminHighlight={Boolean(selectedPackageKey && selectedPackageKey === pkg.key)}
-                                instantReveal
-                                onSaved={async () => {
-                                    await onRefresh?.();
-                                }}
+                                adminPreview
                             />
                         ))}
                     </motion.div>

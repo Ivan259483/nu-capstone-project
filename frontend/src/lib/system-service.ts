@@ -99,7 +99,15 @@ export interface SystemOperation {
 export interface SystemOverview {
   state: SystemStatus & {
     protectedAdministratorId?: string;
-    protectedAdministrator?: { id?: string; name?: string; email?: string };
+    protectedAdministrator?: {
+      id?: string;
+      name?: string;
+      email?: string;
+      role?: string;
+      status?: string;
+      isActive?: boolean;
+      isVerified?: boolean;
+    };
     [key: string]: unknown;
   };
   capabilities: SystemCapabilities;
