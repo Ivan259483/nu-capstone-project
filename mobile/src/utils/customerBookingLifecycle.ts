@@ -5,16 +5,12 @@
 
 const TERMINAL_DONE = new Set(['completed', 'released', 'cancelled', 'failed', 'paid']);
 
-/**
- * Bookings that count toward Home "active" pill + live hero (excludes rejected so
- * a declined payment does not block "all clear" / new booking UX).
- */
+/** Bookings that still require customer or shop action on Home. */
 export function isBookingCountedAsActiveOnHome(status: string | null | undefined): boolean {
   const s = String(status ?? '')
     .toLowerCase()
     .trim();
   if (!s) return false;
-  if (s === 'rejected') return false;
   return !TERMINAL_DONE.has(s);
 }
 

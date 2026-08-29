@@ -190,6 +190,9 @@ export default function VehiclesScreen() {
     <View style={[s.screen, { paddingTop: insets.top }]}>
       {/* ── Header ── */}
       <View style={s.header}>
+        <View pointerEvents="none" style={s.headerTitleWrap}>
+          <Text style={s.headerTitle}>Saved Vehicles</Text>
+        </View>
         <TouchableOpacity
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -199,16 +202,6 @@ export default function VehiclesScreen() {
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Ionicons name="arrow-back" size={18} color="#fff" />
-        </TouchableOpacity>
-        <Text style={s.headerTitle}>Saved Vehicles</Text>
-        <TouchableOpacity
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setModalVisible(true);
-          }}
-          style={s.addHeaderBtn}
-        >
-          <Ionicons name="add" size={20} color={Palette.accent} />
         </TouchableOpacity>
       </View>
 
@@ -278,13 +271,13 @@ const s = StyleSheet.create({
 
   // Header
   header: {
+    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: BORDER,
-    gap: 12,
   },
   backBtn: {
     width: 36,
@@ -296,22 +289,20 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerTitleWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerTitle: {
     fontSize: 17,
     fontWeight: '700',
     color: '#fff',
-    flex: 1,
     textAlign: 'center',
-  },
-  addHeaderBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.3)',
-    backgroundColor: 'rgba(255,107,53,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 
   // Count row

@@ -272,12 +272,13 @@ const bookingPayload = ({
   service,
   date = MONDAY,
   time = '8:00 AM',
+  proof = 'https://example.test/payment-proof.jpg',
 }) => ({
   vehicle: vehicle._id.toString(),
   service: service._id.toString(),
   bookingDate: date,
   bookingTime: time,
-  downpaymentProof: 'https://example.test/payment-proof.jpg',
+  downpaymentProof: proof,
   items: [],
 });
 
@@ -338,6 +339,36 @@ after(async () => {
   }
   await mongoose.disconnect();
   if (mongo) await mongo.stop();
+});
+
+test('GCash screenshot data remains byte-for-byte intact through booking storage and staff retrieval', async () => {
+  await setMondayAvailability({ capacity: 1 });
+  const { customer, administrator, vehicle, service } = await seedBookingActors();
+  const proof =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAACCAYAAACZgbYnAAAAEElEQVR42mNkYGD4z8DAwMAAAAYAAWgmWQ0AAAAASUVORK5CYII=';
+
+  const created = await requestJson('/api/orders', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${tokenFor(customer)}` },
+    body: JSON.stringify(bookingPayload({ vehicle, service, proof })),
+  });
+  assert.equal(created.response.status, 201);
+
+  const orderId = created.body.data.id || created.body.data._id;
+  const [storedOrder, storedPayment] = await Promise.all([
+    Order.findById(orderId).lean(),
+    Payment.findOne({ order: orderId, transactionType: 'reservation_fee' }).lean(),
+  ]);
+  assert.equal(storedOrder.downpaymentProof, proof);
+  assert.equal(storedOrder.paymentProofUrl, proof);
+  assert.equal(storedPayment.proofImage, proof);
+
+  const staffView = await requestJson(`/api/orders/${orderId}/gcash-proof-fields`, {
+    headers: { Authorization: `Bearer ${tokenFor(administrator)}` },
+  });
+  assert.equal(staffView.response.status, 200);
+  assert.equal(staffView.body.data.downpaymentProof, proof);
+  assert.equal(staffView.body.data.paymentProofUrl, proof);
 });
 
 test('each generated appointment time has capacity one and daily availability counts open times', async () => {
@@ -1247,13 +1278,16 @@ test('duplicate reschedules and rejected-proof retries are counter-idempotent', 
   assert.equal(rejectedPayment.amountSubmitted, 500);
   assert.equal(rejectedPayment.amountVerified, 0);
 
+  const retryProof =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAACCAYAAACZgbYnAAAAEElEQVR42mNkYGD4z8DAwMAAAAYAAWgmWQ0AAAAASUVORK5CYII=';
+
   const retries = await Promise.all(
     Array.from({ length: 2 }, () =>
       requestJson(`/api/orders/${orderId}/payment-proof`, {
         method: 'POST',
         headers: customerHeaders,
         body: JSON.stringify({
-          paymentProofUrl: 'https://example.test/retry-proof.jpg',
+          paymentProofUrl: retryProof,
         }),
       }),
     ),
@@ -1271,11 +1305,30 @@ test('duplicate reschedules and rejected-proof retries are counter-idempotent', 
   assert.equal(current.status, 'pending_confirmation');
   assert.equal(current.bookingDate, MONDAY);
   assert.equal(current.bookingTime, '09:00');
+  assert.equal(current.paymentProofUrl, retryProof);
+  assert.equal(current.downpaymentProof, retryProof);
   const reservationPayments = await Payment.find({ order: orderId, transactionType: 'reservation_fee' }).lean();
   assert.equal(reservationPayments.length, 1);
   assert.equal(reservationPayments[0].status, 'pending');
   assert.equal(reservationPayments[0].amount, 500);
+  assert.equal(reservationPayments[0].proofImage, retryProof);
   assert.equal((await counterAt(MONDAY, '09:00')).count, 1);
+
+  const idempotentRetry = await requestJson(`/api/orders/${orderId}/payment-proof`, {
+    method: 'POST',
+    headers: customerHeaders,
+    body: JSON.stringify({ paymentProofUrl: retryProof }),
+  });
+  assert.equal(idempotentRetry.response.status, 200);
+  assert.equal(idempotentRetry.body.idempotent, true);
+
+  const duplicateReplacement = await requestJson(`/api/orders/${orderId}/payment-proof`, {
+    method: 'POST',
+    headers: customerHeaders,
+    body: JSON.stringify({ paymentProofUrl: 'https://example.test/accidental-replacement.jpg' }),
+  });
+  assert.equal(duplicateReplacement.response.status, 409);
+  assert.equal(duplicateReplacement.body.errorCode, 'PAYMENT_PROOF_UNDER_REVIEW');
 });
 
 test('archiving releases occupancy and unarchiving cannot bypass a newly full slot', async () => {

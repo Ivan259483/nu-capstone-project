@@ -30,17 +30,18 @@ import { useTheme } from '@/hooks/useThemeContext';
 import { Palette, BorderRadius } from '@/constants/theme';
 import { Toast } from '@/components/ui/PremiumToast';
 import { bookingService } from '@/services/api/bookingService';
-import { getApiErrorMessage, invalidateCache } from '@/services/api/client';
+import { getApiErrorMessage } from '@/services/api/client';
 import type { BookingRecord } from '@/services/api/types';
 import {
   CUSTOMER_PAYMENT_RESERVATION_FEE,
   countPaymentHistoryBookings,
   filterBookingsForPaymentHistory,
-  normCustomerBookingStatus,
   sortBookingsNewestFirst,
   sumFullPaymentsDisplayed,
   sumReservationFeesDisplayed,
 } from '@/utils/customer-payment-history';
+import { resolveCustomerPaymentState } from '@/utils/customer-payment-state';
+import { useCustomerBookings } from '@/hooks/useCustomerBookings';
 
 const formatCurrency = (amount: number) =>
   `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
@@ -70,9 +71,9 @@ function BookingPaymentCard({
   receiptLoading: boolean;
 }) {
   const orderId = booking.id || booking._id || '';
-  const st = normCustomerBookingStatus(booking.status);
-  const total = Number(booking.totalPrice || booking.totalAmount || 0);
-  const remaining = Math.max(total - CUSTOMER_PAYMENT_RESERVATION_FEE, 0);
+  const paymentState = resolveCustomerPaymentState(booking);
+  const total = paymentState.totalAmount;
+  const remaining = paymentState.remainingAmount;
   const vehicle =
     [booking.vehicleYear, booking.vehicleMake, booking.vehicleModel].filter(Boolean).join(' ') ||
     (booking as { vehicleInfo?: string }).vehicleInfo ||
@@ -88,28 +89,28 @@ function BookingPaymentCard({
     (typeof raw.bookingReference === 'string' && raw.bookingReference) ||
     String(orderId).slice(-8);
 
-  const reservationStatesPaid = [
-    'approved',
-    'confirmed',
-    'assigned',
-    'received',
-    'in_progress',
-    'ready_for_payment',
-    'completed',
-    'released',
-    'paid',
-  ];
-  const reservationPaid = reservationStatesPaid.includes(st) || Boolean(proofUrl);
-  const isFullyPaid =
-    String(booking.paymentStatus || '').toLowerCase() === 'paid' ||
-    ['completed', 'released', 'paid'].includes(st);
-
   const border = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.12)';
   const headerBg = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(248,250,252,0.95)';
   const indigo = '#6366F1';
-  const indigoBg = isDark ? 'rgba(99,102,241,0.18)' : 'rgba(99,102,241,0.12)';
   const emerald = '#059669';
   const emeraldBg = isDark ? 'rgba(16,185,129,0.15)' : 'rgba(16,185,129,0.12)';
+  const amber = isDark ? '#FBBF24' : '#D97706';
+  const red = '#DC2626';
+  const neutral = isDark ? '#A1A1AA' : '#64748B';
+  const reservationPresentation = paymentState.reservation === 'paid'
+    ? { label: 'Paid', sub: 'Paid via GCash', color: emerald, bg: emeraldBg }
+    : paymentState.reservation === 'verifying'
+      ? { label: 'Verifying', sub: 'GCash receipt submitted', color: amber, bg: isDark ? 'rgba(245,158,11,0.18)' : 'rgba(245,158,11,0.12)' }
+      : paymentState.reservation === 'action_required'
+        ? { label: 'Action Required', sub: 'Payment could not be verified', color: red, bg: isDark ? 'rgba(239,68,68,0.18)' : 'rgba(239,68,68,0.10)' }
+        : { label: 'Payment Required', sub: 'GCash receipt required', color: neutral, bg: isDark ? 'rgba(161,161,170,0.14)' : 'rgba(100,116,139,0.10)' };
+  const fullPaymentPresentation = paymentState.fullPayment === 'paid'
+    ? { label: 'Paid', sub: paymentState.fullPaymentMethod ? `Paid via ${paymentState.fullPaymentMethod.toUpperCase()}` : 'Payment verified', color: emerald, bg: emeraldBg }
+    : paymentState.fullPayment === 'verifying'
+      ? { label: 'Verifying', sub: 'Payment submitted and awaiting verification', color: amber, bg: isDark ? 'rgba(245,158,11,0.18)' : 'rgba(245,158,11,0.12)' }
+      : paymentState.fullPayment === 'due'
+        ? { label: 'Payment Due', sub: 'Your remaining balance is now due', color: Palette.accent, bg: isDark ? 'rgba(249,115,22,0.16)' : 'rgba(249,115,22,0.10)' }
+        : { label: 'Not Due Yet', sub: 'Payable upon service completion', color: neutral, bg: isDark ? 'rgba(161,161,170,0.14)' : 'rgba(100,116,139,0.10)' };
 
   return (
     <View
@@ -143,12 +144,12 @@ function BookingPaymentCard({
       </View>
 
       <View style={[styles.payRow, { borderBottomColor: border }]}>
-        <View style={[styles.payIconWrap, { backgroundColor: indigoBg }]}>
-          <Ionicons name="lock-closed-outline" size={16} color={indigo} />
+        <View style={[styles.payIconWrap, { backgroundColor: reservationPresentation.bg }]}>
+          <Ionicons name="lock-closed-outline" size={16} color={reservationPresentation.color} />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={[styles.payTitle, { color: colors.text }]}>Reservation Fee</Text>
-          <Text style={[styles.paySub, { color: colors.textMuted }]}>Paid online via GCash</Text>
+          <Text style={[styles.paySub, { color: colors.textMuted }]}>{reservationPresentation.sub}</Text>
         </View>
         <View style={styles.payRight}>
           {proofUrl ? (
@@ -160,34 +161,32 @@ function BookingPaymentCard({
           <View
             style={[
               styles.badge,
-              reservationPaid
-                ? { backgroundColor: isDark ? 'rgba(16,185,129,0.2)' : 'rgba(16,185,129,0.15)' }
-                : { backgroundColor: isDark ? 'rgba(245,158,11,0.2)' : 'rgba(245,158,11,0.15)' },
+              { backgroundColor: reservationPresentation.bg },
             ]}
           >
             <Text
               style={[
                 styles.badgeTxt,
-                { color: reservationPaid ? emerald : isDark ? '#FBBF24' : '#D97706' },
+                { color: reservationPresentation.color },
               ]}
             >
-              {reservationPaid ? 'Paid' : st === 'rejected' ? 'Rejected' : 'Pending'}
+              {reservationPresentation.label}
             </Text>
           </View>
           <Text style={[styles.payAmount, { color: colors.text }]}>
-            {formatCurrency(CUSTOMER_PAYMENT_RESERVATION_FEE)}
+            {formatCurrency(paymentState.reservationAmount || CUSTOMER_PAYMENT_RESERVATION_FEE)}
           </Text>
         </View>
       </View>
 
       <View style={[styles.payRow, { borderBottomWidth: 0 }]}>
-        <View style={[styles.payIconWrap, { backgroundColor: emeraldBg }]}>
-          <Ionicons name="wallet-outline" size={16} color={emerald} />
+        <View style={[styles.payIconWrap, { backgroundColor: fullPaymentPresentation.bg }]}>
+          <Ionicons name="wallet-outline" size={16} color={fullPaymentPresentation.color} />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={[styles.payTitle, { color: colors.text }]}>Full Payment</Text>
           <Text style={[styles.paySub, { color: colors.textMuted }]}>
-            Paid onsite upon service completion
+            {fullPaymentPresentation.sub}
           </Text>
         </View>
         <View style={styles.payRight}>
@@ -195,21 +194,19 @@ function BookingPaymentCard({
             <View
               style={[
                 styles.badge,
-                isFullyPaid
-                  ? { backgroundColor: isDark ? 'rgba(16,185,129,0.2)' : 'rgba(16,185,129,0.15)' }
-                  : { backgroundColor: isDark ? 'rgba(245,158,11,0.2)' : 'rgba(245,158,11,0.15)' },
+                { backgroundColor: fullPaymentPresentation.bg },
               ]}
             >
               <Text
                 style={[
                   styles.badgeTxt,
-                  { color: isFullyPaid ? emerald : isDark ? '#FBBF24' : '#D97706' },
+                  { color: fullPaymentPresentation.color },
                 ]}
               >
-                {isFullyPaid ? '✓ Paid' : 'Pending'}
+                {fullPaymentPresentation.label}
               </Text>
             </View>
-            {isFullyPaid ? (
+            {paymentState.fullPayment === 'paid' ? (
               <TouchableOpacity
                 onPress={() => onViewReceipt(String(orderId))}
                 disabled={receiptLoading}
@@ -256,44 +253,27 @@ export default function PaymentsScreen() {
   const { width: windowW } = useWindowDimensions();
   const cardWidth = Math.min(windowW - 32, 560);
 
-  const [bookings, setBookings] = useState<BookingRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [proofModalUrl, setProofModalUrl] = useState<string | null>(null);
   const [pdfFileUri, setPdfFileUri] = useState<string | null>(null);
   const [receiptLoadingId, setReceiptLoadingId] = useState<string | null>(null);
   const handledRouteKey = useRef<string | null>(null);
 
+  const {
+    data: bookings = [],
+    isLoading: loading,
+    isRefetching,
+    isError,
+    error: bookingsError,
+    refreshBookings,
+  } = useCustomerBookings(true);
+  const error = isError
+    ? getApiErrorMessage(bookingsError, 'Failed to load payment history')
+    : null;
+
   const visible = sortBookingsNewestFirst(filterBookingsForPaymentHistory(bookings));
   const bookingCount = countPaymentHistoryBookings(bookings);
   const resvSum = sumReservationFeesDisplayed(bookings);
   const fullSum = sumFullPaymentsDisplayed(bookings);
-
-  const load = useCallback(async (isRefresh = false) => {
-    try {
-      if (isRefresh) {
-        setRefreshing(true);
-        invalidateCache('/bookings');
-      } else {
-        setLoading(true);
-      }
-      setError(null);
-      const rows = await bookingService.getMyBookings();
-      setBookings(rows);
-    } catch (err: unknown) {
-      const msg = getApiErrorMessage(err, 'Failed to load payment history');
-      setError(msg);
-      if (isRefresh) Toast.show(msg, 'error');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load(false);
-  }, [load]);
 
   const openReceipt = useCallback(async (orderId: string) => {
     setReceiptLoadingId(orderId);
@@ -372,7 +352,7 @@ export default function PaymentsScreen() {
       <Text style={[styles.emptySub, { color: colors.textMuted }]}>{error}</Text>
       <TouchableOpacity
         style={[styles.retryBtn, { borderColor: Palette.accent }]}
-        onPress={() => void load(false)}
+        onPress={() => void refreshBookings()}
       >
         <Ionicons name="refresh" size={16} color={Palette.accent} />
         <Text style={[styles.retryText, { color: Palette.accent }]}>Retry</Text>
@@ -421,8 +401,8 @@ export default function PaymentsScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => void load(true)}
+              refreshing={isRefetching && !loading}
+              onRefresh={() => void refreshBookings()}
               tintColor={Palette.accent}
               colors={[Palette.accent]}
             />
@@ -449,7 +429,7 @@ export default function PaymentsScreen() {
                   <Text style={[styles.summaryValue, { color: colors.text }]}>{bookingCount}</Text>
                 </View>
                 <View style={[styles.summaryCell, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>RESERVATION FEES</Text>
+                  <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>PAID RESERVATION FEES</Text>
                   <Text style={[styles.summaryValue, { color: indigo }]}>{formatCurrency(resvSum)}</Text>
                 </View>
                 <View
@@ -459,7 +439,7 @@ export default function PaymentsScreen() {
                     { backgroundColor: colors.card, borderColor: colors.border },
                   ]}
                 >
-                  <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>FULL PAYMENTS</Text>
+                  <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>PAID FULL PAYMENTS</Text>
                   <Text style={[styles.summaryValue, { color: emerald }]}>{formatCurrency(fullSum)}</Text>
                 </View>
               </View>

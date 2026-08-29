@@ -10,7 +10,7 @@
  *   5. Ready for Pickup       → status: ready_for_payment / completed / paid / released / serviceTrackingStage: ready_pickup
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -49,7 +49,9 @@ import { getApiErrorMessage } from '@/services/api/client';
 import AnimatedHeader from '@/components/ui/AnimatedHeader';
 import type { BookingRecord } from '@/services/api/types';
 import { useQuery } from '@tanstack/react-query';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { useCustomerBookings } from '@/hooks/useCustomerBookings';
 import { isDefaultTrackBookingRow } from '@/utils/customerBookingLifecycle';
 import {
   bookingIsReadyForPickup,
@@ -66,6 +68,11 @@ import {
   type TrackerMediaStage,
 } from '@/utils/customer-tracker-stage-media';
 import { getTrackerPipelineProgressPct } from '@/utils/tracker-pipeline-progress';
+import { resolveCustomerPaymentState } from '@/utils/customer-payment-state';
+import {
+  PAYMENT_PROOF_PICKER_OPTIONS,
+  paymentProofDataUrlFromAsset,
+} from '@/utils/payment-proof-image';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -1333,18 +1340,8 @@ export default function TrackScreen() {
     isLoading: isBookingsQueryLoading,
     isError: isBookingsQueryError,
     error: bookingsQueryError,
-    refetch: refetchBookings,
-  } = useQuery({
-    queryKey: ['bookings'],
-    queryFn: () => {
-      return bookingService.getMyBookings({
-        limit: 20,
-        status: 'pending,pending_confirmation,confirmed,approved,assigned,received,in_progress,ready_for_payment,completed,paid',
-      });
-    },
-    enabled: !!profile,
-    refetchInterval: 60_000,
-  });
+    refreshBookings,
+  } = useCustomerBookings(!!profile);
 
   const {
     data: specificBookingData,
@@ -1406,10 +1403,32 @@ export default function TrackScreen() {
     if (!bookingFromQuery) return null;
     const bookingWithTrackerMedia = mergeTrackerMediaPayload(bookingFromQuery, trackerMediaData) || bookingFromQuery;
     if (paymentProofLocal) {
-      return { ...bookingWithTrackerMedia, paymentProofUrl: paymentProofLocal };
+      return {
+        ...bookingWithTrackerMedia,
+        paymentProofUrl: paymentProofLocal,
+        hasPaymentProof: true,
+        reservationPayment: {
+          ...(bookingWithTrackerMedia.reservationPayment || {}),
+          status: 'pending',
+          amountSubmitted: 500,
+          submittedAt: new Date().toISOString(),
+          method: 'gcash',
+        },
+      };
     }
     return bookingWithTrackerMedia;
   }, [bookingFromQuery, trackerMediaData, paymentProofLocal]);
+
+  const paymentState = useMemo(
+    () => (booking ? resolveCustomerPaymentState(booking) : null),
+    [booking]
+  );
+
+  useFocusEffect(useCallback(() => {
+    if (routeBookingId) void refetchSpecificBooking();
+    if (trackerMediaBookingId) void refetchTrackerMedia();
+    return undefined;
+  }, [refetchSpecificBooking, refetchTrackerMedia, routeBookingId, trackerMediaBookingId]));
 
   const isLoading =
     isBookingsQueryLoading || (!!routeBookingId && isSpecificBookingLoading);
@@ -1555,13 +1574,13 @@ export default function TrackScreen() {
     : readyForPickupComplete
       ? 'Ready for Pickup'
       : atSecuredSlotStage
-        ? 'Slot Secured'
+        ? 'Appointment Confirmed'
       : activeStep.label;
   const stageDescription = booking
     ? readyForPickupComplete
       ? TRACKER_STEPS[TRACKER_STEPS.length - 1].detail
       : atSecuredSlotStage
-        ? 'Sales approved the downpayment. Your appointment slot is secured and live tracking is ready for shop intake.'
+        ? `Your reservation payment has been verified. Your vehicle is scheduled for ${booking.bookingDate || booking.date || 'your selected date'} at ${booking.bookingTime || booking.time || 'your selected time'}.`
       : resolveTrackerStageDescription(booking, activeMediaStage) || activeStep.detail
     : '';
   const referenceLabel = getBookingReferenceLabel(booking);
@@ -1607,7 +1626,7 @@ export default function TrackScreen() {
   const onRefresh = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await Promise.all([
-      refetchBookings(),
+      refreshBookings(),
       routeBookingId ? refetchSpecificBooking() : Promise.resolve(),
       trackerMediaBookingId ? refetchTrackerMedia() : Promise.resolve(),
     ]);
@@ -1621,18 +1640,17 @@ export default function TrackScreen() {
         Alert.alert('Permission required', 'We need access to your camera roll to upload payment proof.');
         return;
       }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 0.7,
-        base64: true,
-      });
-      if (!result.canceled && result.assets?.[0]?.base64) {
+      const result = await ImagePicker.launchImageLibraryAsync(PAYMENT_PROOF_PICKER_OPTIONS);
+      if (!result.canceled && result.assets?.[0]) {
         setUploading(true);
-        const img = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        const img = paymentProofDataUrlFromAsset(result.assets[0]);
         await bookingService.uploadPaymentProof(booking.id, img);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setPaymentProofLocal(img);
+        await Promise.all([
+          refreshBookings(),
+          routeBookingId ? refetchSpecificBooking() : Promise.resolve(),
+        ]);
       }
     } catch (err: any) {
       Alert.alert('Upload Failed', getApiErrorMessage(err));
@@ -1735,57 +1753,38 @@ export default function TrackScreen() {
             )}
           </>
 
-        /* ───────────── Pending Confirmation (upload GCash) ──────────── */
-        ) : booking?.status === 'pending_confirmation' ? (
+        /* ───────────── Submitted GCash receipt — Sales review ──────────── */
+        ) : paymentState?.reservation === 'verifying' ? (
           <Animated.View
             entering={FadeInDown.delay(120).duration(220)}
-            style={[s.stateCard, { borderColor: C.orangeBrd }]}
+            style={[s.stateCard, { borderColor: 'rgba(245,158,11,0.38)' }]}
           >
-            <Ionicons name="time-outline" size={48} color={C.orange} />
-            <Text style={s.stateTitle}>Waiting for Confirmation</Text>
+            <Ionicons name="shield-checkmark-outline" size={48} color="#F59E0B" />
+            <Text style={s.stateTitle}>Payment Verification</Text>
+            <Text style={[s.stateTitle, { fontSize: 15, color: '#FBBF24' }]}>Payment verification in progress</Text>
             <Text style={s.stateSub}>
-              Allow 1–3 minutes for verification. Upload your GCash receipt below.
+              Your GCash receipt has been submitted and is being reviewed. We’ll update this status once your reservation payment is verified.
             </Text>
-            {booking.paymentProofUrl ? (
-              <View style={{ alignItems: 'center', gap: 8 }}>
-                <Image
-                  source={{ uri: booking.paymentProofUrl }}
-                  style={{ width: 100, height: 140, borderRadius: 10 }}
-                  resizeMode="cover"
-                />
-                <Text style={{ color: C.green, fontWeight: '700', fontSize: 14 }}>
-                  Receipt Uploaded ✓
-                </Text>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={s.uploadBtn}
-                onPress={pickImage}
-                disabled={uploading}
-                activeOpacity={0.85}
-              >
-                {uploading ? (
-                  <ActivityIndicator color="#FFF" />
-                ) : (
-                  <>
-                    <Ionicons name="cloud-upload-outline" size={18} color="#FFF" />
-                    <Text style={s.uploadBtnText}>Upload GCash Screenshot</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              style={[s.uploadBtn, { backgroundColor: C.elevated, borderWidth: 1, borderColor: 'rgba(245,158,11,0.35)' }]}
+              onPress={() => router.push({ pathname: '/(screens)/payments', params: { orderId: booking.id } })}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="receipt-outline" size={18} color="#FBBF24" />
+              <Text style={[s.uploadBtnText, { color: '#FBBF24' }]}>View Payment Details</Text>
+            </TouchableOpacity>
           </Animated.View>
 
-        /* ───────────────── Rejected ─────────────────── */
-        ) : booking?.status === 'rejected' ? (
+        /* ───────────────── Rejected receipt ─────────────────── */
+        ) : paymentState?.reservation === 'action_required' ? (
           <Animated.View
             entering={FadeInDown.delay(120).duration(220)}
             style={[s.stateCard, { borderColor: 'rgba(239,68,68,0.4)' }]}
           >
             <Ionicons name="close-circle-outline" size={48} color="#EF4444" />
-            <Text style={[s.stateTitle, { color: '#EF4444' }]}>Payment Rejected</Text>
+            <Text style={[s.stateTitle, { color: '#EF4444' }]}>Payment Action Required</Text>
             <Text style={s.stateSub}>
-              {booking.rejectionReason || 'Upload a clearer GCash screenshot to resubmit.'}
+              Your GCash payment could not be verified. {paymentState.reservationReviewReason ? `${paymentState.reservationReviewReason} ` : ''}Please review your payment details and submit a valid receipt.
             </Text>
             <TouchableOpacity
               style={[s.uploadBtn, { backgroundColor: '#EF4444' }]}
@@ -1798,7 +1797,35 @@ export default function TrackScreen() {
               ) : (
                 <>
                   <Ionicons name="reload-outline" size={18} color="#FFF" />
-                  <Text style={s.uploadBtnText}>Re-upload Proof</Text>
+                  <Text style={s.uploadBtnText}>Upload New Receipt</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </Animated.View>
+
+        /* ───────────────── Receipt actually missing ─────────────────── */
+        ) : paymentState?.reservation === 'required' ? (
+          <Animated.View
+            entering={FadeInDown.delay(120).duration(220)}
+            style={[s.stateCard, { borderColor: C.orangeBrd }]}
+          >
+            <Ionicons name="card-outline" size={48} color={C.orange} />
+            <Text style={s.stateTitle}>Reservation Payment Required</Text>
+            <Text style={s.stateSub}>
+              Secure your appointment by submitting your ₱500 GCash reservation payment.
+            </Text>
+            <TouchableOpacity
+              style={s.uploadBtn}
+              onPress={pickImage}
+              disabled={uploading}
+              activeOpacity={0.85}
+            >
+              {uploading ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <>
+                  <Ionicons name="cloud-upload-outline" size={18} color="#FFF" />
+                  <Text style={s.uploadBtnText}>Upload GCash Receipt</Text>
                 </>
               )}
             </TouchableOpacity>

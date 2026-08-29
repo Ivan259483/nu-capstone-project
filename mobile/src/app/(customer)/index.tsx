@@ -39,7 +39,7 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn, FadeInDown, FadeInUp, FadeInRight, SlideInRight,
   useSharedValue, useAnimatedStyle,
@@ -48,7 +48,6 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
-import { bookingService } from '@/services/api/bookingService';
 import { invalidateCache } from '@/services/api/client';
 import {
   getServicePriceForVehicle,
@@ -69,6 +68,8 @@ import {
 } from '@/utils/customer-home-rail-step';
 import { useNotifications } from '@/context/NotificationsContext';
 import { TabBarContentHeight } from '@/constants/theme';
+import { useCustomerBookings } from '@/hooks/useCustomerBookings';
+import { resolveCustomerPaymentState } from '@/utils/customer-payment-state';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // VIEWPORT
@@ -179,7 +180,7 @@ const RADIUS = {
 } as const;
 
 const TYPE = {
-  sectionTracking:1.9,
+  sectionTracking:1.65,
   bodyColor:D.w55,
   supportingColor:D.w55,
 } as const;
@@ -195,10 +196,6 @@ const TRUST = [
   { icon:'ribbon-outline'           as const, label:'Licensed' },
   { icon:'checkmark-circle-outline' as const, label:'Insured' },
   { icon:'star-outline'             as const, label:'4.9 Rating' },
-];
-
-const PROMOS = [
-  { badge:'LIMITED', title:'Free Interior Detailing', sub:'Book any tint package this month', save:'₱800 value', icon:'sparkles-outline' as const },
 ];
 
 const greet = (date = new Date()) => {
@@ -479,28 +476,53 @@ function HeaderSection({
   const { width } = useWindowDimensions();
   const controlSize = phoneMetric(width, 44, 48);
   const controlRadius = phoneMetric(width, 14, 16);
+  const avatarSize = phoneMetric(width, 40, 44);
+  const avatarRadius = phoneMetric(width, 13, 15);
   const nameSize = phoneMetric(width, 28, 33.5);
 
   return (
     <Animated.View entering={FadeIn.duration(260)} style={$.hdr}>
-      {/* Name block */}
-      <View style={$.hdrCopy}>
-        <Animated.Text entering={FadeIn.delay(60).duration(380)} style={$.greet}>
-          {greet()},
-        </Animated.Text>
-        <Text
-          style={[$.nameText, { fontSize:nameSize, lineHeight:nameSize + 4 }]}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.72}
+      {/* Customer identity */}
+      <View style={$.hdrIdentity}>
+        <Tap
+          onPress={() => router.push('/(customer)/settings')}
+          style={{ width:avatarSize, height:avatarSize, flexShrink:0, alignSelf:'center' }}
+          targetScale={0.97}
+          accessibilityLabel="Open profile"
         >
-          {name}
-        </Text>
+          <View style={[$.avRing, { width:avatarSize, height:avatarSize, borderRadius:avatarRadius }]}>
+            <View style={[$.avCore, { borderRadius:Math.max(0, avatarRadius - 2.2) }]}>
+              {profile?.avatar_url
+                ? <Image source={profile.avatar_url} style={{width:'100%',height:'100%'}} contentFit="cover" />
+                : <Text style={$.avChar}>{(profile?.full_name?.charAt(0)||'?').toUpperCase()}</Text>
+              }
+            </View>
+          </View>
+        </Tap>
+
+        <View style={$.hdrCopy}>
+          <Animated.Text entering={FadeIn.delay(60).duration(380)} style={$.greet}>
+            {greet()},
+          </Animated.Text>
+          <Text
+            style={[$.nameText, { fontSize:nameSize, lineHeight:nameSize + 4 }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.72}
+          >
+            {name}
+          </Text>
+        </View>
       </View>
 
-      {/* Action cluster */}
+      {/* Notifications */}
       <View style={$.hdrActions}>
-        <Tap onPress={() => router.push('/(screens)/notifications')} targetScale={0.97} accessibilityLabel="Open notifications">
+        <Tap
+          onPress={() => router.push('/(screens)/notifications')}
+          style={{ width:controlSize, height:controlSize, flexShrink:0, alignSelf:'center' }}
+          targetScale={0.97}
+          accessibilityLabel="Open notifications"
+        >
           <View style={[$.bellBtn, { width:controlSize, height:controlSize, borderRadius:controlRadius }]}>
             <Ionicons name="notifications-outline" size={18} color={D.w55} />
             {unreadCount > 0 && (
@@ -508,16 +530,6 @@ function HeaderSection({
                 <Text style={$.notifTxt}>{unreadCount > 99 ? '99+' : String(unreadCount)}</Text>
               </View>
             )}
-          </View>
-        </Tap>
-        <Tap onPress={() => router.push('/(customer)/settings')} targetScale={0.97} accessibilityLabel="Open profile">
-          <View style={[$.avRing, { width:controlSize, height:controlSize, borderRadius:controlRadius }]}>
-            <View style={[$.avCore, { borderRadius:Math.max(0, controlRadius - 2.2) }]}>
-              {profile?.avatar_url
-                ? <Image source={profile.avatar_url} style={{width:'100%',height:'100%'}} contentFit="cover" />
-                : <Text style={$.avChar}>{(profile?.full_name?.charAt(0)||'?').toUpperCase()}</Text>
-              }
-            </View>
           </View>
         </Tap>
       </View>
@@ -587,30 +599,73 @@ function HeroSection({ job, isLoading, step, router }: {
 
   if (job) {
     const mode = resolveHomeHeroMode(job, step);
+    const paymentState = resolveCustomerPaymentState(job);
     const context = getTrackingContext(job, step);
     const isUpcoming = mode === 'upcoming';
     const isPayment = mode === 'payment';
     const isReady = mode === 'ready';
-    const actionLabel = isPayment ? 'View Payment' : isUpcoming ? 'View Booking' : isReady ? 'View Pickup' : 'Track My Car';
+    const needsReservationReceipt = paymentState.reservation === 'required';
+    const reservationUnderReview = paymentState.reservation === 'verifying';
+    const reservationActionRequired = paymentState.reservation === 'action_required';
+    const hasVehiclePlate = Boolean(String(job.vehiclePlate || '').trim());
+    const statusAccent = reservationActionRequired
+      ? '#EF4444'
+      : reservationUnderReview
+        ? '#F59E0B'
+        : isUpcoming && paymentState.reservation === 'paid'
+          ? '#22C55E'
+          : D.A;
+    const statusIcon = reservationActionRequired
+      ? 'alert-circle-outline'
+      : reservationUnderReview
+        ? 'time-outline'
+        : needsReservationReceipt
+          ? 'wallet-outline'
+          : isPayment
+            ? 'card-outline'
+            : isReady
+              ? 'car-sport-outline'
+              : 'calendar-outline';
+    const actionLabel = isPayment
+      ? 'View Payment'
+      : reservationActionRequired
+        ? 'Upload New Receipt'
+        : needsReservationReceipt
+        ? 'Upload GCash Receipt'
+        : isUpcoming
+          ? 'View Booking'
+          : isReady
+            ? 'View Pickup'
+            : 'Track My Car';
     const actionRoute = isPayment
       ? { pathname:'/(screens)/payments' as const, params:{ orderId:job.id } }
       : { pathname:'/(customer)/track' as const, params:{ id:job.id } };
-    const status = String(job.status || '').trim().toLowerCase().replace(/-/g, '_');
-    const isAwaitingConfirmation = status === 'pending' || status === 'pending_confirmation';
     const outstandingAmount = getOutstandingAmount(job);
-    const eyebrow = isPayment
+    const eyebrow = reservationActionRequired
+      ? 'PAYMENT ACTION REQUIRED'
+      : reservationUnderReview
+        ? 'PAYMENT UNDER REVIEW'
+        : needsReservationReceipt
+          ? 'RESERVATION PAYMENT REQUIRED'
+          : isPayment
       ? 'PAYMENT PENDING'
       : isReady
         ? 'READY FOR PICKUP'
         : isUpcoming
-          ? (isAwaitingConfirmation ? 'REQUEST RECEIVED' : 'APPOINTMENT CONFIRMED')
+          ? 'APPOINTMENT CONFIRMED'
           : 'IN PROGRESS';
-    const headline = isPayment
+    const headline = reservationActionRequired
+      ? 'Your payment needs attention'
+      : reservationUnderReview
+        ? 'We’re verifying your reservation payment'
+        : needsReservationReceipt
+          ? 'Submit your reservation receipt'
+          : isPayment
       ? 'Service completed'
       : isReady
         ? 'Your vehicle is ready for pickup'
         : isUpcoming
-          ? (isAwaitingConfirmation ? 'We’re confirming your appointment' : 'Your appointment is confirmed')
+          ? 'Your appointment is confirmed'
           : 'Your vehicle is being serviced';
 
     return (
@@ -630,20 +685,24 @@ function HeroSection({ job, isLoading, step, router }: {
             <Spec op={0.04} />
             <View style={$.trGlow} />
 
-            <View style={$.trBody}>
-              <View style={$.trRow1}>
+            <View style={[$.trBody, reservationUnderReview && $.trBodyCompact]}>
+              <View style={[$.trRow1, reservationUnderReview && $.trRow1Compact]}>
                 <View style={$.livePill}>
                   {mode === 'active' ? <Pulse color={D.A} size={6} /> : (
-                    <Ionicons name={isPayment ? 'card-outline' : isReady ? 'car-sport-outline' : 'calendar-outline'} size={12} color={D.A} />
+                    <Ionicons name={statusIcon} size={12} color={statusAccent} />
                   )}
-                  <Text style={$.liveTxt} numberOfLines={1} adjustsFontSizeToFit>{eyebrow}</Text>
+                  <Text style={[$.liveTxt, { color: statusAccent }]} numberOfLines={1} adjustsFontSizeToFit>{eyebrow}</Text>
                 </View>
               </View>
 
-              <Animated.Text entering={FadeInDown.delay(180).duration(200)} style={$.trHeadline} numberOfLines={2}>
+              <Animated.Text
+                entering={FadeInDown.delay(180).duration(200)}
+                style={[$.trHeadline, reservationUnderReview && $.trHeadlineCompact]}
+                numberOfLines={2}
+              >
                 {headline}
               </Animated.Text>
-              <Text style={$.trVeh} numberOfLines={1} adjustsFontSizeToFit>
+              <Text style={[$.trVeh, reservationUnderReview && $.trVehCompact]} numberOfLines={1} adjustsFontSizeToFit>
                 {[job.vehicleMake, job.vehicleModel].filter(Boolean).join(' ') || 'Your vehicle'}
               </Text>
               <View style={$.trMetaRow}>
@@ -651,16 +710,24 @@ function HeroSection({ job, isLoading, step, router }: {
                   <Ionicons name="sparkles-outline" size={13} color={D.A} />
                   <Text style={$.trSvc} numberOfLines={1}>{job.serviceName}</Text>
                 </View>
-                <View style={$.plateBadge}>
-                  <Ionicons name="car-outline" size={10} color={D.w38} />
-                  <Text style={$.plateNum}>{String(job.vehiclePlate||'—').slice(0,9).toUpperCase()}</Text>
-                </View>
+                {!isUpcoming && hasVehiclePlate ? (
+                  <View style={$.plateBadge}>
+                    <Ionicons name="car-outline" size={10} color={D.w38} />
+                    <Text style={$.plateNum}>{String(job.vehiclePlate).slice(0,9).toUpperCase()}</Text>
+                  </View>
+                ) : null}
               </View>
 
               {isUpcoming ? (
-                <View style={$.appointmentSummary}>
+                <View style={[$.appointmentSummary, reservationUnderReview && $.appointmentSummaryCompact]}>
                   <Ionicons name="calendar-clear-outline" size={17} color={D.A} />
                   <Text style={$.appointmentSchedule}>{formatBookingSchedule(job)}</Text>
+                  {hasVehiclePlate ? (
+                    <View style={$.plateBadge}>
+                      <Ionicons name="car-outline" size={9} color={D.w38} />
+                      <Text style={$.plateNum}>{String(job.vehiclePlate).slice(0,9).toUpperCase()}</Text>
+                    </View>
+                  ) : null}
                 </View>
               ) : isPayment ? (
                 <View style={$.paymentSummary}>
@@ -676,12 +743,18 @@ function HeroSection({ job, isLoading, step, router }: {
                 <Rail step={step} />
               )}
 
-              <View style={$.trFooter}>
+              <View style={[$.trFooter, reservationUnderReview && $.trFooterCompact]}>
                 <View style={$.trContext}>
                   <Ionicons name={isUpcoming ? 'information-circle-outline' : context.icon} size={13} color={D.w38} />
                   <Text style={$.trContextText} numberOfLines={2}>
-                    {isUpcoming
-                      ? 'We’ll keep this status synced with your booking.'
+                    {reservationActionRequired
+                      ? 'Review the payment details and submit a valid GCash receipt.'
+                      : reservationUnderReview
+                        ? 'We’ll update your booking once payment is verified.'
+                        : needsReservationReceipt
+                          ? 'Secure your appointment by submitting the ₱500 GCash reservation payment.'
+                          : isUpcoming
+                      ? 'Your reservation payment is verified and your appointment is secured.'
                       : isPayment
                         ? 'Your service total is ready for review.'
                         : isReady
@@ -844,7 +917,7 @@ function TrustSection() {
           <React.Fragment key={t.label}>
             {i > 0 && <View style={$.trustDivider} />}
             <View style={$.trustItem}>
-              <Ionicons name={t.icon} size={12} color={D.A} />
+              <Ionicons name={t.icon} size={11} color={D.A} />
               <Text style={$.trustTxt} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{t.label}</Text>
             </View>
           </React.Fragment>
@@ -857,11 +930,10 @@ function TrustSection() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SECTION: Quick actions — balanced two-column grid
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function QuickSection({ router, completed, job, step, isLoading }: {
+function QuickSection({ router, completed, job, isLoading }: {
   router: ReturnType<typeof useRouter>;
   completed: number;
   job: BookingRecord | null;
-  step: number;
   isLoading: boolean;
 }) {
   if (isLoading) {
@@ -869,33 +941,45 @@ function QuickSection({ router, completed, job, step, isLoading }: {
       <View>
         <Eye label="Quick Actions" />
         <View style={$.qaGrid}>
-          {[0,1,2,3].map((item) => <Shim key={item} w={(W-52)/2} h={94} r={RADIUS.control} />)}
+          {[0,1,2,3].map((item) => <Shim key={item} w={(W-52)/2} h={86} r={RADIUS.control} />)}
         </View>
       </View>
     );
   }
 
-  const mode = resolveHomeHeroMode(job, step);
-  const bookingRoute = job
+  const trackerRoute = job
     ? { pathname:'/(customer)/track' as const, params:{ id:job.id } }
-    : '/(screens)/appointments';
-  const paymentRoute = job && mode === 'payment'
+    : '/(customer)/track';
+  const paymentRoute = job
     ? { pathname:'/(screens)/payments' as const, params:{ orderId:job.id } }
     : '/(screens)/payments';
-  const actions = mode === 'book' ? [
+  const isTrackerRelevant = Boolean(job && bookingShowsCustomerLiveTracker(job));
+  const noBookingActions = [
+    { icon:'calendar-outline' as const, n:'New Booking', sub:'Schedule a service', r:'/(customer)/book', badge:0 },
     { icon:'car-sport-outline' as const, n:'My Vehicle', sub:'Garage and details', r:'/(screens)/vehicles', badge:0 },
     { icon:'scan-outline' as const, n:'AI Assessment', sub:'Check visible damage', r:'/(customer)/scan', badge:0 },
     { icon:'receipt-outline' as const, n:'Service Records', sub:'History and receipts', r:'/(screens)/appointments', badge:completed },
-    { icon:'wallet-outline' as const, n:'Payments', sub:'Transactions and receipts', r:'/(screens)/payments', badge:0 },
-  ] : [
-    { icon:mode === 'payment' ? 'card-outline' as const : mode === 'active' ? 'navigate-outline' as const : mode === 'ready' ? 'car-sport-outline' as const : 'calendar-outline' as const,
-      n:mode === 'payment' ? 'View Payment' : mode === 'active' ? 'Track Service' : mode === 'ready' ? 'Pickup Status' : 'View Booking',
-      sub:mode === 'payment' ? 'Complete your balance' : mode === 'active' ? 'Follow live progress' : mode === 'ready' ? 'Release and pickup details' : 'Appointment details',
-      r:mode === 'payment' ? paymentRoute : bookingRoute, badge:0 },
-    { icon:'car-sport-outline' as const, n:'My Vehicle', sub:'Garage and details', r:'/(screens)/vehicles', badge:0 },
-    { icon:'receipt-outline' as const, n:'Service Records', sub:'History and receipts', r:'/(screens)/appointments', badge:completed },
-    { icon:'wallet-outline' as const, n:'Payments', sub:'Transactions and receipts', r:paymentRoute, badge:0 },
   ];
+  const currentBookingActions = [
+    { icon:'calendar-outline' as const, n:'View Booking', sub:'Appointment details', r:'/(screens)/appointments', badge:0 },
+    ...(isTrackerRelevant ? [{
+      icon:'navigate-outline' as const,
+      n:'Track Booking',
+      sub:'Follow booking progress',
+      r:trackerRoute,
+      badge:0,
+    }] : []),
+    { icon:'wallet-outline' as const, n:'Payments', sub:'Transactions and receipts', r:paymentRoute, badge:0 },
+    { icon:'car-sport-outline' as const, n:'My Vehicle', sub:'Garage and details', r:'/(screens)/vehicles', badge:0 },
+    ...(!isTrackerRelevant ? [{
+      icon:'receipt-outline' as const,
+      n:'Service Records',
+      sub:'History and receipts',
+      r:'/(screens)/appointments',
+      badge:completed,
+    }] : []),
+  ];
+  const actions = job ? currentBookingActions.slice(0, 4) : noBookingActions;
 
   return (
     <Animated.View entering={FadeInUp.delay(320).duration(200)}>
@@ -961,8 +1045,8 @@ function ServicesSection({
       <Eye label="Our Services" cta="View All" onCta={() => router.push('/(customer)/book')} />
       {isLoading ? (
         <View style={$.svcLoadingRow}>
-          <Shim w={(W-54)/2} h={USE_STACKED_SERVICE_FOOTER ? 252 : 220} r={RADIUS.card} />
-          <Shim w={(W-54)/2} h={USE_STACKED_SERVICE_FOOTER ? 252 : 220} r={RADIUS.card} />
+          <Shim w={(W-54)/2} h={USE_STACKED_SERVICE_FOOTER ? 226 : 198} r={RADIUS.card} />
+          <Shim w={(W-54)/2} h={USE_STACKED_SERVICE_FOOTER ? 226 : 198} r={RADIUS.card} />
         </View>
       ) : hasError ? (
         <View style={$.svcStateCard}>
@@ -1020,33 +1104,32 @@ function ServicesSection({
                 {/* Depth orb */}
                 <View style={$.svcOrb} />
 
-                {/* Glass icon top-left */}
-                <GBCard
-                  colors={['rgba(255,255,255,0.28)','rgba(255,255,255,0.10)','rgba(255,255,255,0.22)']}
-                  radius={RADIUS.control} bg="rgba(255,255,255,0.075)"
-                  style={{width:44,height:44}}
-                >
-                  <View style={{flex:1,alignItems:'center',justifyContent:'center'}}>
-                    <Ionicons name={service.icon as keyof typeof Ionicons.glyphMap} size={18} color="rgba(255,255,255,0.90)" />
-                  </View>
-                </GBCard>
-
-                <View style={{flex:1}} />
-                <View style={$.svcBadgeSlot}>
-                  {service.catalogCard?.badge ? (
-                    <View style={[
-                      $.svcBadgePill,
-                      isRecommended && $.svcBadgeRecommended,
-                    ]}>
-                      <Text style={[
-                        $.svcBadge,
-                        isRecommended && $.svcBadgeRecommendedText,
-                      ]} numberOfLines={1}>{service.catalogCard.badge}</Text>
+                <View style={$.svcTop}>
+                  <GBCard
+                    colors={['rgba(255,255,255,0.28)','rgba(255,255,255,0.10)','rgba(255,255,255,0.22)']}
+                    radius={12} bg="rgba(255,255,255,0.075)"
+                    style={{width:38,height:38}}
+                  >
+                    <View style={{flex:1,alignItems:'center',justifyContent:'center'}}>
+                      <Ionicons name={service.icon as keyof typeof Ionicons.glyphMap} size={17} color="rgba(255,255,255,0.90)" />
                     </View>
-                  ) : null}
+                  </GBCard>
+                  <View style={$.svcBadgeSlot}>
+                    {service.catalogCard?.badge ? (
+                      <View style={[
+                        $.svcBadgePill,
+                        isRecommended && $.svcBadgeRecommended,
+                      ]}>
+                        <Text style={[
+                          $.svcBadge,
+                          isRecommended && $.svcBadgeRecommendedText,
+                        ]} numberOfLines={1}>{service.catalogCard.badge}</Text>
+                      </View>
+                    ) : null}
+                  </View>
                 </View>
                 <Text style={$.svcName} numberOfLines={2}>{service.name}</Text>
-                <Text style={$.svcTag} numberOfLines={2}>{metadata || ' '}</Text>
+                <Text style={$.svcTag} numberOfLines={1}>{metadata || ' '}</Text>
                 <View style={[$.svcFoot, USE_STACKED_SERVICE_FOOTER && $.svcFootNarrow]}>
                   <View style={[$.svcPrBadge, USE_STACKED_SERVICE_FOOTER && $.svcPrBadgeNarrow]}>
                     <Text
@@ -1075,13 +1158,76 @@ function ServicesSection({
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SECTION: Promo — current offer/deal banner
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function PromoSection({ router }: any) {
-  const p = PROMOS[0];
+const PUBLISHED_OFFER_BADGE = /(offer|limited|deal|promo|discount|save)/i;
+
+function getPublishedServiceOriginalPrice(service: ServiceOption, vehicle: Vehicle | null): number | null {
+  const vehiclePriceKey = getServiceVehiclePriceKey(vehicle?.vehicleType);
+  if (vehiclePriceKey) {
+    const original = Number(service.pricing?.[vehiclePriceKey]?.original);
+    return Number.isFinite(original) && original > 0 ? original : null;
+  }
+
+  const originals = Object.values(service.pricing || {})
+    .map((price) => Number(price?.original))
+    .filter((price) => Number.isFinite(price) && price > 0);
+  return originals.length ? Math.min(...originals) : null;
+}
+
+function getPublishedOffer(services: ServiceOption[], vehicle: Vehicle | null) {
+  for (const service of services) {
+    const badgeCandidates = [service.catalogCard?.discountBadge, service.catalogCard?.badge]
+      .map((badge) => String(badge || '').trim())
+      .filter(Boolean);
+    const badge = badgeCandidates.find((candidate) => PUBLISHED_OFFER_BADGE.test(candidate));
+    if (!badge) continue;
+
+    const vehiclePriceKey = getServiceVehiclePriceKey(vehicle?.vehicleType);
+    const currentPrice = vehiclePriceKey
+      ? getServicePriceForVehicle(service, vehicle?.vehicleType)
+      : getServiceStartingPrice(service);
+    const originalPrice = getPublishedServiceOriginalPrice(service, vehicle);
+    const savings = currentPrice !== null && originalPrice !== null && originalPrice > currentPrice
+      ? originalPrice - currentPrice
+      : null;
+
+    return {
+      service,
+      badge,
+      subtitle:service.catalogCard?.tagline || service.description || 'View package details',
+      detail:savings !== null
+        ? `Save ₱${savings.toLocaleString('en-PH')}`
+        : service.catalogCard?.warrantyLabel || 'View package details',
+    };
+  }
+  return null;
+}
+
+function PromoSection({
+  router,
+  services,
+  vehicle,
+}: {
+  router: ReturnType<typeof useRouter>;
+  services: ServiceOption[];
+  vehicle: Vehicle | null;
+}) {
+  const offer = getPublishedOffer(services, vehicle);
+  if (!offer) return null;
 
   return (
-    <Animated.View entering={FadeInUp.delay(430).duration(200)}>
+    <Animated.View entering={FadeInUp.delay(430).duration(200)} style={$.sect}>
       <Eye label="Current Offer" />
-      <Tap onPress={() => router.push('/(customer)/book')} h="Medium" accessibilityLabel="Book the current offer">
+      <Tap
+        onPress={() => router.push({
+          pathname:'/(customer)/book',
+          params:{
+            serviceId:offer.service.id,
+            ...(vehicle?.id ? { vehicleId:vehicle.id } : {}),
+          },
+        })}
+        h="Medium"
+        accessibilityLabel={`View ${offer.service.name} offer`}
+      >
         <GBCard colors={GB.neutral} radius={RADIUS.card}>
           <LinearGradient
             colors={['rgba(207,168,64,0.055)','rgba(255,124,30,0.02)','transparent']}
@@ -1093,19 +1239,16 @@ function PromoSection({ router }: any) {
             <View style={$.promoLeft}>
               <View style={$.promoBadge}>
                 <Ionicons name="pricetag-outline" size={10} color={D.bg} />
-                <Text style={$.promoBadgeTxt}>{p.badge}</Text>
+                <Text style={$.promoBadgeTxt}>{offer.badge}</Text>
               </View>
-              <Text style={$.promoTitle}>{p.title}</Text>
-              <Text style={$.promoSub}>{p.sub}</Text>
+              <Text style={$.promoTitle} numberOfLines={1}>{offer.service.name}</Text>
+              <Text style={$.promoSub} numberOfLines={1}>{offer.subtitle}</Text>
               <View style={$.promoSaveRow}>
                 <Ionicons name="pricetag-outline" size={10} color={D.AL} />
-                <Text style={$.promoSaveTxt}>Includes {p.save}</Text>
+                <Text style={$.promoSaveTxt}>{offer.detail}</Text>
               </View>
             </View>
             <View style={$.promoRight}>
-              <View style={$.promoIconBg}>
-                <Ionicons name={p.icon as any} size={22} color={D.Go} />
-              </View>
               <View style={$.promoArrow}>
                 <Ionicons name="arrow-forward" size={13} color={D.Go} />
               </View>
@@ -1120,7 +1263,38 @@ function PromoSection({ router }: any) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SECTION: Recent history — Revolut transaction list container
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function HistorySection({ history, isLoading, totalSpend, router }: any) {
+function HistorySection({
+  history,
+  isLoading,
+  totalSpend,
+  router,
+  currentBooking,
+  hasAnyBookings,
+}: {
+  history: BookingRecord[];
+  isLoading: boolean;
+  totalSpend: number;
+  router: ReturnType<typeof useRouter>;
+  currentBooking: BookingRecord | null;
+  hasAnyBookings: boolean;
+}) {
+  const hasCurrentBooking = Boolean(currentBooking);
+  const isFirstTimeCustomer = !hasAnyBookings;
+  const emptyTitle = hasCurrentBooking ? 'No completed services yet' : 'No service history yet';
+  const emptyDescription = hasCurrentBooking
+    ? 'Your completed services will appear here after your appointment.'
+    : 'Your completed services will appear here.';
+  const emptyActionLabel = hasCurrentBooking
+    ? 'View Current Booking'
+    : isFirstTimeCustomer
+      ? 'Book Your First Service'
+      : 'View Booking History';
+  const emptyActionRoute = hasCurrentBooking && currentBooking
+    ? { pathname:'/(customer)/track' as const, params:{ id:currentBooking.id } }
+    : isFirstTimeCustomer
+      ? '/(customer)/book'
+      : '/(screens)/appointments';
+
   return (
     <Animated.View entering={FadeInUp.delay(500).duration(200)}>
       <Eye
@@ -1213,15 +1387,21 @@ function HistorySection({ history, isLoading, totalSpend, router }: any) {
                 <Ionicons name="car-sport-outline" size={26} color={D.A} />
               </LinearGradient>
             </Animated.View>
-            <Text style={$.emptyH}>No services yet</Text>
-            <Text style={$.emptySub}>Your completed services will appear here.</Text>
-            <Tap onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push('/(customer)/book'); }}>
+            <Text style={$.emptyH}>{emptyTitle}</Text>
+            <Text style={$.emptySub}>{emptyDescription}</Text>
+            <Tap
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                router.push(emptyActionRoute as any);
+              }}
+              accessibilityLabel={emptyActionLabel}
+            >
               <LinearGradient
                 colors={[D.AL, D.A, D.AD]}
                 start={{x:0,y:0}} end={{x:1,y:0}}
                 style={$.emptyBtn}
               >
-                <Text style={$.emptyBtnTxt}>Book Your First Service</Text>
+                <Text style={$.emptyBtnTxt}>{emptyActionLabel}</Text>
                 <Ionicons name="arrow-forward-circle-outline" size={17} color="#fff" />
               </LinearGradient>
             </Tap>
@@ -1243,15 +1423,11 @@ export default function HomeScreen() {
 
   const {
     data: bookings = [],
-    refetch: refetchBookings,
     isRefetching,
     isLoading,
     isError: bookingsFailed,
-  } = useQuery({
-    queryKey: ['bookings'],
-    queryFn: () => bookingService.getMyBookings(),
-    enabled: !!profile?.id,
-  });
+    refreshBookings,
+  } = useCustomerBookings(!!profile?.id);
 
   const servicesQuery = useQuery({
     queryKey: ['services'],
@@ -1268,11 +1444,11 @@ export default function HomeScreen() {
   const refreshHome = useCallback(async () => {
     invalidateCache('/services');
     await Promise.all([
-      refetchBookings(),
+      refreshBookings(),
       servicesQuery.refetch(),
       vehiclesQuery.refetch(),
     ]);
-  }, [refetchBookings, servicesQuery, vehiclesQuery]);
+  }, [refreshBookings, servicesQuery, vehiclesQuery]);
 
   const { job, completed, history, totalSpend } = useMemo(() => {
     const activeRows = bookings
@@ -1301,21 +1477,18 @@ export default function HomeScreen() {
   const name = getFirstName(profile?.full_name);
 
   return (
-    <View style={$.screen}>
-      <View
-        pointerEvents="none"
-        style={[$.topChrome, { height:insets.top + SPACE.md }]}
-      />
+    <SafeAreaView style={$.screen} edges={['top']}>
       <Animated.ScrollView
         style={$.scroll}
         contentContainerStyle={[
           $.body,
           {
-            paddingTop:insets.top + SPACE.lg,
+            paddingTop:SPACE.lg,
             paddingBottom:TabBarContentHeight + insets.bottom + SPACE.xl,
           },
         ]}
         showsVerticalScrollIndicator={false}
+        automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"
         refreshControl={<RefreshControl refreshing={isRefetching || servicesQuery.isRefetching || vehiclesQuery.isRefetching} onRefresh={refreshHome} tintColor={D.A} />}
       >
@@ -1337,7 +1510,7 @@ export default function HomeScreen() {
           <View style={$.inlineError} accessibilityRole="alert">
             <Ionicons name="cloud-offline-outline" size={17} color={D.w55} />
             <Text style={$.inlineErrorText}>Unable to load your latest booking status.</Text>
-            <Pressable onPress={() => void refetchBookings()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Retry bookings">
+            <Pressable onPress={() => void refreshBookings()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Retry bookings">
               <Text style={$.inlineRetry}>Retry</Text>
             </Pressable>
           </View>
@@ -1354,7 +1527,6 @@ export default function HomeScreen() {
             router={router}
             completed={completed.length}
             job={job}
-            step={heroStep}
             isLoading={isLoading}
           />
         </View>
@@ -1374,18 +1546,27 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* 6. CURRENT PROMO */}
-        <View style={$.sect}>
-          <PromoSection router={router} />
-        </View>
+        {/* 6. CURRENT PUBLISHED PROMO */}
+        <PromoSection
+          router={router}
+          services={servicesQuery.data || []}
+          vehicle={pricingVehicle}
+        />
 
         {/* 7. RECENT HISTORY */}
         <View style={$.sect}>
-          <HistorySection history={history} isLoading={isLoading} totalSpend={totalSpend} router={router} />
+          <HistorySection
+            history={history}
+            isLoading={isLoading}
+            totalSpend={totalSpend}
+            router={router}
+            currentBooking={job}
+            hasAnyBookings={bookings.length > 0}
+          />
         </View>
 
       </Animated.ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -1395,15 +1576,9 @@ export default function HomeScreen() {
 const $ = StyleSheet.create({
   screen:  { flex:1, backgroundColor:D.bg },
   scroll:  { flex:1, zIndex:1 },
-  topChrome:{
-    position:'absolute', top:0, left:0, right:0, zIndex:20,
-    backgroundColor:'rgba(5,5,5,0.98)',
-    borderBottomWidth:StyleSheet.hairlineWidth,
-    borderBottomColor:'rgba(255,255,255,0.035)',
-  },
   body:    { paddingHorizontal:SPACE.page },
-  sect:    { marginBottom:SPACE.section },
-  heroSection:{ marginBottom:22 },
+  sect:    { marginBottom:SPACE.xxl },
+  heroSection:{ marginBottom:SPACE.xl },
   sectCompact:{ marginBottom:SPACE.xl },
   inlineError:{
     minHeight:48, marginTop:-16, marginBottom:20, paddingHorizontal:14,
@@ -1415,8 +1590,9 @@ const $ = StyleSheet.create({
 
   // ── HEADER ────────────────────────────────────────────────────
   hdr:      { flexDirection:'row', justifyContent:'space-between', alignItems:'center', gap:SPACE.md, marginBottom:SPACE.xxl },
-  hdrCopy:  { flex:1, minWidth:0, paddingTop:1 },
-  greet:    { fontSize:13, color:'rgba(237,229,221,0.58)', fontWeight:'500', letterSpacing:0.1 },
+  hdrIdentity:{ flex:1, minWidth:0, flexDirection:'row', alignItems:'center', gap:12 },
+  hdrCopy:  { flex:1, minWidth:0, justifyContent:'center' },
+  greet:    { fontSize:13, lineHeight:17, color:'rgba(237,229,221,0.58)', fontWeight:'500', letterSpacing:0.1 },
   nameText: { fontWeight:'800', color:D.w100, letterSpacing:-0.9 },
   hdrActions:{ flexDirection:'row', alignItems:'center', gap:8, flexShrink:0 },
   bellBtn:{
@@ -1440,7 +1616,9 @@ const $ = StyleSheet.create({
   // ── TRACKER CARD ──────────────────────────────────────────────
   trGlow: { position:'absolute', top:-90, right:-90, width:220, height:220, borderRadius:110, backgroundColor:'rgba(255,124,30,0.055)' },
   trBody: { padding:SPACE.xl },
+  trBodyCompact:{ padding:18 },
   trRow1: { flexDirection:'row', alignItems:'center', marginBottom:SPACE.md },
+  trRow1Compact:{ marginBottom:SPACE.sm },
   livePill:{
     flexDirection:'row', alignItems:'center', gap:8,
     backgroundColor:'rgba(255,124,30,0.085)', paddingHorizontal:11, paddingVertical:7, borderRadius:22,
@@ -1450,11 +1628,14 @@ const $ = StyleSheet.create({
   plateBadge:{ flexDirection:'row', alignItems:'center', gap:5, backgroundColor:'rgba(255,255,255,0.028)', paddingHorizontal:9, paddingVertical:5, borderRadius:10, borderWidth:1, borderColor:'rgba(255,255,255,0.055)', flexShrink:0 },
   plateNum:  { color:D.w55, fontSize:10, fontWeight:'700', letterSpacing:1.4 },
   trHeadline:{ fontSize:23, lineHeight:28, fontWeight:'800', color:'#FFF8F1', letterSpacing:-0.5, marginBottom:8 },
+  trHeadlineCompact:{ marginBottom:6 },
   trVeh:     { fontSize:14, fontWeight:'700', color:D.w75, letterSpacing:-0.2, marginBottom:9 },
+  trVehCompact:{ marginBottom:6 },
   trMetaRow: { flexDirection:'row', alignItems:'center', gap:10 },
   trSvcRow:  { flex:1, minWidth:0, flexDirection:'row', alignItems:'center', gap:7 },
   trSvc:     { fontSize:12, color:D.w55, fontWeight:'600', flex:1 },
   trFooter:  { flexDirection:'row', alignItems:'center', gap:12, paddingTop:15, borderTopWidth:1, borderTopColor:D.w07 },
+  trFooterCompact:{ paddingTop:12 },
   trContext: { flex:1, minWidth:0, flexDirection:'row', alignItems:'center', gap:7 },
   trContextText:{ flex:1, fontSize:10.5, lineHeight:15, color:D.w55, fontWeight:'600' },
   trViewBtn: {
@@ -1468,7 +1649,8 @@ const $ = StyleSheet.create({
     flexDirection:'row', alignItems:'center', gap:10, borderRadius:15,
     backgroundColor:D.w04, borderWidth:1, borderColor:D.w07,
   },
-  appointmentSchedule:{ color:D.w92, fontSize:14, fontWeight:'700' },
+  appointmentSummaryCompact:{ minHeight:48, marginTop:12, marginBottom:12 },
+  appointmentSchedule:{ flex:1, minWidth:0, color:D.w92, fontSize:14, fontWeight:'700' },
   paymentSummary:{
     marginTop:17, marginBottom:17, padding:14, borderRadius:15,
     flexDirection:'row', alignItems:'flex-end', justifyContent:'space-between', gap:16,
@@ -1523,12 +1705,12 @@ const $ = StyleSheet.create({
 
   // ── TRUST ────────────────────────────────────────────────────
   trustStrip:{
-    height:48, flexDirection:'row', alignItems:'center', borderRadius:RADIUS.control,
-    backgroundColor:D.w04, borderWidth:1, borderColor:D.w07, paddingHorizontal:SPACE.sm,
+    height:44, flexDirection:'row', alignItems:'center', borderRadius:RADIUS.control,
+    backgroundColor:D.w04, borderWidth:1, borderColor:D.w07, paddingHorizontal:6,
   },
-  trustItem:{ flex:1, minWidth:0, flexDirection:'row', alignItems:'center', justifyContent:'center', gap:5 },
-  trustDivider:{ width:StyleSheet.hairlineWidth, height:16, backgroundColor:D.w07 },
-  trustTxt:{ flex:1, minWidth:0, fontSize:9, color:TYPE.bodyColor, fontWeight:'700', textAlign:'center' },
+  trustItem:{ flex:1, minWidth:0, flexDirection:'row', alignItems:'center', justifyContent:'center', gap:4 },
+  trustDivider:{ width:StyleSheet.hairlineWidth, height:14, backgroundColor:D.w07 },
+  trustTxt:{ flex:1, minWidth:0, fontSize:8.5, color:D.w38, fontWeight:'700', textAlign:'center' },
 
   // ── EYEBROW ──────────────────────────────────────────────────
   eyeRow: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:SPACE.md },
@@ -1539,33 +1721,34 @@ const $ = StyleSheet.create({
 
   // ── QUICK ACTIONS ────────────────────────────────────────────
   qaGrid:       { flexDirection:'row', flexWrap:'wrap', gap:SPACE.md },
-  qaGridItem:   { width:'48%', minHeight:92 },
-  qaCardBody:   { flex:1, padding:SPACE.md },
-  qaCardTop:    { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:SPACE.sm },
+  qaGridItem:   { width:'48%', minHeight:86 },
+  qaCardBody:   { flex:1, padding:11 },
+  qaCardTop:    { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:6 },
   qaTopRight:   { flexDirection:'row', alignItems:'center', gap:SPACE.xs },
   qaArrow:      { width:24, height:24, borderRadius:12, alignItems:'center', justifyContent:'center', backgroundColor:D.w04 },
   qaSubLbl:     { fontSize:9.5, color:TYPE.supportingColor, fontWeight:'500', marginTop:SPACE.xs },
-  qaSmIcon:     { width:32, height:32, borderRadius:12, backgroundColor:D.w04, borderWidth:1, borderColor:D.w07, alignItems:'center', justifyContent:'center' },
+  qaSmIcon:     { width:30, height:30, borderRadius:11, backgroundColor:D.w04, borderWidth:1, borderColor:D.w07, alignItems:'center', justifyContent:'center' },
   qaSmName:     { fontSize:13.5, fontWeight:'700', color:D.w92, letterSpacing:-0.15 },
   qaBadge:      { minWidth:22, height:22, paddingHorizontal:6, borderRadius:8, backgroundColor:D.Gf, borderWidth:1, borderColor:D.Gb, alignItems:'center', justifyContent:'center' },
   qaBadgeTxt:   { color:D.G, fontSize:10, fontWeight:'800' },
 
   // ── SERVICES ─────────────────────────────────────────────────
   svcWrap:  { width:SERVICE_CARD_WIDTH, marginLeft:14, borderRadius:RADIUS.card, overflow:'hidden', ...sh('#000',0.28,12,5) },
-  svcCard:  { height:220, padding:SPACE.lg, justifyContent:'flex-end', borderWidth:1, borderColor:D.w07 },
-  svcCardNarrow:{ height:252 },
+  svcCard:  { height:198, padding:14, justifyContent:'flex-start', borderWidth:1, borderColor:D.w07 },
+  svcCardNarrow:{ height:226 },
   svcLoadingRow:{ flexDirection:'row', gap:14 },
   svcStateCard:{ minHeight:112, borderRadius:20, borderWidth:1, borderColor:D.w07, backgroundColor:D.w04, padding:18, flexDirection:'row', alignItems:'center', gap:12 },
   svcStateText:{ flex:1, color:D.w55, fontSize:12, fontWeight:'600', lineHeight:18 },
   svcRetry:{ color:D.A, fontSize:12, fontWeight:'800' },
-  svcOrb:   { position:'absolute', top:-52, right:-52, width:138, height:138, borderRadius:69, backgroundColor:'rgba(255,255,255,0.055)' },
-  svcBadgeSlot:{ minHeight:23, justifyContent:'flex-start', marginBottom:SPACE.xs },
+  svcOrb:   { position:'absolute', top:-60, right:-60, width:126, height:126, borderRadius:63, backgroundColor:'rgba(255,255,255,0.045)' },
+  svcTop:   { minHeight:38, flexDirection:'row', alignItems:'flex-start', justifyContent:'space-between', gap:8, marginBottom:10 },
+  svcBadgeSlot:{ flex:1, minWidth:0, minHeight:21, alignItems:'flex-end', justifyContent:'flex-start' },
   svcBadgePill:{ alignSelf:'flex-start', paddingHorizontal:7, paddingVertical:4, borderRadius:7, backgroundColor:D.Af },
   svcBadgeRecommended:{ backgroundColor:D.Gf, borderWidth:1, borderColor:D.Gb },
   svcBadge: { color:D.AL, fontSize:8, fontWeight:'900', letterSpacing:1 },
   svcBadgeRecommendedText:{ color:D.G },
-  svcName:  { minHeight:44, fontSize:17, fontWeight:'800', color:'#fff', lineHeight:21, letterSpacing:-0.35 },
-  svcTag:   { minHeight:28, fontSize:10, lineHeight:14, color:'rgba(255,255,255,0.62)', fontWeight:'600', letterSpacing:0.2, marginBottom:SPACE.sm },
+  svcName:  { minHeight:40, fontSize:16.5, fontWeight:'800', color:'#fff', lineHeight:20, letterSpacing:-0.35 },
+  svcTag:   { minHeight:16, fontSize:10, lineHeight:14, color:'rgba(255,255,255,0.62)', fontWeight:'600', letterSpacing:0.15, marginBottom:6 },
   svcFoot:  { flexDirection:'row', alignItems:'center', width:'100%', gap:6 },
   svcFootNarrow:{ flexDirection:'column', alignItems:'stretch' },
   svcPrBadge:{ flex:1, minWidth:0, backgroundColor:'rgba(0,0,0,0.20)', paddingHorizontal:7, paddingVertical:5, borderRadius:10 },
@@ -1576,17 +1759,16 @@ const $ = StyleSheet.create({
   svcBookTxt: { fontSize:10, fontWeight:'800', color:'#fff', letterSpacing:0.6 },
 
   // ── PROMO ────────────────────────────────────────────────────
-  promoBody:   { flexDirection:'row', alignItems:'center', padding:SPACE.lg, gap:SPACE.lg },
+  promoBody:   { flexDirection:'row', alignItems:'center', padding:14, gap:SPACE.md },
   promoLeft:   { flex:1 },
-  promoBadge:  { flexDirection:'row', alignItems:'center', gap:5, backgroundColor:D.Go, paddingHorizontal:9, paddingVertical:4, borderRadius:9, alignSelf:'flex-start' },
-  promoBadgeTxt:{ fontSize:9, color:D.bg, fontWeight:'900', letterSpacing:1.5 },
-  promoTitle:  { fontSize:17, fontWeight:'800', color:D.w92, letterSpacing:-0.3, marginTop:SPACE.sm },
-  promoSub:    { fontSize:12, lineHeight:17, color:TYPE.bodyColor, fontWeight:'500', marginTop:SPACE.xs },
-  promoSaveRow:{ flexDirection:'row', alignItems:'center', gap:5, marginTop:SPACE.sm },
+  promoBadge:  { flexDirection:'row', alignItems:'center', gap:5, backgroundColor:D.Go, paddingHorizontal:8, paddingVertical:3, borderRadius:8, alignSelf:'flex-start' },
+  promoBadgeTxt:{ fontSize:8.5, color:D.bg, fontWeight:'900', letterSpacing:1.25 },
+  promoTitle:  { fontSize:16, fontWeight:'800', color:D.w92, letterSpacing:-0.3, marginTop:6 },
+  promoSub:    { fontSize:11.5, lineHeight:15, color:TYPE.bodyColor, fontWeight:'500', marginTop:3 },
+  promoSaveRow:{ flexDirection:'row', alignItems:'center', gap:5, marginTop:6 },
   promoSaveTxt:{ fontSize:11, color:D.AL, fontWeight:'700' },
-  promoRight:  { alignItems:'center', gap:12 },
-  promoIconBg: { width:48, height:48, borderRadius:16, backgroundColor:D.Gof, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:D.Gob },
-  promoArrow:  { width:34, height:34, borderRadius:11, backgroundColor:D.Gof, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:D.Gob },
+  promoRight:  { alignItems:'center' },
+  promoArrow:  { width:36, height:36, borderRadius:12, backgroundColor:D.Gof, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:D.Gob },
 
   // ── HISTORY ──────────────────────────────────────────────────
   histSkRow:  { flexDirection:'row', alignItems:'center', padding:18 },

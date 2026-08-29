@@ -242,6 +242,10 @@ const emitCustomerStatusUpdate = (order) => {
       customerStatus: order.customerStatus,
       status: order.status,
       paymentStatus: order.paymentStatus,
+      approvedAt: order.approvedAt || null,
+      downPaymentAmount: order.downPaymentAmount || 0,
+      amountCollected: order.amountCollected || 0,
+      rejectionReason: order.rejectionReason || null,
       // Live tracking fields (QC-controlled)
       serviceTrackingStage: order.serviceTrackingStage || null,
       serviceStaffAssignments: order.serviceStaffAssignments || [],
@@ -529,7 +533,12 @@ const formatBookingDto = (orderDoc) => {
     vehicleId: order.vehicle?.toString?.() || order.vehicle || '',
     serviceName,
     bookingReference: order.bookingReference || order.orderNumber,
-    hasPaymentProof: Boolean(order.paymentProofUrl || order.downpaymentProof || order.status === 'pending_confirmation'),
+    hasPaymentProof: Boolean(
+      order.paymentProofUrl
+      || order.downpaymentProof
+      || order.reservationPayment?.submittedAt
+      || Number(order.reservationPayment?.amountSubmitted || 0) > 0
+    ),
     date: order.date || order.bookingDate || '',
     time: order.time || order.bookingTime || '',
     vehicleInfo: vehicleInfo || '',
@@ -626,7 +635,12 @@ const formatBookingListDto = (orderDoc) => {
     status: order.status,
     customerStatus: order.customerStatus,
     customerStatusUpdatedAt: order.customerStatusUpdatedAt,
-    hasPaymentProof: Boolean(order.paymentProofUrl || order.downpaymentProof || order.status === 'pending_confirmation'),
+    hasPaymentProof: Boolean(
+      order.paymentProofUrl
+      || order.downpaymentProof
+      || order.reservationPayment?.submittedAt
+      || Number(order.reservationPayment?.amountSubmitted || 0) > 0
+    ),
     archived: order.archived,
     archivedAt: order.archivedAt,
     archivedReason: order.archivedReason,
@@ -652,6 +666,8 @@ const formatBookingListDto = (orderDoc) => {
     serviceTrackingUpdatedBy: order.serviceTrackingUpdatedBy || null,
     serviceStaffAssignments: order.serviceStaffAssignments || [],
     latestPayment: order.latestPayment || null,
+    reservationPayment: order.reservationPayment || null,
+    balancePayment: order.balancePayment || null,
     invoiceRecord: order.invoiceRecord || null,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
@@ -703,9 +719,25 @@ async function attachLatestReceiptRecords(orderRows = []) {
   ]);
 
   const latestPaymentByOrder = new Map();
+  const reservationPaymentByOrder = new Map();
+  const balancePaymentByOrder = new Map();
   for (const payment of payments) {
     const key = String(payment.order || '');
     if (key && !latestPaymentByOrder.has(key)) latestPaymentByOrder.set(key, payment);
+    if (
+      key
+      && payment.transactionType === 'reservation_fee'
+      && !reservationPaymentByOrder.has(key)
+    ) {
+      reservationPaymentByOrder.set(key, payment);
+    }
+    if (
+      key
+      && !['reservation_fee', 'refund'].includes(payment.transactionType)
+      && !balancePaymentByOrder.has(key)
+    ) {
+      balancePaymentByOrder.set(key, payment);
+    }
   }
 
   const latestInvoiceByOrder = new Map();
@@ -739,6 +771,8 @@ async function attachLatestReceiptRecords(orderRows = []) {
         vehicle?.vehicleType,
       vehiclePlate: order.vehiclePlate || vehicle?.plateNumber,
       latestPayment: latestPaymentByOrder.get(key) || null,
+      reservationPayment: reservationPaymentByOrder.get(key) || null,
+      balancePayment: balancePaymentByOrder.get(key) || null,
       invoiceRecord: latestInvoiceByOrder.get(key) || null,
     };
   });
@@ -4630,6 +4664,18 @@ export const uploadPaymentProof = async (req, res, next) => {
       });
     }
 
+    if (order.status === 'pending_confirmation' && hasReservationPaymentProof(order)) {
+      const currentProof = String(order.paymentProofUrl || order.downpaymentProof || '');
+      if (currentProof === paymentProofUrl) {
+        return res.status(200).json({ success: true, data: formatBookingDto(order), idempotent: true });
+      }
+      return res.status(409).json({
+        success: false,
+        errorCode: 'PAYMENT_PROOF_UNDER_REVIEW',
+        message: 'A GCash receipt is already under review. Wait for verification before submitting another receipt.',
+      });
+    }
+
     const previousStatus = order.status;
     const previousOccupancy = captureOrderSlotOccupancy(order);
     const storedSlot = getOrderSlotPair(order);
@@ -5086,6 +5132,8 @@ export const rejectBooking = async (req, res, next) => {
       emitAvailabilityUpdated({ type: 'appointment_capacity_changed', dates: [occupancyBefore.slot.date] });
     }
     emitBookingApprovalQueueUpdate(order);
+
+    emitCustomerStatusUpdate(order);
 
     // Emit booking_updated for calendar real-time refresh
     try {

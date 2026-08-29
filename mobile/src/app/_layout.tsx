@@ -18,7 +18,7 @@ import { Stack, useSegments, useRouter, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { AppState, View, ActivityIndicator } from 'react-native';
 import { ThemeProvider, useTheme } from '@/hooks/useThemeContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import GlobalErrorBoundary from '@/components/GlobalErrorBoundary';
@@ -26,7 +26,7 @@ import PremiumToast from '@/components/ui/PremiumToast';
 import AppLockGuard from '@/components/AppLockGuard';
 import { resolveRouteForRole } from '@/utils/routeResolver';
 import { NotificationsProvider } from '@/context/NotificationsContext';
-import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
+import { focusManager, QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
@@ -204,6 +204,13 @@ function GlobalWatchers({ children }: { children: React.ReactNode }) {
   useRealtimeSync();
   // Initializes Expo push registration only after a JWT session exists.
   usePushNotifications(Boolean(token));
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      focusManager.setFocused(state === 'active');
+    });
+    return () => subscription.remove();
+  }, []);
 
   return <>{children}</>;
 }

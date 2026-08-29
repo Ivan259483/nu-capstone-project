@@ -4,8 +4,12 @@
  */
 
 import type { BookingRecord } from '@/services/api/types';
+import {
+  CUSTOMER_RESERVATION_FEE,
+  resolveCustomerPaymentState,
+} from '@/utils/customer-payment-state';
 
-export const CUSTOMER_PAYMENT_RESERVATION_FEE = 500;
+export const CUSTOMER_PAYMENT_RESERVATION_FEE = CUSTOMER_RESERVATION_FEE;
 
 export function normCustomerBookingStatus(s: unknown): string {
   return String(s ?? '')
@@ -14,11 +18,11 @@ export function normCustomerBookingStatus(s: unknown): string {
     .replace(/-/g, '_');
 }
 
-/** Bookings that appear in payment history (excludes pending / cancelled / failed). */
+/** Customer bookings with a payment lifecycle (only terminal invalid rows are excluded). */
 export function filterBookingsForPaymentHistory(bookings: BookingRecord[]): BookingRecord[] {
   return bookings.filter((b) => {
     const s = normCustomerBookingStatus(b?.status);
-    return !['pending', 'cancelled', 'failed'].includes(s);
+    return !['cancelled', 'failed'].includes(s);
   });
 }
 
@@ -26,34 +30,25 @@ export function countPaymentHistoryBookings(bookings: BookingRecord[]): number {
   return filterBookingsForPaymentHistory(bookings).length;
 }
 
-/** Web summary: count of bookings in approved+ pipeline × ₱500. */
+/** Only Sales-verified reservation transactions count as paid fees. */
 export function sumReservationFeesDisplayed(bookings: BookingRecord[]): number {
-  const eligible = [
-    'approved',
-    'confirmed',
-    'received',
-    'in_progress',
-    'completed',
-    'released',
-    'paid',
-  ];
-  const n = bookings.filter((b) =>
-    eligible.includes(normCustomerBookingStatus(b?.status))
-  ).length;
-  return n * CUSTOMER_PAYMENT_RESERVATION_FEE;
+  return filterBookingsForPaymentHistory(bookings).reduce((sum, booking) => {
+    const state = resolveCustomerPaymentState(booking);
+    return state.reservation === 'paid'
+      ? sum + (state.verifiedReservationAmount || CUSTOMER_PAYMENT_RESERVATION_FEE)
+      : sum;
+  }, 0);
 }
 
-/** Web summary: sum of total for bookings considered fully paid for reporting. */
+/** Full-payment KPI includes only bookings whose balance is verified as paid. */
 export function sumFullPaymentsDisplayed(bookings: BookingRecord[]): number {
-  return bookings
-    .filter((b) => {
-      const s = normCustomerBookingStatus(b?.status);
-      return (
-        String(b.paymentStatus || '').toLowerCase() === 'paid' ||
-        ['completed', 'released', 'paid'].includes(s)
-      );
-    })
-    .reduce((sum, b) => sum + Number(b.totalPrice || b.totalAmount || 0), 0);
+  return filterBookingsForPaymentHistory(bookings)
+    .map((booking) => ({ booking, state: resolveCustomerPaymentState(booking) }))
+    .filter(({ state }) => state.fullPayment === 'paid')
+    .reduce(
+      (sum, { booking }) => sum + Number(booking.totalPrice || booking.totalAmount || 0),
+      0
+    );
 }
 
 export function sortBookingsNewestFirst(bookings: BookingRecord[]): BookingRecord[] {

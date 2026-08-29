@@ -70,6 +70,10 @@ import {
   BOOKING_TERMS_SECTIONS,
 } from '@/constants/bookingTerms';
 import type { VehicleTypeKey } from '@/constants/spfPricing';
+import {
+  PAYMENT_PROOF_PICKER_OPTIONS,
+  paymentProofDataUrlFromAsset,
+} from '@/utils/payment-proof-image';
 
 // ─── Kinetic Gallery Design Tokens ───────────────────────────────────────────
 
@@ -4434,17 +4438,20 @@ export default function BookScreen() {
                     activeOpacity={0.85}
                     style={[pay.uploadBox, downpaymentProof && pay.uploadBoxDone]}
                     onPress={async () => {
-                      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.7, base64: true });
-                      if (!result.canceled && result.assets[0]?.base64) {
-                        const mime = result.assets[0].mimeType || 'image/jpeg';
-                        setDownpaymentProof(`data:${mime};base64,${result.assets[0].base64}`);
-                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                      try {
+                        const result = await ImagePicker.launchImageLibraryAsync(PAYMENT_PROOF_PICKER_OPTIONS);
+                        if (!result.canceled && result.assets[0]) {
+                          setDownpaymentProof(paymentProofDataUrlFromAsset(result.assets[0]));
+                          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        }
+                      } catch (error) {
+                        Alert.alert('Receipt Not Selected', getApiErrorMessage(error));
                       }
                     }}
                   >
                     {downpaymentProof ? (
                       <>
-                        <Image source={{ uri: downpaymentProof }} style={pay.proofThumb} resizeMode="cover" />
+                        <Image source={{ uri: downpaymentProof }} style={pay.proofThumb} resizeMode="contain" />
                         <View style={pay.proofOverlay}>
                           <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
                           <Text style={pay.proofOverlayText}>Tap to Change</Text>
@@ -5455,7 +5462,7 @@ const pay = StyleSheet.create({
   uploadIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: SURFACE_TOP, alignItems: 'center', justifyContent: 'center' },
   uploadPrompt:    { fontSize: 13, fontWeight: '600', color: SECONDARY },
   uploadPromptSub: { fontSize: 11, color: MUTED },
-  proofThumb: { ...StyleSheet.absoluteFillObject, opacity: 0.5 },
+  proofThumb: { ...StyleSheet.absoluteFillObject, backgroundColor: '#050507', opacity: 0.62 },
   proofOverlay: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(13,13,18,0.82)', paddingHorizontal: 16, paddingVertical: 8,

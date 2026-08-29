@@ -108,6 +108,8 @@ export interface BookingRecord {
   time?: string;
   totalAmount?: number;
   totalPrice?: number;
+  serviceTotal?: number;
+  amountCollected?: number;
   downPaymentAmount?: number;
   finalPaymentAmount?: number;
   legalCompliance?: {
@@ -133,11 +135,17 @@ export interface BookingRecord {
   customerStatus?: string;
   customerStatusUpdatedAt?: string;
   paymentProofUrl?: string;
+  downpaymentProof?: string;
+  hasPaymentProof?: boolean;
   paymentStatus?: string;
+  paymentMethod?: string | null;
+  reservationPayment?: CustomerPaymentTransaction | null;
+  balancePayment?: CustomerPaymentTransaction | null;
   orderNumber?: string | number;
   bookingReference?: string;
   invoiceId?: string;
   approvedAt?: string;
+  rejectedAt?: string;
   qcCompletedAt?: string;
   paidAt?: string;
   estimatedCompletion?: string;
@@ -166,6 +174,21 @@ export interface BookingRecord {
   qcChecklist?: any[];
   egressData?: any;
   [key: string]: unknown;
+}
+
+export interface CustomerPaymentTransaction {
+  _id?: string;
+  invoiceId?: string;
+  amount?: number | null;
+  amountSubmitted?: number | null;
+  amountVerified?: number | null;
+  status?: string | null;
+  transactionType?: string | null;
+  method?: string | null;
+  submittedAt?: string | null;
+  reviewedAt?: string | null;
+  reviewReason?: string | null;
+  createdAt?: string | null;
 }
 
 export interface NotificationRecord {

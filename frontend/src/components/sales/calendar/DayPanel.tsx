@@ -197,7 +197,7 @@ function BookingCard({
           <img
             src={booking.paymentProofUrl}
             alt="Payment proof"
-            className="h-32 w-full cursor-zoom-in rounded-xl object-cover shadow-[0_2px_12px_-4px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/40 transition-opacity hover:opacity-90"
+            className="h-32 w-full cursor-zoom-in rounded-xl bg-slate-950 object-contain shadow-[0_2px_12px_-4px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/40 transition-opacity hover:opacity-90"
             onClick={() => window.open(booking.paymentProofUrl, '_blank')}
           />
         </div>
