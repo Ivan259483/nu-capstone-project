@@ -139,6 +139,7 @@ export const normalizeBooking = (raw: any): Booking => {
         customer: raw?.customer,
         items: raw?.items,
         latestPayment: raw?.latestPayment,
+        reservationPayment: raw?.reservationPayment ?? null,
         invoiceRecord: raw?.invoiceRecord,
         vehicleYear: raw?.vehicleYear,
         vehicleMake: raw?.vehicleMake,

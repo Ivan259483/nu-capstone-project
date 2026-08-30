@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
-import { CheckCircle, Clock, X, Camera, Shield } from '@/components/ui/Icons';
+import { CheckCircle, X, Camera, Shield } from '@/components/ui/Icons';
+import { PremiumLoader } from '@/components/ui/loading';
 import Svg, { Rect, Path, Circle, Defs, RadialGradient, LinearGradient, Stop, Line, G, Ellipse } from 'react-native-svg';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
@@ -480,7 +481,7 @@ export default function Step4_DamageAnnotation() {
         {/* ── CTA ── */}
         <TouchableOpacity style={[s.cta, saving && { opacity: 0.7 }]} onPress={handleAdvance} disabled={saving} activeOpacity={0.85}>
           {saving
-            ? <><Clock color="#fff" size={20} style={{ marginRight: 10 }} /><Text style={s.ctaText}>Saving Report…</Text></>
+            ? <><PremiumLoader size={18} tone="light" accessibilityLabel="Saving damage report" style={{ marginRight: 10 }} /><Text style={s.ctaText}>Saving Report…</Text></>
             : <><CheckCircle color="#fff" size={20} style={{ marginRight: 10 }} /><Text style={s.ctaText}>Save Damage Report & Continue</Text></>
           }
         </TouchableOpacity>

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
+import { getAccountEntryPath, getBookingEntryPath } from "@/lib/auth-redirect";
+import { useOptionalAuth } from "@/contexts/AuthContext";
 import {
     FloatingNav,
     type FloatingNavItem,
@@ -71,9 +73,13 @@ function NavIcon({ type, className = "h-4 w-4" }: { type: "home" | "briefcase" |
 
 export default function Navbar() {
     const { t } = useLanguage();
+    const user = useOptionalAuth()?.user;
     const [menuOpen, setMenuOpen] = useState(false);
     const location = useLocation();
     const isHomePage = location.pathname === "/";
+    const accountEntryPath = getAccountEntryPath(user?.role);
+    const bookingEntryPath = getBookingEntryPath(user?.role);
+    const accountEntryLabel = user ? t("nav.dashboard") : t("nav.login");
 
     useEffect(() => {
         setMenuOpen(false);
@@ -157,17 +163,17 @@ export default function Navbar() {
             <span aria-hidden className={cn("h-5 w-px", isHomePage ? "bg-white/14" : "bg-white/10")} />
 
             <Link
-                to="/login"
+                to={accountEntryPath}
                 className={cn(
                     "inline-flex h-[2.125rem] items-center whitespace-nowrap rounded-full px-2 text-sm font-medium leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/45",
                     isHomePage ? "text-white/76 drop-shadow-[0_1px_8px_rgba(0,0,0,0.34)] hover:text-[#f4c96b]" : "text-white/68 hover:text-[#f4c96b]"
                 )}
             >
-                {t("nav.login")}
+                {accountEntryLabel}
             </Link>
 
             <Link
-                to="/login"
+                to={bookingEntryPath}
                 className={cn(
                     "public-luxury-cta public-luxury-cta--primary public-luxury-cta--nav whitespace-nowrap",
                     isHomePage && "public-luxury-cta--hero-nav"
@@ -267,13 +273,13 @@ export default function Navbar() {
 
                     <div className="mt-4 grid gap-3 border-t border-white/10 pt-4">
                         <Link
-                            to="/login"
+                            to={accountEntryPath}
                             className="public-luxury-cta public-luxury-cta--secondary min-h-11 w-full"
                         >
-                            {t("nav.login")}
+                            {accountEntryLabel}
                         </Link>
                         <Link
-                            to="/login"
+                            to={bookingEntryPath}
                             className="public-luxury-cta public-luxury-cta--primary min-h-11 w-full"
                         >
                             {t("nav.booking")}

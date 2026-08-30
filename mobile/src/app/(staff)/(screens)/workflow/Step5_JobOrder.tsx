@@ -3,7 +3,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 
 import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
 import SignatureScreen from 'react-native-signature-canvas';
-import { CheckCircle, Clock } from '@/components/ui/Icons';
+import { CheckCircle } from '@/components/ui/Icons';
+import { PremiumLoader } from '@/components/ui/loading';
 import { bookingService } from '@/services/api/bookingService';
 
 export default function Step5_JobOrder() {
@@ -127,7 +128,7 @@ export default function Step5_JobOrder() {
         onPress={handleComplete}
         disabled={saving}
       >
-        {saving ? <Clock color="#fff" style={{marginRight: 8}}/> : <CheckCircle color="#fff" style={{marginRight: 8}}/>}
+        {saving ? <PremiumLoader size={18} tone="light" accessibilityLabel="Saving job order" style={{ marginRight: 8 }} /> : <CheckCircle color="#fff" style={{marginRight: 8}}/>}
         <Text style={styles.saveBtnText}>{saving ? 'Saving...' : 'Sign & Advance to Progress'}</Text>
       </TouchableOpacity>
       

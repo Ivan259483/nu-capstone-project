@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
 import { CheckCircle, Clock, Play, User, MapPin } from '@/components/ui/Icons';
+import { PremiumLoader } from '@/components/ui/loading';
 
 const STATUS_OPTIONS = [
   { id: 'in_bay', label: 'In Bay / Parked' },
@@ -95,7 +96,7 @@ export default function Step6_LiveProgress() {
         onPress={handleAdvanceToQC}
         disabled={saving}
       >
-        {saving ? <Clock color="#fff" style={{marginRight: 8}}/> : <CheckCircle color="#fff" style={{marginRight: 8}}/>}
+        {saving ? <PremiumLoader size={18} tone="light" accessibilityLabel="Saving service progress" style={{ marginRight: 8 }} /> : <CheckCircle color="#fff" style={{marginRight: 8}}/>}
         <Text style={styles.saveBtnText}>{saving ? 'Saving...' : 'Service Finished (Send to QC)'}</Text>
       </TouchableOpacity>
     </ScrollView>

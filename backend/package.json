@@ -11,6 +11,8 @@
         "bootstrap:administrator": "node scripts/bootstrap-administrator.js",
         "initialize:system-management": "node scripts/initialize-system-management.js",
         "migrate:protected-administrator": "node scripts/migrate-protected-administrator.js",
+        "migrate:vehicle-pricing-categories": "node scripts/migrate-vehicle-pricing-categories.js",
+        "sync:spf-services": "node scripts/sync-spf-services.js",
         "migrate:encryption-key": "node scripts/migrate-legacy-encryption-key.js",
         "audit:encryption": "node scripts/audit-encrypted-records.js",
         "indexes:performance": "node scripts/create-performance-indexes.js",

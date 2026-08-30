@@ -19,6 +19,10 @@ import {
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { cn, formatCurrency } from '@/lib/utils';
+import {
+  CUSTOMER_SERVICE_JOURNEY_STEPS,
+  getCustomerBookingJourneyPresentation,
+} from '@/lib/customer-booking-journey';
 
 export type CustomerBookingFilter = 'all' | 'upcoming' | 'active' | 'completed' | 'cancelled';
 
@@ -81,8 +85,6 @@ const ACTIVE_STATUSES = new Set([
 ]);
 const COMPLETED_STATUSES = new Set(['completed', 'released', 'done', 'delivered', 'paid']);
 const CANCELLED_STATUSES = new Set(['cancelled', 'rejected', 'not_approved', 'failed']);
-
-const PROGRESS_STEPS = ['Confirmed', 'Arrived', 'In service', 'QC review', 'Pickup'] as const;
 
 function normalizeStatus(value: unknown): string {
   return String(value || 'pending').trim().toLowerCase().replace(/-/g, '_');
@@ -189,65 +191,8 @@ function hasReceipt(booking: CustomerBooking): boolean {
   );
 }
 
-function paymentLabel(booking: CustomerBooking): string {
-  const status = normalizeStatus(booking.paymentStatus);
-  if (status === 'paid' || normalizeStatus(booking.status) === 'paid') return 'Paid';
-  if (status === 'failed') return 'Payment failed';
-  if (status === 'refunded') return 'Refunded';
-  return 'Payment pending';
-}
-
-function progressIndexForBooking(booking: CustomerBooking): number {
-  const stage = normalizeStatus(booking.serviceTrackingStage || booking.status);
-  const indexes: Record<string, number> = {
-    pending: 0,
-    pending_confirmation: 0,
-    approved: 0,
-    confirmed: 0,
-    assigned: 0,
-    queued: 0,
-    received: 1,
-    checked_in: 1,
-    active: 2,
-    in_service: 2,
-    in_progress: 2,
-    processing: 2,
-    quality_check: 3,
-    ready_pickup: 4,
-    completed: 4,
-    released: 4,
-  };
-  return Math.max(0, Math.min(PROGRESS_STEPS.length - 1, indexes[stage] ?? 0));
-}
-
 function statusLabel(booking: CustomerBooking): string {
-  const status = normalizeStatus(booking.status);
-  const labels: Record<string, string> = {
-    pending: 'Pending',
-    pending_confirmation: 'Awaiting confirmation',
-    approved: 'Confirmed',
-    confirmed: 'Confirmed',
-    assigned: 'Team assigned',
-    queued: 'Confirmed',
-    received: 'Arrived',
-    checked_in: 'Arrived',
-    active: 'In service',
-    in_service: 'In service',
-    in_progress: 'In service',
-    processing: 'In service',
-    quality_check: 'QC review',
-    ready_pickup: 'Ready for pickup',
-    completed: 'Released',
-    released: 'Released',
-    done: 'Released',
-    delivered: 'Released',
-    paid: 'Released',
-    rejected: 'Not approved',
-    not_approved: 'Not approved',
-    failed: 'Not approved',
-    cancelled: 'Cancelled',
-  };
-  return labels[status] || status.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return getCustomerBookingJourneyPresentation(booking).statusLabel;
 }
 
 function statusTone(booking: CustomerBooking): {
@@ -399,7 +344,8 @@ export function CustomerBookingsSection({
     && Boolean(confirmedBooking)
     && (activeFilter === 'all' || activeFilter === 'upcoming');
   const nextAppointment = categorizedBookings.upcoming[0];
-  const progressIndex = heroBooking ? progressIndexForBooking(heroBooking) : 0;
+  const journey = heroBooking ? getCustomerBookingJourneyPresentation(heroBooking) : null;
+  const progressIndex = journey?.progressIndex ?? 0;
   const heroReference = heroBooking ? appointmentReference(heroBooking) : '';
   const heroId = heroBooking ? bookingId(heroBooking) : '';
   const heroExpanded = heroId === expandedBookingId;
@@ -409,7 +355,6 @@ export function CustomerBookingsSection({
     : false;
   const heroTone = heroBooking ? statusTone(heroBooking) : null;
   const heroService = heroBooking ? serviceSummary(heroBooking) : null;
-  const nextStep = PROGRESS_STEPS[Math.min(progressIndex + 1, PROGRESS_STEPS.length - 1)];
 
   const renderEmptyState = () => {
     if (activeFilter === 'active') {
@@ -560,7 +505,10 @@ export function CustomerBookingsSection({
 
       {heroBooking && (
         <section className="space-y-3">
-          <SectionLabel label="Live service journey" aside={`Stage ${progressIndex + 1} of ${PROGRESS_STEPS.length}`} />
+          <SectionLabel
+            label={journey?.journeyStarted ? 'Live service journey' : 'Booking confirmation'}
+            aside={journey?.stageSummaryLabel}
+          />
 
           <div
             ref={(element) => registerBookingRef?.(heroReference, element)}
@@ -653,12 +601,12 @@ export function CustomerBookingsSection({
                   {
                     label: 'Payment',
                     icon: CreditCard,
-                    value: paymentLabel(heroBooking),
+                    value: journey?.paymentLabel,
                   },
                   {
                     label: 'Next step',
                     icon: ArrowRight,
-                    value: progressIndex === PROGRESS_STEPS.length - 1 ? 'Vehicle ready for pickup' : nextStep,
+                    value: journey?.nextStepLabel,
                   },
                 ].map((meta) => (
                   <div
@@ -677,25 +625,25 @@ export function CustomerBookingsSection({
               <div className="mt-3.5 overflow-hidden rounded-[18px] border border-blue-100 bg-gradient-to-r from-blue-50/90 via-white to-blue-50/70 px-5 py-4 shadow-[0_20px_46px_-38px_rgba(37,99,235,0.35)]">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-600">Live journey console</p>
-                    <p className="mt-1 text-[11px] text-slate-500">Your vehicle’s current studio progression</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-600">{journey?.journeyTitle}</p>
+                    <p className="mt-1 text-[11px] text-slate-500">{journey?.journeyDescription}</p>
                   </div>
                   <p className="rounded-full border border-blue-200 bg-white px-3 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-blue-700 shadow-sm">
-                    Stage {progressIndex + 1} of {PROGRESS_STEPS.length}
+                    {journey?.stageSummaryLabel}
                   </p>
                 </div>
 
                 <div className="mt-3 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <div className="grid min-w-[540px] grid-cols-5">
-                    {PROGRESS_STEPS.map((step, index) => {
-                      const done = index < progressIndex;
-                      const current = index === progressIndex;
+                    {CUSTOMER_SERVICE_JOURNEY_STEPS.map((step, index) => {
+                      const done = Boolean(journey?.journeyStarted) && index < progressIndex;
+                      const current = Boolean(journey?.journeyStarted) && index === progressIndex;
                       return (
                         <div key={step} className="relative flex min-w-0 flex-col items-center">
-                          {index < PROGRESS_STEPS.length - 1 && (
+                          {index < CUSTOMER_SERVICE_JOURNEY_STEPS.length - 1 && (
                             <span className={cn(
                               'absolute left-[calc(50%+15px)] right-[calc(-50%+15px)] top-[13px] h-0.5 rounded-full',
-                              index < progressIndex ? 'bg-blue-500' : 'bg-blue-100',
+                              journey?.journeyStarted && index < progressIndex ? 'bg-blue-500' : 'bg-blue-100',
                             )} />
                           )}
                           <span className={cn(
@@ -769,14 +717,16 @@ export function CustomerBookingsSection({
                   >
                     {heroExpanded ? 'Hide details' : 'View details'}
                   </button>
-                  <button
-                    type="button"
-                    onClick={onTrackService}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-5 py-2 text-[11px] font-semibold text-white shadow-[0_14px_28px_-18px_rgba(37,99,235,0.95)] transition hover:-translate-y-0.5 hover:bg-blue-500 motion-reduce:transform-none"
-                  >
-                    Track service
-                    <ArrowRight className="h-3 w-3" />
-                  </button>
+                  {journey?.canTrackService && (
+                    <button
+                      type="button"
+                      onClick={onTrackService}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-5 py-2 text-[11px] font-semibold text-white shadow-[0_14px_28px_-18px_rgba(37,99,235,0.95)] transition hover:-translate-y-0.5 hover:bg-blue-500 motion-reduce:transform-none"
+                    >
+                      Track service
+                      <ArrowRight className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

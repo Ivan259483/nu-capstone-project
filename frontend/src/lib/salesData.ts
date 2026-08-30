@@ -23,6 +23,7 @@ export interface Vehicle {
   year: number;
   color: string;
   type: string;
+  pricingCategory?: string | null;
 }
 
 const VEHICLE_TYPE_LABELS: Record<string, string> = {
@@ -124,8 +125,6 @@ export const SERVICE_CATALOG: ServiceItem[] = [
   { id: 'svc-001', name: 'Full Detail Premium', category: 'Detailing', price: 3500, duration: '4 hrs', description: 'Complete interior and exterior detailing' },
   { id: 'svc-002', name: 'Exterior Wash & Wax', category: 'Detailing', price: 850, duration: '1.5 hrs', description: 'Hand wash, clay bar, carnauba wax' },
   { id: 'svc-003', name: 'Interior Deep Clean', category: 'Detailing', price: 1800, duration: '2.5 hrs', description: 'Steam clean, vacuum, leather conditioning' },
-  { id: 'svc-004', name: 'Paint Protection Film (Full)', category: 'PPF', price: 28000, duration: '2 days', description: 'Full-body PPF installation — XPEL Ultimate Plus' },
-  { id: 'svc-005', name: 'Paint Protection Film (Partial)', category: 'PPF', price: 12500, duration: '1 day', description: 'Hood, bumper, mirrors — XPEL Ultimate Plus' },
   { id: 'svc-006', name: 'Ceramic Coating Pro 9H', category: 'Ceramic', price: 15000, duration: '2 days', description: 'Professional 9H ceramic coating with 3-year warranty' },
   { id: 'svc-007', name: 'Ceramic Coating Lite', category: 'Ceramic', price: 6500, duration: '1 day', description: 'Entry-level ceramic coating with 1-year warranty' },
   { id: 'svc-008', name: 'Window Tint (Sedan)', category: 'Tinting', price: 4200, duration: '3 hrs', description: 'Premium 3M Crystalline tint — all windows' },

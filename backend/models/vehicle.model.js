@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
+import { VEHICLE_PRICING_CATEGORY_CODES } from '../constants/pricingCategories.js';
 
 const vehicleSchema = new mongoose.Schema(
   {
@@ -37,6 +38,29 @@ const vehicleSchema = new mongoose.Schema(
     vehicleType: {
       type: String,
       default: '',
+    },
+    pricingCategory: {
+      type: String,
+      enum: VEHICLE_PRICING_CATEGORY_CODES,
+      default: undefined,
+    },
+    pricingCategorySource: {
+      type: String,
+      enum: ['customer_selected', 'admin_assigned', 'legacy_migration'],
+      default: undefined,
+    },
+    pricingCategoryNeedsReview: {
+      type: Boolean,
+      default: true,
+    },
+    pricingCategoryReviewedAt: {
+      type: Date,
+      default: null,
+    },
+    pricingCategoryReviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
     },
     transmission: {
       type: String,

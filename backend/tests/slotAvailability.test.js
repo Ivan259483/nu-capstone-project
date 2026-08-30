@@ -1169,7 +1169,7 @@ test('Sales can create exactly one scheduled booking from a verified Concierge h
     ...bookingPayload({ vehicle, service, time: '8:00 AM' }),
     customer: customer._id.toString(),
     sourceConversationId: conversationId,
-    vehicleType: vehicle.vehicleType || 'sedan',
+    vehicleType: vehicle.vehicleType,
   };
 
   const created = await requestJson('/api/orders', {

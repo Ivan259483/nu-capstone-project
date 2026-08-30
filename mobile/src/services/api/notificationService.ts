@@ -55,9 +55,22 @@ export const notificationService = {
     return Number(response.data.unreadCount || 0);
   },
 
-  async markAsRead(id: string): Promise<number> {
+  async setReadState(id: string, isRead: boolean): Promise<number> {
     const response = await apiClient.patch<{ success: boolean; unreadCount: number }>(
-      `/notifications/${encodeURIComponent(id)}/read`
+      `/notifications/${encodeURIComponent(id)}/read`,
+      { isRead }
+    );
+    return Number(response.data.unreadCount || 0);
+  },
+
+  async markAsRead(id: string): Promise<number> {
+    return this.setReadState(id, true);
+  },
+
+  async clearNotification(id: string): Promise<number> {
+    const response = await apiClient.post<{ success: boolean; unreadCount: number }>(
+      '/notifications/clear',
+      { ids: [id] }
     );
     return Number(response.data.unreadCount || 0);
   },

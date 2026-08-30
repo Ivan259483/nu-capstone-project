@@ -1,5 +1,8 @@
 import api from './api';
-import type { VehicleGarageFormValues } from '@/components/shared/vehicle-garage-constants';
+import {
+    getVehiclePricingCategory,
+    type VehicleGarageFormValues,
+} from '@/components/shared/vehicle-garage-constants';
 import type { Vehicle } from '@/lib/salesData';
 
 function mapVehicleId<T extends { _id?: string; id?: string }>(data: T | null | undefined) {
@@ -70,7 +73,8 @@ export function mapApiVehicleToPosVehicle(v: any): Vehicle {
         model: v.model || '',
         year: Number.isFinite(yearNum) ? yearNum : 0,
         color: v.color || '',
-        type: v.vehicleType || 'sedan',
+        type: v.vehicleType || '',
+        pricingCategory: v.pricingCategory ?? null,
     };
 }
 
@@ -95,6 +99,7 @@ export function garageFormToApiPayload(form: VehicleGarageFormValues, plateNorm:
         model: form.model.trim(),
         color: form.color.trim() || 'Unknown',
         vehicleType: form.type.trim(),
+        pricingCategory: getVehiclePricingCategory(form.type.trim()),
         transmission: form.transmission || '',
         fuelType: form.fuelType || '',
     };

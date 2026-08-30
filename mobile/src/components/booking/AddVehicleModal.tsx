@@ -10,7 +10,6 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
   Modal,
@@ -30,42 +29,25 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Toast } from '@/components/ui/PremiumToast';
+import { PremiumLoader } from '@/components/ui/loading';
 import {
   FUEL_TYPE_OPTIONS,
   TRANSMISSION_OPTIONS,
   VEHICLE_BODY_TYPES,
   VEHICLE_COLOR_SWATCHES,
   VEHICLE_YEAR_OPTIONS,
+  getVehiclePricingCategory,
 } from '@/constants/vehicleForm';
 import type { Vehicle } from '@/services/api/types';
 import { getApiErrorMessage } from '@/services/api/client';
 import { vehicleService } from '@/services/api/vehicleService';
-import { SPF_BASE_PRICES, formatPesoOrNA } from '@/constants/spfPricing';
 import {
   emptyVehicleGarageForm,
   validateVehicleGarageForm,
   type VehicleGarageFormValues,
 } from '@/lib/vehicleGarageForm';
 import { normalizePlateNumber } from '@/lib/plate';
-import { vehicleBrands, getModelsForBrand, getVehicleTypeForModel } from '@/data/vehicleData';
-
-// ── SPF package data (mirrors CustomerDashboard.tsx) ──────────────────────────
-const SPF_PACKAGES = [
-  { id: 'spf80',  name: 'SPF 80',  label: 'Essential', prices: SPF_BASE_PRICES.spf80 },
-  { id: 'spf89',  name: 'SPF 89',  label: 'Advanced',  prices: SPF_BASE_PRICES.spf89 },
-  { id: 'spf99',  name: 'SPF 99',  label: 'Premium',   prices: SPF_BASE_PRICES.spf99 },
-  { id: 'spf101', name: 'SPF 101', label: 'Flagship',  prices: SPF_BASE_PRICES.spf101 },
-] as const;
-
-const VEHICLE_TYPE_PRICE_MAP: Record<string, string> = {
-  hatchback: 'hatchback', sedan: 'sedan', midsized: 'midsized',
-  suv: 'suv', 'pick up': 'pickup', pickup: 'pickup',
-  'large suv / van': 'largesuv', 'large suv': 'largesuv', van: 'largesuv',
-  'highend sedan': 'highend', highend: 'highend', 'high-end sedan': 'highend',
-};
-
-const getPriceKey = (type: string): keyof (typeof SPF_PACKAGES)[0]['prices'] =>
-  (VEHICLE_TYPE_PRICE_MAP[type.toLowerCase()] as keyof (typeof SPF_PACKAGES)[0]['prices']) || 'hatchback';
+import { vehicleBrands, getModelsForBrand } from '@/data/vehicleData';
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const BG        = '#040405';
@@ -262,16 +244,6 @@ export default function AddVehicleModal({
     if (models.length > 0 && !models.includes(form.model)) setCustomModelMode(true);
   }, [customBrandMode, form.brand, form.model]);
 
-  // Auto-fill vehicle type from model when mapped (matches web)
-  useEffect(() => {
-    if (customModelMode || !form.model || form.type) return;
-    const inferredType = getVehicleTypeForModel(form.model);
-    if (inferredType) {
-      setForm((prev) => ({ ...prev, type: inferredType }));
-      setErrType('');
-    }
-  }, [customModelMode, form.model, form.type]);
-
   const openPicker = useCallback((kind: PickerKind) => {
     setPickerSearch('');
     setPicker(kind);
@@ -356,13 +328,7 @@ export default function AddVehicleModal({
           setForm((prev) => ({ ...prev, model: '' }));
         } else {
           setCustomModelMode(false);
-          const inferred = getVehicleTypeForModel(v);
-          setForm((prev) => ({
-            ...prev,
-            model: v,
-            ...(inferred ? { type: inferred } : {}),
-          }));
-          if (inferred) setErrType('');
+          setForm((prev) => ({ ...prev, model: v }));
         }
         break;
       case 'year':
@@ -468,6 +434,12 @@ export default function AddVehicleModal({
     const plateNorm = normalizePlateNumber(form.plate.trim());
     const brandTrim = form.brand.trim();
     const modelTrim = form.model.trim();
+    const pricingCategory = getVehiclePricingCategory(form.type);
+    if (!pricingCategory) {
+      setErrType('Select a supported vehicle pricing category.');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -478,6 +450,7 @@ export default function AddVehicleModal({
         model: modelTrim,
         color: form.color.trim() || 'Unknown',
         vehicleType: form.type,
+        pricingCategory,
         transmission: form.transmission || undefined,
         fuelType: form.fuelType || undefined,
       };
@@ -678,30 +651,6 @@ export default function AddVehicleModal({
               />
             </View>
 
-            {form.type ? (() => {
-              const key = getPriceKey(form.type);
-              return (
-                <View style={pp.panel}>
-                  <View style={pp.headRow}>
-                    <Ionicons name="lock-closed" size={11} color="#f59e0b" />
-                    <Text style={pp.headText}>{form.type} Pricing — Locked to this vehicle</Text>
-                  </View>
-                  <View style={pp.grid}>
-                    {SPF_PACKAGES.map((pkg) => (
-                      <View key={pkg.id} style={pp.card}>
-                        <Text style={pp.pkgName}>{pkg.name}</Text>
-                        <Text style={pp.pkgLabel}>{pkg.label}</Text>
-                        <Text style={pp.pkgPrice}>
-                          {formatPesoOrNA(pkg.prices[key])}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                  <Text style={pp.footer}>These prices will apply when you book for this vehicle</Text>
-                </View>
-              );
-            })() : null}
-
             <View style={s.rowGap}>
               <Text style={lbl.text}>
                 COLOR <Text style={lbl.opt}>(optional)</Text>
@@ -788,7 +737,7 @@ export default function AddVehicleModal({
                 activeOpacity={0.88}
               >
                 {saving
-                  ? <ActivityIndicator color="#fafafa" size="small" />
+                  ? <PremiumLoader size="small" tone="light" accessibilityLabel={isEditing ? 'Saving vehicle changes' : 'Adding vehicle'} />
                   : <Text style={s.btnPrimaryText}>{isEditing ? 'Save Changes' : 'Add Vehicle'}</Text>
                 }
               </TouchableOpacity>
@@ -975,24 +924,4 @@ const s = StyleSheet.create({
   },
   pickerRowText:    { fontSize: 16, color: '#e2e8f0' },
   pickerRowTextSel: { color: AMBER, fontWeight: '600' },
-});
-
-const pp = StyleSheet.create({
-  panel: {
-    marginTop: 10, borderRadius: 12,
-    backgroundColor: '#0f172a',
-    borderWidth: 1, borderColor: 'rgba(245,158,11,0.20)',
-    padding: 12,
-  },
-  headRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 10 },
-  headText: { fontSize: 10, fontWeight: '800', color: '#f59e0b', letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  card: {
-    width: '47.5%', backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 8, padding: 10,
-  },
-  pkgName:  { fontSize: 12, fontWeight: '800', color: '#f8fafc', marginBottom: 1 },
-  pkgLabel: { fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 },
-  pkgPrice: { fontSize: 16, fontWeight: '900', color: '#ffffff', letterSpacing: -0.3 },
-  footer:   { fontSize: 10, color: '#475569', marginTop: 10, textAlign: 'center' },
 });

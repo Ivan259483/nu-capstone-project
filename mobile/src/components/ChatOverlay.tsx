@@ -20,7 +20,6 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   Platform,
-  ActivityIndicator,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
@@ -30,6 +29,7 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { PremiumLoader } from '@/components/ui/loading';
 import {
   chatbotService,
   type ChatMessageRecord,
@@ -716,7 +716,7 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
                 style={[s.contactSubmitButton, handoffBusy && s.sendBtnDisabled]}
               >
                 {handoffBusy ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <PremiumLoader size="small" tone="light" accessibilityLabel="Connecting to Sales" />
                 ) : (
                   <Text style={s.contactSubmitText}>Continue to Sales</Text>
                 )}

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'rea
 import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
 import { CheckCircle, Clock, Calendar, Car, Wrench, XCircle } from '@/components/ui/Icons';
+import { PremiumLoader, SectionLoader } from '@/components/ui/loading';
 
 export default function Step1_BookingInbox() {
   const { colors, isDark } = useTheme();
@@ -23,7 +24,7 @@ export default function Step1_BookingInbox() {
     ]);
   };
 
-  if (!job) return <View style={[styles.container, {backgroundColor: colors.background}]}><Text style={{color: colors.text, padding: 20}}>Loading booking data...</Text></View>;
+  if (!job) return <View style={[styles.container, {backgroundColor: colors.background}]}><SectionLoader label="Loading booking data" minHeight={240} /></View>;
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
@@ -77,7 +78,7 @@ export default function Step1_BookingInbox() {
           onPress={handleApprove}
           disabled={saving}
         >
-          {saving ? <Clock color="#fff" size={20} /> : <CheckCircle color="#fff" size={20} />}
+          {saving ? <PremiumLoader size={18} tone="light" accessibilityLabel="Processing booking" /> : <CheckCircle color="#fff" size={20} />}
           <Text style={styles.approveBtnText}>{saving ? 'Processing...' : 'Approve & Convert'}</Text>
         </TouchableOpacity>
       </View>

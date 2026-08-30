@@ -12,7 +12,6 @@ import {
   Platform,
   KeyboardAvoidingView,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -268,6 +267,7 @@ export default function ChangePasswordScreen() {
                   icon={loading ? undefined : 'shield-checkmark-outline'}
                   onPress={handleChangePassword}
                   disabled={loading}
+                  loading={loading}
                 />
               </Animated.View>
 

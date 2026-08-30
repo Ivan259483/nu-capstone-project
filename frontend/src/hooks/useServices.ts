@@ -18,6 +18,7 @@ export interface BackendService {
   name: string;
   category: string;
   billingGroup?: 'ceramic_spf' | 'ppf' | 'other' | 'uncategorized';
+  packageCode?: 'SPF80' | 'SPF89' | 'SPF99' | 'SPF101';
   duration?: string;
   basePrice?: number;
   prices: ServicePrices;
@@ -26,20 +27,29 @@ export interface BackendService {
     original?: number | null;
     addon?: number | null;
   }>>;
+  catalogCard?: {
+    badge?: string;
+    tierLabel?: string;
+    tagline?: string;
+    addonLabel?: string;
+    features?: string[];
+    popular?: boolean;
+    flagship?: boolean;
+  } | null;
   memberPrice?: number | null;
   status: 'Active' | 'Inactive';
   isPublished: boolean;
 }
 
 /** Returns the effective price for a service given the selected vehicle type */
-export function getEffectivePrice(svc: BackendService, vehicleType: VehicleType): number {
+export function getEffectivePrice(svc: BackendService, vehicleType: VehicleType): number | null {
   const pricingKey = vehicleType === 'largesuv' ? 'largeSuv' : vehicleType;
   const hasLegacyVehiclePrice = !!svc.prices && Object.prototype.hasOwnProperty.call(svc.prices, vehicleType);
   const pricingBase = svc.pricing?.[pricingKey]?.base;
   const typePrice = pricingBase ?? (hasLegacyVehiclePrice ? svc.prices?.[vehicleType] : undefined);
   if (typePrice != null && typePrice > 0) return typePrice;
-  if (hasLegacyVehiclePrice && typePrice == null) return 0;
-  return svc.basePrice ?? 0;
+  if (svc.billingGroup === 'ceramic_spf' || svc.packageCode) return null;
+  return svc.basePrice != null && svc.basePrice > 0 ? svc.basePrice : null;
 }
 
 export function useServices() {

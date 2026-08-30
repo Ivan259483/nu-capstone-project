@@ -4,66 +4,60 @@ import assert from 'node:assert/strict';
 import { SPF_PACKAGE_PRICING } from '../constants/spfPricing.js';
 import { normalizeServicePricing } from '../controllers/service.controller.js';
 
-test('official SPF package metadata contains the complete customer inclusions', () => {
-  const spf89 = SPF_PACKAGE_PRICING.spf89.catalogCard;
-  const spf99 = SPF_PACKAGE_PRICING.spf99.catalogCard;
-  const spf101 = SPF_PACKAGE_PRICING.spf101.catalogCard;
+test('official SPF package metadata uses the approved tiers, badges, and FREE wording', () => {
+  const spf80 = SPF_PACKAGE_PRICING.spf80;
+  const spf89 = SPF_PACKAGE_PRICING.spf89;
+  const spf99 = SPF_PACKAGE_PRICING.spf99;
+  const spf101 = SPF_PACKAGE_PRICING.spf101;
 
   assert.deepEqual(
-    spf89.fullInclusions.map((item) => item.title),
-    [
-      '4 Layers of Graphene Ceramic Coating',
-      'Graphene Sealant',
-      '1 Reboost / Maintenance Visit',
-    ]
+    [spf80.tier, spf89.tier, spf99.tier, spf101.tier],
+    ['Essential', 'Advanced', 'Premium', 'Flagship']
   );
-  assert.match(spf99.fullInclusions[0].title, /SONAX Profiline CC EVO/);
-  assert.equal(spf99.fullInclusions[1].title, 'Full Recoat After 5 Years');
-  assert.equal(spf99.fullInclusions[2].title, '2 Reboost / Maintenance Visits');
-  assert.equal(spf101.fullInclusions.find((item) => item.group === 'Maintenance')?.title, '5 Reboost / Maintenance Visits');
-  assert.deepEqual(spf101.ppfCoverage, [
-    'Hood',
-    'Front Bumper',
-    'Stepsills',
-    'Door Bowls',
-    'Side Mirrors',
-    'Headlights',
-    'Taillights',
+  assert.deepEqual(
+    [spf80.catalogCard.badge, spf89.catalogCard.badge, spf99.catalogCard.badge, spf101.catalogCard.badge],
+    ['SPECIAL OFFER', 'RECOMMENDED', 'PREMIUM', 'ALL-IN PACKAGE']
+  );
+  assert.equal(spf89.catalogCard.flagship, false);
+  assert.equal(spf80.catalogCard.fullInclusions[2].title, 'FREE 1 visit Signature AutoSPF Carwash');
+  assert.equal(spf89.catalogCard.fullInclusions[2].title, 'FREE 1 visit Reboost / Maintenance');
+  assert.equal(spf89.catalogCard.fullInclusions[2].savingsLabel, 'Save ₱1,500');
+  assert.equal(spf99.catalogCard.fullInclusions[1].title, 'FREE Full Recoat After 5 Years');
+  assert.equal(spf99.catalogCard.fullInclusions[2].title, 'FREE 2 visits Reboost / Maintenance');
+  assert.equal(spf99.catalogCard.fullInclusions[2].savingsLabel, 'Save ₱3,000');
+  assert.equal(spf101.catalogCard.fullInclusions.length, 6);
+  assert.match(spf101.catalogCard.fullInclusions[0].detail, /not a full-vehicle wrap/i);
+  assert.deepEqual(spf101.catalogCard.ppfCoverage, [
+    'Hood', 'Front Bumper', 'Stepsills', 'Door Bowls', 'Side Mirrors', 'Headlight & Taillight',
   ]);
-  assert.equal(spf101.tintIncluded, true);
-  assert.equal(spf101.undercoatingIncluded, true);
+  assert.equal(spf101.catalogCard.tintIncluded, true);
+  assert.equal(spf101.catalogCard.undercoatingIncluded, true);
 });
 
-test('published SPF normalization keeps protection and service duration separate', () => {
+test('published normalization keeps unverified duration separate from protection', () => {
   const normalized = normalizeServicePricing({
     name: 'SPF 99 — Premium',
     duration: '4-6 hours',
-    catalogCard: { warrantyLabel: '10 Years Protection' },
-    pricing: {
-      highend: { base: 22999, original: 40000, addon: 28999 },
-    },
+    catalogCard: { warrantyLabel: 'stale value' },
+    pricing: { highend: { base: 22999, original: 40000, addon: 28999 } },
   });
 
   assert.equal(normalized.duration, '4-6 hours');
+  assert.equal(normalized.durationNeedsClientVerification, true);
   assert.equal(normalized.catalogCard.warrantyLabel, '10 Years Protection');
-  assert.equal(normalized.catalogCard.fullInclusions.length, 3);
-  assert.deepEqual(normalized.pricing.highend, {
-    base: 22999,
-    original: 40000,
-    addon: 28999,
-  });
+  assert.equal(normalized.catalogCard.badge, 'PREMIUM');
+  assert.deepEqual(normalized.pricing.highend, { base: 22999, original: 40000, addon: 28999 });
 });
 
-test('canonical details fill missing records without inventing an SPF 101 add-on price', () => {
+test('SPF101 has no tint-bundle price and does not revive stale stored metadata', () => {
   const normalized = normalizeServicePricing({
     name: 'SPF 101 — Flagship ALL-IN',
     duration: '6-8 hours',
-    pricing: {
-      sedan: { base: 39999, original: 80000, addon: null },
-    },
+    catalogCard: { badge: 'STALE', ppfCoverage: ['Full vehicle'] },
+    pricing: { sedan: { base: 39999, original: 80000, addon: null } },
   });
 
-  assert.equal(normalized.catalogCard.fullInclusions.length, 6);
-  assert.equal(normalized.catalogCard.ppfCoverage.length, 7);
+  assert.equal(normalized.catalogCard.badge, 'ALL-IN PACKAGE');
+  assert.deepEqual(normalized.catalogCard.ppfCoverage, SPF_PACKAGE_PRICING.spf101.catalogCard.ppfCoverage);
   assert.equal(normalized.pricing.sedan.addon, null);
 });

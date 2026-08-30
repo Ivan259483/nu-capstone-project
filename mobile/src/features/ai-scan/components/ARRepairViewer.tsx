@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Dimensions,
   Linking,
@@ -36,6 +35,7 @@ import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Palette } from '@/constants/theme';
+import { PremiumLoader } from '@/components/ui/loading';
 import type { DamageIssue } from '@/features/ai-scan/types';
 import { isValidGlbUrl } from '@/features/ai-scan/utils';
 
@@ -1192,7 +1192,7 @@ export default function ARRepairViewer({
         )}
         {modelStatus === 'ready' && !webViewLoaded && !modelError && (
           <View style={s.loaderOverlay}>
-            <ActivityIndicator size="small" color={ACCENT} />
+            <PremiumLoader size="small" accessibilityLabel="Initializing 3D viewer" />
             <Text style={s.inlineLoadText}>Initializing viewer…</Text>
           </View>
         )}
@@ -1882,4 +1882,3 @@ const sl = StyleSheet.create({
     letterSpacing: 0.3,
   },
 });
-

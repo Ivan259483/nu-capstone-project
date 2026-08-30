@@ -12,6 +12,7 @@ type VehicleMutationParams = {
   color?: string;
   plateNumber: string;
   vehicleType?: string;
+  pricingCategory: string;
   transmission?: string;
   fuelType?: string;
 };
@@ -25,6 +26,9 @@ const toVehicle = (raw: any): Vehicle => ({
   color: raw?.color,
   plateNumber: raw?.plateNumber || '',
   vehicleType: raw?.vehicleType,
+  pricingCategory: raw?.pricingCategory ?? null,
+  pricingCategorySource: raw?.pricingCategorySource ?? null,
+  pricingCategoryNeedsReview: Boolean(raw?.pricingCategoryNeedsReview),
   transmission: raw?.transmission,
   fuelType: raw?.fuelType,
   customer: raw?.customer,

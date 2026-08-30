@@ -14,7 +14,7 @@ import {
   syncAvailabilityCaches,
 } from '@/lib/availabilitySync';
 import { getAvailabilityBadge } from '@/lib/availabilityBadge';
-import { ensureBackendAuthToken, getStoredAuthToken } from '../lib/api';
+import api, { ensureBackendAuthToken, getStoredAuthToken } from '../lib/api';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
 import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking, normalizePhilippineMobileInput, resolveProfilePhoneDisplay } from '../lib/phone';
 import { normalizePlateNumber } from '../lib/plate';
@@ -69,10 +69,28 @@ import {
   BOOKING_YEAR_OPTIONS,
   CAR_BRANDS,
   getVehiclePriceKey,
+  getVehiclePriceKeyForPricingCategory,
+  getVehiclePricingCategoryLabel,
   validateVehicleGarageForm,
 } from '@/components/shared/vehicle-garage-constants';
+import { garageFormToApiPayload } from '@/lib/vehicle-service';
+import {
+  type CustomerGarageLoadState,
+  getCatalogBookingVehicleAction,
+  getLoadedCustomerGarageState,
+  getFunnelVehicleId,
+  isCustomerGarageLoaded,
+  readCustomerBookingFunnelDraft,
+  resetCustomerBookingPackageIntent,
+  resolveFunnelVehicleId,
+  updateCustomerBookingFunnelDraft,
+} from '@/lib/customer-booking-funnel';
 
 type DashboardSection = 'dashboard' | 'scan' | 'services' | 'settings' | 'bookings' | 'documents' | 'rewards' | 'tracker' | 'payments';
+type CustomerVehicleFetchResult =
+  | { status: 'loaded'; count: number }
+  | { status: 'error'; message: string }
+  | { status: 'stale' };
 const CUSTOMER_BOOKINGS_DATA_SECTIONS: readonly DashboardSection[] = ['dashboard', 'services', 'bookings', 'documents', 'rewards', 'tracker', 'payments'];
 const CUSTOMER_SKELETON_SECTIONS: readonly DashboardSection[] = ['dashboard', 'services', 'bookings', 'documents', 'rewards', 'payments'];
 
@@ -120,6 +138,7 @@ function isValidInternationalPhoneInput(raw: string): boolean {
 
 function resolveCustomerDashboardSection(pathname: string, searchString: string): DashboardSection {
   if (pathname === '/customer/services') return 'services';
+  if (pathname === '/customer/book') return 'dashboard';
 
   const search = new URLSearchParams(searchString);
   if (search.get('ref')) return 'bookings';
@@ -546,6 +565,63 @@ function mapCustomerVehicleApiRecord(v: any) {
     type: v.vehicleType || v.type || '',
     transmission: v.transmission || '',
     fuelType: v.fuelType || '',
+    pricingCategory: v.pricingCategory ?? null,
+    pricingCategorySource: v.pricingCategorySource ?? null,
+    pricingCategoryNeedsReview: Boolean(v.pricingCategoryNeedsReview),
+  };
+}
+
+function finiteCustomerPrice(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
+}
+
+type CustomerResolvedBookingPackage = {
+  id?: string | null;
+  serviceId?: string | null;
+  name: string;
+  packageKey: string;
+  packageCode: string;
+  available: boolean;
+  promoPrice: number | null;
+  srp: number | null;
+  savings: number | null;
+  protectionYears?: number | null;
+  duration?: string | null;
+  shortDescription?: string | null;
+  description?: string | null;
+  inclusions?: string[];
+  badge?: string | null;
+};
+
+type CatalogBookingIntent = {
+  packageId: string;
+  browsedPriceTier: VehiclePriceKey | null;
+  browsedPrice: number | null;
+};
+
+function mapCustomerResolvedPackage(raw: any): CustomerResolvedBookingPackage | null {
+  const packageCode = String(raw?.packageCode || '').trim().toUpperCase();
+  const packageKey = String(raw?.packageKey || packageCode).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const name = String(raw?.name || '').trim();
+  if (!packageKey || !name) return null;
+  return {
+    id: raw?.id || raw?._id || null,
+    serviceId: raw?.serviceId || raw?.id || raw?._id || null,
+    name,
+    packageKey,
+    packageCode,
+    available: raw?.available === true,
+    promoPrice: finiteCustomerPrice(raw?.promoPrice),
+    srp: finiteCustomerPrice(raw?.srp),
+    savings: finiteCustomerPrice(raw?.savings),
+    protectionYears: finiteCustomerPrice(raw?.protectionYears),
+    duration: typeof raw?.duration === 'string' ? raw.duration : null,
+    shortDescription: typeof raw?.shortDescription === 'string' ? raw.shortDescription : null,
+    description: typeof raw?.description === 'string' ? raw.description : null,
+    inclusions: Array.isArray(raw?.inclusions) ? raw.inclusions.filter((item: unknown) => typeof item === 'string') : [],
+    badge: typeof raw?.badge === 'string' ? raw.badge : null,
   };
 }
 
@@ -643,8 +719,6 @@ export default function CustomerDashboard() {
   const bookingPackages = usePublishedBookingPackages();
   const [recommendedPackageId, setRecommendedPackageId] = useState<string | null>(null);
   const prefersReducedMotion = useReducedMotion();
-  const bookRouteAutoOpenRef = useRef(false);
-  const bookRouteModalOpenedRef = useRef(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profileSubMenu, setProfileSubMenu] = useState<null | 'display' | 'help'>(null);
   const [darkMode, setDarkMode] = useState<'off' | 'on' | 'auto'>('off');
@@ -666,7 +740,15 @@ export default function CustomerDashboard() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
-  const [vehiclesLoading, setVehiclesLoading] = useState(false);
+  const [garageLoadState, setGarageLoadState] = useState<CustomerGarageLoadState>('idle');
+  const [garageLoadError, setGarageLoadError] = useState('');
+  const vehiclesLoading = garageLoadState === 'idle' || garageLoadState === 'loading';
+  const [servicesVehicleId, setServicesVehicleId] = useState(() => (
+    readCustomerBookingFunnelDraft(typeof window !== 'undefined' ? window.sessionStorage : null).selectedVehicleId || ''
+  ));
+  const [servicesPackages, setServicesPackages] = useState<CustomerResolvedBookingPackage[]>([]);
+  const bookingWizardResumeRef = useRef(false);
+  const catalogBookingIntentRef = useRef<CatalogBookingIntent | null>(null);
   /** Bumps when we mutate garage or need to ignore stale in-flight GET list responses (fixes race with initial fetch). */
   const vehiclesFetchGenRef = useRef(0);
   const [scanVehicleId, setScanVehicleId] = useState('');
@@ -1065,7 +1147,7 @@ export default function CustomerDashboard() {
   const [bookingStep, setBookingStep] = useState(1);
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [bookingDone, setBookingDone] = useState(false);
-  const [bookingVehicleType, setBookingVehicleType] = useState<string>('hatchback');
+  const [bookingVehicleType, setBookingVehicleType] = useState<string>('');
   const [bookingSelectedVehicleIdx, setBookingSelectedVehicleIdx] = useState<number>(-1);
   const [bookingAgreed, setBookingAgreed] = useState(false);
   const [bookingTermsReachedEnd, setBookingTermsReachedEnd] = useState(false);
@@ -1097,50 +1179,125 @@ export default function CustomerDashboard() {
   const [editVehicleApiError, setEditVehicleApiError] = useState('');
   const [deleteConfirmIdx, setDeleteConfirmIdx] = useState<number>(-1);
 
-  const fetchVehiclesAndApply = useCallback(async (expectedGen: number): Promise<boolean> => {
+  const fetchVehiclesAndApply = useCallback(async (expectedGen: number): Promise<CustomerVehicleFetchResult> => {
     try {
       const { VehicleService } = await import('../lib/vehicle-service');
       const res = await VehicleService.getVehicles();
-      if (expectedGen !== vehiclesFetchGenRef.current) return false;
+      if (expectedGen !== vehiclesFetchGenRef.current) return { status: 'stale' };
       if (res.success && Array.isArray(res.data)) {
         const mapped = res.data.map(mapCustomerVehicleApiRecord);
         setVehicles(mapped);
         if (mapped.length === 0) setShowOnboarding(true);
-        return true;
+        return { status: 'loaded', count: mapped.length };
       }
+      return {
+        status: 'error',
+        message: res?.message || 'We couldn\'t load your garage. Try again.',
+      };
     } catch (err) {
       console.warn('[Garage] Failed to fetch vehicles:', err);
+      if (expectedGen !== vehiclesFetchGenRef.current) return { status: 'stale' };
+      return {
+        status: 'error',
+        message: (err as any)?.response?.data?.message || 'We couldn\'t load your garage. Try again.',
+      };
     }
-    return false;
   }, []);
 
   const refetchVehiclesAfterMutation = useCallback(async (): Promise<boolean> => {
     vehiclesFetchGenRef.current += 1;
     const gen = vehiclesFetchGenRef.current;
     invalidate('/customers/vehicles');
-    return fetchVehiclesAndApply(gen);
+    const result = await fetchVehiclesAndApply(gen);
+    if (result.status !== 'loaded') return false;
+    setGarageLoadState(getLoadedCustomerGarageState(result.count));
+    setGarageLoadError('');
+    return true;
   }, [fetchVehiclesAndApply]);
 
-  const vehicleOwnerId = user?._id ?? user?.id ?? '';
+  const vehicleOwnerId = String(user?._id || user?.id || '').trim();
 
   useEffect(() => {
     if (!vehicleOwnerId) {
-      setVehiclesLoading(false);
+      vehiclesFetchGenRef.current += 1;
+      setVehicles([]);
+      setGarageLoadState('idle');
+      setGarageLoadError('');
       return;
     }
     let active = true;
     vehiclesFetchGenRef.current += 1;
     const gen = vehiclesFetchGenRef.current;
-    setVehiclesLoading(true);
-    void fetchVehiclesAndApply(gen).finally(() => {
-      if (active && gen === vehiclesFetchGenRef.current) {
-        setVehiclesLoading(false);
+    setVehicles([]);
+    setAddVehicleOpen(false);
+    setGarageLoadState('loading');
+    setGarageLoadError('');
+    void fetchVehiclesAndApply(gen).then((result) => {
+      if (!active || gen !== vehiclesFetchGenRef.current || result.status === 'stale') return;
+      if (result.status === 'loaded') {
+        setGarageLoadState(getLoadedCustomerGarageState(result.count));
+        return;
       }
+      setGarageLoadError(result.message);
+      setGarageLoadState('error');
     });
     return () => {
       active = false;
     };
   }, [vehicleOwnerId, fetchVehiclesAndApply]);
+
+  const selectedServicesVehicle = useMemo(
+    () => vehicles.find((vehicle) => getFunnelVehicleId(vehicle) === servicesVehicleId) || null,
+    [servicesVehicleId, vehicles],
+  );
+
+  useEffect(() => {
+    if (!isCustomerGarageLoaded(garageLoadState)) return;
+    const resolvedId = resolveFunnelVehicleId(vehicles, servicesVehicleId);
+    if (resolvedId !== servicesVehicleId) {
+      setServicesVehicleId(resolvedId);
+      updateCustomerBookingFunnelDraft(
+        typeof window !== 'undefined' ? window.sessionStorage : null,
+        { selectedVehicleId: resolvedId || null },
+      );
+    }
+
+    if (activeSection === 'services') setShowOnboarding(false);
+  }, [activeSection, garageLoadState, location.pathname, servicesVehicleId, vehicles]);
+
+  useEffect(() => {
+    const vehicleId = getFunnelVehicleId(selectedServicesVehicle);
+    if (!vehicleId) {
+      setServicesPackages([]);
+      return;
+    }
+
+    let active = true;
+    void api.get('/services/booking-options', {
+      params: { vehicleId },
+      meta: { suppressErrorToast: true },
+    } as any).then((response) => {
+      if (!active) return;
+      const data = response.data?.data || {};
+      const packages = Array.isArray(data.packages)
+        ? data.packages.map(mapCustomerResolvedPackage).filter(Boolean) as CustomerResolvedBookingPackage[]
+        : [];
+      setServicesPackages(packages);
+
+      const draft = readCustomerBookingFunnelDraft(window.sessionStorage);
+      if (draft.selectedPackageId && !packages.some((pkg) => pkg.available && pkg.packageKey === draft.selectedPackageId)) {
+        resetCustomerBookingPackageIntent(window.sessionStorage, vehicleId);
+      }
+    }).catch((requestError: any) => {
+      if (!active) return;
+      setServicesPackages([]);
+      console.warn('[customer-services] Authoritative vehicle pricing unavailable:', requestError?.message || requestError);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedServicesVehicle]);
 
   const openEditVehicle = (v: any, idx: number) => {
     setEditVehicleIndex(idx);
@@ -1169,24 +1326,15 @@ export default function CustomerDashboard() {
     }
     const plateRaw = editVehicleForm.plate.trim();
     const plateNorm = normalizePlateNumber(plateRaw);
-    const brand = editVehicleForm.brand.trim();
-    const model = editVehicleForm.model.trim();
-    const type = editVehicleForm.type.trim();
     const targetVehicle = vehicles[editVehicleIndex];
     const vehicleId = targetVehicle?._id || targetVehicle?.id;
     setEditVehicleApiError('');
     try {
       const { VehicleService } = await import('../lib/vehicle-service');
-      const res = await VehicleService.updateVehicle(vehicleId, {
-        plateNumber: plateNorm,
-        year: editVehicleForm.year || '',
-        make: brand,
-        model,
-        color: editVehicleForm.color.trim() || 'Unknown',
-        vehicleType: type,
-        transmission: editVehicleForm.transmission || '',
-        fuelType: editVehicleForm.fuelType || '',
-      });
+      const res = await VehicleService.updateVehicle(
+        vehicleId,
+        garageFormToApiPayload(editVehicleForm, plateNorm),
+      );
       if (!res.success) {
         setEditVehicleApiError(res.message || 'Failed to update vehicle.');
         return;
@@ -1390,8 +1538,79 @@ export default function CustomerDashboard() {
     return `${String(hour).padStart(2, '0')}:${minute}`;
   };
 
-  const applyBookingGarageSelection = useCallback((v: any, idx: number) => {
-    const vKey = getVehiclePriceKey(v.type);
+  const resolveCatalogBookingPackage = async (v: any, intent: CatalogBookingIntent) => {
+    const vehicleId = getFunnelVehicleId(v);
+    if (!vehicleId) {
+      toast.error('Vehicle unavailable', {
+        description: 'Select a saved vehicle before continuing.',
+      });
+      return null;
+    }
+
+    try {
+      const response = await api.get('/services/booking-options', {
+        params: { vehicleId },
+        meta: { suppressErrorToast: true },
+      } as any);
+      const data = response.data?.data || {};
+      const packages = Array.isArray(data.packages)
+        ? data.packages.map(mapCustomerResolvedPackage).filter(Boolean) as CustomerResolvedBookingPackage[]
+        : [];
+      const resolvedPackage = packages.find((pkg) => pkg.packageKey === intent.packageId);
+      const resolvedVehicle = { ...v, ...(data.vehicle || {}) };
+      const vehicleName = [resolvedVehicle.make, resolvedVehicle.model].filter(Boolean).join(' ')
+        || resolvedVehicle.name
+        || 'your vehicle';
+
+      if (!resolvedPackage?.available || typeof resolvedPackage.promoPrice !== 'number') {
+        const validOptions = packages
+          .filter((pkg) => pkg.available && typeof pkg.promoPrice === 'number')
+          .map((pkg) => pkg.packageCode || pkg.name)
+          .join(', ');
+        toast.error(`This package isn’t available for your ${vehicleName}.`, {
+          description: validOptions
+            ? `Available packages: ${validOptions}`
+            : 'No alternative packages are currently configured for this vehicle.',
+          duration: 7000,
+        });
+        return null;
+      }
+
+      if (intent.browsedPrice !== null && resolvedPackage.promoPrice !== intent.browsedPrice) {
+        const categoryLabel = getVehiclePricingCategoryLabel(resolvedVehicle.pricingCategory) || 'vehicle';
+        const confirmed = window.confirm([
+          `Pricing for your ${vehicleName}`,
+          '',
+          resolvedPackage.name,
+          '',
+          `Catalog price viewed: ₱${intent.browsedPrice.toLocaleString()}`,
+          `Your ${categoryLabel} price: ₱${resolvedPackage.promoPrice.toLocaleString()}`,
+          '',
+          'Pricing has been updated for your vehicle.',
+          '',
+          'Continue with the updated price?',
+        ].join('\n'));
+        if (!confirmed) return null;
+      }
+
+      return { resolvedPackage, resolvedVehicle };
+    } catch (requestError: any) {
+      toast.error('Vehicle pricing unavailable', {
+        description: requestError?.response?.data?.message
+          || 'We could not verify authoritative pricing for this vehicle. Please try again.',
+      });
+      return null;
+    }
+  };
+
+  function applyBookingGarageSelection(v: any, idx: number) {
+    const vKey = getVehiclePriceKeyForPricingCategory(v.pricingCategory) as VehiclePriceKey | null;
+    if (!vKey) {
+      toast.error('Vehicle pricing unavailable', {
+        description: 'This saved vehicle does not have a valid pricing category. No fallback category was used.',
+      });
+      return;
+    }
     setBookingSelectedVehicleIdx(idx);
     setBookingVehicleType(vKey);
     setBookingForm((f) => {
@@ -1419,21 +1638,92 @@ export default function CustomerDashboard() {
       }
       return next;
     });
-  }, [bookingPackages]);
+    setServicesVehicleId(getFunnelVehicleId(v));
+
+    const intent = catalogBookingIntentRef.current;
+    if (intent) void continueCatalogBookingForVehicle(v, intent);
+  }
+
+  function startBookingFunnel(preSelectedVehicle?: any) {
+    const requestedVehicleId = getFunnelVehicleId(preSelectedVehicle);
+    const autoSelectedVehicle = preSelectedVehicle
+      || (garageLoadState === 'loaded_one' ? vehicles[0] : null);
+    const resolvedId = getFunnelVehicleId(autoSelectedVehicle);
+    catalogBookingIntentRef.current = null;
+    resetCustomerBookingPackageIntent(window.sessionStorage, resolvedId || null);
+    setServicesVehicleId(resolvedId);
+    setShowOnboarding(false);
+    dismissCustomerOverlaysForBooking();
+    setBookingOpen(true);
+    setBookingStep(1);
+    setBookingDone(false);
+    setBookingAgreed(false);
+    setBookingTermsReachedEnd(false);
+    setBookingDownpaymentProof(null);
+    setBookingSelectedVehicleIdx(-1);
+    setBookingVehicleType('');
+    setSlotStatuses([]);
+    setSlotError('');
+    setMonthAvailability({});
+    setBookingForm({
+      service: '',
+      serviceName: '',
+      servicePrice: 0,
+      vehicleMake: '',
+      vehicleModel: '',
+      vehicleYear: '',
+      vehicleColor: '',
+      vehiclePlate: '',
+      vehicleCategory: '',
+      vehicleTransmission: '',
+      vehicleFuelType: '',
+      contactNo: formatContactNoInputFromProfile(profile.phone || (user as any)?.phone || ''),
+      date: '',
+      time: '',
+      notes: '',
+    });
+
+    if (autoSelectedVehicle) {
+      const selectedIdx = requestedVehicleId
+        ? vehicles.findIndex((vehicle) => getFunnelVehicleId(vehicle) === requestedVehicleId)
+        : 0;
+      applyBookingGarageSelection(autoSelectedVehicle, Math.max(0, selectedIdx));
+    }
+  }
 
   const openBookingModal = async (
     preSelectedVehicle?: any,
-    options?: { presetPackageId?: string; presetPriceTier?: VehiclePriceKey },
+    options?: { presetPackageId?: string; presetPrice?: number | null },
   ) => {
+    if (!options?.presetPackageId) {
+      startBookingFunnel(preSelectedVehicle);
+      return;
+    }
+    const targetVehicle = preSelectedVehicle ?? null;
+    if (!targetVehicle) {
+      startBookingFunnel();
+      return;
+    }
+    const detectedKey = getVehiclePriceKeyForPricingCategory(targetVehicle.pricingCategory) as VehiclePriceKey | null;
+    if (!detectedKey) {
+      toast.error('Vehicle pricing unavailable', {
+        description: 'This vehicle needs a valid pricing category before booking. No fallback category was used.',
+      });
+      return;
+    }
+    const presetPkg = bookingPackages.find((p) => p.id === options.presetPackageId);
+    const presetPrice = finiteCustomerPrice(options.presetPrice ?? presetPkg?.prices[detectedKey]);
+    if (!presetPkg || presetPrice === null || presetPrice <= 0) {
+      toast.error('Package unavailable', {
+        description: 'This package is not currently available for the selected vehicle.',
+      });
+      return;
+    }
+
     dismissCustomerOverlaysForBooking();
     setBookingOpen(true); setBookingStep(1); setBookingDone(false);
     setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null);
     setSlotStatuses([]); setSlotError(''); setMonthAvailability({});
-    // Only pre-select when opened from a garage card — never auto-pick the first vehicle
-    const targetVehicle = preSelectedVehicle ?? null;
-    const detectedKey: VehiclePriceKey = targetVehicle
-      ? (getVehiclePriceKey(targetVehicle.type) as VehiclePriceKey)
-      : (options?.presetPriceTier ?? 'hatchback');
     setBookingVehicleType(detectedKey);
     const targetId = targetVehicle?._id || targetVehicle?.id;
     const targetIdx = targetVehicle
@@ -1447,17 +1737,15 @@ export default function CustomerDashboard() {
             ))
       : -1;
     setBookingSelectedVehicleIdx(targetIdx >= 0 ? targetIdx : -1);
-    const presetPkg = options?.presetPackageId
-      ? bookingPackages.find((p) => p.id === options.presetPackageId)
-      : undefined;
-    const presetPrice =
-      presetPkg && detectedKey in presetPkg.prices
-        ? presetPkg.prices[detectedKey as keyof typeof presetPkg.prices] ?? 0
-        : 0;
-    const presetAvailable = !presetPkg || presetPrice > 0;
+    setServicesVehicleId(getFunnelVehicleId(targetVehicle));
+    updateCustomerBookingFunnelDraft(window.sessionStorage, {
+      selectedVehicleId: getFunnelVehicleId(targetVehicle),
+      selectedPackageId: presetPkg.id,
+      wizardStarted: true,
+    });
     setBookingForm({
-      service: presetAvailable ? presetPkg?.id || '' : '',
-      serviceName: presetAvailable ? presetPkg?.name || '' : '',
+      service: presetPkg.id,
+      serviceName: presetPkg.name,
       servicePrice: presetPrice,
       // Populate individual vehicle fields from the garage record
       vehicleMake: targetVehicle ? (targetVehicle.make || '') : '',
@@ -1472,6 +1760,84 @@ export default function CustomerDashboard() {
       date: '', time: '', notes: '',
     });
   };
+
+  async function continueCatalogBookingForVehicle(vehicle: any, intent: CatalogBookingIntent) {
+    const resolved = await resolveCatalogBookingPackage(vehicle, intent);
+    if (!resolved) return;
+    catalogBookingIntentRef.current = null;
+    await openBookingModal(resolved.resolvedVehicle, {
+      presetPackageId: resolved.resolvedPackage.packageKey,
+      presetPrice: resolved.resolvedPackage.promoPrice,
+    });
+  }
+
+  function openCatalogVehicleChooser(intent: CatalogBookingIntent) {
+    catalogBookingIntentRef.current = intent;
+    updateCustomerBookingFunnelDraft(window.sessionStorage, {
+      selectedVehicleId: null,
+      selectedPackageId: intent.packageId,
+      wizardStarted: true,
+    });
+    setServicesVehicleId('');
+    dismissCustomerOverlaysForBooking();
+    setBookingOpen(true);
+    setBookingStep(1);
+    setBookingDone(false);
+    setBookingAgreed(false);
+    setBookingTermsReachedEnd(false);
+    setBookingDownpaymentProof(null);
+    setBookingSelectedVehicleIdx(-1);
+    setSlotStatuses([]);
+    setSlotError('');
+    setMonthAvailability({});
+    setBookingForm((current) => ({
+      ...current,
+      service: '',
+      serviceName: '',
+      servicePrice: 0,
+      vehicleMake: '',
+      vehicleModel: '',
+      vehicleYear: '',
+      vehicleColor: '',
+      vehiclePlate: '',
+      vehicleCategory: '',
+      vehicleTransmission: '',
+      vehicleFuelType: '',
+      date: '',
+      time: '',
+      notes: '',
+    }));
+  }
+
+  function beginCatalogPackageBooking(packageId: string, browsedPriceTier: VehiclePriceKey) {
+    const catalogPackage = bookingPackages.find((pkg) => pkg.id === packageId);
+    const browsedPrice = finiteCustomerPrice(catalogPackage?.prices[browsedPriceTier]);
+    if (!catalogPackage || browsedPrice === null || browsedPrice <= 0) {
+      toast.error('Package unavailable', {
+        description: 'This package is not configured for the selected browsing class.',
+      });
+      return;
+    }
+
+    const intent: CatalogBookingIntent = { packageId, browsedPriceTier, browsedPrice };
+    catalogBookingIntentRef.current = intent;
+    updateCustomerBookingFunnelDraft(window.sessionStorage, {
+      selectedVehicleId: null,
+      selectedPackageId: packageId,
+      wizardStarted: true,
+    });
+
+    const vehicleAction = getCatalogBookingVehicleAction(garageLoadState);
+
+    if (vehicleAction === 'garage_error') {
+      toast.error('We couldn’t verify your saved vehicles.', {
+        description: 'Your catalog remains available. Retry the booking when your Garage connection is restored.',
+      });
+      return;
+    }
+
+    openCatalogVehicleChooser(intent);
+  }
 
   function resetBookingModalState() {
     setBookingAgreed(false);
@@ -1489,7 +1855,12 @@ export default function CustomerDashboard() {
   function closeBookingModal() {
     if (bookingSubmitting) return;
     setBookingOpen(false);
+    resetCustomerBookingPackageIntent(
+      window.sessionStorage,
+      servicesVehicleId || getFunnelVehicleId(selectedServicesVehicle) || null,
+    );
     resetBookingModalState();
+    if (bookingDone || location.pathname === '/customer/book') navigate('/customer/dashboard');
   }
 
   function dismissCustomerOverlaysForBooking() {
@@ -1874,6 +2245,7 @@ export default function CustomerDashboard() {
     const plateNorm = normalizePlateNumber(plate);
     const brand = newVehicle.brand.trim();
     const model = newVehicle.model.trim();
+    const vehiclePayload = garageFormToApiPayload(newVehicle, plateNorm);
     setVehicleApiError('');
     const displayName = [newVehicle.year, brand, model].filter(Boolean).join(' ');
     const optimisticId = `optimistic-${Date.now()}`;
@@ -1888,6 +2260,7 @@ export default function CustomerDashboard() {
       name: displayName,
       color: newVehicle.color.trim() || 'Unknown',
       type: newVehicle.type || '',
+      pricingCategory: vehiclePayload.pricingCategory,
       transmission: newVehicle.transmission || '',
       fuelType: newVehicle.fuelType || '',
     };
@@ -1905,19 +2278,18 @@ export default function CustomerDashboard() {
         return;
       }
       const { VehicleService } = await import('../lib/vehicle-service');
-      const res = await VehicleService.addVehicle({
-        plateNumber: plateNorm,
-        year: newVehicle.year || '',
-        make: brand,
-        model,
-        color: newVehicle.color.trim() || 'Unknown',
-        vehicleType: newVehicle.type || '',
-        transmission: newVehicle.transmission || '',
-        fuelType: newVehicle.fuelType || '',
-      });
+      const res = await VehicleService.addVehicle(vehiclePayload);
       if (res.success && res.data) {
+        const savedVehicleId = getFunnelVehicleId(res.data);
+        if (savedVehicleId) {
+          setServicesVehicleId(savedVehicleId);
+          updateCustomerBookingFunnelDraft(window.sessionStorage, {
+            selectedVehicleId: savedVehicleId,
+          });
+        }
         const refreshed = await refetchVehiclesAfterMutation();
         if (!refreshed) {
+          const existingVehicleCount = vehicles.filter((vehicle) => vehicle.id !== optimisticId).length;
           setVehicles(prev => {
             const rest = prev.filter(v => v.id !== optimisticId);
             const merged = mapCustomerVehicleApiRecord(res.data);
@@ -1925,6 +2297,8 @@ export default function CustomerDashboard() {
             if (!mid || rest.some(x => String(x._id || x.id) === String(mid))) return rest;
             return [...rest, merged];
           });
+          setGarageLoadState(getLoadedCustomerGarageState(existingVehicleCount + 1));
+          setGarageLoadError('');
         }
         setAddVehicleOpen(false);
         setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' });
@@ -2424,30 +2798,51 @@ export default function CustomerDashboard() {
     activeTrackerBooking?.serviceTrackingStage,
   ]);
 
-  useLayoutEffect(() => {
-    if (location.pathname === '/customer/book' && !bookRouteAutoOpenRef.current) {
-      bookRouteAutoOpenRef.current = true;
-      openBookingModal();
+  useEffect(() => {
+    if (location.pathname !== '/customer/book') {
+      bookingWizardResumeRef.current = false;
+      return;
+    }
+    if (bookingOpen || bookingWizardResumeRef.current) return;
+    const draft = readCustomerBookingFunnelDraft(window.sessionStorage);
+    if (!draft.wizardStarted || !draft.selectedPackageId) {
+      bookingWizardResumeRef.current = true;
+      startBookingFunnel();
+      return;
     }
 
-    if (location.pathname !== '/customer/book') {
-      bookRouteAutoOpenRef.current = false;
-      bookRouteModalOpenedRef.current = false;
+    const catalogIntent = catalogBookingIntentRef.current;
+    if (catalogIntent) {
+      if (!isCustomerGarageLoaded(garageLoadState) || garageLoadState === 'loaded_empty') return;
+      if (garageLoadState === 'loaded_many' && !selectedServicesVehicle) {
+        openCatalogVehicleChooser(catalogIntent);
+        return;
+      }
+      if (!selectedServicesVehicle) return;
+      bookingWizardResumeRef.current = true;
+      void continueCatalogBookingForVehicle(selectedServicesVehicle, catalogIntent);
+      return;
     }
-  }, [location.pathname, vehicles]);
+
+    openCatalogVehicleChooser({
+      packageId: draft.selectedPackageId,
+      browsedPriceTier: null,
+      browsedPrice: null,
+    });
+  }, [bookingOpen, garageLoadState, location.pathname, selectedServicesVehicle]);
 
   useEffect(() => {
-    if (location.pathname === '/customer/book' && bookingOpen) {
-      bookRouteModalOpenedRef.current = true;
-    }
-  }, [bookingOpen, location.pathname]);
+    if (!bookingOpen || garageLoadState !== 'loaded_one' || bookingSelectedVehicleIdx >= 0 || !vehicles[0]) return;
+    applyBookingGarageSelection(vehicles[0], 0);
+  }, [bookingOpen, bookingSelectedVehicleIdx, garageLoadState, vehicles]);
 
   // Keep bookingVehicleType in sync when the user has explicitly selected a garage vehicle
   useEffect(() => {
     if (vehicles.length === 0 || bookingSelectedVehicleIdx < 0) return;
     const selectedV = vehicles[bookingSelectedVehicleIdx];
-    if (selectedV?.type) {
-      const correctKey = getVehiclePriceKey(selectedV.type);
+    if (selectedV?.pricingCategory) {
+      const correctKey = getVehiclePriceKeyForPricingCategory(selectedV.pricingCategory);
+      if (!correctKey) return;
       setBookingVehicleType(correctKey);
     }
   }, [vehicles, bookingSelectedVehicleIdx]);
@@ -2462,12 +2857,6 @@ export default function CustomerDashboard() {
       return { ...f, vehiclePlate: String(fromGarage).toUpperCase() };
     });
   }, [bookingOpen, bookingSelectedVehicleIdx, vehicles]);
-
-  useEffect(() => {
-    if (location.pathname === '/customer/book' && bookRouteModalOpenedRef.current && !bookingOpen) {
-      navigate('/customer/dashboard', { replace: true });
-    }
-  }, [bookingOpen, location.pathname, navigate]);
 
   const nav = (section: DashboardSection) => {
     if (section === 'scan' && !AI_INSPECTION_HISTORY_ENABLED) return;
@@ -2737,17 +3126,21 @@ export default function CustomerDashboard() {
   const rewardBannerNextTier = { name: 'Silver', min: 150 };
   const rewardBannerProgressPct = Math.min(100, Math.round((customerStats.loyaltyPoints / rewardBannerNextTier.min) * 100));
   const rewardBannerPointsRemaining = Math.max(0, rewardBannerNextTier.min - customerStats.loyaltyPoints);
-  const recommendationVehicleType = vehicles[0]?.type || 'hatchback';
-  const recommendationPriceKey = getVehiclePriceKey(recommendationVehicleType);
-  const recommendationVehicleLabel = formatTitleCaseDisplay(recommendationVehicleType, 'Hatchback');
+  const recommendationVehicleLabel = selectedServicesVehicle
+    ? [selectedServicesVehicle.make, selectedServicesVehicle.model].filter(Boolean).join(' ') || selectedServicesVehicle.name || 'Selected vehicle'
+    : 'Select a vehicle';
   const recommendationOptions = useMemo(() => {
-    return bookingPackages.flatMap((pkg) => {
-      const price = pkg.prices[recommendationPriceKey as keyof typeof pkg.prices];
-      return typeof price === 'number' && price > 0
-        ? [{ id: pkg.id, name: pkg.name, duration: pkg.duration, price }]
-        : [];
-    });
-  }, [bookingPackages, recommendationPriceKey]);
+    return servicesPackages.flatMap((pkg) => (
+      pkg.available && typeof pkg.promoPrice === 'number' && pkg.promoPrice > 0
+        ? [{
+            id: pkg.packageKey,
+            name: pkg.name,
+            duration: pkg.shortDescription || pkg.duration || '',
+            price: pkg.promoPrice,
+          }]
+        : []
+    ));
+  }, [servicesPackages]);
   const recommendedPackage = useMemo(
     () => recommendationOptions.find((pkg) => pkg.id === recommendedPackageId) || recommendationOptions[0] || null,
     [recommendationOptions, recommendedPackageId],
@@ -2863,7 +3256,7 @@ export default function CustomerDashboard() {
   const documentsSectionLoading = activeSection === 'documents' && customerSectionDataLoading;
   const paymentsSectionLoading = activeSection === 'payments' && customerSectionDataLoading;
   const rewardsSectionLoading = activeSection === 'rewards' && customerSectionDataLoading;
-  const servicesSectionLoading = activeSection === 'services' && (customerSectionDataLoading || vehiclesLoading);
+  const servicesSectionLoading = false;
   const settingsInitial = (profile.fullName || user?.name || user?.email || 'C').charAt(0).toUpperCase();
   const savedProfileImage = profile.avatarRemoved
     ? ''
@@ -4309,11 +4702,12 @@ export default function CustomerDashboard() {
               <div className="customer-content-fade-in pb-10">
                 <CustomerDashboardServicesShowcase
                   packages={bookingPackages}
-                  onOpenBooking={(opts) => {
-                    void openBookingModal(undefined, opts ? {
-                      ...(opts.presetPackageId ? { presetPackageId: opts.presetPackageId } : {}),
-                      ...(opts.priceTier ? { presetPriceTier: opts.priceTier } : {}),
-                    } : undefined);
+                  onOpenBooking={(options) => {
+                    if (options?.presetPackageId && options.priceTier) {
+                      beginCatalogPackageBooking(options.presetPackageId, options.priceTier);
+                      return;
+                    }
+                    void openBookingModal();
                   }}
                 />
               </div>
@@ -5959,81 +6353,156 @@ export default function CustomerDashboard() {
                     ? new Date(pendingConfirmationBooking.bookingDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
                     : '—';
                   return (
-                    <section style={{ marginBottom: 32 }}>
+                    <section style={{ marginBottom: 32 }} aria-labelledby="payment-review-title">
                       <style dangerouslySetInnerHTML={{
                         __html: `
-                        @keyframes pcPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(1.12)}}
-                        @keyframes pcSlide{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-                        @keyframes pcSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-                        @keyframes pcShimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+                        @keyframes paymentReviewEnter{from{opacity:0;transform:translate3d(0,10px,0)}to{opacity:1;transform:translate3d(0,0,0)}}
+                        @keyframes paymentReviewStatusBreath{0%,100%{opacity:.5;transform:scale(.82)}50%{opacity:0;transform:scale(1.9)}}
+                        @keyframes paymentReviewCompleteBreath{0%,100%{opacity:.16;transform:scale(.92)}50%{opacity:.3;transform:scale(1.08)}}
+                        @keyframes paymentReviewActiveBreath{0%,100%{opacity:.2;transform:scale(.94)}50%{opacity:.42;transform:scale(1.08)}}
+                        @keyframes paymentReviewRipple{0%{opacity:0;transform:scale(.72)}18%{opacity:.34}100%{opacity:0;transform:scale(1.62)}}
+                        @keyframes paymentReviewOrbit{to{transform:rotate(360deg)}}
+                        @keyframes paymentReviewParticle{0%,100%{opacity:.2;transform:scale(.75)}45%{opacity:.75;transform:scale(1.16)}}
+                        @keyframes paymentReviewLineSweep{0%{opacity:0;transform:translate3d(-130%,0,0)}10%{opacity:.9}86%{opacity:.6}100%{opacity:0;transform:translate3d(630%,0,0)}}
+                        @keyframes paymentReviewReferenceGlint{0%,62%{opacity:0;transform:translate3d(-150%,0,0) skewX(-18deg)}69%{opacity:.34}83%{opacity:.2}88%,100%{opacity:0;transform:translate3d(760%,0,0) skewX(-18deg)}}
+                        @keyframes paymentReviewGridDrift{from{transform:translate3d(0,0,0)}to{transform:translate3d(16px,0,0)}}
+                        @keyframes paymentReviewFooterBreath{0%,100%{opacity:.46;transform:scale(.84)}50%{opacity:1;transform:scale(1.12)}}
+                        .customer-payment-review{position:relative;isolation:isolate;overflow:hidden;border:1px solid rgba(255,255,255,.09);border-radius:24px;background:linear-gradient(138deg,#111317 0%,#0d1015 48%,#090b0f 100%);box-shadow:0 24px 54px -34px rgba(2,6,23,.92),0 12px 28px -22px rgba(15,23,42,.74),0 0 38px -28px rgba(245,127,23,.38),inset 0 1px 0 rgba(255,255,255,.05);animation:paymentReviewEnter .45s cubic-bezier(.22,1,.36,1)}
+                        .customer-payment-review::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(115deg,rgba(255,255,255,.03),transparent 28%,transparent 68%,rgba(245,127,23,.03))}
+                        .customer-payment-review-ambient{position:absolute;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+                        .customer-payment-review-ambient::before{content:"";position:absolute;width:430px;height:250px;right:-110px;top:-150px;border-radius:999px;background:radial-gradient(circle,rgba(245,127,23,.105),transparent 69%);filter:blur(4px)}
+                        .customer-payment-review-ambient::after{content:"";position:absolute;width:360px;height:240px;left:-120px;bottom:-180px;border-radius:999px;background:radial-gradient(circle,rgba(34,197,94,.052),transparent 70%);filter:blur(6px)}
+                        .customer-payment-review-body{position:relative;z-index:1;padding:28px}
+                        .customer-payment-review-top{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:24px;margin-bottom:22px}
+                        .customer-payment-review-heading{min-width:0;padding-top:1px}
+                        .customer-payment-review-eyebrow{display:inline-flex;align-items:center;gap:9px;margin:0 0 10px;color:#ff9a3c;font-size:10px;font-weight:800;line-height:1;text-transform:uppercase;letter-spacing:.16em}
+                        .customer-payment-review-status-dot{position:relative;display:inline-flex;width:18px;height:18px;align-items:center;justify-content:center;border:1px solid rgba(245,127,23,.36);border-radius:999px;background:rgba(245,127,23,.08)}
+                        .customer-payment-review-status-dot::before{content:"";position:absolute;width:10px;height:10px;border-radius:999px;background:rgba(245,127,23,.28);animation:paymentReviewStatusBreath 2.1s ease-in-out infinite}
+                        .customer-payment-review-status-dot::after{content:"";position:relative;width:5px;height:5px;border-radius:999px;background:#f57f17;box-shadow:0 0 8px rgba(245,127,23,.68)}
+                        .customer-payment-review-heading h2{margin:0;color:#f8fafc;font-size:clamp(22px,2vw,27px);font-weight:850;line-height:1.1;letter-spacing:-.035em}
+                        .customer-payment-review-heading>p:last-child{max-width:720px;margin:8px 0 0;color:rgba(226,232,240,.68);font-size:13px;font-weight:500;line-height:1.55}
+                        .customer-payment-review-reference{position:relative;display:flex;min-width:260px;overflow:hidden;align-items:center;gap:11px;padding:12px 15px;border:1px solid rgba(245,127,23,.27);border-radius:16px;background:linear-gradient(145deg,rgba(245,127,23,.1),rgba(245,127,23,.035));box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 14px 30px -24px rgba(245,127,23,.58)}
+                        .customer-payment-review-reference::after{content:"";position:absolute;inset:-20% auto -20% 0;width:18%;pointer-events:none;background:linear-gradient(90deg,transparent,rgba(255,211,169,.34),transparent);opacity:0;animation:paymentReviewReferenceGlint 7.2s ease-in-out infinite}
+                        .customer-payment-review-reference-icon{position:relative;z-index:1;display:flex;width:34px;height:34px;flex:0 0 auto;align-items:center;justify-content:center;border:1px solid rgba(255,154,60,.2);border-radius:11px;background:rgba(245,127,23,.09);color:#ff9a3c}
+                        .customer-payment-review-reference-copy{min-width:0;text-align:left}
+                        .customer-payment-review-reference-copy span{display:block;margin-bottom:3px;color:rgba(255,205,157,.6);font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.14em}
+                        .customer-payment-review-reference-copy strong{display:block;overflow-wrap:anywhere;color:#ff9a3c;font-size:13px;font-weight:800;line-height:1.35;letter-spacing:.015em}
+                        .customer-payment-review-details{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:20px}
+                        .customer-payment-review-detail{display:flex;min-width:0;min-height:64px;align-items:center;gap:12px;padding:14px 15px;border:1px solid rgba(255,255,255,.075);border-radius:15px;background:linear-gradient(145deg,rgba(255,255,255,.04),rgba(255,255,255,.016));box-shadow:inset 0 1px 0 rgba(255,255,255,.024)}
+                        .customer-payment-review-detail-icon{display:flex;width:34px;height:34px;flex:0 0 auto;align-items:center;justify-content:center;border:1px solid rgba(245,127,23,.15);border-radius:11px;background:rgba(245,127,23,.07);color:#ff9a3c}
+                        .customer-payment-review-detail-copy{min-width:0}
+                        .customer-payment-review-detail-copy span{display:block;margin-bottom:4px;color:rgba(203,213,225,.5);font-size:9px;font-weight:800;line-height:1;text-transform:uppercase;letter-spacing:.13em}
+                        .customer-payment-review-detail-copy strong{display:block;overflow-wrap:anywhere;color:#f1f5f9;font-size:13px;font-weight:750;line-height:1.35}
+                        .customer-payment-review-progress{position:relative;overflow:hidden;padding:19px 18px 16px;border:1px solid rgba(255,255,255,.07);border-radius:17px;background:linear-gradient(105deg,rgba(10,16,17,.58),rgba(5,8,13,.48) 46%,rgba(20,12,6,.38))}
+                        .customer-payment-review-progress::before{content:"";position:absolute;width:28%;height:150%;right:-6%;top:-30%;pointer-events:none;background:radial-gradient(circle,rgba(245,127,23,.09),transparent 66%)}
+                        .customer-payment-review-progress::after{content:"";position:absolute;width:25%;height:145%;left:-5%;top:-25%;pointer-events:none;background:radial-gradient(circle,rgba(34,197,94,.055),transparent 66%)}
+                        .customer-payment-review-progress-grid{position:absolute;inset:48% -16px -16px -16px;pointer-events:none;background-image:radial-gradient(rgba(245,127,23,.13) .7px,transparent .7px);background-size:16px 16px;-webkit-mask-image:linear-gradient(to bottom,transparent,rgba(0,0,0,.7));mask-image:linear-gradient(to bottom,transparent,rgba(0,0,0,.7));opacity:.22;animation:paymentReviewGridDrift 8s linear infinite}
+                        .customer-payment-review-progress-line{position:absolute;z-index:2;top:39px;left:25%;right:25%;height:2px;overflow:hidden;border-radius:999px;background:linear-gradient(90deg,#22c55e 0%,#b9b947 48%,#f57f17 100%);box-shadow:0 0 12px rgba(245,127,23,.14)}
+                        .customer-payment-review-progress-line::after{content:"";position:absolute;inset:0 auto 0 0;width:20%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.92),rgba(255,176,94,.7),transparent);opacity:0;will-change:transform,opacity;animation:paymentReviewLineSweep 3.4s ease-in-out infinite}
+                        .customer-payment-review-steps{position:relative;z-index:1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+                        .customer-payment-review-step{display:flex;min-width:0;flex-direction:column;align-items:center;text-align:center}
+                        .customer-payment-review-marker{position:relative;display:flex;width:42px;height:42px;align-items:center;justify-content:center;border-radius:999px;background:#11151b;isolation:isolate;box-shadow:0 0 0 5px #0c1015}
+                        .customer-payment-review-marker iconify-icon{position:relative;z-index:4}
+                        .customer-payment-review-step.is-complete .customer-payment-review-marker{border:1px solid rgba(167,243,208,.48);background:linear-gradient(145deg,#16a36a,#22c986);color:#fff;box-shadow:0 0 0 5px #0c1015,0 8px 20px -12px rgba(34,197,94,.72)}
+                        .customer-payment-review-step.is-complete .customer-payment-review-marker::before{content:"";position:absolute;inset:-8px;z-index:-1;border:1px solid rgba(74,222,128,.26);border-radius:inherit;background:rgba(34,197,94,.1);animation:paymentReviewCompleteBreath 2.6s ease-in-out infinite}
+                        .customer-payment-review-step.is-active .customer-payment-review-marker{border:1px solid rgba(255,160,75,.62);background:linear-gradient(145deg,rgba(245,127,23,.24),rgba(123,54,8,.18));color:#ff9a3c;box-shadow:0 0 0 5px #0c1015,0 0 0 7px rgba(245,127,23,.065),0 10px 24px -14px rgba(245,127,23,.84)}
+                        .customer-payment-review-step.is-active .customer-payment-review-marker::before{content:"";position:absolute;inset:-9px;z-index:-2;border:1px solid rgba(245,127,23,.36);border-radius:inherit;background:rgba(245,127,23,.08);animation:paymentReviewActiveBreath 1.9s ease-in-out infinite}
+                        .customer-payment-review-step.is-active .customer-payment-review-marker::after{content:"";position:absolute;inset:-13px;z-index:-3;border:1px dashed rgba(255,160,75,.48);border-radius:inherit;animation:paymentReviewOrbit 6.8s linear infinite}
+                        .customer-payment-review-ripple-secondary{position:absolute!important;inset:-16px;z-index:-4;margin:0!important;border:1px solid rgba(245,127,23,.3);border-radius:999px;animation:paymentReviewRipple 2.7s cubic-bezier(.16,1,.3,1) infinite}
+                        .customer-payment-review-orbit-highlight{position:absolute!important;inset:-13px;z-index:3;margin:0!important;border-radius:999px;animation:paymentReviewOrbit 5.9s linear infinite}
+                        .customer-payment-review-orbit-highlight::after{content:"";position:absolute;top:-2px;left:50%;width:5px;height:5px;border-radius:999px;background:#ffd0a3;box-shadow:0 0 7px rgba(245,127,23,.78);transform:translateX(-50%)}
+                        .customer-payment-review-particle{position:absolute!important;z-index:3;width:3px;height:3px;margin:0!important;border-radius:999px;background:#ff9a3c;animation:paymentReviewParticle 2.3s ease-in-out infinite}
+                        .customer-payment-review-particle--one{right:-13px;top:1px}.customer-payment-review-particle--two{left:-15px;bottom:4px;animation-delay:-.7s}.customer-payment-review-particle--three{right:-8px;bottom:-8px;width:2px;height:2px;animation-delay:-1.2s}
+                        .customer-payment-review-step strong{margin-top:10px;color:rgba(203,213,225,.38);font-size:9px;font-weight:800;line-height:1.25;text-transform:uppercase;letter-spacing:.075em}
+                        .customer-payment-review-step.is-complete strong{color:#4ade80}
+                        .customer-payment-review-step.is-active strong{color:#ff9a3c}
+                        .customer-payment-review-step-helper{margin-top:3px;color:rgba(148,163,184,.52);font-size:9px;font-weight:600;line-height:1.3}
+                        .customer-payment-review-step.is-complete .customer-payment-review-step-helper{color:rgba(134,239,172,.56)}
+                        .customer-payment-review-step.is-active .customer-payment-review-step-helper{color:rgba(255,205,157,.58)}
+                        .customer-payment-review-footer{position:relative;z-index:1;display:flex;align-items:center;gap:9px;padding:14px 28px;border-top:1px solid rgba(255,255,255,.075);background:linear-gradient(90deg,rgba(13,16,21,.9),rgba(245,127,23,.028));color:rgba(226,232,240,.68)}
+                        .customer-payment-review-footer-icon{display:flex;width:27px;height:27px;flex:0 0 auto;align-items:center;justify-content:center;border:1px solid rgba(245,127,23,.14);border-radius:9px;background:rgba(245,127,23,.065);color:#ff9a3c}
+                        .customer-payment-review-footer-dot{width:4px;height:4px;flex:0 0 auto;border-radius:999px;background:#f57f17;animation:paymentReviewFooterBreath 2.35s ease-in-out infinite}
+                        .customer-payment-review-footer-message{font-size:11px;font-weight:550;line-height:1.5}
+                        @media(max-width:780px){.customer-payment-review-body{padding:24px}.customer-payment-review-top{grid-template-columns:1fr;gap:16px}.customer-payment-review-reference{width:100%;min-width:0}.customer-payment-review-details{grid-template-columns:repeat(2,minmax(0,1fr))}.customer-payment-review-detail:last-child{grid-column:1/-1}.customer-payment-review-footer{padding:14px 24px}}
+                        @media(max-width:560px){.customer-payment-review{border-radius:20px}.customer-payment-review-body{padding:20px 16px}.customer-payment-review-heading h2{font-size:22px}.customer-payment-review-details{grid-template-columns:1fr}.customer-payment-review-detail:last-child{grid-column:auto}.customer-payment-review-progress{padding:19px 6px 15px}.customer-payment-review-progress-line{top:39px;left:24%;right:24%}.customer-payment-review-marker{width:40px;height:40px;box-shadow:0 0 0 4px #0c1015}.customer-payment-review-step.is-complete .customer-payment-review-marker,.customer-payment-review-step.is-active .customer-payment-review-marker{box-shadow:0 0 0 4px #0c1015}.customer-payment-review-step strong{max-width:112px;font-size:8px;letter-spacing:.045em}.customer-payment-review-step-helper{font-size:8px}.customer-payment-review-footer{align-items:flex-start;padding:13px 16px}}
+                        @media(prefers-reduced-motion:reduce){.customer-payment-review,.customer-payment-review-status-dot::before,.customer-payment-review-reference::after,.customer-payment-review-progress-grid,.customer-payment-review-progress-line::after,.customer-payment-review-step.is-complete .customer-payment-review-marker::before,.customer-payment-review-step.is-active .customer-payment-review-marker::before,.customer-payment-review-step.is-active .customer-payment-review-marker::after,.customer-payment-review-ripple-secondary,.customer-payment-review-orbit-highlight,.customer-payment-review-particle,.customer-payment-review-footer-dot{animation:none!important}.customer-payment-review-reference::after,.customer-payment-review-progress-line::after,.customer-payment-review-ripple-secondary,.customer-payment-review-particle{display:none}}
                       `}} />
-                      <div style={{ background: 'linear-gradient(145deg,#0c1220 0%,#121a2e 50%,#0a1018 100%)', borderRadius: 24, overflow: 'hidden', boxShadow: '0 32px 64px -16px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.07)', animation: 'pcSlide .5s ease-out', position: 'relative' }}>
-                        {/* Aurora glows */}
-                        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
-                          <div style={{ position: 'absolute', top: -80, right: -60, width: 320, height: 320, borderRadius: '50%', background: 'radial-gradient(circle,rgba(37,99,235,.1) 0%,transparent 65%)' }} />
-                          <div style={{ position: 'absolute', bottom: -100, left: -40, width: 280, height: 280, borderRadius: '50%', background: 'radial-gradient(circle,rgba(245,158,11,.07) 0%,transparent 65%)' }} />
-                        </div>
-
-                        <div style={{ padding: '28px 28px 24px', position: 'relative', zIndex: 2 }}>
-                          {/* Top row */}
-                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                {/* Spinning amber loader */}
-                                <div style={{ width: 16, height: 16, borderRadius: '50%', border: '2.5px solid rgba(245,158,11,.25)', borderTop: '2.5px solid #f59e0b', animation: 'pcSpin 1s linear infinite', flexShrink: 0 }} />
-                                <span style={{ fontSize: 9, fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '.14em' }}>Awaiting Confirmation</span>
-                              </div>
-                              <h2 style={{ fontSize: 20, fontWeight: 900, color: '#fff', margin: '0 0 4px', letterSpacing: '-.03em', lineHeight: 1.1 }}>Payment Under Review</h2>
-                              <p style={{ fontSize: 12, color: 'rgba(255,255,255,.4)', margin: 0, fontWeight: 500 }}>Our team is verifying your GCash payment. Please wait 1–3 minutes.</p>
+                      <div className="customer-payment-review">
+                        <div className="customer-payment-review-ambient" aria-hidden />
+                        <div className="customer-payment-review-body">
+                          <div className="customer-payment-review-top">
+                            <div className="customer-payment-review-heading">
+                              <p className="customer-payment-review-eyebrow">
+                                <span className="customer-payment-review-status-dot" aria-hidden />
+                                Awaiting Confirmation
+                              </p>
+                              <h2 id="payment-review-title">Payment Under Review</h2>
+                              <p>Our team is verifying your GCash payment. Please wait 1–3 minutes.</p>
                             </div>
-                            <div style={{ background: 'rgba(245,158,11,.1)', border: '1px solid rgba(245,158,11,.3)', borderRadius: 12, padding: '10px 16px', textAlign: 'center', flexShrink: 0 }}>
-                              <p style={{ fontSize: 9, color: 'rgba(245,158,11,.7)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em', margin: '0 0 2px' }}>Reference</p>
-                              <p style={{ fontSize: 13, color: '#fbbf24', fontWeight: 800, margin: 0, letterSpacing: '.02em' }}>{ref}</p>
+                            <div className="customer-payment-review-reference" aria-label={`Booking reference ${ref}`}>
+                              <span className="customer-payment-review-reference-icon" aria-hidden>
+                                <iconify-icon icon="solar:ticket-sale-linear" width="18"></iconify-icon>
+                              </span>
+                              <div className="customer-payment-review-reference-copy">
+                                <span>Reference</span>
+                                <strong>{ref}</strong>
+                              </div>
                             </div>
                           </div>
 
-                          {/* Info row */}
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+                          <div className="customer-payment-review-details">
                             {[
                               { icon: 'solar:calendar-bold', label: 'Date', value: dateStr },
                               { icon: 'solar:clock-circle-bold', label: 'Time', value: pendingConfirmationBooking.bookingTime || '—' },
                               { icon: 'solar:shield-star-bold', label: 'Service', value: pendingConfirmationBooking.serviceType || pendingConfirmationBooking.serviceName || '—' },
                             ].map((item) => (
-                              <div key={item.label} style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12, padding: '12px 14px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                  <iconify-icon icon={item.icon} width="12" style={{ color: '#f59e0b' }}></iconify-icon>
-                                  <span style={{ fontSize: 9, color: 'rgba(255,255,255,.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em' }}>{item.label}</span>
+                              <div key={item.label} className="customer-payment-review-detail">
+                                <span className="customer-payment-review-detail-icon" aria-hidden>
+                                  <iconify-icon icon={item.icon} width="16"></iconify-icon>
+                                </span>
+                                <div className="customer-payment-review-detail-copy">
+                                  <span>{item.label}</span>
+                                  <strong title={item.value}>{item.value}</strong>
                                 </div>
-                                <p style={{ fontSize: 12, fontWeight: 700, color: '#e5e7eb', margin: 0, letterSpacing: '-.01em' }}>{item.value}</p>
                               </div>
                             ))}
                           </div>
 
-                          {/* Progress dots */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              {['Payment Received', 'Verifying Proof', 'Booking Approved'].map((label, i) => (
-                                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                                    <div style={{ width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: i === 0 ? 'linear-gradient(135deg,#16a34a,#22c55e)' : i === 1 ? 'rgba(245,158,11,.15)' : 'rgba(255,255,255,.05)', border: i === 1 ? '2px solid rgba(245,158,11,.4)' : i === 0 ? '2px solid rgba(22,163,74,.3)' : '2px solid rgba(255,255,255,.08)' }}>
-                                      {i === 0
-                                        ? <iconify-icon icon="solar:check-circle-bold" width="12" style={{ color: '#fff' }}></iconify-icon>
-                                        : i === 1
-                                          ? <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', animation: 'pcPulse 1.5s ease-in-out infinite' }} />
-                                          : <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(255,255,255,.15)' }} />}
-                                    </div>
-                                    <span style={{ fontSize: 9, color: i === 0 ? '#4ade80' : i === 1 ? '#fbbf24' : 'rgba(255,255,255,.2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', whiteSpace: 'nowrap' }}>{label}</span>
-                                  </div>
-                                  {i < 2 && <div style={{ width: 32, height: 1, background: i === 0 ? 'rgba(34,197,94,.3)' : 'rgba(255,255,255,.07)', marginBottom: 14 }} />}
+                          <div className="customer-payment-review-progress" aria-label="Payment verification progress">
+                            <div className="customer-payment-review-progress-grid" aria-hidden />
+                            <div className="customer-payment-review-progress-line" aria-hidden />
+                            <div className="customer-payment-review-steps">
+                              {[
+                                { label: 'Payment Received', helper: 'Proof submitted', state: 'complete', icon: 'solar:check-circle-bold' },
+                                { label: 'Verifying Payment', helper: 'Under review', state: 'active', icon: 'solar:shield-check-linear' },
+                              ].map((step) => (
+                                <div key={step.label} className={`customer-payment-review-step is-${step.state}`}>
+                                  <span className="customer-payment-review-marker" aria-hidden>
+                                    {step.state === 'active' && (
+                                      <>
+                                        <span className="customer-payment-review-ripple-secondary" />
+                                        <span className="customer-payment-review-orbit-highlight" />
+                                        <span className="customer-payment-review-particle customer-payment-review-particle--one" />
+                                        <span className="customer-payment-review-particle customer-payment-review-particle--two" />
+                                        <span className="customer-payment-review-particle customer-payment-review-particle--three" />
+                                      </>
+                                    )}
+                                    <iconify-icon icon={step.icon} width="17"></iconify-icon>
+                                  </span>
+                                  <strong>{step.label}</strong>
+                                  <span className="customer-payment-review-step-helper">{step.helper}</span>
                                 </div>
                               ))}
                             </div>
                           </div>
                         </div>
 
-                        <div style={{ borderTop: '1px solid rgba(255,255,255,.05)', padding: '12px 28px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <iconify-icon icon="solar:bell-bold" width="12" style={{ color: 'rgba(255,255,255,.3)' }}></iconify-icon>
-                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', fontWeight: 500 }}>You will be notified once your booking is confirmed. Check your phone for updates.</span>
+                        <div className="customer-payment-review-footer">
+                          <span className="customer-payment-review-footer-icon" aria-hidden>
+                            <iconify-icon icon="solar:bell-bing-linear" width="15"></iconify-icon>
+                          </span>
+                          <span className="customer-payment-review-footer-dot" aria-hidden />
+                          <span className="customer-payment-review-footer-message">We’ll automatically move your booking to Live Tracking once verification is complete.</span>
                         </div>
                       </div>
                     </section>
@@ -6999,8 +7468,12 @@ export default function CustomerDashboard() {
                 </div>
                 <div className="min-w-0">
                   <p className="customer-vehicle-eyebrow">My garage</p>
-                  <h3 className="text-lg font-bold tracking-tight text-slate-950">Add Vehicle</h3>
-                  <p className="mt-0.5 text-xs font-medium text-slate-500">Create a clean profile for faster booking.</p>
+                  <h3 className="text-lg font-bold tracking-tight text-slate-950">{location.pathname === '/customer/book' ? 'Add your vehicle' : 'Add Vehicle'}</h3>
+                  <p className="mt-0.5 text-xs font-medium text-slate-500">
+                    {location.pathname === '/customer/book'
+                      ? 'Tell us what you drive so we can show the correct packages and pricing.'
+                      : 'Create a clean profile for faster booking.'}
+                  </p>
                 </div>
               </div>
               <button
@@ -7029,13 +7502,14 @@ export default function CustomerDashboard() {
                 showCustomColorInput={newVehicleShowColorInput}
                 onShowCustomColorInput={setNewVehicleShowColorInput}
                 apiError={vehicleApiError}
-                showPricingPreview
 	                bookingPackages={bookingPackages}
 	                enableVehicleDatabase
 	                experience="customer-add"
 	                footerHint={
                   <>
-                    After you save, open <span className="font-semibold text-slate-800">Book</span> on your vehicle card to schedule a service with these details pre-filled.
+                    {location.pathname === '/customer/book'
+                      ? 'After saving, we will continue to personalized packages for this vehicle.'
+                      : <>After you save, open <span className="font-semibold text-slate-800">Book</span> on your vehicle card to schedule a service with these details pre-filled.</>}
                   </>
                 }
               />
@@ -7337,7 +7811,7 @@ export default function CustomerDashboard() {
                           <iconify-icon icon={bookingSelectedVehicleIdx >= 0 ? 'solar:tag-price-linear' : 'solar:hand-stars-linear'} width="14"></iconify-icon>
                           {bookingSelectedVehicleIdx >= 0
                             ? (VEHICLE_OPTIONS.find(o => o.type === bookingVehicleType)?.label || bookingVehicleType)
-                            : 'Tap a vehicle below'}
+                            : vehiclesLoading ? 'Loading your garage' : 'Tap a vehicle below'}
                         </div>
                       </div>
                     </div>
@@ -7353,14 +7827,25 @@ export default function CustomerDashboard() {
                       </div>
                     ) : null}
 
-                    {vehicles.length === 0 ? (
+                    {vehiclesLoading ? (
+                      <div className="booking-service-hint booking-service-hint--blue flex items-center gap-3 rounded-[22px] px-4 py-4" role="status">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/90 text-blue-600 shadow-sm shadow-blue-600/10">
+                          <iconify-icon icon="solar:refresh-circle-linear" width="19" className="animate-spin"></iconify-icon>
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-blue-900">Loading your Garage</p>
+                          <p className="mt-0.5 text-xs font-medium text-blue-800/90">Checking your saved vehicles before showing booking prices.</p>
+                        </div>
+                      </div>
+                    ) : vehicles.length === 0 ? (
                       <div className="booking-service-hint booking-service-hint--blue flex items-start gap-3 rounded-[22px] px-4 py-3">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/90 text-blue-600 shadow-sm shadow-blue-600/10">
                           <iconify-icon icon="solar:info-circle-bold" width="18"></iconify-icon>
                         </div>
                         <div>
                           <p className="text-sm font-bold text-blue-900">No vehicle saved yet</p>
-                          <p className="mt-0.5 text-xs font-medium text-blue-800/90">Showing Hatchback pricing for now. Vehicle details are collected on the next step.</p>
+                          <p className="mt-0.5 text-xs font-medium text-blue-800/90">Add a vehicle to see accurate pricing. No default category will be used.</p>
+                          <button type="button" onClick={() => setAddVehicleOpen(true)} className="mt-2 text-xs font-bold text-blue-700 underline underline-offset-2">Add Vehicle</button>
                         </div>
                       </div>
                     ) : (
@@ -7434,7 +7919,7 @@ export default function CustomerDashboard() {
                           <p className="mt-1 text-xs font-medium text-slate-500">
                             {bookingSelectedVehicleIdx >= 0
                               ? 'Prices reflect your selected vehicle class.'
-                              : `${VEHICLE_OPTIONS.find((o) => o.type === bookingVehicleType)?.label || 'Selected class'} pricing shown until you pick a vehicle above.`}
+                              : 'Select a saved vehicle before package pricing can be shown.'}
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -7471,6 +7956,7 @@ export default function CustomerDashboard() {
                         tabIndex={packageScrollState.overflow ? 0 : -1}
                       >
                         {bookingPackages.map((svc: any) => {
+                          if (bookingSelectedVehicleIdx < 0) return null;
                           const currentPrice = svc.prices[bookingVehicleType] ?? null;
                           if (currentPrice === null) return null;
                           const selected = bookingForm.service === svc.id;
@@ -8724,8 +9210,7 @@ export default function CustomerDashboard() {
                 resolveGarageVehiclePlate(garageVForPlate);
               const plateNormStep = normalizePlateNumber(effectivePlateRaw);
               const plateOk = plateNormStep.length >= 4 && plateNormStep.length <= 9;
-              const bookingVehicleChosen =
-                vehicles.length === 0 || (bookingSelectedVehicleIdx >= 0 && bookingSelectedVehicleIdx < vehicles.length);
+              const bookingVehicleChosen = bookingSelectedVehicleIdx >= 0 && bookingSelectedVehicleIdx < vehicles.length;
               const step1Valid = !!bookingForm.service && bookingVehicleChosen;
               const vehicleFieldsValid =
                 !!bookingForm.vehicleMake &&

@@ -20,7 +20,6 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
-  ActivityIndicator,
   TouchableOpacity,
   Switch,
 } from 'react-native';
@@ -37,8 +36,11 @@ import { authService } from '@/services/api/authService';
 import { useTheme } from '@/hooks/useThemeContext';
 import { Palette, TabBarHeight } from '@/constants/theme';
 import { Toast } from '@/components/ui/PremiumToast';
-import { getApiErrorMessage } from '@/services/api/client';
-import { prepareProfilePhoto } from '@/features/settings/profile-photo';
+import { PremiumLoader } from '@/components/ui/loading';
+import {
+  getProfilePhotoUploadMessage,
+  prepareProfilePhoto,
+} from '@/features/settings/profile-photo';
 
 // ── Shared Profile Header ──
 import ProfileHeader from '@/features/settings/components/ProfileHeader';
@@ -146,6 +148,7 @@ export default function SettingsScreen() {
 
   // ── Avatar picker ──
   const handlePickImage = async () => {
+    if (isUpdatingAvatar) return;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -154,18 +157,19 @@ export default function SettingsScreen() {
         quality: 0.8,
       });
 
-      const selectedPhoto = result.canceled ? null : result.assets[0];
-      if (!result.canceled && selectedPhoto) {
-        setIsUpdatingAvatar(true);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        const preparedPhoto = await prepareProfilePhoto(selectedPhoto);
-        await authService.updateMyProfilePhoto(preparedPhoto);
-        await refreshProfile();
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Toast.show('Profile photo updated', 'success');
-      }
+      if (result.canceled) return;
+      const selectedPhoto = result.assets?.[0];
+      if (!selectedPhoto) return;
+
+      setIsUpdatingAvatar(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const preparedPhoto = await prepareProfilePhoto(selectedPhoto);
+      await authService.updateMyProfilePhoto(preparedPhoto);
+      await refreshProfile();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Toast.show('Profile photo updated', 'success');
     } catch (error: any) {
-      Alert.alert('Error', getApiErrorMessage(error, 'Failed to update profile picture.'));
+      Alert.alert('Error', getProfilePhotoUploadMessage(error));
     } finally {
       setIsUpdatingAvatar(false);
     }
@@ -400,7 +404,7 @@ export default function SettingsScreen() {
               iconName="log-out-outline"
               title={isSigningOut ? 'Signing Out…' : 'Sign Out'}
               danger
-              rightElement={isSigningOut ? <ActivityIndicator size="small" color="#EF4444" /> : undefined}
+              rightElement={isSigningOut ? <PremiumLoader size="small" tone="danger" accessibilityLabel="Signing out" /> : undefined}
               onPress={isSigningOut ? undefined : () => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
                 handleLogout();

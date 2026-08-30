@@ -92,6 +92,7 @@ export function serializeUserForClient(userDoc) {
     : { ...userDoc };
   delete userObject.password;
   delete userObject.avatarPublicId;
+  delete userObject.profilePhotoFileId;
   attachPhoneForClient(userDoc, userObject);
   attachProfileImageForClient(userDoc, userObject);
   return userObject;

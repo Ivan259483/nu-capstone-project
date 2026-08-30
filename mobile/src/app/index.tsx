@@ -7,9 +7,10 @@
  */
 
 import { Redirect } from 'expo-router';
-import { View, ActivityIndicator, Text } from 'react-native';
+import { View, Text } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { isCustomerRole } from '@/services/api/roles';
+import { FullScreenLoader } from '@/components/ui/loading';
 
 /** Set true to verify Expo Router + Metro (pure RN). Set false to continue normal flow. */
 const SHOW_DEBUG_BOOT_SCREEN = false;
@@ -43,11 +44,7 @@ export default function RootIndex() {
 
   // Still waiting for Firebase to confirm auth state
   if (!initialized) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#040405', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="small" color="#F97316" />
-      </View>
-    );
+    return <FullScreenLoader label="Restoring your session" detail="Securing your AutoSPF+ experience" />;
   }
 
   const isAuthorizedCustomer = Boolean(token && profile && isCustomerRole(profile.role));

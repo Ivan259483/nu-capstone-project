@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { en } from "@/translations/en";
 import { fil } from "@/translations/fil";
+import { useOptionalAuth } from "@/contexts/AuthContext";
+import { getBookingEntryPath } from "@/lib/auth-redirect";
 
 const HERO_VIDEO_WEBM_SRC = "/videos/hero-autospf.webm";
 const HERO_VIDEO_MP4_SRC = "/videos/hero-autospf.mp4";
@@ -17,6 +19,8 @@ const HERO_SERVICE_KEYS = [
 
 export default function HeroSection() {
     const { lang, t } = useLanguage();
+    const user = useOptionalAuth()?.user;
+    const bookingEntryPath = getBookingEntryPath(user?.role);
     const heroHighlight = useMemo(
         () => (lang === "fil" ? fil.hero.typingWords : en.hero.typingWords)[0] || t("hero.titleHighlight"),
         [lang, t]
@@ -211,7 +215,7 @@ export default function HeroSection() {
                     {/* CTA Buttons */}
                     <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-11 font-sans">
                         <Link
-                            to="/login"
+                            to={bookingEntryPath}
                             className="group public-luxury-cta public-luxury-cta--primary public-luxury-cta--hero"
                         >
                             {t("hero.cta")}

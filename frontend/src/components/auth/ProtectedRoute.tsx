@@ -17,6 +17,7 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { getDashboardPathForRole, getSafeUserRole } from '@/lib/roles';
+import { LOGIN_REDIRECT_STORAGE_KEY } from '@/lib/auth-redirect';
 
 interface ProtectedRouteProps {
   /** Roles that are allowed to render children. Pass empty array for "all authenticated". */
@@ -72,7 +73,7 @@ export default function ProtectedRoute({ allowedRoles, children }: ProtectedRout
     const redirectPath = location.pathname + location.search + location.hash;
     if (location.pathname !== '/' && location.pathname !== '/login') {
       sessionStorage.setItem(
-        'redirect_after_login',
+        LOGIN_REDIRECT_STORAGE_KEY,
         redirectPath
       );
     }

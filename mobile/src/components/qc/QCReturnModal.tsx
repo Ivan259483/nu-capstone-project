@@ -7,11 +7,11 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  ActivityIndicator,
   Pressable,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { RETURN_REASONS } from '@/services/api/qcService';
+import { PremiumLoader } from '@/components/ui/loading';
 
 interface Props {
   visible: boolean;
@@ -134,7 +134,7 @@ export default function QCReturnModal({ visible, jobId, technician, onClose, onC
               activeOpacity={0.8}
             >
               {submitting ? (
-                <ActivityIndicator size="small" color="#FFF" />
+                <PremiumLoader size="small" tone="light" accessibilityLabel="Returning job to technician" />
               ) : (
                 <>
                   <Feather name="rotate-ccw" size={14} color="#FFF" />

@@ -2,6 +2,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { auth } from '@/config/firebase';
 import { syncOperationalDataEpoch } from './operational-data-epoch';
+import { notifyAuthSessionExpired } from './auth-session-events';
 
 // Backend API configuration — production fallback (Render); override with VITE_API_URL
 const PRODUCTION_API_URL = 'https://nu-capstone-project.onrender.com/api';
@@ -190,6 +191,9 @@ api.interceptors.response.use(
         if (response?.status === 401) {
             console.warn('🔓 [API 401]: Backend token rejected for', endpoint);
 
+            const rejectedAuthorization = String((config as any)?.headers?.Authorization || '');
+            const rejectedToken = rejectedAuthorization.replace(/^Bearer\s+/i, '').trim();
+
             // Only clear the backend JWT — do NOT touch Firebase auth.
             // Firebase auth state is exclusively managed by AuthContext.
             // Calling signOut(auth) here would fire onAuthStateChanged(null)
@@ -224,8 +228,11 @@ api.interceptors.response.use(
                 }
             }
 
-            // If we reach here, refresh failed or no Firebase user — just reject silently.
-            // AuthContext's onAuthStateChanged will handle the actual logout flow.
+            // A rejected backend-only session does not trigger Firebase's auth listener.
+            // Notify AuthContext once, after any supported Firebase refresh has failed.
+            if (rejectedToken) {
+                notifyAuthSessionExpired({ rejectedToken });
+            }
         } else if (response?.status === 403) {
             const code = response?.data?.code;
 

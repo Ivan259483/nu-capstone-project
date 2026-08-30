@@ -4,9 +4,13 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useOptionalAuth } from "@/contexts/AuthContext";
+import { getBookingEntryPath } from "@/lib/auth-redirect";
 
 export default function BookingCTA() {
     const { t } = useLanguage();
+    const user = useOptionalAuth()?.user;
+    const bookingEntryPath = getBookingEntryPath(user?.role);
     const { ref, isVisible } = useScrollAnimation<HTMLDivElement>({ threshold: 0.25 });
 
     return (
@@ -54,7 +58,7 @@ export default function BookingCTA() {
                         className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-24 w-[min(34rem,86vw)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#f4b43f]/12 blur-2xl"
                         aria-hidden
                     />
-                    <Link to="/login">
+                    <Link to={bookingEntryPath}>
                         <Button
                             size="lg"
                             className="bg-gradient-gold text-primary-foreground glow-gold font-semibold px-10 hover:opacity-90 hover:scale-105 transition-all duration-300 group"

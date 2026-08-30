@@ -1,6 +1,52 @@
 import mongoose from 'mongoose';
 import { encrypt, decrypt } from '../utils/encryption.utils.js';
 import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
+import { VEHICLE_PRICING_CATEGORY_CODES } from '../constants/pricingCategories.js';
+
+const addOnPriceSnapshotSchema = new mongoose.Schema(
+  {
+    code: {
+      type: String,
+      enum: ['NANO_CERAMIC_TINT_BUNDLE', 'UNDERCOATING'],
+      required: true,
+    },
+    pricingMode: {
+      type: String,
+      enum: ['bundle_total', 'additive', 'included'],
+      required: true,
+    },
+    priceAtBooking: { type: Number, required: true },
+    incrementalPriceAtBooking: { type: Number, required: true },
+    included: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const pricingSnapshotSchema = new mongoose.Schema(
+  {
+    catalogVersion: { type: String, required: true },
+    packageCode: {
+      type: String,
+      enum: ['SPF80', 'SPF89', 'SPF99', 'SPF101'],
+      required: true,
+    },
+    vehiclePricingCategory: {
+      type: String,
+      enum: VEHICLE_PRICING_CATEGORY_CODES,
+      required: true,
+    },
+    quotedPrice: { type: Number, required: true },
+    srpAtBooking: { type: Number, required: true },
+    savingsAtBooking: { type: Number, required: true },
+    selectedAddOns: {
+      type: [{ type: String, enum: ['NANO_CERAMIC_TINT_BUNDLE', 'UNDERCOATING'] }],
+      default: [],
+    },
+    addOnPriceSnapshots: { type: [addOnPriceSnapshotSchema], default: [] },
+    capturedAt: { type: Date, required: true },
+  },
+  { _id: false }
+);
 
 const orderSchema = new mongoose.Schema(
   {
@@ -43,6 +89,8 @@ const orderSchema = new mongoose.Schema(
     taxVatAmount: { type: Number, default: 0 },
     additionalFees: { type: Number, default: 0 },
     serviceTotal: { type: Number, default: 0 },
+    /** Immutable-at-booking financial evidence; catalog syncs never rewrite it. */
+    pricingSnapshot: { type: pricingSnapshotSchema, default: undefined },
     amountCollected: { type: Number, default: 0 },
     totalAmount: Number,
     totalPrice: Number,

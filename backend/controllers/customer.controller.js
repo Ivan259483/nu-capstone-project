@@ -3,6 +3,10 @@ import Vehicle from '../models/vehicle.model.js';
 import User from '../models/user.model.js';
 import mongoose from 'mongoose';
 import { normalizePlateNumber, findVehicleByNormalizedPlate } from '../utils/plate.utils.js';
+import {
+  normalizeVehiclePricingCategory,
+  resolveVehiclePricingCategory,
+} from '../constants/pricingCategories.js';
 
 import {
   isFullAdminRole,
@@ -329,7 +333,18 @@ export const addVehicle = async (req, res, next) => {
       });
     }
 
-    const { year, make, model, color, plateNumber, vehicleType, transmission, fuelType, customerUserId } = req.body;
+    const {
+      year,
+      make,
+      model,
+      color,
+      plateNumber,
+      vehicleType,
+      pricingCategory: pricingCategoryInput,
+      transmission,
+      fuelType,
+      customerUserId,
+    } = req.body;
 
     const resolved = await resolveVehicleOwnerUserId(req, customerUserId, undefined);
     if (!resolved.ok) {
@@ -350,6 +365,15 @@ export const addVehicle = async (req, res, next) => {
     const fuelAllowed = ['', 'Gasoline', 'Diesel', 'Electric', 'Hybrid'];
     const tx = txAllowed.includes(transmission) ? transmission : '';
     const fuel = fuelAllowed.includes(fuelType) ? fuelType : '';
+    const pricingCategory = normalizeVehiclePricingCategory(pricingCategoryInput);
+    if (!pricingCategory) {
+      return res.status(422).json({
+        success: false,
+        code: 'PRICE_CATEGORY_REQUIRED',
+        message: 'Select a valid vehicle pricing category before saving this vehicle.',
+      });
+    }
+    const staffAssignedCategory = canManageCustomerGarage(req.user.role);
 
     // ── Plate uniqueness check (normalized + legacy spaced formats in DB) ───
     const existingVehicle = await findVehicleByNormalizedPlate(normalizedPlate);
@@ -380,6 +404,11 @@ export const addVehicle = async (req, res, next) => {
       color: color || 'Unknown',
       plateNumber: normalizedPlate,
       vehicleType: vehicleType || '',
+      pricingCategory,
+      pricingCategorySource: staffAssignedCategory ? 'admin_assigned' : 'customer_selected',
+      pricingCategoryNeedsReview: !staffAssignedCategory,
+      pricingCategoryReviewedAt: staffAssignedCategory ? new Date() : null,
+      pricingCategoryReviewedBy: staffAssignedCategory ? req.user.id : null,
       transmission: tx,
       fuelType: fuel,
     });
@@ -439,12 +468,26 @@ export const getVehicles = async (req, res, next) => {
     }
 
     const vehicles = await Vehicle.find({ customer: ownerId })
-      .select('year make model color plateNumber vehicleType transmission fuelType customer')
+      .select('year make model color plateNumber vehicleType pricingCategory pricingCategorySource pricingCategoryNeedsReview pricingCategoryReviewedAt pricingCategoryReviewedBy transmission fuelType customer')
       .lean();
+
+    const vehiclesWithEffectiveCategory = vehicles.map((vehicle) => {
+      const effectivePricingCategory = resolveVehiclePricingCategory(vehicle);
+      const usesLegacyClassification = Boolean(
+        effectivePricingCategory && effectivePricingCategory !== vehicle.pricingCategory
+      );
+      return {
+        ...vehicle,
+        pricingCategory: effectivePricingCategory || vehicle.pricingCategory || null,
+        pricingCategorySource: vehicle.pricingCategorySource
+          || (usesLegacyClassification ? 'legacy_migration' : null),
+        pricingCategoryNeedsReview: vehicle.pricingCategoryNeedsReview ?? usesLegacyClassification,
+      };
+    });
 
     res.json({
       success: true,
-      data: vehicles,
+      data: vehiclesWithEffectiveCategory,
     });
   } catch (error) {
     next(error);
@@ -464,7 +507,17 @@ export const updateVehicle = async (req, res, next) => {
       });
     }
 
-    const { year, make, model, color, plateNumber, vehicleType, transmission, fuelType } = req.body;
+    const {
+      year,
+      make,
+      model,
+      color,
+      plateNumber,
+      vehicleType,
+      pricingCategory: pricingCategoryInput,
+      transmission,
+      fuelType,
+    } = req.body;
     const platePattern = /^[A-Z0-9]{4,9}$/;
     const txAllowed = ['', 'Automatic', 'Manual', 'CVT'];
     const fuelAllowed = ['', 'Gasoline', 'Diesel', 'Electric', 'Hybrid'];
@@ -497,6 +550,22 @@ export const updateVehicle = async (req, res, next) => {
     if (model !== undefined) vehicle.model = model;
     if (color !== undefined) vehicle.color = color;
     if (vehicleType !== undefined) vehicle.vehicleType = vehicleType;
+    if (pricingCategoryInput !== undefined) {
+      const pricingCategory = normalizeVehiclePricingCategory(pricingCategoryInput);
+      if (!pricingCategory) {
+        return res.status(422).json({
+          success: false,
+          code: 'PRICE_CATEGORY_REQUIRED',
+          message: 'Select a valid vehicle pricing category before saving this vehicle.',
+        });
+      }
+      const staffAssignedCategory = canManageCustomerGarage(req.user.role);
+      vehicle.pricingCategory = pricingCategory;
+      vehicle.pricingCategorySource = staffAssignedCategory ? 'admin_assigned' : 'customer_selected';
+      vehicle.pricingCategoryNeedsReview = !staffAssignedCategory;
+      vehicle.pricingCategoryReviewedAt = staffAssignedCategory ? new Date() : null;
+      vehicle.pricingCategoryReviewedBy = staffAssignedCategory ? req.user.id : null;
+    }
     if (plateNumber) {
       const normalizedPlate = normalizePlateNumber(typeof plateNumber === 'string' ? plateNumber : '');
       if (!platePattern.test(normalizedPlate)) {

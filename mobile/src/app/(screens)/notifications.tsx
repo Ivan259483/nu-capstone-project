@@ -1,7 +1,6 @@
 /** Customer notification inbox backed by the authenticated notifications API. */
 import React, { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
@@ -12,6 +11,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { PageSkeleton, PremiumLoader } from '@/components/ui/loading';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -323,7 +323,7 @@ export default function NotificationsScreen() {
           ]}
         >
           {markingAllRead ? (
-            <ActivityIndicator size="small" color={Palette.accent} />
+            <PremiumLoader size="small" accessibilityLabel="Marking notifications as read" />
           ) : (
             <Text style={styles.readAllText}>{readAllLabel}</Text>
           )}
@@ -341,10 +341,7 @@ export default function NotificationsScreen() {
           onBack={handleBack}
           onSettings={() => router.push('/(screens)/notification-preferences')}
         />
-        <View style={styles.centerState}>
-          <ActivityIndicator size="large" color={Palette.accent} />
-          <Text style={[styles.stateMessage, { color: colors.textSecondary }]}>Loading notifications…</Text>
-        </View>
+        <PageSkeleton preset="list" rows={5} />
       </View>
     );
   }
@@ -394,7 +391,7 @@ export default function NotificationsScreen() {
         )}
         ListEmptyComponent={<EmptyState />}
         ListFooterComponent={loadingMore ? (
-          <ActivityIndicator style={styles.footerLoader} color={Palette.accent} />
+          <PremiumLoader style={styles.footerLoader} size="small" accessibilityLabel="Loading more notifications" />
         ) : null}
         refreshControl={(
           <RefreshControl
@@ -539,7 +536,7 @@ function NotificationRow({
               {notification.title}
             </Text>
             {busy ? (
-              <ActivityIndicator size="small" color={Palette.accent} />
+              <PremiumLoader size="small" accessibilityLabel="Opening notification" />
             ) : !notification.isRead ? (
               <View style={styles.unreadDot} />
             ) : null}

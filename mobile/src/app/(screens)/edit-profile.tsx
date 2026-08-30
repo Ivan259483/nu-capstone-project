@@ -29,7 +29,10 @@ import { Palette, BorderRadius } from '@/constants/theme';
 import PremiumInput from '@/components/ui/PremiumInput';
 import PremiumButton from '@/components/ui/PremiumButton';
 import { Toast } from '@/components/ui/PremiumToast';
-import { prepareProfilePhoto } from '@/features/settings/profile-photo';
+import {
+  getProfilePhotoUploadMessage,
+  prepareProfilePhoto,
+} from '@/features/settings/profile-photo';
 
 import * as ImagePicker from 'expo-image-picker';
 
@@ -121,9 +124,6 @@ export default function EditProfileScreen() {
       }
       Toast.show('Profile updated successfully!', 'success');
 
-      setTimeout(() => {
-        router.back();
-      }, 1200);
     } catch (err: any) {
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -136,6 +136,7 @@ export default function EditProfileScreen() {
   };
 
   const handlePickImage = async () => {
+    if (isUpdatingAvatar) return;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -144,20 +145,21 @@ export default function EditProfileScreen() {
         quality: 0.8,
       });
 
-      const selectedPhoto = result.canceled ? null : result.assets[0];
-      if (!result.canceled && selectedPhoto) {
-        setIsUpdatingAvatar(true);
-        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (result.canceled) return;
+      const selectedPhoto = result.assets?.[0];
+      if (!selectedPhoto) return;
 
-        const preparedPhoto = await prepareProfilePhoto(selectedPhoto);
-        await authService.updateMyProfilePhoto(preparedPhoto);
-        await refreshProfile();
-        
-        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Toast.show('Profile photo updated successfully!', 'success');
-      }
+      setIsUpdatingAvatar(true);
+      if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      const preparedPhoto = await prepareProfilePhoto(selectedPhoto);
+      await authService.updateMyProfilePhoto(preparedPhoto);
+      await refreshProfile();
+
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Toast.show('Profile photo updated successfully!', 'success');
     } catch (error: any) {
-      Alert.alert('Error', getApiErrorMessage(error, 'Failed to update profile picture.'));
+      Alert.alert('Error', getProfilePhotoUploadMessage(error));
     } finally {
       setIsUpdatingAvatar(false);
     }
@@ -331,9 +333,7 @@ export default function EditProfileScreen() {
             >
               <PremiumButton
                 title={
-                  success
-                    ? '✓ SAVED'
-                    : loading
+                  loading
                     ? 'SAVING...'
                     : !hasChanges
                     ? 'NO CHANGES'
@@ -342,6 +342,10 @@ export default function EditProfileScreen() {
                 icon={success ? undefined : loading ? undefined : 'save-outline'}
                 onPress={handleSave}
                 disabled={loading || !hasChanges || success}
+                loading={loading}
+                success={success}
+                successTitle="Saved"
+                onSuccessAnimationComplete={() => router.back()}
               />
             </Animated.View>
 

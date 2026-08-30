@@ -4,10 +4,11 @@ import { toast } from "sonner";
 import { getBaseApiUrl } from "@/lib/api";
 import { TOKEN_KEY, persistBackendUser, safeLocalStorageSet } from "@/lib/auth-storage";
 import { useAuth } from "@/contexts/AuthContext";
-import { getDashboardPathForRole, getSafeUserRole } from "@/lib/roles";
+import { getSafeUserRole } from "@/lib/roles";
 import { signOut } from "firebase/auth";
 import { auth } from "@/config/firebase";
 import { ShieldCheck, RefreshCw, ArrowLeft, Loader2 } from "lucide-react";
+import { appendPostLoginRedirect, consumePostLoginRedirect, getSafeLoginRedirect } from "@/lib/auth-redirect";
 
 const OTP_LENGTH = 6;
 const OTP_SECONDS = 600; // 10 minutes
@@ -21,6 +22,7 @@ export default function VerifyOtpPage() {
     const { setAuthUser } = useAuth();
     const email = normalizeEmail(searchParams.get("email") || "");
     const fromRegister = searchParams.get("from") === "register";
+    const redirectParamTo = getSafeLoginRedirect(searchParams.get("redirect") || searchParams.get("next"));
 
     const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(""));
     const [seconds, setSeconds] = useState(OTP_SECONDS);
@@ -133,7 +135,8 @@ export default function VerifyOtpPage() {
                     phone: backendUser.phone as string | undefined,
                 });
                 toast.success("Welcome to AutoSPF+!");
-                navigate(getDashboardPathForRole(role) || "/customer/dashboard", { replace: true });
+                const redirectAfterVerification = consumePostLoginRedirect(redirectParamTo, sessionStorage, role);
+                navigate(redirectAfterVerification, { replace: true });
                 return;
             }
 
@@ -142,14 +145,17 @@ export default function VerifyOtpPage() {
             if (isFirstLogin && role && role !== "customer") {
                 navigate("/set-password");
             } else {
-                navigate(fromRegister ? "/login?verified=1" : "/login?verified=1");
+                navigate(appendPostLoginRedirect(
+                    fromRegister ? "/login?verified=1" : "/login?verified=1",
+                    redirectParamTo,
+                ));
             }
         } catch {
             toast.error("Network error. Please try again.");
         } finally {
             setIsVerifying(false);
         }
-    }, [digits, email, isVerifying, navigate]);
+    }, [digits, email, isVerifying, navigate, redirectParamTo, setAuthUser]);
 
     /* ── auto-submit when all digits filled ── */
     useEffect(() => {
@@ -355,7 +361,7 @@ export default function VerifyOtpPage() {
                     )}
                 </div>
 
-                <Link to="/login" className="back-link">
+                <Link to={appendPostLoginRedirect("/login", redirectParamTo)} className="back-link">
                     <ArrowLeft size={14} />
                     Back to Login
                 </Link>

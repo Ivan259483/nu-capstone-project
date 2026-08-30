@@ -18,6 +18,10 @@ import { getSharedSocket, refreshSocketAuth, destroySharedSocket } from '@/hooks
 import { formatContactNoInputFromProfile, normalizePhilippineMobileInput } from '@/lib/phone';
 import { resolveProfileImage } from '@/lib/profile-image';
 import {
+    AUTH_SESSION_EXPIRED_EVENT,
+    type AuthSessionExpiredDetail,
+} from '@/lib/auth-session-events';
+import {
     BACKEND_USER_KEY,
     TOKEN_KEY,
     isDataImage,
@@ -231,6 +235,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const loginInProgressRef = useRef(false);
     /** Prevents onAuthStateChanged from re-hydrating JWT after intentional sign-out. */
     const logoutInProgressRef = useRef(false);
+
+    useEffect(() => {
+        const handleExpiredSession = (event: Event) => {
+            if (loginInProgressRef.current) return;
+
+            const rejectedToken = (event as CustomEvent<AuthSessionExpiredDetail>).detail?.rejectedToken;
+            const currentToken = localStorage.getItem(TOKEN_KEY);
+            // Ignore a late 401 from an older request after a newer login succeeded.
+            if (rejectedToken && currentToken && currentToken !== rejectedToken) return;
+
+            destroySharedSocket();
+            clearAuthStorage();
+            userStorage.setCurrentUser(null);
+            loginResolvedRef.current = false;
+            setUser(null);
+            setIsLoading(false);
+            setIsFirebaseAuthReady(true);
+            try {
+                invalidateAll();
+            } catch {
+                /* ignore */
+            }
+            void signOut(auth).catch(() => {});
+        };
+
+        window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleExpiredSession);
+        return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleExpiredSession);
+    }, []);
 
     const sanitizeUser = useCallback((userData: User): User => {
         if (!userData) return userData;
@@ -1709,4 +1741,9 @@ export function useAuth() {
         throw new Error('useAuth must be used within an AuthProvider');
     }
     return context;
+}
+
+/** Public pages can render before the authenticated application shell is mounted. */
+export function useOptionalAuth() {
+    return useContext(AuthContext);
 }

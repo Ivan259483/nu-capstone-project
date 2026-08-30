@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert 
 import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
 import { CheckCircle, Clock, FileText, Shield } from '@/components/ui/Icons';
+import { PremiumLoader } from '@/components/ui/loading';
 import * as Print from 'expo-print';
 
 export default function Step8_WarrantyReceipt() {
@@ -142,7 +143,7 @@ export default function Step8_WarrantyReceipt() {
         disabled={saving}
       >
         {saving
-          ? <><Clock size={20} color="#fff" style={{ marginRight: 8 }} /><Text style={styles.saveBtnText}>Saving…</Text></>
+          ? <><PremiumLoader size={18} tone="light" accessibilityLabel="Saving warranty receipt" style={{ marginRight: 8 }} /><Text style={styles.saveBtnText}>Saving…</Text></>
           : <><CheckCircle size={20} color="#fff" style={{ marginRight: 8 }} /><Text style={styles.saveBtnText}>Finalize & Proceed to Release</Text></>
         }
       </TouchableOpacity>

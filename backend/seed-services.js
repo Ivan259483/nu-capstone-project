@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { config } from './config/environment.js';
 import Service from './models/service.model.js';
 import {
+    SPF_CATALOG_VERSION,
     SPF_PACKAGE_PRICING,
     buildLegacyPrices,
     buildRichPricing,
@@ -25,6 +26,11 @@ const seedSPFPackages = async () => {
         console.log('🚗 Creating SPF Graphene Ceramic Coating packages...');
         const services = Object.values(SPF_PACKAGE_PRICING).map((pkg) => ({
             name: pkg.name,
+            packageCode: pkg.packageCode,
+            tier: pkg.tier,
+            protectionYears: pkg.protectionYears,
+            durationNeedsClientVerification: pkg.durationNeedsClientVerification,
+            catalogVersion: SPF_CATALOG_VERSION,
             category: pkg.category,
             description: pkg.description,
             duration: pkg.duration,

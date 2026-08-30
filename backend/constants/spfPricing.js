@@ -1,19 +1,38 @@
-export const VEHICLE_PRICE_FIELDS = [
-  { apiKey: 'hatchback', legacyKey: 'hatchback', label: 'Hatchback' },
-  { apiKey: 'sedan', legacyKey: 'sedan', label: 'Sedan' },
-  { apiKey: 'midsized', legacyKey: 'midsized', label: 'Midsized' },
-  { apiKey: 'suv', legacyKey: 'suv', label: 'SUV' },
-  { apiKey: 'pickup', legacyKey: 'pickup', label: 'Pick Up' },
-  { apiKey: 'largeSuv', legacyKey: 'largesuv', label: 'Large SUV / Van' },
-  { apiKey: 'highend', legacyKey: 'highend', label: 'High-end Sedan' },
-];
+import {
+  VEHICLE_PRICING_CATEGORIES,
+  VEHICLE_PRICING_CATEGORY,
+  getVehiclePricingApiKey,
+} from './pricingCategories.js';
+
+export const SPF_CATALOG_VERSION = '2026-08-30-official-posters-v1';
+
+export const VEHICLE_PRICE_FIELDS = VEHICLE_PRICING_CATEGORIES.map((category) => ({
+  code: category.code,
+  apiKey: category.apiKey,
+  legacyKey: category.legacyKey,
+  label: category.label,
+}));
+
+export const UNDERCOATING_PRICING = Object.freeze({
+  [VEHICLE_PRICING_CATEGORY.HATCHBACK_SMALL_CAR]: 6000,
+  [VEHICLE_PRICING_CATEGORY.SEDAN]: 6500,
+  [VEHICLE_PRICING_CATEGORY.MIDSIZED]: 7000,
+  [VEHICLE_PRICING_CATEGORY.SUV]: 7500,
+  [VEHICLE_PRICING_CATEGORY.PICKUP]: 7500,
+  [VEHICLE_PRICING_CATEGORY.LARGE_SUV_VAN]: 9000,
+  [VEHICLE_PRICING_CATEGORY.HIGH_END_SEDAN]: 8000,
+});
 
 export const SPF_PACKAGE_PRICING = {
   spf80: {
+    packageCode: 'SPF80',
+    tier: 'Essential',
+    protectionYears: 3,
     name: 'SPF 80 — Essential',
     category: 'Exterior',
     description: '3 Layers of Graphene Ceramic Coating (Made in Canada) with Graphene Sealant. 3 years protection.',
     duration: '2-3 hours',
+    durationNeedsClientVerification: true,
     displayOrder: 1,
     catalogCard: {
       badge: 'SPECIAL OFFER',
@@ -23,12 +42,12 @@ export const SPF_PACKAGE_PRICING = {
       features: [
         '3 Layers of Graphene Ceramic Coating (Made in Canada)',
         'Graphene Sealant',
-        '1 Signature AutoSPF Carwash',
+        'FREE 1 visit Signature AutoSPF Carwash',
       ],
       fullInclusions: [
         { group: 'Ceramic Protection', title: '3 Layers of Graphene Ceramic Coating', detail: 'Made in Canada' },
         { group: 'Ceramic Protection', title: 'Graphene Sealant' },
-        { group: 'Maintenance', title: '1 Signature AutoSPF Carwash', detail: 'Included' },
+        { group: 'Maintenance', title: 'FREE 1 visit Signature AutoSPF Carwash', detail: 'Included' },
       ],
       highlighted: [],
       addonLabel: 'Nano Ceramic Window Tint',
@@ -37,14 +56,18 @@ export const SPF_PACKAGE_PRICING = {
       flagship: false,
     },
     base: { hatchback: 7499, sedan: 7999, midsized: 7999, suv: 8999, pickup: 8499, largeSuv: 12999, highend: null },
-    original: { hatchback: 14000, sedan: 16000, midsized: 18000, suv: 18000, pickup: 17000, largeSuv: 26000, highend: null },
+    original: { hatchback: 14000, sedan: 16000, midsized: 18000, suv: 16000, pickup: 17000, largeSuv: 26000, highend: null },
     addon: { hatchback: 13499, sedan: 13499, midsized: 14499, suv: 15999, pickup: 14499, largeSuv: 20999, highend: null },
   },
   spf89: {
+    packageCode: 'SPF89',
+    tier: 'Advanced',
+    protectionYears: 5,
     name: 'SPF 89 — Advanced',
     category: 'Exterior',
     description: '4 Layers of Graphene Ceramic Coating (Made in Canada) with free maintenance visit. 5 years protection.',
     duration: '3-4 hours',
+    durationNeedsClientVerification: true,
     displayOrder: 2,
     catalogCard: {
       badge: 'RECOMMENDED',
@@ -54,12 +77,12 @@ export const SPF_PACKAGE_PRICING = {
       features: [
         '4 Layers of Graphene Ceramic Coating (Made in Canada)',
         'Graphene Sealant',
-        '1 Reboost / Maintenance Visit (Save ₱1,500)',
+        'FREE 1 visit Reboost / Maintenance (Save ₱1,500)',
       ],
       fullInclusions: [
         { group: 'Ceramic Protection', title: '4 Layers of Graphene Ceramic Coating', detail: 'Made in Canada' },
         { group: 'Ceramic Protection', title: 'Graphene Sealant' },
-        { group: 'Maintenance', title: '1 Reboost / Maintenance Visit', detail: 'Included', savingsLabel: 'Save ₱1,500' },
+        { group: 'Maintenance', title: 'FREE 1 visit Reboost / Maintenance', detail: 'Included', savingsLabel: 'Save ₱1,500' },
       ],
       highlighted: ['4 Layers'],
       addonLabel: 'Nano Ceramic Window Tint',
@@ -72,10 +95,14 @@ export const SPF_PACKAGE_PRICING = {
     addon: { hatchback: 14999, sedan: 15999, midsized: 17499, suv: 18999, pickup: 17499, largeSuv: 22999, highend: 23999 },
   },
   spf99: {
+    packageCode: 'SPF99',
+    tier: 'Premium',
+    protectionYears: 10,
     name: 'SPF 99 — Premium',
     category: 'Premium',
     description: '4 Layers of SONAX Profiline CC EVO (Made in Germany) with free recoat and maintenance. 10 years protection.',
     duration: '4-6 hours',
+    durationNeedsClientVerification: true,
     displayOrder: 3,
     catalogCard: {
       badge: 'PREMIUM',
@@ -84,13 +111,13 @@ export const SPF_PACKAGE_PRICING = {
       tierLabel: 'Premium',
       features: [
         '4 Layers of SONAX Profiline CC EVO (Made in Germany)',
-        'Full Recoat After 5 Years',
-        '2 Reboost / Maintenance Visits (Save ₱3,000)',
+        'FREE Full Recoat After 5 Years',
+        'FREE 2 visits Reboost / Maintenance (Save ₱3,000)',
       ],
       fullInclusions: [
         { group: 'Ceramic Protection', title: '4 Layers of SONAX Profiline CC EVO', detail: 'Made in Germany' },
-        { group: 'Ceramic Protection', title: 'Full Recoat After 5 Years', detail: 'Included' },
-        { group: 'Maintenance', title: '2 Reboost / Maintenance Visits', detail: 'Included', savingsLabel: 'Save ₱3,000' },
+        { group: 'Ceramic Protection', title: 'FREE Full Recoat After 5 Years', detail: 'Included' },
+        { group: 'Maintenance', title: 'FREE 2 visits Reboost / Maintenance', detail: 'Included', savingsLabel: 'Save ₱3,000' },
       ],
       highlighted: ['SONAX Profiline CC EVO', 'Full Recoat'],
       addonLabel: 'Nano Ceramic Window Tint',
@@ -99,14 +126,18 @@ export const SPF_PACKAGE_PRICING = {
       flagship: false,
     },
     base: { hatchback: 13999, sedan: 13999, midsized: 15999, suv: 16999, pickup: 15999, largeSuv: 19999, highend: 22999 },
-    original: { hatchback: 28000, sedan: 28000, midsized: 32000, suv: 34000, pickup: 32000, largeSuv: 40000, highend: 46000 },
+    original: { hatchback: 28000, sedan: 28000, midsized: 32000, suv: 34000, pickup: 32000, largeSuv: 40000, highend: 40000 },
     addon: { hatchback: 19999, sedan: 19999, midsized: 22499, suv: 23999, pickup: 22499, largeSuv: 27999, highend: 28999 },
   },
   spf101: {
-    name: 'SPF 101 — Flagship',
+    packageCode: 'SPF101',
+    tier: 'Flagship',
+    protectionYears: 10,
+    name: 'SPF 101 — Flagship ALL-IN',
     category: 'Premium',
     description: 'PPF + SONAX CC EVO + Nano Ceramic Tint + Undercoating — the ultimate 10-year package.',
     duration: '6-8 hours',
+    durationNeedsClientVerification: true,
     displayOrder: 4,
     catalogCard: {
       badge: 'ALL-IN PACKAGE',
@@ -114,23 +145,23 @@ export const SPF_PACKAGE_PRICING = {
       tagline: 'The complete transformation experience',
       tierLabel: 'Flagship',
       features: [
-        'Paint Protection Film (PPF) Installation',
+        'PPF installation on specified front-facing areas',
         '4 Layers of SONAX Profiline CC EVO (Made in Germany)',
-        'Full Recoat After 5 Years',
-        '5 Reboost / Maintenance Visits (Save ₱7,500)',
+        'FREE Full Recoat After 5 Years',
+        'FREE 5 visits Reboost / Maintenance (Save ₱7,500)',
         'Nano Ceramic Window Tint (Full Wrap — Any Shades)',
-        'Undercoating / Rust Proofing (Save ₱14,000)',
+        'FREE Undercoating / Rust Proofing (Save ₱14,000)',
       ],
       fullInclusions: [
-        { group: 'Paint Protection Film', title: 'Paint Protection Film (PPF) Installation', detail: 'High-impact exterior areas' },
+        { group: 'Paint Protection Film', title: 'PPF installation on specified areas', detail: 'Front-facing areas listed below; not a full-vehicle wrap' },
         { group: 'Ceramic Protection', title: '4 Layers of SONAX Profiline CC EVO', detail: 'Made in Germany' },
-        { group: 'Ceramic Protection', title: 'Full Recoat After 5 Years', detail: 'Included' },
-        { group: 'Maintenance', title: '5 Reboost / Maintenance Visits', detail: 'Included', savingsLabel: 'Save ₱7,500' },
+        { group: 'Ceramic Protection', title: 'FREE Full Recoat After 5 Years', detail: 'Included' },
+        { group: 'Maintenance', title: 'FREE 5 visits Reboost / Maintenance', detail: 'Included', savingsLabel: 'Save ₱7,500' },
         { group: 'Window Protection', title: 'Nano Ceramic Window Tint', detail: 'Full Wrap · Any Shades' },
-        { group: 'Underbody Protection', title: 'Undercoating / Rust Proofing', detail: 'Included', savingsLabel: 'Save ₱14,000' },
+        { group: 'Underbody Protection', title: 'FREE Undercoating / Rust Proofing', detail: 'Included', savingsLabel: 'Save ₱14,000' },
       ],
       highlighted: ['PPF', 'SONAX', 'Nano Ceramic Window Tint', 'Undercoating'],
-      ppfCoverage: ['Hood', 'Front Bumper', 'Stepsills', 'Door Bowls', 'Side Mirrors', 'Headlights', 'Taillights'],
+      ppfCoverage: ['Hood', 'Front Bumper', 'Stepsills', 'Door Bowls', 'Side Mirrors', 'Headlight & Taillight'],
       tintIncluded: true,
       tintDetails: 'Full Wrap · Any Shades',
       undercoatingIncluded: true,
@@ -170,4 +201,36 @@ export const getMinimumPackageBasePrice = (pkg) => {
 export const getPackageKeyFromName = (name = '') => {
   const match = String(name).toLowerCase().match(/spf\s*[-_]*(80|89|99|101)/i);
   return match ? `spf${match[1]}` : null;
+};
+
+export const getPackageKeyFromCode = (packageCode = '') => {
+  const match = String(packageCode).trim().toLowerCase().match(/^spf\s*[-_]*(80|89|99|101)$/i);
+  return match ? `spf${match[1]}` : getPackageKeyFromName(packageCode);
+};
+
+export const getUndercoatingPrice = (vehiclePricingCategory) => {
+  const category = String(vehiclePricingCategory || '').trim();
+  const value = UNDERCOATING_PRICING[category];
+  return Number.isFinite(value) ? value : null;
+};
+
+export const getCanonicalPricingEntry = (packageCode, vehiclePricingCategory) => {
+  const packageKey = getPackageKeyFromCode(packageCode);
+  const packageConfig = packageKey ? SPF_PACKAGE_PRICING[packageKey] : null;
+  const apiKey = getVehiclePricingApiKey(vehiclePricingCategory);
+  if (!packageConfig || !apiKey) return null;
+
+  const promoPrice = packageConfig.base[apiKey] ?? null;
+  const srp = packageConfig.original[apiKey] ?? null;
+  const tintBundlePrice = packageConfig.addon[apiKey] ?? null;
+  return {
+    packageKey,
+    packageCode: packageConfig.packageCode,
+    vehiclePricingCategory: String(vehiclePricingCategory),
+    available: Number.isFinite(promoPrice) && promoPrice > 0,
+    promoPrice,
+    srp,
+    savings: Number.isFinite(promoPrice) && Number.isFinite(srp) ? srp - promoPrice : null,
+    tintBundlePrice,
+  };
 };

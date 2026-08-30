@@ -18,7 +18,7 @@ import { Stack, useSegments, useRouter, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect } from 'react';
-import { AppState, View, ActivityIndicator } from 'react-native';
+import { AppState } from 'react-native';
 import { ThemeProvider, useTheme } from '@/hooks/useThemeContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import GlobalErrorBoundary from '@/components/GlobalErrorBoundary';
@@ -35,6 +35,7 @@ import { apiClient, getApiStatusCode } from '@/services/api/client';
 import { isCustomerRole } from '@/services/api/roles';
 import { SystemStatusProvider } from '@/context/SystemStatusContext';
 import SystemStatusGate from '@/components/SystemStatusGate';
+import { FullScreenLoader } from '@/components/ui/loading';
 
 // Prevent the native splash from auto-hiding until our custom one is ready.
 SplashScreen.preventAutoHideAsync();
@@ -73,11 +74,7 @@ function InnerLayout() {
 
   // ── Block ALL rendering until Firebase auth is confirmed ──────────────
   if (!initialized) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#040405', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="small" color="#F97316" />
-      </View>
-    );
+    return <FullScreenLoader label="Restoring your session" detail="Securing your AutoSPF+ experience" />;
   }
 
   // ── Unauthenticated route gate ──────────────────────────────────────────
@@ -140,6 +137,10 @@ function InnerLayout() {
         />
         <Stack.Screen
           name="(screens)/appointments"
+          options={{ animation: 'ios_from_right' }}
+        />
+        <Stack.Screen
+          name="(screens)/services"
           options={{ animation: 'ios_from_right' }}
         />
         <Stack.Screen

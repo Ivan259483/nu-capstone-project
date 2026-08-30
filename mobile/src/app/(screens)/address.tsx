@@ -14,7 +14,6 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +26,7 @@ import { Palette } from '@/constants/theme';
 import PremiumInput from '@/components/ui/PremiumInput';
 import { Toast } from '@/components/ui/PremiumToast';
 import SkeletonPulse from '@/components/ui/SkeletonPulse';
+import { PremiumLoader } from '@/components/ui/loading';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/services/api/client';
 
@@ -539,7 +539,7 @@ export default function AddressScreen() {
                 activeOpacity={0.8}
               >
                 {saving ? (
-                  <ActivityIndicator color="#111" />
+                  <PremiumLoader size="small" color="#111" trackColor="rgba(0,0,0,0.16)" accessibilityLabel="Saving address" />
                 ) : (
                   <Text style={s.actionBtnText}>
                     {editingAddress ? 'Update Address' : 'Save Address'}

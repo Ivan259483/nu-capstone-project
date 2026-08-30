@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { SPF_CATALOG_VERSION } from '../constants/spfPricing.js';
 
 const priceBreakdownSchema = new mongoose.Schema(
   {
@@ -46,7 +47,6 @@ const catalogCardSchema = new mongoose.Schema(
     accentMid: String,
     popular: Boolean,
     flagship: Boolean,
-    originalPriceMultiplier: { type: Number, default: null },
   },
   { _id: false }
 );
@@ -68,6 +68,19 @@ const serviceSchema = new mongoose.Schema(
       enum: ['ceramic_spf', 'ppf', 'other', 'uncategorized'],
       default: 'uncategorized',
     },
+    packageCode: {
+      type: String,
+      enum: ['SPF80', 'SPF89', 'SPF99', 'SPF101'],
+      default: undefined,
+    },
+    tier: {
+      type: String,
+      enum: ['Essential', 'Advanced', 'Premium', 'Flagship'],
+      default: undefined,
+    },
+    protectionYears: { type: Number, default: null },
+    durationNeedsClientVerification: { type: Boolean, default: false },
+    catalogVersion: { type: String, default: SPF_CATALOG_VERSION },
     displayOrder: { type: Number, default: 0 },
     description: String,
     duration: String,

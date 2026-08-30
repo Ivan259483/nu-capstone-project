@@ -63,7 +63,12 @@ import {
   saveOrderWithSlotTransition,
   validateSlotAvailability,
 } from '../services/slot.service.js';
-import { SPF_PACKAGE_PRICING, getPackageKeyFromName } from '../constants/spfPricing.js';
+import { getPackageKeyFromName } from '../constants/spfPricing.js';
+import {
+  ServicePricingError,
+  buildPricingSnapshot,
+  resolveBookingQuote,
+} from '../services/servicePricing.service.js';
 import { emitAvailabilityUpdated } from '../utils/availabilityBroadcast.utils.js';
 import {
   buildAdminDeepLink,
@@ -182,24 +187,14 @@ const validatePdfReference = (value) => {
   }
 };
 
-const normalizeVehiclePriceKey = (value = '') => {
-  const normalized = String(value).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  const map = {
-    hatchback: 'hatchback', sedan: 'sedan', midsized: 'midsized', midsize: 'midsized',
-    suv: 'suv', pickup: 'pickup', largesuv: 'largeSuv', largesuvvan: 'largeSuv',
-    van: 'largeSuv', highend: 'highend', highendsedan: 'highend',
-  };
-  return map[normalized] || null;
-};
-
-const getServicePriceForVehicle = (service, vehiclePriceKey) => {
-  if (!service || !vehiclePriceKey) return null;
-  const legacyKey = vehiclePriceKey === 'largeSuv' ? 'largesuv' : vehiclePriceKey;
-  const rich = service.pricing?.[vehiclePriceKey]?.base;
-  const legacy = service.prices?.[legacyKey];
-  const price = Number.isFinite(rich) ? rich : legacy;
-  return Number.isFinite(price) && price > 0 ? price : null;
-};
+const isSPFService = (service) => Boolean(
+  service
+  && (
+    service.billingGroup === 'ceramic_spf'
+    || service.packageCode
+    || getPackageKeyFromName(service.name)
+  )
+);
 
 const SERVICE_INVENTORY_MAP = [
   {
@@ -360,6 +355,7 @@ const ORDER_LIST_SELECT_FIELDS = [
   'taxVatAmount',
   'additionalFees',
   'serviceTotal',
+  'pricingSnapshot',
   'amountCollected',
   'totalAmount',
   'totalPrice',
@@ -613,6 +609,7 @@ const formatBookingListDto = (orderDoc) => {
     taxVatAmount: order.taxVatAmount,
     additionalFees: order.additionalFees,
     serviceTotal: order.serviceTotal,
+    pricingSnapshot: order.pricingSnapshot || null,
     amountCollected: order.amountCollected,
     totalAmount: order.totalAmount,
     totalPrice: order.totalPrice,
@@ -1530,6 +1527,7 @@ export const createOrder = async (req, res, next) => {
   let reservedSlot = null;
   let createdOrder = null;
   let conciergeSourceConversationId = '';
+  let pricingContextVehicle = null;
   try {
     await assertBookingsEnabled(req.systemState);
     // Controller-Level Authorization Guard
@@ -1567,6 +1565,8 @@ export const createOrder = async (req, res, next) => {
       reservationPaymentAmount: reservationPaymentAmountInput,
       sourceConversationId: sourceConversationIdInput,
       vehicleType: vehicleTypeInput,
+      vehiclePricingCategory: vehiclePricingCategoryInput,
+      selectedAddOns: selectedAddOnsInput,
     } = req.body;
 
     // Defense in depth for any direct controller mount: staff appointment
@@ -1653,10 +1653,20 @@ export const createOrder = async (req, res, next) => {
       }
     }
     let finalItems = Array.isArray(parsedItems) ? parsedItems : [];
+    let selectedAddOns = selectedAddOnsInput;
+    if (typeof selectedAddOnsInput === 'string') {
+      try {
+        selectedAddOns = JSON.parse(selectedAddOnsInput);
+      } catch {
+        selectedAddOns = [];
+      }
+    }
+    if (!Array.isArray(selectedAddOns)) selectedAddOns = [];
     let finalTotalAmount = 0;
     let finalTotalPrice = Number.isFinite(normalizedTotalPriceInput) ? normalizedTotalPriceInput : undefined;
     let finalServiceType = fallbackServiceType;
     let resolvedServiceId = mongoose.Types.ObjectId.isValid(serviceId) ? serviceId : undefined;
+    let pricingSnapshot;
     let finalVehicleData = {
         vehicleYear,
         vehicleMake,
@@ -1677,6 +1687,7 @@ export const createOrder = async (req, res, next) => {
       if (String(resolvedVehicle.customer) !== String(resolvedCustomerId)) {
         return res.status(403).json({ success: false, message: 'Vehicle does not belong to the order customer.' });
       }
+      pricingContextVehicle = resolvedVehicle;
       finalVehicleData = {
         vehicleYear: resolvedVehicle.year,
         vehicleMake: resolvedVehicle.make,
@@ -1699,9 +1710,26 @@ export const createOrder = async (req, res, next) => {
         }
         resolvedServiceId = service._id;
 
-        const vehiclePriceKey = normalizeVehiclePriceKey(resolvedVehicle?.vehicleType);
-        const servicePrice = getServicePriceForVehicle(service, vehiclePriceKey)
-          || normalizeCurrency(service.basePrice);
+        let servicePrice;
+        if (isSPFService(service)) {
+          const quote = resolveBookingQuote({
+            vehiclePricingCategory: resolvedVehicle?.pricingCategory,
+            packageCode: service.packageCode || service.name,
+            service,
+            selectedAddOns,
+          });
+          servicePrice = quote.quotedPrice;
+          pricingSnapshot = buildPricingSnapshot(quote);
+        } else {
+          servicePrice = normalizeCurrency(service.basePrice);
+          if (!Number.isFinite(servicePrice) || servicePrice <= 0) {
+            return res.status(409).json({
+              success: false,
+              errorCode: 'PRICE_CONFIGURATION_ERROR',
+              message: 'The selected service does not have a configured price.',
+            });
+          }
+        }
 
         // 3. Construct Order Items (Treat service as a product item)
         // Note: 'product' field in Order Schema refs Product, but we can store the ID or create a dummy item structure.
@@ -1743,13 +1771,24 @@ export const createOrder = async (req, res, next) => {
         if (!service) {
           return res.status(400).json({ success: false, message: 'Select an active published service.' });
         }
-        const vehiclePriceKey = normalizeVehiclePriceKey(vehicleTypeInput);
-        const servicePrice = getServicePriceForVehicle(service, vehiclePriceKey)
-          || normalizeCurrency(service.basePrice);
+        let servicePrice;
+        if (isSPFService(service)) {
+          const quote = resolveBookingQuote({
+            vehiclePricingCategory: resolvedVehicle?.pricingCategory || vehiclePricingCategoryInput,
+            packageCode: service.packageCode || service.name,
+            service,
+            selectedAddOns,
+          });
+          servicePrice = quote.quotedPrice;
+          pricingSnapshot = buildPricingSnapshot(quote);
+        } else {
+          servicePrice = normalizeCurrency(service.basePrice);
+        }
         if (!Number.isFinite(servicePrice) || servicePrice <= 0) {
-          return res.status(400).json({
+          return res.status(409).json({
             success: false,
-            message: 'The selected service does not have a current price for this vehicle type.',
+            errorCode: 'PRICE_CONFIGURATION_ERROR',
+            message: 'The selected service does not have a configured price.',
           });
         }
         resolvedServiceId = service._id;
@@ -1779,10 +1818,12 @@ export const createOrder = async (req, res, next) => {
             }
             const packageKey = getPackageKeyFromName(finalServiceType)
               || getPackageKeyFromName(finalItems[0]?.product || '');
-            const vehiclePriceKey = normalizeVehiclePriceKey(resolvedVehicle.vehicleType);
-            const packageConfig = packageKey ? SPF_PACKAGE_PRICING[packageKey] : null;
-            if (!packageConfig || !vehiclePriceKey) {
-              return res.status(400).json({ success: false, message: 'Unable to verify package pricing for this vehicle.' });
+            if (!packageKey) {
+              return res.status(422).json({
+                success: false,
+                errorCode: 'PRICE_PACKAGE_REQUIRED',
+                message: 'Unable to identify the selected SPF package.',
+              });
             }
 
             const packageDigits = packageKey.replace('spf', '');
@@ -1791,15 +1832,24 @@ export const createOrder = async (req, res, next) => {
               status: 'Active',
               isPublished: true,
             });
-            const serverPrice = getServicePriceForVehicle(publishedService, vehiclePriceKey)
-              || packageConfig.base[vehiclePriceKey];
-            if (!Number.isFinite(serverPrice) || serverPrice <= 0) {
-              return res.status(400).json({ success: false, message: 'This package is unavailable for the selected vehicle.' });
+            if (!publishedService) {
+              return res.status(409).json({
+                success: false,
+                errorCode: 'PRICE_CONFIGURATION_ERROR',
+                message: 'The selected SPF package is not published in the backend catalog.',
+              });
             }
-            finalServiceType = publishedService?.name || packageConfig.name;
-            resolvedServiceId = publishedService?._id;
-            finalTotalPrice = serverPrice;
-            finalTotalAmount = serverPrice;
+            const quote = resolveBookingQuote({
+              vehiclePricingCategory: resolvedVehicle.pricingCategory,
+              packageCode: publishedService.packageCode || publishedService.name,
+              service: publishedService,
+              selectedAddOns,
+            });
+            pricingSnapshot = buildPricingSnapshot(quote);
+            finalServiceType = publishedService.name;
+            resolvedServiceId = publishedService._id;
+            finalTotalPrice = quote.quotedPrice;
+            finalTotalAmount = quote.quotedPrice;
           } else {
             finalTotalAmount = normalizedTotalPriceInput;
             finalTotalPrice = normalizedTotalPriceInput;
@@ -1945,6 +1995,7 @@ export const createOrder = async (req, res, next) => {
       serviceId: resolvedServiceId,
       serviceType: finalServiceType,
       items: finalItems,
+      pricingSnapshot,
       totalAmount: finalTotalAmount,
       totalPrice: safeTotalPrice,
       status: initialStatus, // 'pending_confirmation' — awaits sales approval
@@ -2151,6 +2202,23 @@ export const createOrder = async (req, res, next) => {
           data: formatBookingDto(existingBooking),
         });
       }
+    }
+    if (error instanceof ServicePricingError) {
+      console.error('[pricing] Booking price resolution failed', {
+        errorCode: error.code,
+        vehicleId: pricingContextVehicle?._id?.toString?.() || req.body?.vehicle || null,
+        make: pricingContextVehicle?.make || req.body?.vehicleMake || null,
+        model: pricingContextVehicle?.model || req.body?.vehicleModel || null,
+        vehicleType: pricingContextVehicle?.vehicleType || req.body?.vehicleType || null,
+        packageCode: error.details?.packageCode || null,
+        details: error.details,
+      });
+      return res.status(error.statusCode).json({
+        success: false,
+        errorCode: error.code,
+        message: error.message,
+        details: error.details,
+      });
     }
     if (error.name === 'ValidationError') {
         const messages = Object.values(error.errors).map(val => val.message);

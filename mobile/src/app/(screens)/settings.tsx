@@ -13,7 +13,6 @@ import {
   TextInput,
   StyleSheet,
   Alert,
-  ActivityIndicator,
   Platform,
   Switch,
   Modal,
@@ -29,6 +28,7 @@ import { useAuth } from '@/context/AuthContext';
 import { getRoleLabel } from '@/services/api/roles';
 import { useTheme } from '@/hooks/useThemeContext';
 import { Toast } from '@/components/ui/PremiumToast';
+import { PremiumLoader } from '@/components/ui/loading';
 
 // ─── Design Tokens ───────────────────────────────────────────────────────────
 const ACCENT = '#FF6B35';
@@ -458,7 +458,7 @@ export default function SettingsScreen() {
             disabled={loggingOut}
           >
             {loggingOut ? (
-              <ActivityIndicator size="small" color="#EF4444" />
+              <PremiumLoader size="small" tone="danger" accessibilityLabel="Signing out" />
             ) : (
               <>
                 <Ionicons name="log-out-outline" size={18} color="#EF4444" />
@@ -543,7 +543,7 @@ export default function SettingsScreen() {
                 disabled={isDeleting || !deletePassword}
               >
                 {isDeleting ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <PremiumLoader size="small" tone="light" accessibilityLabel="Deleting account" />
                 ) : (
                   <>
                     <Ionicons name="trash-outline" size={15} color="#fff" style={{ marginRight: 6 }} />

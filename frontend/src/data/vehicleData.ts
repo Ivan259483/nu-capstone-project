@@ -123,5 +123,5 @@ export function getVehicleTypeForModel(model: string): string {
     return 'Hatchback';
   }
 
-  return 'Sedan';
+  return '';
 }

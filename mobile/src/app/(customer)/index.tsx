@@ -47,6 +47,7 @@ import Animated, {
   Easing, interpolate,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import SkeletonPulse from '@/components/ui/SkeletonPulse';
 import { useAuth } from '@/context/AuthContext';
 import { invalidateCache } from '@/services/api/client';
 import {
@@ -349,22 +350,7 @@ function Pulse({ color = D.A, size = 7 }: { color?: string; size?: number }) {
 // ATOM: Shimmer skeleton
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Shim({ w, h, r = 14 }: { w: number; h: number; r?: number }) {
-  const x = useSharedValue(-1);
-  useEffect(() => {
-    x.value = withRepeat(withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.ease) }), -1, false);
-  }, [x]);
-  const slide = useAnimatedStyle(() => ({ transform: [{ translateX: interpolate(x.value, [-1,1], [-w, w]) }] }));
-  return (
-    <View style={{ width:w, height:h, borderRadius:r, backgroundColor:D.w07, overflow:'hidden' }}>
-      <Animated.View style={[{position:'absolute',top:0,bottom:0,width:w*0.55}, slide]}>
-        <LinearGradient
-          colors={['transparent','rgba(255,255,255,0.09)','transparent']}
-          start={{x:0,y:0}} end={{x:1,y:0}}
-          style={StyleSheet.absoluteFill}
-        />
-      </Animated.View>
-    </View>
-  );
+  return <SkeletonPulse style={{ width: w, height: h, borderRadius: r, backgroundColor: D.w07 }} />;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1042,7 +1028,7 @@ function ServicesSection({
 
   return (
     <Animated.View entering={FadeInUp.delay(400).duration(200)}>
-      <Eye label="Our Services" cta="View All" onCta={() => router.push('/(customer)/book')} />
+      <Eye label="Our Services" cta="View All" onCta={() => router.push('/(screens)/services' as any)} />
       {isLoading ? (
         <View style={$.svcLoadingRow}>
           <Shim w={(W-54)/2} h={USE_STACKED_SERVICE_FOOTER ? 226 : 198} r={RADIUS.card} />
@@ -1066,7 +1052,7 @@ function ServicesSection({
         {visibleServices.map((service, i) => {
           const vehiclePriceKey = getServiceVehiclePriceKey(vehicle?.vehicleType);
           const exactVehiclePrice = vehiclePriceKey
-            ? getServicePriceForVehicle(service, vehicle?.vehicleType)
+            ? getServicePriceForVehicle(service, vehicle?.pricingCategory)
             : null;
           const price = vehiclePriceKey ? exactVehiclePrice : getServiceStartingPrice(service);
           const isRecommended = /recommend/i.test(service.catalogCard?.badge || '');
@@ -1183,7 +1169,7 @@ function getPublishedOffer(services: ServiceOption[], vehicle: Vehicle | null) {
 
     const vehiclePriceKey = getServiceVehiclePriceKey(vehicle?.vehicleType);
     const currentPrice = vehiclePriceKey
-      ? getServicePriceForVehicle(service, vehicle?.vehicleType)
+      ? getServicePriceForVehicle(service, vehicle?.pricingCategory)
       : getServiceStartingPrice(service);
     const originalPrice = getPublishedServiceOriginalPrice(service, vehicle);
     const savings = currentPrice !== null && originalPrice !== null && originalPrice > currentPrice

@@ -62,8 +62,8 @@ export default function ConciergeActionModal({
   const [serviceId, setServiceId] = useState(
     conversation.selectedServiceId || '',
   );
-  const [vehicleType, setVehicleType] = useState<VehicleType>(
-    (conversation.selectedVehicleType as VehicleType) || 'sedan',
+  const [vehicleType, setVehicleType] = useState<VehicleType | ''>(
+    (conversation.selectedVehicleType as VehicleType) || '',
   );
   const [date, setDate] = useState(
     conversation.offeredSchedule?.[0]?.date || todayIso(),
@@ -75,9 +75,9 @@ export default function ConciergeActionModal({
   const [message, setMessage] = useState('');
 
   const selectedService = services.find((service) => service._id === serviceId);
-  const selectedPrice = selectedService
+  const selectedPrice = selectedService && vehicleType
     ? getEffectivePrice(selectedService, vehicleType)
-    : 0;
+    : null;
 
   useEffect(() => {
     if (mode !== 'pricing') return;
@@ -142,7 +142,7 @@ export default function ConciergeActionModal({
 
   const generatedMessage = useMemo(() => {
     if (mode === 'pricing') {
-      if (!selectedService || selectedPrice <= 0) return '';
+      if (!selectedService || selectedPrice == null || selectedPrice <= 0) return '';
       return `Hi ${conversation.customerName}, the current price for ${selectedService.name} for a ${VEHICLE_TYPES.find((type) => type.value === vehicleType)?.label.toLowerCase()} is ${peso(selectedPrice)}. Would you like me to check available appointment times for you?`;
     }
     if (!date || !selectedTimes.length) return '';
@@ -227,10 +227,11 @@ export default function ConciergeActionModal({
                   <select
                     value={vehicleType}
                     onChange={(event) =>
-                      setVehicleType(event.target.value as VehicleType)
+                      setVehicleType(event.target.value as VehicleType | '')
                     }
                     className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-400"
                   >
+                    <option value="">Select pricing category</option>
                     {VEHICLE_TYPES.map((type) => (
                       <option key={type.value} value={type.value}>
                         {type.label}
@@ -244,7 +245,7 @@ export default function ConciergeActionModal({
                       Current catalog price
                     </p>
                     <p className="mt-1 text-xl font-black text-blue-950">
-                      {selectedPrice > 0
+                      {(selectedPrice ?? 0) > 0
                         ? peso(selectedPrice)
                         : 'Not configured'}
                     </p>

@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
-import { CheckCircle, Clock, CheckSquare, Square, Lock, FileText, User, Shield, DollarSign } from '@/components/ui/Icons';
+import { CheckCircle, CheckSquare, Square, Lock, FileText, User, Shield, DollarSign } from '@/components/ui/Icons';
+import { PremiumLoader } from '@/components/ui/loading';
 import SignatureScreen from 'react-native-signature-canvas';
 import { bookingService } from '@/services/api/bookingService';
 
@@ -431,7 +432,7 @@ export default function Step3_DigitalTerms() {
           </>
         ) : saving ? (
           <>
-            <Clock color="#fff" size={20} style={{ marginRight: 10 }} />
+            <PremiumLoader size={18} tone="light" accessibilityLabel="Saving waiver" style={{ marginRight: 10 }} />
             <Text style={s.submitBtnText}>Saving Waiver…</Text>
           </>
         ) : (

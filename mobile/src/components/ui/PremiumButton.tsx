@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Text, View, ViewStyle, TextStyle, Pressable, StyleProp } from 'react-native';
+import { Text, View, ViewStyle, TextStyle, Pressable, StyleProp } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   FadeIn,
@@ -18,7 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/hooks/useThemeContext';
 import { Palette, BorderRadius } from '@/constants/theme';
-import PremiumAuthLoader from '@/components/auth/PremiumAuthLoader';
+import { LoadingMotion, PremiumLoader, SuccessMark } from '@/components/ui/loading';
 
 type Variant = 'primary' | 'outline' | 'ghost' | 'danger';
 
@@ -76,7 +76,7 @@ export default function PremiumButton({
       return;
     }
 
-    successProgress.value = withTiming(1, { duration: 220 }, (finished) => {
+    successProgress.value = withTiming(1, { duration: LoadingMotion.success }, (finished) => {
       if (finished) runOnJS(onSuccessAnimationComplete)();
     });
   }, [onSuccessAnimationComplete, reduceMotion, success, successProgress]);
@@ -152,19 +152,44 @@ export default function PremiumButton({
       : '#FFFFFF',
   };
 
-  const content = (
-    <>
-      {loading ? (
-        <ActivityIndicator size="small" color={isOutline || isDanger || isGhost ? btnColor : '#fff'} />
-      ) : icon && (
+  const loaderTone = isDanger ? 'danger' : isOutline || isGhost ? 'accent' : 'light';
+  const loaderColor = isOutline || isDanger || isGhost ? btnColor : undefined;
+
+  const content = loading ? (
+    <Animated.View
+      key="loading"
+      entering={reduceMotion ? undefined : FadeIn.duration(LoadingMotion.contentEnter)}
+      exiting={reduceMotion ? undefined : FadeOut.duration(LoadingMotion.contentExit)}
+      style={styles.contentRow}
+    >
+      <PremiumLoader size={18} tone={loaderTone} color={loaderColor} accessibilityLabel={title} />
+      <Text style={textStyle}>{title}</Text>
+    </Animated.View>
+  ) : success ? (
+    <Animated.View
+      key="success"
+      entering={reduceMotion ? undefined : FadeIn.duration(LoadingMotion.contentEnter)}
+      style={styles.contentRow}
+    >
+      <SuccessMark size={19} label={successTitle} />
+      <Text style={textStyle}>{successTitle}</Text>
+    </Animated.View>
+  ) : (
+    <Animated.View
+      key="idle"
+      entering={reduceMotion ? undefined : FadeIn.duration(LoadingMotion.contentEnter)}
+      exiting={reduceMotion ? undefined : FadeOut.duration(LoadingMotion.contentExit)}
+      style={styles.contentRow}
+    >
+      {icon ? (
         <Ionicons
           name={icon}
           size={16}
           color={isOutline || isDanger || isGhost ? btnColor : '#fff'}
         />
-      )}
+      ) : null}
       <Text style={textStyle}>{title}</Text>
-    </>
+    </Animated.View>
   );
 
   if (variant === 'primary') {
@@ -218,7 +243,7 @@ export default function PremiumButton({
                   exiting={reduceMotion ? undefined : FadeOut.duration(130)}
                   style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 }}
                 >
-                  <PremiumAuthLoader size={19} />
+                  <PremiumLoader size={19} tone="accent" accessibilityLabel={title} />
                   <Text style={[textStyle, { color: 'rgba(255,255,255,0.80)' }]}>{title}</Text>
                 </Animated.View>
               ) : success ? (
@@ -227,20 +252,7 @@ export default function PremiumButton({
                   entering={reduceMotion ? undefined : FadeIn.duration(150)}
                   style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
                 >
-                  <View
-                    style={{
-                      width: 19,
-                      height: 19,
-                      borderRadius: 10,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: 'rgba(255,122,26,0.13)',
-                      borderWidth: 1,
-                      borderColor: 'rgba(255,122,26,0.30)',
-                    }}
-                  >
-                    <Ionicons name="checkmark" size={13} color="#FFB066" />
-                  </View>
+                  <SuccessMark size={19} label={successTitle} />
                   <Text style={[textStyle, { color: '#F4F4F5' }]}>{successTitle}</Text>
                 </Animated.View>
               ) : (
@@ -262,14 +274,40 @@ export default function PremiumButton({
               )}
             </View>
           ) : (
-            <>
+            <View style={{ height: 22, alignItems: 'center', justifyContent: 'center' }}>
               {loading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : icon ? (
-                <Ionicons name={icon} size={18} color={isDisabled ? 'rgba(255,255,255,0.28)' : '#fff'} />
-              ) : null}
-              <Text style={[textStyle, isDisabled && { color: 'rgba(255,255,255,0.28)' }]}>{title}</Text>
-            </>
+                <Animated.View
+                  key="loading"
+                  entering={reduceMotion ? undefined : FadeIn.duration(LoadingMotion.contentEnter)}
+                  exiting={reduceMotion ? undefined : FadeOut.duration(LoadingMotion.contentExit)}
+                  style={styles.contentRow}
+                >
+                  <PremiumLoader size={18} tone="light" accessibilityLabel={title} />
+                  <Text style={[textStyle, { color: 'rgba(255,255,255,0.78)' }]}>{title}</Text>
+                </Animated.View>
+              ) : success ? (
+                <Animated.View
+                  key="success"
+                  entering={reduceMotion ? undefined : FadeIn.duration(LoadingMotion.contentEnter)}
+                  style={styles.contentRow}
+                >
+                  <SuccessMark size={19} label={successTitle} />
+                  <Text style={textStyle}>{successTitle}</Text>
+                </Animated.View>
+              ) : (
+                <Animated.View
+                  key="idle"
+                  entering={reduceMotion ? undefined : FadeIn.duration(LoadingMotion.contentEnter)}
+                  exiting={reduceMotion ? undefined : FadeOut.duration(LoadingMotion.contentExit)}
+                  style={styles.contentRow}
+                >
+                  {icon ? (
+                    <Ionicons name={icon} size={18} color={isDisabled ? 'rgba(255,255,255,0.28)' : '#fff'} />
+                  ) : null}
+                  <Text style={[textStyle, isDisabled && { color: 'rgba(255,255,255,0.28)' }]}>{title}</Text>
+                </Animated.View>
+              )}
+            </View>
           )}
         </LinearGradient>
       </AnimatedPressable>
@@ -282,6 +320,10 @@ export default function PremiumButton({
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={isDisabled}
+      accessibilityRole="button"
+      accessibilityLabel={success ? successTitle : title}
+      accessibilityLiveRegion={loading || success ? 'polite' : 'none'}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
       style={[containerStyle, animStyle, style]}
     >
       <Animated.View style={innerStyle}>
@@ -290,3 +332,12 @@ export default function PremiumButton({
     </AnimatedPressable>
   );
 }
+
+const styles = {
+  contentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  } as ViewStyle,
+};

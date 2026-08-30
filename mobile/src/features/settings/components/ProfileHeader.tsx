@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import Animated, {
@@ -18,6 +17,7 @@ import Animated, {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { MobileProfile } from '@/services/api/types';
+import { PremiumLoader } from '@/components/ui/loading';
 
 const ACCENT = '#FF6B35';
 
@@ -58,7 +58,14 @@ export default function ProfileHeader({ profile, isUpdatingAvatar, onPickImage }
   return (
     <Animated.View entering={FadeInDown.duration(200)} style={s.container}>
       {/* Avatar with glow ring */}
-      <TouchableOpacity onPress={onPickImage} activeOpacity={0.8} style={s.avatarOuter}>
+      <TouchableOpacity
+        onPress={onPickImage}
+        activeOpacity={0.8}
+        style={s.avatarOuter}
+        disabled={isUpdatingAvatar}
+        accessibilityRole="button"
+        accessibilityLabel={isUpdatingAvatar ? 'Updating profile photo' : 'Change profile photo'}
+      >
         {/* Animated glow ring */}
         <Animated.View style={[s.glowRing, glowStyle]} />
 
@@ -76,7 +83,7 @@ export default function ProfileHeader({ profile, isUpdatingAvatar, onPickImage }
             )}
             {isUpdatingAvatar && (
               <View style={s.avatarLoading}>
-                <ActivityIndicator color={ACCENT} />
+                <PremiumLoader size={22} accessibilityLabel="Updating profile photo" />
               </View>
             )}
           </View>

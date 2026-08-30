@@ -121,7 +121,6 @@ function buildDrafts(services: Service[]): PackageDraft[] {
                 accentTo: pkg.accentTo,
                 popular: pkg.popular,
                 flagship: pkg.flagship,
-                originalPriceMultiplier: pkg.originalPriceMultiplier,
             },
         };
     });
@@ -183,7 +182,6 @@ function draftToPreviewPackages(drafts: PackageDraft[]): SPFPackage[] {
             icon: CATALOG_ICON_KEYS[iconKey] || pkg.icon,
             popular: Boolean(draft.catalogCard.popular),
             flagship: Boolean(draft.catalogCard.flagship),
-            originalPriceMultiplier: Number(draft.catalogCard.originalPriceMultiplier) || pkg.originalPriceMultiplier,
             prices,
             originalPrices,
             tintPrices,

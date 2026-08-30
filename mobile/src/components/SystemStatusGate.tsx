@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
@@ -9,6 +8,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSystemStatus } from '@/context/SystemStatusContext';
+import { PremiumLoader } from '@/components/ui/loading';
 
 export default function SystemStatusGate({ children }: { children: React.ReactNode }) {
   const { status, refreshing, error, refresh } = useSystemStatus();
@@ -35,7 +35,7 @@ export default function SystemStatusGate({ children }: { children: React.ReactNo
         onPress={() => void refresh()}
         style={({ pressed }) => [styles.button, pressed && styles.buttonPressed, refreshing && styles.buttonDisabled]}
       >
-        {refreshing ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Ionicons name="refresh" size={17} color="#FFFFFF" />}
+        {refreshing ? <PremiumLoader size="small" tone="light" accessibilityLabel="Checking system status" /> : <Ionicons name="refresh" size={17} color="#FFFFFF" />}
         <Text style={styles.buttonText}>{refreshing ? 'Checking…' : 'Check status'}</Text>
       </Pressable>
       {error ? <Text style={styles.error}>{error}</Text> : null}

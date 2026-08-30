@@ -10,6 +10,33 @@ export const VEHICLE_BODY_TYPES = [
   'Highend Sedan',
 ] as const;
 
+export type VehiclePricingCategory =
+  | 'HATCHBACK_SMALL_CAR'
+  | 'SEDAN'
+  | 'MIDSIZED'
+  | 'SUV'
+  | 'PICKUP'
+  | 'LARGE_SUV_VAN'
+  | 'HIGH_END_SEDAN';
+
+const VEHICLE_PRICING_CATEGORY_BY_LABEL: Record<string, VehiclePricingCategory> = {
+  hatchback: 'HATCHBACK_SMALL_CAR',
+  'small car': 'HATCHBACK_SMALL_CAR',
+  sedan: 'SEDAN',
+  midsized: 'MIDSIZED',
+  suv: 'SUV',
+  'pick up': 'PICKUP',
+  pickup: 'PICKUP',
+  'large suv / van': 'LARGE_SUV_VAN',
+  'large suv': 'LARGE_SUV_VAN',
+  van: 'LARGE_SUV_VAN',
+  'highend sedan': 'HIGH_END_SEDAN',
+  'high-end sedan': 'HIGH_END_SEDAN',
+};
+
+export const getVehiclePricingCategory = (vehicleType?: string | null): VehiclePricingCategory | null =>
+  VEHICLE_PRICING_CATEGORY_BY_LABEL[String(vehicleType || '').trim().toLowerCase()] || null;
+
 export const CAR_BRANDS = [
   'Toyota',
   'Honda',

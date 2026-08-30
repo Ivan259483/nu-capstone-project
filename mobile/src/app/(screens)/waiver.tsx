@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Alert,
   Platform,
   Image,
@@ -13,6 +12,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { PageSkeleton, PremiumLoader } from '@/components/ui/loading';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -252,10 +252,7 @@ export default function WaiverScreen() {
       </View>
 
       {loadingBooking ? (
-        <View style={s.loadingContainer}>
-          <ActivityIndicator size="large" color={ACCENT} />
-          <Text style={s.loadingText}>Loading details...</Text>
-        </View>
+        <PageSkeleton preset="detail" />
       ) : (
         <ScrollView
           ref={scrollRef}
@@ -476,7 +473,7 @@ export default function WaiverScreen() {
               onPress={handleSubmit}
             >
               {isSubmitting ? (
-                <ActivityIndicator size="small" color={BLACK} />
+                <PremiumLoader size="small" color={BLACK} trackColor="rgba(0,0,0,0.16)" accessibilityLabel="Submitting waiver" />
               ) : (
                 <>
                   <Ionicons name="document-text" size={18} color={BLACK} />

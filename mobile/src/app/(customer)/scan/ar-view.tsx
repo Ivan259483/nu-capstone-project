@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Linking,
   Platform,
   Pressable,
@@ -12,6 +11,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { PremiumLoader } from '@/components/ui/loading';
 import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -285,7 +285,7 @@ export default function ArViewScreen() {
 
                 {launchBusy ? (
                   <View style={styles.qrLoading}>
-                    <ActivityIndicator size="small" color={scannerColors.orange} />
+                    <PremiumLoader size="small" accessibilityLabel="Creating secure AR launch link" />
                     <Text style={styles.qrLoadingText}>Creating secure AR launch link…</Text>
                   </View>
                 ) : launchSession?.launchUrl ? (

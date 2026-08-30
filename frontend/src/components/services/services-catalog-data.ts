@@ -1,9 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import { Crown, Shield, Sparkles, Star, Zap } from 'lucide-react';
 import {
-    DEFAULT_SPF_ADDON_PRICES,
-    DEFAULT_SPF_BASE_PRICES,
-    DEFAULT_SPF_ORIGINAL_PRICES,
     VEHICLE_PRICE_FIELDS,
     findPublishedServiceForPackage,
     getServicePricingEntry,
@@ -28,7 +25,6 @@ export interface SPFPackage {
     prices: PriceMap;
     tintPrices: PriceMap;
     originalPrices?: PriceMap;
-    originalPriceMultiplier: number;
     features: string[];
     highlighted: string[];
     popular: boolean;
@@ -39,9 +35,15 @@ export interface SPFPackage {
     discountBadge?: string;
 }
 
-const getBasePrices = (packageKey: string): PriceMap => ({ ...DEFAULT_SPF_BASE_PRICES[packageKey] } as PriceMap);
-const getTintPrices = (packageKey: string): PriceMap => ({ ...DEFAULT_SPF_ADDON_PRICES[packageKey] } as PriceMap);
-const getOriginalPrices = (packageKey: string): PriceMap => ({ ...DEFAULT_SPF_ORIGINAL_PRICES[packageKey] } as PriceMap);
+const emptyPriceMap = (): PriceMap => ({
+    hatchback: null,
+    sedan: null,
+    midsized: null,
+    suv: null,
+    pickup: null,
+    largesuv: null,
+    highend: null,
+});
 
 export const spfPackages: SPFPackage[] = [
     {
@@ -55,14 +57,13 @@ export const spfPackages: SPFPackage[] = [
         accentTo: '#0284c7',
         accentMid: '#0ea5e9',
         tagline: 'Perfect entry-level protection',
-        prices: getBasePrices('spf80'),
-        tintPrices: getTintPrices('spf80'),
-        originalPrices: getOriginalPrices('spf80'),
-        originalPriceMultiplier: 2,
+        prices: emptyPriceMap(),
+        tintPrices: emptyPriceMap(),
+        originalPrices: emptyPriceMap(),
         features: [
             '3 Layers of Graphene Ceramic Coating (Made in Canada)',
             'Graphene Sealant',
-            'FREE 1 visit Signature AUTOSPF Carwash',
+            'FREE 1 visit Signature AutoSPF Carwash',
         ],
         highlighted: [],
         popular: false,
@@ -80,14 +81,13 @@ export const spfPackages: SPFPackage[] = [
         accentTo: '#059669',
         accentMid: '#10b981',
         tagline: 'Our most chosen package',
-        prices: getBasePrices('spf89'),
-        tintPrices: getTintPrices('spf89'),
-        originalPrices: getOriginalPrices('spf89'),
-        originalPriceMultiplier: 2,
+        prices: emptyPriceMap(),
+        tintPrices: emptyPriceMap(),
+        originalPrices: emptyPriceMap(),
         features: [
             '4 Layers of Graphene Ceramic Coating (Made in Canada)',
             'Graphene Sealant',
-            'FREE 1 visit Reboost/Maintenance (save ₱1,500)',
+            'FREE 1 visit Reboost / Maintenance (Save ₱1,500)',
         ],
         highlighted: ['4 Layers'],
         popular: true,
@@ -99,20 +99,19 @@ export const spfPackages: SPFPackage[] = [
         label: 'SPF 99',
         years: '10 Years',
         yearsNum: 10,
-        badge: '50% OFF PROMO',
+        badge: 'PREMIUM',
         tier: 'Premium',
         accentFrom: '#fbbf24',
         accentTo: '#d97706',
         accentMid: '#f59e0b',
         tagline: 'Maximum protection, best price-to-value',
-        prices: getBasePrices('spf99'),
-        tintPrices: getTintPrices('spf99'),
-        originalPrices: getOriginalPrices('spf99'),
-        originalPriceMultiplier: 2,
+        prices: emptyPriceMap(),
+        tintPrices: emptyPriceMap(),
+        originalPrices: emptyPriceMap(),
         features: [
             '4 Layers of SONAX Profiline CC EVO (Made in Germany)',
             'FREE Full Recoat After 5 Years',
-            'FREE 2 visits Reboost/Maintenance (save ₱3,000)',
+            'FREE 2 visits Reboost / Maintenance (Save ₱3,000)',
         ],
         highlighted: ['SONAX Profiline CC EVO', 'Full Recoat'],
         popular: false,
@@ -125,24 +124,23 @@ export const spfPackages: SPFPackage[] = [
         years: '10 Years',
         yearsNum: 10,
         badge: 'ALL-IN PACKAGE',
-        tier: 'Ultimate',
+        tier: 'Flagship',
         accentFrom: '#c084fc',
         accentTo: '#7c3aed',
         accentMid: '#a78bfa',
         tagline: 'The complete transformation experience',
-        prices: getBasePrices('spf101'),
-        tintPrices: getTintPrices('spf101'),
-        originalPrices: getOriginalPrices('spf101'),
-        originalPriceMultiplier: 2,
+        prices: emptyPriceMap(),
+        tintPrices: emptyPriceMap(),
+        originalPrices: emptyPriceMap(),
         features: [
-            'Paint Protection Film PPF Install on: Hood, Front Bumper, Stepsils, Door Bowls, Side Mirrors, Headlight & Taillight',
+            'PPF installation on specified areas: Hood, Front Bumper, Stepsills, Door Bowls, Side Mirrors, Headlight & Taillight',
             '4 Layers of SONAX Profiline CC EVO (Made in Germany)',
-            'FREE 5 visits Reboost/Maintenance (save ₱7,500)',
+            'FREE 5 visits Reboost / Maintenance (Save ₱7,500)',
             'FREE Full Recoat After 5 Years',
             'Nano Ceramic Window Tint (Full Wrap — Any Shades)',
-            'FREE UnderCoating (Rust Proofing) (save ₱14,000)',
+            'FREE Undercoating / Rust Proofing (Save ₱14,000)',
         ],
-        highlighted: ['PPF', 'SONAX', 'Nano Ceramic Window Tint', 'UnderCoating'],
+        highlighted: ['PPF', 'SONAX', 'Nano Ceramic Window Tint', 'Undercoating'],
         popular: false,
         flagship: true,
         icon: Crown,
@@ -190,10 +188,6 @@ export function applyCatalogCardToPackage(pkg: SPFPackage, card: ServiceCatalogC
     if (card.accentMid != null && String(card.accentMid).trim() !== '') next.accentMid = String(card.accentMid).trim();
     if (typeof card.popular === 'boolean') next.popular = card.popular;
     if (typeof card.flagship === 'boolean') next.flagship = card.flagship;
-    if (card.originalPriceMultiplier != null && Number.isFinite(Number(card.originalPriceMultiplier))) {
-        next.originalPriceMultiplier = Number(card.originalPriceMultiplier);
-    }
-
     return next;
 }
 
@@ -201,8 +195,6 @@ export function mergePublishedPricingIntoPackages(
     packages: SPFPackage[],
     services: PublishedServicePricingSource[],
 ): SPFPackage[] {
-    if (!services.length) return packages;
-
     return packages.map((pkg) => {
         const service = findPublishedServiceForPackage(services, pkg.key, pkg.label);
         if (!service) return pkg;
@@ -222,9 +214,9 @@ export function mergePublishedPricingIntoPackages(
 
         VEHICLE_PRICE_FIELDS.forEach(({ publicKey }) => {
             const entry = getServicePricingEntry(service, publicKey);
-            if (entry.base != null) prices[publicKey] = entry.base;
-            if (entry.addon != null) tintPrices[publicKey] = entry.addon;
-            if (entry.original != null) originalPrices[publicKey] = entry.original;
+            prices[publicKey] = entry.base;
+            tintPrices[publicKey] = entry.addon;
+            originalPrices[publicKey] = entry.original;
         });
 
         const withPricing = { ...pkg, prices, tintPrices, originalPrices };

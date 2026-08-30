@@ -14,6 +14,7 @@ import type {
   BookingFromChatDraft,
   ConciergeConversation,
 } from './conciergeTypes';
+import { getVehiclePricingCategory } from '@/components/shared/vehicle-garage-constants';
 
 type Slot = NonNullable<AvailableSlotsResponse['slots']>[number];
 type Props = {
@@ -65,7 +66,7 @@ export default function BookingFromChatModal({
     vehicleModel: parsedVehicle.model,
     vehicleColor: '',
     plate: conversation.plate,
-    vehicleType: conversation.selectedVehicleType || 'sedan',
+    vehicleType: conversation.selectedVehicleType || '',
     serviceId: conversation.selectedServiceId || '',
     bookingDate: offeredSlot?.date || '',
     bookingTime: offeredSlot?.time || '',
@@ -182,12 +183,12 @@ export default function BookingFromChatModal({
   const canSubmit =
     registeredCustomer &&
     requiredFields.every((value) => value.trim()) &&
-    selectedPrice > 0 &&
+    (selectedPrice ?? 0) > 0 &&
     !submitting &&
     !loadingSlots;
   const priceLabel = useMemo(
     () =>
-      selectedPrice > 0
+      (selectedPrice ?? 0) > 0
         ? new Intl.NumberFormat('en-PH', {
             style: 'currency',
             currency: 'PHP',
@@ -230,6 +231,7 @@ export default function BookingFromChatModal({
         vehicleColor: draft.vehicleColor.trim() || 'Not provided',
         vehiclePlate: draft.plate.trim(),
         vehicleType: draft.vehicleType,
+        vehiclePricingCategory: getVehiclePricingCategory(draft.vehicleType),
         service: selectedService._id,
         serviceType: selectedService.name,
         bookingDate: draft.bookingDate,
@@ -345,6 +347,7 @@ export default function BookingFromChatModal({
                     }
                     className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-400"
                   >
+                    <option value="">Select pricing category</option>
                     {VEHICLE_TYPES.map((type) => (
                       <option key={type.value} value={type.value}>
                         {type.label}

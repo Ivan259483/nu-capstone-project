@@ -23,6 +23,11 @@ import {
 } from "@/lib/roles";
 import { useActivityHeartbeat } from "@/hooks/useActivityHeartbeat";
 import { ensureIconify } from "@/lib/iconify";
+import {
+    CUSTOMER_BOOKING_PATH,
+    LEGACY_BOOKING_PATH,
+    LOGIN_REDIRECT_STORAGE_KEY,
+} from "@/lib/auth-redirect";
 
 const Home = lazy(() => import("./pages/Home"));
 const About = lazy(() => import("./pages/About"));
@@ -117,7 +122,7 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode; allow
         let redirectPath = '';
         if (location.pathname !== '/' && location.pathname !== '/login') {
             redirectPath = location.pathname + location.search + location.hash;
-            sessionStorage.setItem('redirect_after_login', redirectPath);
+            sessionStorage.setItem(LOGIN_REDIRECT_STORAGE_KEY, redirectPath);
         }
         return <Navigate to={redirectPath ? `/login?redirect=${encodeURIComponent(redirectPath)}` : '/login'} replace />;
     }
@@ -213,6 +218,12 @@ function LegacyAccountPathRedirect() {
     return <Navigate to="/" replace />;
 }
 
+/** Preserve old public links/bookmarks while keeping the customer guard authoritative. */
+function LegacyBookingPathRedirect() {
+    const { search, hash } = useLocation();
+    return <Navigate to={{ pathname: CUSTOMER_BOOKING_PATH, search, hash }} replace />;
+}
+
 function AppRoutes() {
     // NOTE: Role-based redirect after login is handled by AuthContext + Login.tsx useEffect.
     // Do NOT add a separate auth.onAuthStateChanged here — it causes race conditions and
@@ -236,7 +247,7 @@ function AppRoutes() {
                     <Route path="/contact" element={<Contact />} />
                     <Route path="/gallery" element={<Gallery />} />
                     <Route path="/services" element={<Services />} />
-                    <Route path="/booking" element={<Navigate to="/login" replace />} />
+                    <Route path={LEGACY_BOOKING_PATH} element={<LegacyBookingPathRedirect />} />
                     <Route path="/ar-estimator" element={<AIEstimatorPage />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/reset-password" element={<ResetPassword />} />
@@ -272,7 +283,7 @@ function AppRoutes() {
                         }
                     />
                     <Route
-                        path="/customer/book"
+                        path={CUSTOMER_BOOKING_PATH}
                         element={
                             <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]}>
                                 <CustomerDashboard />

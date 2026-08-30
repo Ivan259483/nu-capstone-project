@@ -25,9 +25,9 @@ const priceFlip: Variants = {
     enter: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.2, ease: EASE } },
 };
 
-function vehicleTypeToApiKey(vt: VehicleType): ApiVehiclePriceKey {
+function vehicleTypeToApiKey(vt: VehicleType): ApiVehiclePriceKey | null {
     const row = VEHICLE_PRICE_FIELDS.find((f) => f.publicKey === vt);
-    return row?.apiKey ?? 'sedan';
+    return row?.apiKey ?? null;
 }
 
 function iconKeyFromPackage(pkg: SPFPackage): ServiceCatalogCard['iconKey'] {
@@ -101,9 +101,6 @@ export function AdminEditableLuxuryCard({
     const [highlightedText, setHighlightedText] = useState(() => pkg.highlighted.join(', '));
     const [popular, setPopular] = useState(pkg.popular);
     const [flagship, setFlagship] = useState(pkg.flagship);
-    const [originalPriceMultiplier, setOriginalPriceMultiplier] = useState(
-        String(pkg.originalPriceMultiplier ?? ''),
-    );
     const [iconKey, setIconKey] = useState<ServiceCatalogCard['iconKey']>(() => iconKeyFromPackage(pkg));
 
     const [baseStr, setBaseStr] = useState('');
@@ -134,11 +131,6 @@ export function AdminEditableLuxuryCard({
         setHighlightedText(pkg.highlighted.join(', '));
         setPopular(pkg.popular);
         setFlagship(pkg.flagship);
-        setOriginalPriceMultiplier(
-            pkg.originalPriceMultiplier != null && Number.isFinite(pkg.originalPriceMultiplier)
-                ? String(pkg.originalPriceMultiplier)
-                : '',
-        );
         setIconKey(iconKeyFromPackage(pkg));
 
         const price = pkg.prices[vehicleType];
@@ -160,18 +152,11 @@ export function AdminEditableLuxuryCard({
 
     const priceNum = safeMoney(baseStr);
     const origParsed = safeMoney(originalStr);
-    const computedOriginal =
-        origParsed != null
-            ? origParsed
-            : priceNum != null
-                ? priceNum * (Number(originalPriceMultiplier) || pkg.originalPriceMultiplier || 2)
-                : null;
+    const computedOriginal = origParsed;
 
-    const discountLabel =
-        discountBadge.trim()
-        || (computedOriginal != null && priceNum != null && computedOriginal > priceNum
-            ? `${Math.round((1 - priceNum / computedOriginal) * 100)}% OFF`
-            : '50% OFF');
+    const discountLabel = computedOriginal != null && priceNum != null && computedOriginal > priceNum
+        ? `Save ₱${(computedOriginal - priceNum).toLocaleString()}`
+        : '';
 
     const previewFeatures = useMemo(
         () => featuresText.split('\n').map((s) => s.trim()).filter(Boolean),
@@ -209,9 +194,6 @@ export function AdminEditableLuxuryCard({
         if (lines.length) out.features = lines;
         const highlights = highlightedText.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
         if (highlights.length) out.highlighted = highlights;
-        const mult = originalPriceMultiplier.trim();
-        if (mult !== '' && Number.isFinite(Number(mult))) out.originalPriceMultiplier = Number(mult);
-
         const hasContent =
             !!out.badge
             || !!out.warrantyLabel
@@ -224,8 +206,7 @@ export function AdminEditableLuxuryCard({
             || !!out.accentMid
             || !!out.iconKey
             || !!out.features?.length
-            || !!out.highlighted?.length
-            || out.originalPriceMultiplier != null;
+            || !!out.highlighted?.length;
 
         if (!hasContent && !popular && !flagship) return null;
 
@@ -245,7 +226,6 @@ export function AdminEditableLuxuryCard({
         iconKey,
         featuresText,
         highlightedText,
-        originalPriceMultiplier,
         popular,
         flagship,
     ]);
@@ -258,6 +238,9 @@ export function AdminEditableLuxuryCard({
         setSaving(true);
         try {
             const apiKey = vehicleTypeToApiKey(vehicleType);
+            if (!apiKey) {
+                throw new Error('Pricing category is not configured for this vehicle type.');
+            }
             await DetailService.updateServicePricing(serviceId, {
                 vehicleType: apiKey,
                 basePrice: parseMoneyInput(baseStr, 'Base price', true),
@@ -476,15 +459,6 @@ export function AdminEditableLuxuryCard({
                         <p className="text-[9px] text-center text-amber-200/70">
                             Prices apply to <span className="font-semibold">{vehicleType}</span> only (selected tab above).
                         </p>
-                        <label className="text-[8px] uppercase text-white/35 block text-center">Original × multiplier if original empty</label>
-                        <input
-                            className={cn(inputDark, 'text-xs text-center max-w-[120px] mx-auto')}
-                            value={originalPriceMultiplier}
-                            onChange={(e) => setOriginalPriceMultiplier(e.target.value)}
-                            inputMode="decimal"
-                            placeholder="e.g. 2"
-                        />
-
                         <AnimatePresence mode="wait">
                             <motion.div
                                 key={priceNum ?? 'empty'}

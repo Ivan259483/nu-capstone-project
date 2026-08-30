@@ -35,6 +35,8 @@ type NotificationsContextValue = {
   refreshNotifications: () => Promise<void>;
   loadMore: () => Promise<void>;
   markAsRead: (id: string) => Promise<void>;
+  setReadState: (id: string, isRead: boolean) => Promise<void>;
+  clearNotification: (id: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
 };
 
@@ -210,39 +212,88 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     }
   }, []);
 
-  const markAsRead = useCallback(async (id: string) => {
+  const setReadState = useCallback(async (id: string, isRead: boolean) => {
     const currentState = notificationStateRef.current.get(id);
-    if (!currentState || currentState.isRead) return;
+    if (!currentState || currentState.isRead === isRead) return;
     const operation = ++readMutationSequenceRef.current;
     readMutationByIdRef.current.set(id, operation);
-    notificationStateRef.current.set(id, { ...currentState, isRead: true });
+    notificationStateRef.current.set(id, { ...currentState, isRead });
 
     setNotifications((rows) =>
       rows.map((notification) =>
-        notification.id === id ? { ...notification, isRead: true } : notification
+        notification.id === id ? { ...notification, isRead } : notification
       )
     );
-    setUnreadCount((count) => Math.max(0, count - 1));
+    setUnreadCount((count) => Math.max(0, count + (isRead ? -1 : 1)));
     if (currentState.category === 'promotion') {
-      setPromotionUnread((count) => Math.max(0, count - 1));
+      setPromotionUnread((count) => Math.max(0, count + (isRead ? -1 : 1)));
     }
 
     try {
-      await notificationService.markAsRead(id);
+      const serverUnreadCount = await notificationService.setReadState(id, isRead);
+      if (readMutationByIdRef.current.get(id) === operation) {
+        readMutationByIdRef.current.delete(id);
+        setUnreadCount(serverUnreadCount);
+      }
     } catch (markError) {
       if (readMutationByIdRef.current.get(id) !== operation) throw markError;
       readMutationByIdRef.current.delete(id);
       notificationStateRef.current.set(id, currentState);
       setNotifications((rows) =>
         rows.map((notification) =>
-          notification.id === id ? { ...notification, isRead: false } : notification
+          notification.id === id ? { ...notification, isRead: currentState.isRead } : notification
         )
       );
-      setUnreadCount((count) => count + 1);
-      if (currentState.category === 'promotion') setPromotionUnread((count) => count + 1);
+      setUnreadCount((count) => Math.max(0, count + (isRead ? 1 : -1)));
+      if (currentState.category === 'promotion') {
+        setPromotionUnread((count) => Math.max(0, count + (isRead ? 1 : -1)));
+      }
       throw markError;
     }
   }, []);
+
+  const markAsRead = useCallback(
+    async (id: string) => setReadState(id, true),
+    [setReadState]
+  );
+
+  const clearNotification = useCallback(async (id: string) => {
+    const currentState = notificationStateRef.current.get(id);
+    const notification = notifications.find((row) => row.id === id);
+    if (!currentState || !notification) return;
+    const operation = ++readMutationSequenceRef.current;
+    readMutationByIdRef.current.set(id, operation);
+    notificationStateRef.current.delete(id);
+    knownIdsRef.current.delete(id);
+    setNotifications((rows) => rows.filter((row) => row.id !== id));
+    if (!currentState.isRead) {
+      setUnreadCount((count) => Math.max(0, count - 1));
+      if (currentState.category === 'promotion') {
+        setPromotionUnread((count) => Math.max(0, count - 1));
+      }
+    }
+
+    try {
+      const serverUnreadCount = await notificationService.clearNotification(id);
+      if (readMutationByIdRef.current.get(id) === operation) {
+        readMutationByIdRef.current.delete(id);
+        setUnreadCount(serverUnreadCount);
+      }
+    } catch (clearError) {
+      if (readMutationByIdRef.current.get(id) !== operation) throw clearError;
+      readMutationByIdRef.current.delete(id);
+      notificationStateRef.current.set(id, currentState);
+      knownIdsRef.current.add(id);
+      setNotifications((rows) => mergeUnique(rows, [notification]));
+      if (!currentState.isRead) {
+        setUnreadCount((count) => count + 1);
+        if (currentState.category === 'promotion') {
+          setPromotionUnread((count) => count + 1);
+        }
+      }
+      throw clearError;
+    }
+  }, [notifications]);
 
   const markAllAsRead = useCallback(async () => {
     if (markingAllRead || unreadCount === 0) return;
@@ -362,14 +413,18 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     refreshNotifications,
     loadMore,
     markAsRead,
+    setReadState,
+    clearNotification,
     markAllAsRead,
   }), [
     error,
     loadMore,
     loading,
     loadingMore,
+    clearNotification,
     markAllAsRead,
     markAsRead,
+    setReadState,
     markingAllRead,
     notifications,
     pagination.hasNextPage,

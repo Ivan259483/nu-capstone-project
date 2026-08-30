@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { config } from '../config/environment.js';
 import Service from '../models/service.model.js';
 import {
+  SPF_CATALOG_VERSION,
   SPF_PACKAGE_PRICING,
   buildLegacyPrices,
   buildRichPricing,
@@ -9,8 +10,13 @@ import {
   getPackageKeyFromName,
 } from '../constants/spfPricing.js';
 
-const buildServicePayload = (pkg, existingCatalogCard = null) => ({
+const buildServicePayload = (pkg) => ({
   name: pkg.name,
+  packageCode: pkg.packageCode,
+  tier: pkg.tier,
+  protectionYears: pkg.protectionYears,
+  durationNeedsClientVerification: pkg.durationNeedsClientVerification,
+  catalogVersion: SPF_CATALOG_VERSION,
   category: pkg.category,
   description: pkg.description,
   duration: pkg.duration,
@@ -21,19 +27,9 @@ const buildServicePayload = (pkg, existingCatalogCard = null) => ({
   displayOrder: pkg.displayOrder,
   status: 'Active',
   isPublished: true,
-  catalogCard: {
-    ...pkg.catalogCard,
-    ...(existingCatalogCard || {}),
-    features: existingCatalogCard?.fullInclusions?.length && existingCatalogCard?.features?.length
-      ? existingCatalogCard.features
-      : pkg.catalogCard.features,
-    fullInclusions: existingCatalogCard?.fullInclusions?.length
-      ? existingCatalogCard.fullInclusions
-      : pkg.catalogCard.fullInclusions,
-    ppfCoverage: existingCatalogCard?.ppfCoverage?.length
-      ? existingCatalogCard.ppfCoverage
-      : pkg.catalogCard.ppfCoverage,
-  },
+  // These fields are poster-authoritative. Do not merge stale database card
+  // metadata (for example, SPF89.flagship or outdated badges) back over them.
+  catalogCard: pkg.catalogCard,
   lastUpdatedBy: 'sync-spf-services',
   lastUpdatedAt: new Date(),
 });
@@ -56,8 +52,7 @@ async function syncSPFServices() {
   const results = [];
   for (const [key, pkg] of Object.entries(SPF_PACKAGE_PRICING)) {
     const existing = existingByKey.get(key);
-    const existingCatalogCard = existing?.catalogCard?.toObject?.() || existing?.catalogCard || null;
-    const payload = buildServicePayload(pkg, existingCatalogCard);
+    const payload = buildServicePayload(pkg);
 
     if (existing) {
       existing.set(payload);

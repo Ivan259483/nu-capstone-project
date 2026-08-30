@@ -176,15 +176,6 @@ export default function VehicleGarageForm({
     if (models.length > 0 && !models.includes(v.model)) setCustomModelMode(true);
   }, [customBrandMode, enableVehicleDatabase, v.brand, v.model]);
 
-  React.useEffect(() => {
-    if (!enableVehicleDatabase || customModelMode || !v.model || v.type) return;
-    const inferredType = getVehicleTypeForModel(v.model);
-    if (inferredType) {
-      set({ type: inferredType });
-      onClearError('type');
-    }
-  }, [customModelMode, enableVehicleDatabase, onClearError, v.model, v.type]);
-
   const handleDatabaseBrandSelect = (brand: string) => {
     onClearError('brand');
     onClearError('model');
@@ -204,14 +195,13 @@ export default function VehicleGarageForm({
     onClearError('model');
     if (model === 'Other') {
       setCustomModelMode(true);
-      set({ model: '' });
+      set({ model: '', type: '' });
       return;
     }
 
-    const inferredType = getVehicleTypeForModel(model);
     setCustomModelMode(false);
-    set({ model, ...(inferredType ? { type: inferredType } : {}) });
-    if (inferredType) onClearError('type');
+    set({ model, type: getVehicleTypeForModel(model) });
+    onClearError('type');
   };
 
   const colorHex: Record<string, string> = {
@@ -499,7 +489,7 @@ export default function VehicleGarageForm({
                   placeholder="Enter brand name"
                   value={v.brand}
                   onChange={(e) => {
-                    set({ brand: e.target.value, model: '' });
+                    set({ brand: e.target.value, model: '', type: '' });
                     onClearError('brand');
                   }}
                   className={
@@ -587,8 +577,10 @@ export default function VehicleGarageForm({
                   placeholder={customBrandMode ? 'e.g. Vios, Civic, Ranger' : 'Enter model name'}
                   value={v.model}
                   onChange={(e) => {
-                    set({ model: e.target.value });
+                    const model = e.target.value;
+                    set({ model, type: getVehicleTypeForModel(model) });
                     onClearError('model');
+                    onClearError('type');
                   }}
                   className={
                     rich
@@ -689,48 +681,48 @@ export default function VehicleGarageForm({
                 : 'mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500'
             }
           >
-            Type <span className="font-bold text-red-500 normal-case">*</span>
+            {customerAddExperience ? 'Pricing category' : 'Type'} <span className="font-bold text-red-500 normal-case">*</span>
           </label>
-          <select
-            value={v.type}
-            onChange={(e) => {
-              set({ type: e.target.value });
-              onClearError('type');
-            }}
-            className={
-              rich
-                ? `w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow,background-color] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${
-                    errors.type
-                      ? 'border-red-100/95 bg-red-50/60 text-red-800 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]'
-                      : v.type
-                        ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'
-                        : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'
-                  }`
-                : `w-full appearance-none rounded-lg border px-3 py-2 text-sm outline-none transition-colors ${
-                    errors.type
-                      ? 'border-red-300 bg-red-50 text-red-700 focus:border-red-400'
-                      : v.type
-                        ? 'border-gray-200 text-gray-900 focus:border-gray-400'
-                        : 'border-gray-200 text-gray-400 focus:border-gray-400'
-                  }`
-            }
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`,
-              backgroundPosition: 'right 8px center',
-              backgroundSize: '16px',
-              backgroundRepeat: 'no-repeat',
-              paddingRight: '28px',
-            }}
-          >
-            <option value="" disabled>
-              Select...
-            </option>
-            {ADD_VEHICLE_TYPE_LABELS.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+          {customerAddExperience ? (
+            <div className={`flex min-h-[42px] items-center gap-2 rounded-2xl border px-3.5 py-2.5 text-sm font-semibold ${
+              errors.type
+                ? 'border-red-100 bg-red-50 text-red-800'
+                : v.type
+                  ? 'border-emerald-100 bg-emerald-50/70 text-emerald-800'
+                  : 'border-slate-100 bg-slate-50 text-slate-400'
+            }`}>
+              <iconify-icon icon={v.type ? 'solar:verified-check-bold' : 'solar:info-circle-linear'} width="16"></iconify-icon>
+              <span>{v.type || 'Select a supported brand and model'}</span>
+            </div>
+          ) : (
+            <select
+              value={v.type}
+              onChange={(e) => {
+                set({ type: e.target.value });
+                onClearError('type');
+              }}
+              className={
+                rich
+                  ? `w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow,background-color] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${
+                      errors.type
+                        ? 'border-red-100/95 bg-red-50/60 text-red-800 focus:border-red-200/90'
+                        : v.type
+                          ? 'border-slate-100 text-slate-900 focus:border-slate-200/90'
+                          : 'border-slate-100 text-slate-400 focus:border-slate-200/90'
+                    }`
+                  : `w-full appearance-none rounded-lg border px-3 py-2 text-sm outline-none transition-colors ${
+                      errors.type
+                        ? 'border-red-300 bg-red-50 text-red-700 focus:border-red-400'
+                        : v.type
+                          ? 'border-gray-200 text-gray-900 focus:border-gray-400'
+                          : 'border-gray-200 text-gray-400 focus:border-gray-400'
+                    }`
+              }
+            >
+              <option value="" disabled>Select...</option>
+              {ADD_VEHICLE_TYPE_LABELS.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
           {errors.type && <p className="mt-1 text-[11px] text-red-500">{errors.type}</p>}
         </div>
       </div>

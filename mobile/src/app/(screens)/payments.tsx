@@ -11,7 +11,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Platform,
-  ActivityIndicator,
   RefreshControl,
   Modal,
   Pressable,
@@ -22,6 +21,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { PageSkeleton, PremiumLoader } from '@/components/ui/loading';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { WebView } from 'react-native-webview';
@@ -216,7 +216,7 @@ function BookingPaymentCard({
                 ]}
               >
                 {receiptLoading ? (
-                  <ActivityIndicator size="small" color={emerald} />
+                  <PremiumLoader size="small" tone="success" accessibilityLabel="Preparing receipt" />
                 ) : (
                   <>
                     <Ionicons name="document-text-outline" size={12} color={emerald} />
@@ -383,10 +383,7 @@ export default function PaymentsScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Palette.accent} />
-          <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading bookings…</Text>
-        </View>
+        <PageSkeleton preset="list" rows={4} />
       ) : error && bookings.length === 0 ? (
         renderError()
       ) : (

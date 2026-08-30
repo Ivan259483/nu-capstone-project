@@ -18,7 +18,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
-  ActivityIndicator,
   Platform,
   Image,
   Alert,
@@ -30,6 +29,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle } from 'react-native-svg';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { PageSkeleton as LoadingPageSkeleton, PremiumLoader } from '@/components/ui/loading';
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -570,29 +570,7 @@ const lb = StyleSheet.create({
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 function PageSkeleton() {
-  const op = useSharedValue(0.12);
-  useEffect(() => {
-    op.value = withRepeat(
-      withSequence(
-        withTiming(0.38, { duration: 850 }),
-        withTiming(0.12, { duration: 850 }),
-      ),
-      -1,
-      true,
-    );
-  }, []);
-  const aStyle = useAnimatedStyle(() => ({ opacity: op.value }));
-
-  return (
-    <View style={{ gap: 16, paddingTop: 12 }}>
-      <Animated.View style={[aStyle, { height: 48, backgroundColor: C.surface, borderRadius: 12 }]} />
-      <Animated.View style={[aStyle, { height: RING_SIZE, backgroundColor: C.surface, borderRadius: RING_SIZE / 2, alignSelf: 'center', width: RING_SIZE }]} />
-      <Animated.View style={[aStyle, { height: 52, backgroundColor: C.surface, borderRadius: 14 }]} />
-      {[0, 1, 2].map(i => (
-        <Animated.View key={i} style={[aStyle, { height: 76, backgroundColor: C.surface, borderRadius: 14 }]} />
-      ))}
-    </View>
-  );
+  return <LoadingPageSkeleton preset="list" rows={4} style={{ paddingHorizontal: 0, paddingTop: 12 }} />;
 }
 
 // ─── Timeline Step Card ───────────────────────────────────────────────────────
@@ -1793,7 +1771,7 @@ export default function TrackScreen() {
               activeOpacity={0.85}
             >
               {uploading ? (
-                <ActivityIndicator color="#FFF" />
+                <PremiumLoader size="small" tone="light" accessibilityLabel="Uploading replacement receipt" />
               ) : (
                 <>
                   <Ionicons name="reload-outline" size={18} color="#FFF" />
@@ -1821,7 +1799,7 @@ export default function TrackScreen() {
               activeOpacity={0.85}
             >
               {uploading ? (
-                <ActivityIndicator color="#FFF" />
+                <PremiumLoader size="small" tone="light" accessibilityLabel="Uploading GCash receipt" />
               ) : (
                 <>
                   <Ionicons name="cloud-upload-outline" size={18} color="#FFF" />

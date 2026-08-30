@@ -1,6 +1,19 @@
 import Service from '../models/service.model.js';
+import Vehicle from '../models/vehicle.model.js';
 import ActivityLog from '../models/activityLog.model.js';
-import { SPF_PACKAGE_PRICING, getPackageKeyFromName } from '../constants/spfPricing.js';
+import {
+    SPF_CATALOG_VERSION,
+    SPF_PACKAGE_PRICING,
+    UNDERCOATING_PRICING,
+    getPackageKeyFromName,
+} from '../constants/spfPricing.js';
+import { PPF_FULL_WRAP_CATALOG } from '../constants/ppfCatalog.js';
+import {
+    VEHICLE_PRICING_CATEGORIES,
+    resolveVehiclePricingCategory,
+} from '../constants/pricingCategories.js';
+import { isCustomerRole } from '../constants/roles.js';
+import { ServicePricingError, resolveServicePricing } from '../services/servicePricing.service.js';
 
 const VEHICLE_PRICING_KEYS = ['hatchback', 'sedan', 'midsized', 'suv', 'pickup', 'largeSuv', 'highend'];
 const LEGACY_PRICE_KEYS = {
@@ -72,10 +85,8 @@ export const normalizeServicePricing = (service) => {
         const legacyKey = LEGACY_PRICE_KEYS[vehicleKey];
         const existing = normalized.pricing?.[vehicleKey] || {};
         const legacyBase = normalized.prices?.[legacyKey];
-        const fallbackBase = vehicleKey === 'hatchback' ? normalized.basePrice : null;
-
         pricing[vehicleKey] = {
-            base: toNumberOrNull(existing.base ?? legacyBase ?? fallbackBase),
+            base: toNumberOrNull(existing.base ?? legacyBase),
             original: toNumberOrNull(existing.original),
             addon: toNumberOrNull(existing.addon),
         };
@@ -83,26 +94,18 @@ export const normalizeServicePricing = (service) => {
 
     return {
         ...normalized,
+        packageCode: canonicalPackage?.packageCode || normalized.packageCode,
+        tier: canonicalPackage?.tier || normalized.tier,
+        protectionYears: canonicalPackage?.protectionYears ?? normalized.protectionYears,
+        durationNeedsClientVerification: canonicalPackage?.durationNeedsClientVerification
+            ?? normalized.durationNeedsClientVerification
+            ?? false,
+        catalogVersion: canonicalPackage ? SPF_CATALOG_VERSION : normalized.catalogVersion,
         description: normalized.description || canonicalPackage?.description,
         duration: normalized.duration || canonicalPackage?.duration,
-        catalogCard: canonicalPackage
-            ? {
-                ...canonicalCatalogCard,
-                ...storedCatalogCard,
-                features: storedCatalogCard.fullInclusions?.length && storedCatalogCard.features?.length
-                    ? storedCatalogCard.features
-                    : canonicalCatalogCard.features,
-                fullInclusions: storedCatalogCard.fullInclusions?.length
-                    ? storedCatalogCard.fullInclusions
-                    : canonicalCatalogCard.fullInclusions,
-                highlighted: storedCatalogCard.highlighted?.length
-                    ? storedCatalogCard.highlighted
-                    : canonicalCatalogCard.highlighted,
-                ppfCoverage: storedCatalogCard.ppfCoverage?.length
-                    ? storedCatalogCard.ppfCoverage
-                    : canonicalCatalogCard.ppfCoverage,
-            }
-            : normalized.catalogCard,
+        // Poster-authoritative package metadata takes precedence over stale
+        // stored badges/flags. The sync script persists this canonical shape.
+        catalogCard: canonicalPackage ? canonicalCatalogCard : storedCatalogCard,
         pricing,
     };
 };
@@ -142,6 +145,136 @@ export const getPublishedServices = async (req, res, next) => {
         }).sort({ bookingCount: -1, createdAt: -1 }).lean();
         res.json({ success: true, data: services.map(normalizeServicePricing) });
     } catch (error) {
+        next(error);
+    }
+};
+
+export const getAuthoritativeCatalog = async (req, res, next) => {
+    try {
+        const services = await Service.find({
+            status: 'Active',
+            isPublished: true,
+            billingGroup: 'ceramic_spf',
+        }).sort({ displayOrder: 1, createdAt: 1 }).lean();
+
+        res.json({
+            success: true,
+            data: {
+                catalogVersion: SPF_CATALOG_VERSION,
+                pricingCategories: VEHICLE_PRICING_CATEGORIES,
+                packages: services.map(normalizeServicePricing),
+                addOns: {
+                    undercoating: {
+                        pricingMode: 'additive',
+                        prices: UNDERCOATING_PRICING,
+                        includedInPackageCodes: ['SPF101'],
+                    },
+                },
+                ppfFullWrapCatalog: PPF_FULL_WRAP_CATALOG,
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getBookingOptions = async (req, res, next) => {
+    let pricingVehicle = null;
+    try {
+        const vehicleId = typeof req.query.vehicleId === 'string' ? req.query.vehicleId.trim() : '';
+        if (!vehicleId) {
+            return res.status(422).json({
+                success: false,
+                errorCode: 'VEHICLE_REQUIRED',
+                message: 'Select a saved vehicle before requesting package pricing.',
+            });
+        }
+
+        pricingVehicle = await Vehicle.findById(vehicleId).lean();
+        if (!pricingVehicle) {
+            return res.status(404).json({ success: false, message: 'Vehicle not found.' });
+        }
+        if (isCustomerRole(req.user?.role) && String(pricingVehicle.customer) !== String(req.user.id)) {
+            return res.status(403).json({ success: false, message: 'This vehicle does not belong to your account.' });
+        }
+
+        const effectivePricingCategory = resolveVehiclePricingCategory(pricingVehicle);
+        if (effectivePricingCategory && pricingVehicle.pricingCategory !== effectivePricingCategory) {
+            const categoryGuard = pricingVehicle.pricingCategory === undefined
+                ? { pricingCategory: { $exists: false } }
+                : { pricingCategory: pricingVehicle.pricingCategory };
+            await Vehicle.updateOne(
+                { _id: pricingVehicle._id, ...categoryGuard },
+                {
+                    $set: {
+                        pricingCategory: effectivePricingCategory,
+                        pricingCategorySource: 'legacy_migration',
+                        pricingCategoryNeedsReview: true,
+                        pricingCategoryReviewedAt: null,
+                        pricingCategoryReviewedBy: null,
+                    },
+                }
+            );
+            pricingVehicle = {
+                ...pricingVehicle,
+                pricingCategory: effectivePricingCategory,
+                pricingCategorySource: 'legacy_migration',
+                pricingCategoryNeedsReview: true,
+            };
+        }
+
+        const services = await Service.find({
+            status: 'Active',
+            isPublished: true,
+            billingGroup: 'ceramic_spf',
+        }).sort({ displayOrder: 1, createdAt: 1 });
+
+        const packages = services.map((service) => resolveServicePricing({
+            vehiclePricingCategory: pricingVehicle.pricingCategory,
+            packageCode: service.packageCode,
+            service,
+        }));
+
+        return res.json({
+            success: true,
+            data: {
+                catalogVersion: SPF_CATALOG_VERSION,
+                vehicle: {
+                    id: String(pricingVehicle._id),
+                    year: pricingVehicle.year,
+                    make: pricingVehicle.make,
+                    model: pricingVehicle.model,
+                    vehicleType: pricingVehicle.vehicleType,
+                    pricingCategory: pricingVehicle.pricingCategory,
+                    pricingCategoryNeedsReview: Boolean(pricingVehicle.pricingCategoryNeedsReview),
+                },
+                packages,
+                addOns: {
+                    undercoating: {
+                        price: UNDERCOATING_PRICING[pricingVehicle.pricingCategory] ?? null,
+                        includedInPackageCodes: ['SPF101'],
+                    },
+                },
+            },
+        });
+    } catch (error) {
+        if (error instanceof ServicePricingError) {
+            console.error('[pricing] Booking options configuration error', {
+                errorCode: error.code,
+                vehicleId: req.query?.vehicleId || null,
+                make: pricingVehicle?.make || null,
+                model: pricingVehicle?.model || null,
+                vehicleType: pricingVehicle?.vehicleType || null,
+                packageCode: error.details?.packageCode || null,
+                details: error.details,
+            });
+            return res.status(error.statusCode).json({
+                success: false,
+                errorCode: error.code,
+                message: error.message,
+                details: error.details,
+            });
+        }
         next(error);
     }
 };

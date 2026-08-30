@@ -5,6 +5,9 @@ import { ArrowRight, Check, Crown, Shield, Star, Zap } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { cn } from '@/lib/utils';
 import type { SPFPackage, VehicleType } from './services-catalog-data';
+import { useOptionalAuth } from '@/contexts/AuthContext';
+import { getBookingEntryPath } from '@/lib/auth-redirect';
+import { updateCustomerBookingFunnelDraft } from '@/lib/customer-booking-funnel';
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -31,6 +34,8 @@ export function LuxuryServiceCard({
     adminPreview = false,
 }: LuxuryServiceCardProps) {
     const { t } = useLanguage();
+    const user = useOptionalAuth()?.user;
+    const bookingEntryPath = getBookingEntryPath(user?.role);
     const Icon = pkg.icon;
     const [hovered, setHovered] = useState(false);
 
@@ -49,6 +54,16 @@ export function LuxuryServiceCard({
     const isFlagship = pkg.flagship;
     const isPopular = pkg.popular;
     const isHighlighted = isPopular || isFlagship;
+
+    const preservePackageBookingIntent = () => {
+        const role = String(user?.role || '').trim().toLowerCase();
+        if (typeof window === 'undefined' || (role && role !== 'customer')) return;
+        updateCustomerBookingFunnelDraft(window.sessionStorage, {
+            selectedVehicleId: null,
+            selectedPackageId: pkg.key,
+            wizardStarted: true,
+        });
+    };
 
     return (
         <motion.div
@@ -330,7 +345,11 @@ export function LuxuryServiceCard({
                             <ArrowRight className="w-4 h-4 relative z-10 opacity-60" />
                         </motion.button>
                     ) : (
-                        <Link to="/login">
+                        <Link
+                            to={bookingEntryPath}
+                            data-booking-entry-source="service-card"
+                            onClick={preservePackageBookingIntent}
+                        >
                             <motion.button
                                 whileHover={{ scale: 1.03 }}
                                 whileTap={{ scale: 0.97 }}

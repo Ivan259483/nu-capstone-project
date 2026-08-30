@@ -116,7 +116,7 @@ export interface Booking {
     downPaymentAmount?: number;
     finalPaymentAmount?: number;
     invoiceId?: string;
-    paymentStatus?: 'unpaid' | 'paid' | 'failed' | 'refunded';
+    paymentStatus?: 'unpaid' | 'partially_paid' | 'paid' | 'failed' | 'refunded';
     paymentMethod?: string;
     paymentProvider?: string;
     paidAt?: string;
@@ -135,6 +135,13 @@ export interface Booking {
     customerAvatar?: string;
     items?: { product?: InventoryItem; name?: string; quantity: number; price?: number }[];
     latestPayment?: Record<string, any> | null;
+    reservationPayment?: {
+        status?: 'pending' | 'succeeded' | 'rejected' | 'failed' | 'refunded' | 'partially_refunded' | 'voided';
+        amountSubmitted?: number | null;
+        amountVerified?: number | null;
+        submittedAt?: string | null;
+        reviewedAt?: string | null;
+    } | null;
     invoiceRecord?: {
         _id?: string;
         invoiceNumber?: string;

@@ -64,11 +64,19 @@ const userSchema = new mongoose.Schema(
     avatar: {
       type: String,
     },
-    // Cloudinary asset identifier for safe replacement/cleanup. It is stored
-    // with the URL but never returned in ordinary user API payloads.
+    // Legacy Cloudinary identifier retained for older records and unrelated
+    // cleanup tooling. New customer profile photos use GridFS below.
     avatarPublicId: {
       type: String,
       select: false,
+    },
+    profilePhotoFileId: {
+      type: mongoose.Schema.Types.ObjectId,
+      select: false,
+      index: true,
+    },
+    profilePhotoUpdatedAt: {
+      type: Date,
     },
     avatarUrl: {
       type: String,

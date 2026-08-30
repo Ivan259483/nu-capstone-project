@@ -20,17 +20,13 @@ import {
   canManageUserRole,
   getManageableUserRoles,
   getInvalidUserRoleMessage,
+  isCustomerRole,
   isValidUserRole,
   normalizeToCanonical,
   requiresStaffTwoFactor,
 } from '../constants/roles.js';
 import { parseOptionalProfilePhone } from '../utils/phone.utils.js';
 import { serializeUserForClient, resolvePhoneForClient, USER_PHONE_FIELDS } from '../utils/phone-client.utils.js';
-import {
-  getCloudinaryRuntimeDiagnostics,
-  getCloudinarySafeErrorDetails,
-  uploadBufferToCloudinary,
-} from '../utils/cloudinaryStorage.utils.js';
 import { normalizeEmailForOtp } from '../utils/otp.utils.js';
 import { issueStaffVerificationLink } from '../services/staffVerification.service.js';
 import { deleteOrdersAndReleaseSlotCounters } from '../services/slot.service.js';
@@ -48,7 +44,14 @@ import {
   assertOrdinaryUserManagementTarget,
   getProtectedAdministratorDirectoryExclusion,
 } from '../services/administratorProtection.service.js';
-import { registerCloudinaryManagedAsset } from '../services/managedAsset.service.js';
+import { config } from '../config/environment.js';
+import {
+  deleteProfilePhotoFile,
+  findProfilePhotoFile,
+  openProfilePhotoDownloadStream,
+  toProfilePhotoObjectId,
+  uploadProfilePhotoBuffer,
+} from '../utils/profilePhotoGridFs.utils.js';
 
 const getQueryByIdOrFirebaseUid = (id) => {
   // If it's a 24-character hex string, assume it's a valid ObjectId
@@ -64,6 +67,27 @@ const canViewUser = (req, user) => {
 };
 
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+
+const buildProfilePhotoUrl = (req, fileId) => {
+  const origin = config.publicApiOrigin || `${req.protocol}://${req.get('host')}`;
+  return `${origin}/api/users/profile/photo/${fileId}`;
+};
+
+const cleanupUncommittedProfilePhoto = async (req) => {
+  const upload = req.profilePhotoGridFsUpload;
+  if (!upload?.fileId || upload.committed || upload.cleanupStarted) return;
+  upload.cleanupStarted = true;
+  try {
+    await deleteProfilePhotoFile(upload.fileId);
+  } catch (error) {
+    console.error('[PROFILE_PHOTO_GRIDFS_CLEANUP_FAILED]', JSON.stringify({
+      requestId: req.id || null,
+      userId: req.user?.id ? String(req.user.id) : null,
+      fileId: String(upload.fileId),
+      message: String(error?.message || 'GridFS cleanup failed.').slice(0, 300),
+    }));
+  }
+};
 
 const disconnectRevokedUserSessions = async (userId, code = 'SESSION_REVOKED') => {
   try {
@@ -179,6 +203,7 @@ export const getAllUsers = async (req, res, next) => {
           password: 0,
           avatar: 0,
           avatarPublicId: 0,
+          profilePhotoFileId: 0,
           photoURL: 0,
           profileImage: 0,
           profilePhoto: 0,
@@ -316,11 +341,15 @@ export const updateUser = async (req, res, next) => {
 
     if (isObjectId) {
       if (process.env.NODE_ENV === 'development') console.log(`2a. ID is ObjectId. Finding by _id: ${requestedId}`);
-      user = await User.findById(requestedId);
+      const userQuery = User.findById(requestedId);
+      if (req.profilePhotoGridFsUpload) userQuery.select('+profilePhotoFileId');
+      user = await userQuery;
       if (process.env.NODE_ENV === 'development') console.log(`    -> Result of find by _id:`, user ? 'FOUND' : 'NOT FOUND');
     } else {
       if (process.env.NODE_ENV === 'development') console.log(`2b. ID is string. Finding by firebaseUid: ${requestedId}`);
-      user = await User.findOne({ firebaseUid: requestedId });
+      const userQuery = User.findOne({ firebaseUid: requestedId });
+      if (req.profilePhotoGridFsUpload) userQuery.select('+profilePhotoFileId');
+      user = await userQuery;
       if (process.env.NODE_ENV === 'development') console.log(`    -> Result of find by firebaseUid:`, user ? 'FOUND' : 'NOT FOUND');
     }
 
@@ -360,8 +389,10 @@ export const updateUser = async (req, res, next) => {
       });
     }
 
-    if (selfRequest && req.profilePhotoUpload?.publicId) {
-      updatePayload.avatarPublicId = req.profilePhotoUpload.publicId;
+    if (selfRequest && req.profilePhotoGridFsUpload?.fileId) {
+      req.profilePhotoGridFsUpload.previousFileId = user.profilePhotoFileId || null;
+      updatePayload.profilePhotoFileId = req.profilePhotoGridFsUpload.fileId;
+      updatePayload.profilePhotoUpdatedAt = req.profilePhotoGridFsUpload.updatedAt;
     }
     if (selfRequest && ['role', 'status', 'isActive', 'isDeleted', 'permissions', 'firebaseUid']
       .some((field) => hasOwn(req.body, field))) {
@@ -473,13 +504,41 @@ export const updateUser = async (req, res, next) => {
 
     // Execute the actual update on the existing user
     if (process.env.NODE_ENV === 'development') console.log(`   -> Executing findByIdAndUpdate for _id:`, user._id);
-    const updatedUser = await User.findByIdAndUpdate(
-      user._id,
-      revokeExistingSessions
+    const updateFilter = { _id: user._id };
+    if (req.profilePhotoGridFsUpload) {
+      const previousFileId = req.profilePhotoGridFsUpload.previousFileId;
+      if (previousFileId) {
+        updateFilter.profilePhotoFileId = previousFileId;
+      } else {
+        updateFilter.$or = [
+          { profilePhotoFileId: { $exists: false } },
+          { profilePhotoFileId: null },
+        ];
+      }
+    }
+    const updateOperation = req.profilePhotoGridFsUpload
+      ? {
+          $set: updatePayload,
+          $unset: { avatarPublicId: 1 },
+          ...(revokeExistingSessions ? { $inc: { authVersion: 1 } } : {}),
+        }
+      : revokeExistingSessions
         ? { $set: updatePayload, $inc: { authVersion: 1 } }
-        : updatePayload,
+        : updatePayload;
+    const updatedUser = await User.findOneAndUpdate(
+      updateFilter,
+      updateOperation,
       { new: true }
     ).select('-password');
+
+    if (!updatedUser && req.profilePhotoGridFsUpload) {
+      await cleanupUncommittedProfilePhoto(req);
+      return res.status(409).json({
+        success: false,
+        code: 'PROFILE_PHOTO_REPLACEMENT_CONFLICT',
+        message: 'Your profile photo changed during this upload. Please try again.',
+      });
+    }
 
     // Decrypt PII fields in the returned doc (findByIdAndUpdate doesn't trigger post-init)
     if (updatedUser) {
@@ -488,6 +547,23 @@ export const updateUser = async (req, res, next) => {
     }
     if (updatedUser && revokeExistingSessions) {
       await disconnectRevokedUserSessions(updatedUser._id);
+    }
+
+    if (updatedUser && req.profilePhotoGridFsUpload) {
+      req.profilePhotoGridFsUpload.committed = true;
+      const previousFileId = req.profilePhotoGridFsUpload.previousFileId;
+      if (previousFileId && String(previousFileId) !== String(req.profilePhotoGridFsUpload.fileId)) {
+        try {
+          await deleteProfilePhotoFile(previousFileId);
+        } catch (error) {
+          console.error('[PROFILE_PHOTO_GRIDFS_OLD_DELETE_FAILED]', JSON.stringify({
+            requestId: req.id || null,
+            userId: String(updatedUser._id),
+            fileId: String(previousFileId),
+            message: String(error?.message || 'GridFS deletion failed.').slice(0, 300),
+          }));
+        }
+      }
     }
 
     let verification = null;
@@ -584,6 +660,7 @@ export const updateUser = async (req, res, next) => {
     });
   } catch (error) {
     console.error("❌ Update User Error:", error);
+    await cleanupUncommittedProfilePhoto(req);
     next(error);
   }
 };
@@ -593,13 +670,30 @@ export const updateUser = async (req, res, next) => {
  */
 export const updateMyProfile = async (req, res, next) => {
   try {
+    if (!req.file && isCustomerRole(req.user?.role) && hasOwn(req.body, 'avatar')) {
+      return res.status(400).json({
+        success: false,
+        code: 'PROFILE_PHOTO_MULTIPART_REQUIRED',
+        message: 'Upload profile photos as multipart field "photo".',
+      });
+    }
+
     if (req.file) {
+      if (!isCustomerRole(req.user?.role)) {
+        return res.status(403).json({
+          success: false,
+          code: 'PROFILE_PHOTO_CUSTOMER_ONLY',
+          message: 'Only customers may replace a customer profile photo.',
+        });
+      }
+
       let metadata;
       try {
         metadata = await sharp(req.file.buffer).metadata();
       } catch {
         return res.status(400).json({
           success: false,
+          code: 'PROFILE_PHOTO_UNSUPPORTED',
           message: 'Upload a valid JPG or PNG image.',
         });
       }
@@ -607,29 +701,59 @@ export const updateMyProfile = async (req, res, next) => {
       if (!['jpeg', 'png'].includes(metadata.format)) {
         return res.status(400).json({
           success: false,
+          code: 'PROFILE_PHOTO_UNSUPPORTED',
           message: 'Upload a valid JPG or PNG image.',
         });
       }
 
       const extension = metadata.format === 'png' ? 'png' : 'jpg';
       const contentType = metadata.format === 'png' ? 'image/png' : 'image/jpeg';
-      const uploadedAvatar = await uploadBufferToCloudinary(req.file.buffer, {
-        folder: 'profile-photos',
-        publicId: `user_${req.user.id}_${Date.now()}`,
-        filename: `profile.${extension}`,
-        contentType,
-        uploadType: 'profile_photo',
-        returnMetadata: true,
-      });
+      const imagePipeline = sharp(req.file.buffer)
+        .rotate()
+        .resize({
+          width: 1600,
+          height: 1600,
+          fit: 'inside',
+          withoutEnlargement: true,
+        });
+      const storedBuffer = metadata.format === 'png'
+        ? await imagePipeline.png({ compressionLevel: 9 }).toBuffer()
+        : await imagePipeline.jpeg({ quality: 82, mozjpeg: true }).toBuffer();
 
-      req.body.avatar = uploadedAvatar.secureUrl;
-      req.profilePhotoUpload = uploadedAvatar;
-      await registerCloudinaryManagedAsset({
-        ...uploadedAvatar,
-        ownerCollection: 'User',
-        ownerId: req.user.id,
-        fieldPath: 'avatar',
-        byteSize: uploadedAvatar.bytes,
+      let storedPhoto;
+      try {
+        storedPhoto = await uploadProfilePhotoBuffer({
+          buffer: storedBuffer,
+          filename: `customer-${req.user.id}-${Date.now()}.${extension}`,
+          contentType,
+          ownerId: req.user.id,
+        });
+      } catch (error) {
+        console.error('[PROFILE_PHOTO_GRIDFS_UPLOAD_FAILED]', JSON.stringify({
+          requestId: req.id || null,
+          userId: req.user?.id ? String(req.user.id) : null,
+          mimeType: contentType,
+          inputBytes: req.file.size,
+          outputBytes: storedBuffer.length,
+          message: String(error?.message || 'GridFS upload failed.').slice(0, 300),
+        }));
+        return res.status(503).json({
+          success: false,
+          code: 'PROFILE_PHOTO_STORAGE_FAILED',
+          message: 'Profile photo storage is temporarily unavailable. Please try again.',
+        });
+      }
+
+      const updatedAt = new Date();
+      req.body.avatar = buildProfilePhotoUrl(req, storedPhoto.fileId);
+      req.profilePhotoGridFsUpload = {
+        ...storedPhoto,
+        updatedAt,
+        committed: false,
+        cleanupStarted: false,
+      };
+      res.once('finish', () => {
+        void cleanupUncommittedProfilePhoto(req);
       });
     }
 
@@ -637,21 +761,70 @@ export const updateMyProfile = async (req, res, next) => {
     req.isSelfProfileUpdate = true;
     return updateUser(req, res, next);
   } catch (error) {
+    await cleanupUncommittedProfilePhoto(req);
     console.error('[PROFILE_PHOTO_UPLOAD_FAILED]', JSON.stringify({
-      event: 'profile_photo_upload_failed',
       requestId: req.id || null,
       userId: req.user?.id ? String(req.user.id) : null,
-      uploadType: 'profile_photo',
-      file: req.file
-        ? { mimeType: req.file.mimetype, sizeBytes: req.file.size }
-        : null,
-      runtime: getCloudinaryRuntimeDiagnostics(),
-      error: getCloudinarySafeErrorDetails(error),
+      mimeType: req.file?.mimetype || null,
+      sizeBytes: req.file?.size || null,
+      message: String(error?.message || 'Profile photo upload failed.').slice(0, 300),
     }));
-    const message = error?.code === 'CLOUDINARY_NOT_CONFIGURED'
-      ? 'Profile photo storage is unavailable. Please contact support.'
-      : 'Profile photo upload failed. Please try again.';
-    return res.status(502).json({ success: false, message });
+    return res.status(500).json({
+      success: false,
+      code: 'PROFILE_PHOTO_SAVE_FAILED',
+      message: 'Profile photo could not be saved. Please try again.',
+    });
+  }
+};
+
+/** Stream only a currently referenced customer profile photo from GridFS. */
+export const streamProfilePhoto = async (req, res, next) => {
+  try {
+    const fileId = toProfilePhotoObjectId(req.params.fileId);
+    if (!fileId) {
+      return res.status(404).json({ success: false, message: 'Profile photo not found.' });
+    }
+
+    const [owner, file] = await Promise.all([
+      User.findOne({
+        profilePhotoFileId: fileId,
+        role: 'customer',
+        isDeleted: { $ne: true },
+      }).select('_id profilePhotoFileId').lean(),
+      findProfilePhotoFile(fileId),
+    ]);
+    if (
+      !owner
+      || !file
+      || String(file.metadata?.ownerId || '') !== String(owner._id)
+    ) {
+      return res.status(404).json({ success: false, message: 'Profile photo not found.' });
+    }
+
+    const contentType = String(file.metadata?.contentType || 'application/octet-stream');
+    const etag = `"${file._id}-${file.length}-${new Date(file.uploadDate || 0).getTime()}"`;
+    res.setHeader('Content-Type', contentType);
+    if (Number.isFinite(Number(file.length))) res.setHeader('Content-Length', String(file.length));
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('ETag', etag);
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (req.get('if-none-match') === etag) return res.status(304).end();
+
+    const downloadStream = openProfilePhotoDownloadStream(fileId);
+    downloadStream.once('error', (error) => {
+      if (!res.headersSent) {
+        res.status(404).json({ success: false, message: 'Profile photo not found.' });
+      } else {
+        res.destroy(error);
+      }
+    });
+    return downloadStream.pipe(res);
+  } catch (error) {
+    if (error?.code === 'PROFILE_PHOTO_NOT_FOUND') {
+      return res.status(404).json({ success: false, message: 'Profile photo not found.' });
+    }
+    return next(error);
   }
 };
 

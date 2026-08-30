@@ -7,6 +7,8 @@ const router = express.Router();
 
 // Public endpoint — only published + active services (for customer booking)
 router.get('/published', serviceController.getPublishedServices);
+router.get('/catalog', serviceController.getAuthoritativeCatalog);
+router.get('/booking-options', authenticate, serviceController.getBookingOptions);
 
 // Admin endpoints
 router.get('/', authenticate, serviceController.getAllServices);

@@ -18,7 +18,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Keyboard,
   type KeyboardEvent,
   KeyboardAvoidingView,
@@ -35,11 +34,13 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { PremiumLoader } from '@/components/ui/loading';
 import Animated, {
   FadeInDown,
   FadeInRight,
   FadeOutDown,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
@@ -57,7 +58,6 @@ import {
 import { vehicleService } from '@/services/api/vehicleService';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import type { ServiceOption, Vehicle } from '@/services/api/types';
-import { Palette } from '@/constants/theme';
 import { Toast } from '@/components/ui/PremiumToast';
 import AddVehicleModal from '@/components/booking/AddVehicleModal';
 import {
@@ -69,7 +69,6 @@ import {
   BOOKING_TERMS_INTRO,
   BOOKING_TERMS_SECTIONS,
 } from '@/constants/bookingTerms';
-import type { VehicleTypeKey } from '@/constants/spfPricing';
 import {
   PAYMENT_PROOF_PICKER_OPTIONS,
   paymentProofDataUrlFromAsset,
@@ -89,6 +88,22 @@ const PRIMARY        = '#FFB77D';   // primary
 const PRIMARY_CTR    = '#FF8C00';   // primary_container
 const ON_PRIMARY     = '#4D2600';   // on_primary (dark text on accent)
 
+// Step 1 uses one crisp premium-orange accent. Transparency is reserved for
+// surfaces and subtle outlines so branded copy and icons stay solid and clear.
+const STEP_ONE_ACCENT = '#FF8C00';
+const STEP_ONE_TONES = {
+  accentPrimary: STEP_ONE_ACCENT,
+  accentText: STEP_ONE_ACCENT,
+  accentSoft: 'rgba(255,140,0,0.10)',
+  accentBorder: 'rgba(255,140,0,0.64)',
+  cardBackground: '#111113',
+  cardBorder: 'rgba(255,255,255,0.10)',
+  selectedCardBackground: 'rgba(255,140,0,0.08)',
+  selectedCardBorder: STEP_ONE_ACCENT,
+  textSecondary: '#A1A1AA',
+  textMuted: '#71717A',
+} as const;
+
 // Functional tones
 const SECONDARY      = '#C6C6C7';   // secondary text
 const MUTED          = '#555555';   // muted elements
@@ -106,6 +121,13 @@ const VEHICLE_OPTIONS: { key: VehicleTypeKey; label: string; icon: string }[] = 
 ];
 
 const STEP_LABELS = ['Service', 'Details', 'Schedule', 'Review', 'Terms', 'Payment'];
+const STEP_ONE_FOOTER_BREATHING_SPACE = 24;
+const STEP_ONE_FOOTER_MIN_HEIGHT = 64;
+const STEP_ONE_FOOTER_TOP_PADDING = 4;
+const STEP_ONE_CTA_HEIGHT = 52;
+const STEP_ONE_SUMMARY_MAX_LENGTH = 52;
+
+type VehicleTypeKey = 'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largesuv' | 'highend';
 
 type BookingPackagePrice =
   | { status: 'available'; value: number }
@@ -134,7 +156,6 @@ type BookingCatalogPackage = {
   originalPrice: number | null;
   bundlePrice: number | null;
   bundleLabel: string | null;
-  promotionPercent: number | null;
   price: BookingPackagePrice;
 };
 
@@ -221,68 +242,61 @@ const formatPhilippineMobile = (value?: string | null): string => {
 const getPackageDisplayName = (name: string): string =>
   name.replace(/\s+ALL[-\s]?IN\s*$/i, '').trim();
 
+const getPackageCode = (name: string): string => {
+  const match = name.match(/spf\s*[-_]*(80|89|99|101)/i);
+  return match ? `SPF ${match[1]}` : getPackageDisplayName(name);
+};
+
+const getPackageSummary = (pkg: BookingCatalogPackage): string | null => {
+  // Only render complete, backend-authored short copy in the comparison card.
+  // Longer descriptions remain intact in the package details sheet rather than
+  // being clipped or rewritten into a client-authored marketing claim.
+  const candidates = [pkg.tagline, pkg.description]
+    .map((value) => value?.trim() || '')
+    .filter(Boolean);
+  return candidates.find((value) => value.length <= STEP_ONE_SUMMARY_MAX_LENGTH) ?? null;
+};
+
 const getPublishedOptionalPrice = (
   service: ServiceOption,
-  vehicleType: VehicleTypeKey,
   field: 'original' | 'addon',
 ): number | null => {
-  const apiKey = vehicleType === 'largesuv' ? 'largeSuv' : vehicleType;
-  const raw = service.pricing?.[apiKey]?.[field];
+  const raw = field === 'original' ? service.srp : service.tintBundlePrice;
   if (raw === undefined || raw === null || !Number.isFinite(Number(raw)) || Number(raw) < 0) {
     return null;
   }
   return Number(raw);
 };
 
-// Maps a garage vehicle type to the public service pricing key.
-const getVehiclePriceKey = (type: string): VehicleTypeKey => {
+// Maps the explicit persisted pricing category to a display key. No vehicle
+// type or cheapest-category fallback is permitted in the booking flow.
+const getVehiclePriceKey = (pricingCategory?: string | null): VehicleTypeKey | null => {
   const map: Record<string, VehicleTypeKey> = {
-    'hatchback': 'hatchback', 'sedan': 'sedan', 'midsized': 'midsized',
-    'suv': 'suv', 'pick up': 'pickup', 'pickup': 'pickup',
-    'large suv / van': 'largesuv', 'large suv': 'largesuv', 'van': 'largesuv',
-    'highend': 'highend', 'highend sedan': 'highend', 'high-end sedan': 'highend',
+    HATCHBACK_SMALL_CAR: 'hatchback',
+    SEDAN: 'sedan',
+    MIDSIZED: 'midsized',
+    SUV: 'suv',
+    PICKUP: 'pickup',
+    LARGE_SUV_VAN: 'largesuv',
+    HIGH_END_SEDAN: 'highend',
   };
-  return map[type?.toLowerCase()] || 'hatchback';
+  return map[String(pricingCategory || '').trim().toUpperCase()] || null;
 };
 
-const getPackageBadgeColor = (service: ServiceOption): string => {
-  const badge = String(service.catalogCard?.badge || '').toLowerCase();
-  if (service.catalogCard?.popular || /recommend|popular/.test(badge)) return '#22C55E';
-  if (/all[-\s]?in|flagship/.test(badge)) return '#C9AF83';
-  if (/promo|offer|off|sale|save/.test(badge)) return '#F59E0B';
-  if (/premium/.test(badge)) return '#A1A1AA';
-  return '#A1A1AA';
-};
+const getPackageBadgeColor = (_service: ServiceOption): string => STEP_ONE_TONES.accentText;
 
 const getVisiblePackageBadge = (pkg: BookingCatalogPackage): string | null => {
-  if (!pkg.badge) return null;
-  const promotionBadge = /special|promo|offer|off|sale|save/i.test(pkg.badge);
-  if (promotionBadge && pkg.promotionPercent === null) return null;
   return pkg.badge;
 };
 
 const getPublishedPriceState = (
   service: ServiceOption,
-  vehicleType: VehicleTypeKey,
+  _vehicleType: VehicleTypeKey | null,
 ): BookingPackagePrice => {
-  const apiKey = vehicleType === 'largesuv' ? 'largeSuv' : vehicleType;
-  const richEntry = service.pricing?.[apiKey];
-  const hasRichPrice = !!richEntry && Object.prototype.hasOwnProperty.call(richEntry, 'base');
-  const legacyPrices = service.prices;
-  const hasLegacyPrice = !!legacyPrices && (
-    Object.prototype.hasOwnProperty.call(legacyPrices, vehicleType)
-    || Object.prototype.hasOwnProperty.call(legacyPrices, apiKey)
-  );
-  const hasHatchbackBase = vehicleType === 'hatchback' && service.basePrice !== undefined;
-  const raw = hasRichPrice
-    ? richEntry?.base
-    : hasLegacyPrice
-      ? legacyPrices?.[vehicleType] ?? legacyPrices?.[apiKey]
-      : hasHatchbackBase
-        ? service.basePrice
-        : undefined;
-
-  if (raw === null) return { status: 'unavailable', value: null };
+  if (service.available === false || service.promoPrice === null) {
+    return { status: 'unavailable', value: null };
+  }
+  const raw = service.promoPrice;
   if (raw === undefined || !Number.isFinite(Number(raw)) || Number(raw) < 0) {
     return { status: 'error', value: null };
   }
@@ -308,9 +322,8 @@ function BookingWizardHeader({
   onClose: () => void;
 }) {
   const total = STEP_LABELS.length; // 6
-  const pct = Math.round(((current + 1) / total) * 100);
   return (
-    <View style={[progress.container, { paddingTop: Math.max(topInset, 10) + 8 }]}>
+    <View style={[progress.container, { paddingTop: Math.max(topInset, 10) + 2 }]}>
       <View style={progress.headerRow}>
         <TouchableOpacity
           accessibilityRole="button"
@@ -323,8 +336,10 @@ function BookingWizardHeader({
         </TouchableOpacity>
 
         <View style={progress.titleGroup}>
-          <Text style={progress.title}>Book a Service</Text>
-          <Text style={progress.stepText}>{current + 1} of {total} · {STEP_LABELS[current]}</Text>
+          <Text style={progress.title} maxFontSizeMultiplier={1.15}>Book a Service</Text>
+          <Text style={progress.stepText} maxFontSizeMultiplier={1.2}>
+            Step {current + 1} of {total} · {STEP_LABELS[current]}
+          </Text>
         </View>
 
         <TouchableOpacity
@@ -339,12 +354,21 @@ function BookingWizardHeader({
       </View>
 
       <View
-        style={progress.track}
+        style={progress.segments}
         accessibilityRole="progressbar"
         accessibilityLabel={`${STEP_LABELS[current]}, step ${current + 1} of ${total}`}
         accessibilityValue={{ min: 1, max: total, now: current + 1 }}
       >
-        <View style={[progress.fill, { width: `${pct}%` }]} />
+        {STEP_LABELS.map((label, index) => (
+          <View
+            key={label}
+            style={[
+              progress.segment,
+              index <= current && progress.segmentComplete,
+              index === current && progress.segmentCurrent,
+            ]}
+          />
+        ))}
       </View>
     </View>
   );
@@ -363,6 +387,7 @@ function PackageSelectButton({
   onPress: () => void;
   children: React.ReactNode;
 }) {
+  const reduceMotion = useReducedMotion();
   const scale = useSharedValue(1);
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return (
@@ -375,8 +400,10 @@ function PackageSelectButton({
         accessibilityState={{ checked: selected, disabled: Boolean(disabled) }}
         disabled={disabled}
         onPress={onPress}
-        onPressIn={() => { scale.value = withTiming(0.988, { duration: 130 }); }}
-        onPressOut={() => { scale.value = withTiming(1, { duration: 150 }); }}
+        onPressIn={() => {
+          scale.value = withTiming(reduceMotion ? 1 : 0.988, { duration: reduceMotion ? 0 : 130 });
+        }}
+        onPressOut={() => { scale.value = withTiming(1, { duration: reduceMotion ? 0 : 150 }); }}
         style={pkgCard.selectArea}
       >
         {children}
@@ -396,6 +423,7 @@ function BookingContinueButton({
   accessibilityLabel: string;
   onPress: () => void;
 }) {
+  const reduceMotion = useReducedMotion();
   const scale = useSharedValue(1);
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
@@ -409,13 +437,15 @@ function BookingContinueButton({
         accessibilityState={{ disabled: !enabled, busy }}
         onPress={onPress}
         onPressIn={() => {
-          if (enabled && !busy) scale.value = withTiming(0.98, { duration: 130 });
+          if (enabled && !busy) {
+            scale.value = withTiming(reduceMotion ? 1 : 0.98, { duration: reduceMotion ? 0 : 130 });
+          }
         }}
-        onPressOut={() => { scale.value = withTiming(1, { duration: 150 }); }}
+        onPressOut={() => { scale.value = withTiming(1, { duration: reduceMotion ? 0 : 150 }); }}
         style={[bookingCta.button, enabled ? bookingCta.buttonEnabled : bookingCta.buttonDisabled]}
       >
         {busy ? (
-          <ActivityIndicator size="small" color={ON_PRIMARY} />
+          <PremiumLoader size="small" tone="light" accessibilityLabel={accessibilityLabel} />
         ) : (
           <>
             <Text style={[bookingCta.buttonText, !enabled && bookingCta.buttonTextDisabled]}>
@@ -488,9 +518,9 @@ function PackageCheck({
         width: size,
         height: size,
         borderRadius: size / 2,
-        backgroundColor: isSelected ? PRIMARY_CTR : 'rgba(255,255,255,0.025)',
+        backgroundColor: isSelected ? STEP_ONE_TONES.accentPrimary : STEP_ONE_TONES.accentSoft,
         borderWidth: isSelected ? 0 : 1,
-        borderColor: isSelected ? 'transparent' : 'rgba(255,183,125,0.14)',
+        borderColor: isSelected ? 'transparent' : STEP_ONE_TONES.accentBorder,
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
@@ -499,7 +529,7 @@ function PackageCheck({
       <Ionicons
         name="checkmark"
         size={checkSize}
-        color={isSelected ? ON_PRIMARY : 'rgba(255,183,125,0.82)'}
+        color={isSelected ? ON_PRIMARY : STEP_ONE_TONES.accentText}
       />
     </View>
   );
@@ -509,22 +539,24 @@ const progress = StyleSheet.create({
   container: {
     width: '100%',
     paddingHorizontal: 16,
-    paddingBottom: 10,
+    paddingBottom: 7,
     backgroundColor: SURFACE_LOW,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(255,255,255,0.06)',
+    position: 'relative',
+    zIndex: 40,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 46,
+    minHeight: 44,
     gap: 10,
-    marginBottom: 8,
+    marginBottom: 5,
   },
   iconButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.035)',
@@ -535,28 +567,34 @@ const progress = StyleSheet.create({
   },
   title: {
     color: '#F7F7F8',
-    fontSize: 16,
-    lineHeight: 21,
+    fontSize: 20,
+    lineHeight: 24,
     fontWeight: '700',
     letterSpacing: -0.25,
   },
   stepText: {
     color: '#8B8B94',
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '600',
     marginTop: 1,
   },
-  track: {
+  segments: {
+    flexDirection: 'row',
+    gap: 6,
     height: 2,
-    overflow: 'hidden',
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.07)',
   },
-  fill: {
+  segment: {
+    flex: 1,
     height: 2,
     borderRadius: 999,
-    backgroundColor: Palette.accent,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+  },
+  segmentComplete: {
+    backgroundColor: STEP_ONE_TONES.accentBorder,
+  },
+  segmentCurrent: {
+    backgroundColor: STEP_ONE_TONES.accentPrimary,
   },
 });
 
@@ -1579,7 +1617,7 @@ export default function BookScreen() {
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
 
   // Step 1 — Vehicle type for pricing
-  const [vehicleType, setVehicleType] = useState<VehicleTypeKey>('sedan');
+  const [vehicleType, setVehicleType] = useState<VehicleTypeKey | null>(null);
   // Which SPF package is selected (key)
   const [selectedPkg, setSelectedPkg] = useState<string | null>(null);
 
@@ -2131,48 +2169,67 @@ export default function BookScreen() {
       setVehicles(nextVehicles);
       setSelectedVehicle((current) => {
         let nextSelected: Vehicle | null = null;
+        const requestedVehicleId = prefillParams.vehicleId
+          ? String(prefillParams.vehicleId)
+          : null;
+        if (requestedVehicleId) {
+          nextSelected = nextVehicles.find((vehicle) => (
+            vehicle.id === requestedVehicleId || vehicle._id === requestedVehicleId
+          )) ?? null;
+        }
         if (current) {
-          nextSelected = nextVehicles.find((vehicle) =>
+          nextSelected ??= nextVehicles.find((vehicle) =>
             vehicle.id === current.id || vehicle._id === current._id
           ) ?? null;
         }
         nextSelected ??= nextVehicles[0] ?? null;
         return nextSelected;
       });
-    } catch (error) {
-      setVehiclesError(getApiErrorMessage(error, 'Unable to load your vehicles.'));
+    } catch {
+      setVehiclesError('Unable to load your vehicles.');
     } finally {
       setVehiclesLoading(false);
     }
-  }, []);
+  }, [prefillParams.vehicleId]);
 
   useEffect(() => {
-    if (selectedVehicle) setVehicleType(getVehiclePriceKey(selectedVehicle.vehicleType || ''));
+    setVehicleType(getVehiclePriceKey(selectedVehicle?.pricingCategory));
   }, [selectedVehicle]);
 
   const loadServices = useCallback(async () => {
+    const vehicleId = selectedVehicle?._id || selectedVehicle?.id;
+    if (!vehicleId) {
+      setServices([]);
+      setServicesError('');
+      setServicesLoading(false);
+      return;
+    }
     setServicesLoading(true);
     setServicesError('');
     try {
-      setServices(await serviceService.getPublishedServices());
+      setServices(await serviceService.getBookingOptions(vehicleId));
     } catch (error) {
-      setServicesError(getApiErrorMessage(error, 'Unable to load packages.'));
+      setServices([]);
+      setServicesError(getApiErrorMessage(error, 'Unable to load pricing for this vehicle.'));
     } finally {
       setServicesLoading(false);
     }
-  }, []);
+  }, [selectedVehicle?._id, selectedVehicle?.id]);
 
   const retryServices = useCallback(() => {
-    invalidateCache('/services/published');
+    invalidateCache('/services/booking-options');
     return loadServices();
   }, [loadServices]);
 
   useFocusEffect(
     useCallback(() => {
       void loadVehicles();
-      void loadServices();
-    }, [loadServices, loadVehicles])
+    }, [loadVehicles])
   );
+
+  useEffect(() => {
+    void loadServices();
+  }, [loadServices]);
 
   useEffect(() => {
     const fromProfile = (profile?.phone || '').trim();
@@ -2210,18 +2267,13 @@ export default function BookScreen() {
           };
         });
       const price = getPublishedPriceState(service, vehicleType);
-      const originalPrice = getPublishedOptionalPrice(service, vehicleType, 'original');
-      const bundlePrice = getPublishedOptionalPrice(service, vehicleType, 'addon');
+      const originalPrice = getPublishedOptionalPrice(service, 'original');
+      const bundlePrice = getPublishedOptionalPrice(service, 'addon');
       const addonLabel = service.catalogCard?.addonLabel?.trim() || null;
       const hasPublishedBundle = price.status === 'available'
         && bundlePrice !== null
         && bundlePrice > price.value
         && Boolean(addonLabel);
-      const promotionPercent = price.status === 'available'
-        && originalPrice !== null
-        && originalPrice > price.value
-        ? Math.round((1 - (price.value / originalPrice)) * 100)
-        : null;
       return {
         key,
         service,
@@ -2248,7 +2300,6 @@ export default function BookScreen() {
         bundleLabel: hasPublishedBundle
           ? `${getPackageDisplayName(service.name)} + ${addonLabel}`
           : null,
-        promotionPercent,
         price,
       } satisfies BookingCatalogPackage;
     })
@@ -2258,6 +2309,11 @@ export default function BookScreen() {
       const bOrder = b.service.displayOrder ?? Number.MAX_SAFE_INTEGER;
       return aOrder - bOrder || a.name.localeCompare(b.name);
     }), [services, vehicleType]);
+
+  const availableBookingPackages = React.useMemo(
+    () => bookingPackages.filter((pkg) => pkg.price.status !== 'unavailable'),
+    [bookingPackages],
+  );
 
   useEffect(() => {
     if (!selectedPkg || servicesLoading || servicesError) return;
@@ -2288,7 +2344,7 @@ export default function BookScreen() {
     const defaultVehicle = vehicles[0] ?? null;
     setStep(0);
     setSelectedVehicle(defaultVehicle);
-    setVehicleType(getVehiclePriceKey(defaultVehicle?.vehicleType || ''));
+    setVehicleType(getVehiclePriceKey(defaultVehicle?.pricingCategory));
     setSelectedService(null);
     setSelectedPkg(null);
     setSelectedDate(null);
@@ -2316,18 +2372,23 @@ export default function BookScreen() {
 
   const selectPackage = useCallback((pkg: BookingCatalogPackage) => {
     if (pkg.price.status !== 'available') return;
+    if (
+      selectedPkg === pkg.key
+      && selectedService?.id === pkg.service.id
+      && selectedService.price === pkg.price.value
+    ) return;
     setSelectedPkg(pkg.key);
     setSelectedService({ ...pkg.service, price: pkg.price.value });
     setDraftDirty(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, []);
+  }, [selectedPkg, selectedService?.id, selectedService?.price]);
 
   const applyPersistedDraft = useCallback((draft: BookingDraftV1) => {
     const draftVehicle = vehicles.find((vehicle) =>
       vehicle.id === draft.selectedVehicleId || vehicle._id === draft.selectedVehicleId
     ) ?? null;
     const resolvedVehicle = draftVehicle || vehicles[0] || null;
-    const nextVehicleType = getVehiclePriceKey(resolvedVehicle?.vehicleType || '');
+    const nextVehicleType = getVehiclePriceKey(resolvedVehicle?.pricingCategory);
     const draftService = services.find((service) => service.id === draft.selectedServiceId)
       || services.find((service) => getPackageKeyFromServiceName(service.name) === draft.packageKey)
       || null;
@@ -2484,7 +2545,7 @@ export default function BookScreen() {
       const match = vehicles.find((v) => v.id === requestedVehicleId || v._id === requestedVehicleId);
       if (match) {
         setSelectedVehicle(match);
-        setVehicleType(getVehiclePriceKey(match.vehicleType || ''));
+        setVehicleType(getVehiclePriceKey(match.pricingCategory));
       }
     }
 
@@ -2501,7 +2562,7 @@ export default function BookScreen() {
     if (requestedService && requestedServicePackageKey && priceVehicle) {
       const priceState = getPublishedPriceState(
         requestedService,
-        getVehiclePriceKey(priceVehicle.vehicleType || ''),
+        getVehiclePriceKey(priceVehicle.pricingCategory),
       );
       if (priceState.status === 'available') {
         setSelectedPkg(requestedServicePackageKey);
@@ -2536,7 +2597,7 @@ export default function BookScreen() {
   };
 
   const selectVehicle = useCallback((vehicle: Vehicle) => {
-    const nextType = getVehiclePriceKey(vehicle.vehicleType || '');
+    const nextType = getVehiclePriceKey(vehicle.pricingCategory);
     setSelectedVehicle(vehicle);
     setVehicleType(nextType);
     setShowVehiclePicker(false);
@@ -2895,7 +2956,15 @@ export default function BookScreen() {
         ? 'Select a vehicle to continue'
         : !selectedService
           ? 'Select a package to continue'
-          : selectedPackage?.name ?? selectedService.name;
+          : selectedPackage && selectedPackagePrice !== null
+            ? `${getPackageCode(selectedPackage.name)} · ₱${selectedPackagePrice.toLocaleString()}`
+            : selectedService.name;
+  const stepOneContentInset = stepOneDockHeight > 0
+    ? stepOneDockHeight + STEP_ONE_FOOTER_BREATHING_SPACE
+    : Math.max(
+      STEP_ONE_FOOTER_MIN_HEIGHT,
+      STEP_ONE_CTA_HEIGHT + STEP_ONE_FOOTER_TOP_PADDING + Math.max(insets.bottom, 8),
+    ) + STEP_ONE_FOOTER_BREATHING_SPACE;
 
   const handleStepOneContinue = () => {
     if (!canProceedStep0 || isContinuing) return;
@@ -2921,13 +2990,9 @@ export default function BookScreen() {
     setIsDetailsContinuing(true);
     try {
       invalidateCache('/customers/vehicles');
-      invalidateCache('/services/published');
-      const [freshVehicles, freshServices] = await Promise.all([
-        vehicleService.getMyVehicles(),
-        serviceService.getPublishedServices(),
-      ]);
+      invalidateCache('/services/booking-options');
+      const freshVehicles = await vehicleService.getMyVehicles();
       setVehicles(freshVehicles);
-      setServices(freshServices);
 
       const selectedVehicleId = selectedVehicle._id || selectedVehicle.id;
       const currentVehicle = freshVehicles.find((vehicle) =>
@@ -2942,7 +3007,11 @@ export default function BookScreen() {
         return;
       }
 
-      const currentVehicleType = getVehiclePriceKey(currentVehicle.vehicleType || '');
+      const currentVehicleId = currentVehicle._id || currentVehicle.id;
+      const freshServices = await serviceService.getBookingOptions(currentVehicleId);
+      setServices(freshServices);
+
+      const currentVehicleType = getVehiclePriceKey(currentVehicle.pricingCategory);
       const currentService = freshServices.find((service) => service.id === selectedService.id)
         || freshServices.find((service) => getPackageKeyFromServiceName(service.name) === selectedPkg)
         || null;
@@ -2988,11 +3057,10 @@ export default function BookScreen() {
 
     try {
       invalidateCache('/customers/vehicles');
-      invalidateCache('/services/published');
-      const [availabilityResponse, freshVehicles, freshServices] = await Promise.all([
+      invalidateCache('/services/booking-options');
+      const [availabilityResponse, freshVehicles] = await Promise.all([
         apiClient.get(`/orders/available-slots?date=${requestedDate}`),
         vehicleService.getMyVehicles(),
-        serviceService.getPublishedServices(),
       ]);
 
       if (selectedDateRef.current !== requestedDate || selectedTimeRef.current !== requestedTime) return;
@@ -3068,7 +3136,11 @@ export default function BookScreen() {
         return;
       }
 
-      const currentVehicleType = getVehiclePriceKey(currentVehicle.vehicleType || '');
+
+      const currentVehicleId = currentVehicle._id || currentVehicle.id;
+      const freshServices = await serviceService.getBookingOptions(currentVehicleId);
+
+      const currentVehicleType = getVehiclePriceKey(currentVehicle.pricingCategory);
       const currentService = freshServices.find((service) => service.id === selectedService.id)
         || freshServices.find((service) => getPackageKeyFromServiceName(service.name) === selectedPkg)
         || null;
@@ -3343,7 +3415,7 @@ export default function BookScreen() {
       />
 
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={ss.scrollRegion}
         behavior={Platform.OS === 'ios' && step !== 2 ? 'padding' : undefined}
       >
         <ScrollView
@@ -3353,7 +3425,7 @@ export default function BookScreen() {
             {
               paddingBottom:
                 step === 0
-                  ? Math.max(stepOneDockHeight, 80) + 12
+                  ? stepOneContentInset
                   : step === 1
                     ? Math.max(stepTwoDockHeight, 76) + 12
                   : step === 2
@@ -3362,6 +3434,11 @@ export default function BookScreen() {
             },
           ]}
           showsVerticalScrollIndicator={false}
+          scrollIndicatorInsets={step === 0
+            ? { top: 0, right: 0, bottom: stepOneDockHeight, left: 0 }
+            : undefined}
+          automaticallyAdjustContentInsets={false}
+          contentInsetAdjustmentBehavior="never"
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           automaticallyAdjustKeyboardInsets={Platform.OS === 'ios' && step === 2}
@@ -3377,22 +3454,20 @@ export default function BookScreen() {
                 <Text
                   style={ss.heroTitle}
                   numberOfLines={2}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.86}
+                  maxFontSizeMultiplier={1.15}
                 >
                   Choose your service
                 </Text>
-                <Text style={ss.heroSub}>Select a package for your vehicle.</Text>
+                <Text style={ss.heroSub} maxFontSizeMultiplier={1.25}>
+                  {selectedVehicle
+                    ? `Select a package for your ${`${selectedVehicle.make} ${selectedVehicle.model}`.trim()}.`
+                    : 'Select a package for your vehicle.'}
+                </Text>
               </Animated.View>
 
               {/* ══ SECTION 1: YOUR VEHICLE ══ */}
-              <Animated.View entering={FadeInDown.delay(120).duration(200)} style={{ gap: 10 }}>
-                <View style={svc.stepSectionHeader}>
-                  <View style={svc.stepNumBadge}>
-                    <Text style={svc.stepNumText}>1</Text>
-                  </View>
-                  <Text style={svc.stepSectionTitle}>Your Vehicle</Text>
-                </View>
+              <Animated.View entering={FadeInDown.delay(120).duration(200)} style={svc.vehicleSection}>
+                <Text style={svc.sectionTitle} maxFontSizeMultiplier={1.2}>Vehicle</Text>
 
                 {vehiclesLoading ? (
                   <View style={[svc.vehicleRow, skeleton.row]} accessibilityLabel="Loading vehicles">
@@ -3410,7 +3485,12 @@ export default function BookScreen() {
                       <Text style={svc.inlineErrorTitle}>Unable to load your vehicles.</Text>
                       <Text style={svc.inlineErrorBody}>{vehiclesError}</Text>
                     </View>
-                    <TouchableOpacity accessibilityRole="button" onPress={() => void loadVehicles()} hitSlop={8}>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Retry loading vehicles"
+                      onPress={() => void loadVehicles()}
+                      style={svc.retryAction}
+                    >
                       <Text style={svc.retryText}>Retry</Text>
                     </TouchableOpacity>
                   </View>
@@ -3418,11 +3498,13 @@ export default function BookScreen() {
                   /* Empty state — tap to add first vehicle */
                   <TouchableOpacity
                     activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add your first vehicle"
                     onPress={() => { setShowAddVehicle(true); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
                     style={svc.addVehicleEmptyCard}
                   >
                     <View style={svc.addVehicleIconWrap}>
-                      <Ionicons name="car-sport-outline" size={28} color={PRIMARY} />
+                      <Ionicons name="car-sport-outline" size={28} color={STEP_ONE_TONES.accentText} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={svc.addVehicleEmptyTitle}>Add Your Vehicle</Text>
@@ -3435,42 +3517,49 @@ export default function BookScreen() {
                 ) : (
                   <View style={{ gap: 4 }}>
                     {selectedVehicle ? (
-                      <TouchableOpacity
-                        activeOpacity={0.86}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Selected vehicle, ${selectedVehicle.make} ${selectedVehicle.model}. Change vehicle`}
-                        onPress={() => setShowVehiclePicker(true)}
+                      <View
+                        accessibilityRole="summary"
+                        accessibilityLabel={`Selected vehicle, ${selectedVehicle.make} ${selectedVehicle.model}, ${VEHICLE_OPTIONS.find((option) => option.key === vehicleType)?.label || selectedVehicle.vehicleType || 'Vehicle'}`}
                         style={[svc.vehicleRow, svc.vehicleRowActive]}
                       >
                         <View style={[svc.vehicleIconWrap, svc.vehicleIconWrapActive]}>
-                          <Ionicons name="car-sport-outline" size={20} color={ON_PRIMARY} />
+                          <Ionicons name="car-sport-outline" size={20} color={STEP_ONE_TONES.accentText} />
                         </View>
-                        <View style={{ flex: 1 }}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
                           <Text style={[svc.vehicleRowName, { color: '#FFFFFF' }]} numberOfLines={1}>
                             {`${selectedVehicle.make} ${selectedVehicle.model}`.trim()}
                           </Text>
-                          <Text style={svc.vehicleRowType} numberOfLines={1}>
-                            {VEHICLE_OPTIONS.find((option) => option.key === vehicleType)?.label || selectedVehicle.vehicleType || 'Vehicle'}
-                          </Text>
                           <View style={svc.selectedVehicleMeta}>
-                            <Ionicons name="checkmark-circle" size={13} color={PRIMARY} />
+                            <Text style={svc.vehicleRowType} numberOfLines={1}>
+                              {VEHICLE_OPTIONS.find((option) => option.key === vehicleType)?.label || selectedVehicle.vehicleType || 'Vehicle'}
+                            </Text>
+                            <View style={svc.vehicleMetaDot} />
+                            <Ionicons name="checkmark-circle" size={12} color={STEP_ONE_TONES.accentText} />
                             <Text style={svc.selectedVehicleMetaText}>Selected</Text>
                           </View>
                         </View>
-                        <View style={svc.changeVehicleAction}>
+                        <TouchableOpacity
+                          activeOpacity={0.72}
+                          accessibilityRole="button"
+                          accessibilityLabel="Change selected vehicle"
+                          onPress={() => setShowVehiclePicker(true)}
+                          style={svc.changeVehicleAction}
+                        >
                           <Text style={svc.changeVehicleText}>Change</Text>
-                          <Ionicons name="chevron-forward" size={15} color={PRIMARY} />
-                        </View>
-                      </TouchableOpacity>
+                          <Ionicons name="chevron-forward" size={15} color={STEP_ONE_TONES.accentText} />
+                        </TouchableOpacity>
+                      </View>
                     ) : null}
 
                     <TouchableOpacity
                       activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Add another vehicle"
                       onPress={() => { setShowAddVehicle(true); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
                       style={svc.addVehicleSecondary}
                     >
-                      <Ionicons name="add-circle-outline" size={16} color={PRIMARY} />
-                      <Text style={svc.addVehicleSecondaryText}>Add Another Vehicle</Text>
+                      <Ionicons name="add-circle-outline" size={16} color={STEP_ONE_TONES.accentText} />
+                      <Text style={svc.addVehicleSecondaryText}>Add another vehicle</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -3526,7 +3615,7 @@ export default function BookScreen() {
                       {vehicles.map((vehicle) => {
                         const active = selectedVehicle?.id === vehicle.id || selectedVehicle?._id === vehicle._id;
                         const typeLabel = VEHICLE_OPTIONS.find((option) =>
-                          option.key === getVehiclePriceKey(vehicle.vehicleType || '')
+                          option.key === getVehiclePriceKey(vehicle.pricingCategory)
                         )?.label || vehicle.vehicleType || 'Vehicle';
                         return (
                           <View
@@ -3541,7 +3630,7 @@ export default function BookScreen() {
                               onPress={() => selectVehicle(vehicle)}
                               style={vehiclePicker.selectArea}
                             >
-                              <Ionicons name="car-sport-outline" size={19} color={active ? PRIMARY : '#A1A1AA'} />
+                              <Ionicons name="car-sport-outline" size={19} color={active ? STEP_ONE_TONES.accentText : '#A1A1AA'} />
                               <View style={{ flex: 1 }}>
                                 <Text style={vehiclePicker.rowTitle}>{`${vehicle.make} ${vehicle.model}`.trim()}</Text>
                                 <Text style={vehiclePicker.rowSubtitle}>{typeLabel}</Text>
@@ -3555,9 +3644,9 @@ export default function BookScreen() {
                               style={vehiclePicker.editAction}
                               hitSlop={{ top: 6, bottom: 6 }}
                             >
-                              <Ionicons name="pencil-outline" size={13} color={PRIMARY} />
+                              <Ionicons name="pencil-outline" size={13} color={STEP_ONE_TONES.accentText} />
                               <Text style={vehiclePicker.editText}>Edit</Text>
-                              <Ionicons name="chevron-forward" size={12} color={PRIMARY} />
+                              <Ionicons name="chevron-forward" size={12} color={STEP_ONE_TONES.accentText} />
                             </TouchableOpacity>
                             <TouchableOpacity
                               activeOpacity={0.75}
@@ -3592,17 +3681,18 @@ export default function BookScreen() {
               </Modal>
 
               {/* ══ SECTION 2: CHOOSE PACKAGE ══ */}
-              <Animated.View entering={FadeInDown.delay(200).duration(200)} style={{ gap: 10 }}>
-                <View style={svc.stepSectionHeader}>
-                  <View style={[svc.stepNumBadge, !selectedVehicle && { backgroundColor: SURFACE_TOP }]}>
-                    <Text style={[svc.stepNumText, !selectedVehicle && { color: MUTED }]}>2</Text>
-                  </View>
-                  <Text style={[svc.stepSectionTitle, !selectedVehicle && { color: MUTED }]}>Choose Package</Text>
-                  {selectedVehicle && (
-                    <Text style={svc.pricingForLabel}>
-                      for {VEHICLE_OPTIONS.find(o => o.key === vehicleType)?.label || vehicleType}
+              <Animated.View entering={FadeInDown.delay(200).duration(200)} style={svc.packageSection}>
+                <View style={svc.packageSectionHeading}>
+                  <Text style={[svc.sectionTitle, !selectedVehicle && { color: MUTED }]}>
+                    {selectedVehicle
+                      ? `Packages for your ${VEHICLE_OPTIONS.find((option) => option.key === vehicleType)?.label || selectedVehicle.vehicleType || 'vehicle'}`
+                      : 'Packages'}
+                  </Text>
+                  {selectedVehicle ? (
+                    <Text style={svc.sectionSupport} numberOfLines={1}>
+                      Pricing for {`${selectedVehicle.make} ${selectedVehicle.model}`.trim()}
                     </Text>
-                  )}
+                  ) : null}
                 </View>
 
                 {!selectedVehicle ? (
@@ -3611,8 +3701,8 @@ export default function BookScreen() {
                     <Text style={svc.packageLockedText}>Select your vehicle above to see packages</Text>
                   </View>
                 ) : servicesLoading ? (
-                  <View style={{ gap: 10 }} accessibilityLabel="Loading packages">
-                    {[0, 1].map((item) => (
+                  <View style={pkgCard.list} accessibilityLabel="Loading packages">
+                    {[0, 1, 2].map((item) => (
                       <View key={item} style={[pkgCard.base, skeleton.packageCard]}>
                         <View style={[skeleton.lineSmall, { width: '28%' }]} />
                         <View style={[skeleton.line, { width: '66%', marginTop: 12 }]} />
@@ -3626,33 +3716,55 @@ export default function BookScreen() {
                   <View style={svc.inlineError}>
                     <Ionicons name="alert-circle-outline" size={18} color="#FCA5A5" />
                     <View style={{ flex: 1 }}>
-                      <Text style={svc.inlineErrorTitle}>Unable to load packages.</Text>
-                      <Text style={svc.inlineErrorBody}>{servicesError}</Text>
+                      <Text style={svc.inlineErrorTitle}>Unable to load services</Text>
+                      <Text style={svc.inlineErrorBody}>Check your connection and try again.</Text>
                     </View>
-                    <TouchableOpacity accessibilityRole="button" onPress={() => void retryServices()} hitSlop={8}>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Retry loading services"
+                      onPress={() => void retryServices()}
+                      style={svc.retryAction}
+                    >
                       <Text style={svc.retryText}>Retry</Text>
                     </TouchableOpacity>
                   </View>
-                ) : bookingPackages.filter((pkg) => pkg.price.status !== 'unavailable').length === 0 ? (
-                  <View style={svc.packageLockedCard}>
-                    <Ionicons name="information-circle-outline" size={20} color={MUTED} />
-                    <Text style={svc.packageLockedText}>No packages are available for this vehicle right now.</Text>
+                ) : availableBookingPackages.length === 0 ? (
+                  <View style={svc.emptyPackageState}>
+                    <View style={svc.emptyPackageIcon}>
+                      <Ionicons name="car-sport-outline" size={20} color={STEP_ONE_TONES.accentText} />
+                    </View>
+                    <Text style={svc.emptyPackageTitle}>No packages available for this vehicle</Text>
+                    <Text style={svc.emptyPackageBody}>
+                      Please choose another vehicle or contact us for assistance.
+                    </Text>
+                    <TouchableOpacity
+                      activeOpacity={0.78}
+                      accessibilityRole="button"
+                      accessibilityLabel="Change vehicle"
+                      onPress={() => setShowVehiclePicker(true)}
+                      style={svc.emptyPackageAction}
+                    >
+                      <Text style={svc.emptyPackageActionText}>Change Vehicle</Text>
+                      <Ionicons name="chevron-forward" size={14} color={STEP_ONE_TONES.accentText} />
+                    </TouchableOpacity>
                   </View>
                 ) : (
-                  <View style={{ gap: 10 }}>
-                    {bookingPackages.filter((pkg) => pkg.price.status !== 'unavailable').map((pkg, idx) => {
+                  <View style={pkgCard.list}>
+                    {availableBookingPackages.map((pkg, idx) => {
                       const isSelected = selectedPkg === pkg.key;
                       const visibleBadge = getVisiblePackageBadge(pkg);
-                      const packageSummary = pkg.tagline || pkg.description;
-                      const compactFeatures = pkg.features
-                        .slice(0, 3)
-                        .map(getPackageFeatureParts);
+                      const packageSummary = getPackageSummary(pkg);
                       const priceLabel = pkg.price.status === 'available'
                         ? `₱${pkg.price.value.toLocaleString()}`
                         : 'Unable to load price';
+                      const promotionSavings = pkg.price.status === 'available'
+                        && pkg.originalPrice !== null
+                        && pkg.originalPrice > pkg.price.value
+                        ? pkg.originalPrice - pkg.price.value
+                        : null;
                       return (
                         <Animated.View
-                          key={pkg.key}
+                          key={pkg.service.id || pkg.key}
                           entering={FadeInDown.delay(idx * 40).duration(200)}
                           style={[
                             pkgCard.base,
@@ -3666,69 +3778,83 @@ export default function BookScreen() {
                             onPress={() => selectPackage(pkg)}
                           >
                             <View style={pkgCard.topRow}>
-                              <Text style={pkgCard.tier}>{pkg.tier.toUpperCase()}</Text>
+                              <Text style={pkgCard.tier} maxFontSizeMultiplier={1.15}>{pkg.tier}</Text>
                               {visibleBadge ? (
                                 <View
                                   style={[
                                     pkgCard.badge,
                                     {
-                                      borderColor: `${pkg.badgeColor}55`,
-                                      backgroundColor: `${pkg.badgeColor}16`,
+                                      borderColor: STEP_ONE_TONES.accentBorder,
+                                      backgroundColor: STEP_ONE_TONES.accentSoft,
                                     },
                                   ]}
                                 >
-                                  <Text style={[pkgCard.badgeText, { color: pkg.badgeColor }]}>{visibleBadge}</Text>
+                                  <Text
+                                    style={[pkgCard.badgeText, { color: pkg.badgeColor }]}
+                                    numberOfLines={1}
+                                    maxFontSizeMultiplier={1.1}
+                                  >
+                                    {visibleBadge}
+                                  </Text>
                                 </View>
                               ) : null}
                             </View>
 
                             <View style={pkgCard.nameRow}>
-                              <Text style={pkgCard.name} numberOfLines={2}>{pkg.name}</Text>
+                              <Text style={pkgCard.name} numberOfLines={1} maxFontSizeMultiplier={1.15}>
+                                {getPackageCode(pkg.name)}
+                              </Text>
                               {isSelected ? (
-                                <PackageCheck size={26} checkSize={14} treatment="selected" />
+                                <PackageCheck size={22} checkSize={12} treatment="selected" />
                               ) : (
                                 <View style={pkgCard.checkCircle} />
                               )}
                             </View>
 
-                            <Text style={[pkgCard.price, pkg.price.status === 'error' && pkgCard.priceError]}>
-                              {priceLabel}
-                            </Text>
+                            {pkg.price.status === 'available' ? (
+                              <View
+                                accessible
+                                accessibilityRole="text"
+                                accessibilityLabel={priceLabel}
+                                style={pkgCard.priceBlock}
+                              >
+                                <Text style={pkgCard.priceSymbol} maxFontSizeMultiplier={1.1}>₱</Text>
+                                <Text
+                                  style={pkgCard.priceDigits}
+                                  numberOfLines={1}
+                                  maxFontSizeMultiplier={1.1}
+                                >
+                                  {pkg.price.value.toLocaleString()}
+                                </Text>
+                              </View>
+                            ) : (
+                              <Text style={pkgCard.priceError}>Unable to load price</Text>
+                            )}
 
-                            {packageSummary ? (
-                              <Text style={pkgCard.tagline} numberOfLines={2} ellipsizeMode="tail">
-                                {packageSummary}
-                              </Text>
+                            {promotionSavings !== null && pkg.originalPrice !== null ? (
+                              <View style={pkgCard.offerRow}>
+                                <Text style={pkgCard.originalPrice} maxFontSizeMultiplier={1.15}>
+                                  Was ₱{pkg.originalPrice.toLocaleString()}
+                                </Text>
+                                <Text style={pkgCard.offerSeparator}>·</Text>
+                                <Text style={pkgCard.savings} maxFontSizeMultiplier={1.15}>
+                                  Save ₱{promotionSavings.toLocaleString()}
+                                </Text>
+                              </View>
                             ) : null}
 
                             {pkg.protection || pkg.estimatedDuration ? (
-                              <View style={pkgCard.metadataRow}>
-                                {pkg.protection ? (
-                                  <View style={pkgCard.metadataPill}>
-                                    <Ionicons name="shield-checkmark-outline" size={12} color={PRIMARY} />
-                                    <Text style={pkgCard.metadataText}>{pkg.protection}</Text>
-                                  </View>
-                                ) : null}
-                                {pkg.estimatedDuration ? (
-                                  <View style={[pkgCard.metadataPill, pkgCard.metadataPillNeutral]}>
-                                    <Ionicons name="time-outline" size={12} color="#A1A1AA" />
-                                    <Text style={[pkgCard.metadataText, pkgCard.metadataTextNeutral]}>
-                                      {pkg.estimatedDuration} Service
-                                    </Text>
-                                  </View>
-                                ) : null}
-                              </View>
+                              <Text style={pkgCard.metadataText} maxFontSizeMultiplier={1.2}>
+                                {[pkg.protection, pkg.estimatedDuration ? `${pkg.estimatedDuration} Service` : null]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </Text>
                             ) : null}
 
-                            {compactFeatures.length ? (
-                              <View style={pkgCard.featurePreview}>
-                                {compactFeatures.map((feature) => (
-                                  <View key={`${pkg.key}-${feature.title}`} style={pkgCard.featureRow}>
-                                    <PackageCheck size={14} checkSize={9} treatment="inclusion" />
-                                    <Text style={pkgCard.featureText}>{feature.title}</Text>
-                                  </View>
-                                ))}
-                              </View>
+                            {packageSummary ? (
+                              <Text style={pkgCard.tagline} maxFontSizeMultiplier={1.2}>
+                                {packageSummary}
+                              </Text>
                             ) : null}
                           </PackageSelectButton>
 
@@ -3739,7 +3865,7 @@ export default function BookScreen() {
                               onPress={() => void retryServices()}
                               style={pkgCard.priceRetry}
                             >
-                              <Ionicons name="refresh" size={13} color={PRIMARY} />
+                              <Ionicons name="refresh" size={13} color={STEP_ONE_TONES.accentText} />
                               <Text style={pkgCard.priceRetryText}>Retry pricing</Text>
                             </TouchableOpacity>
                           ) : null}
@@ -3752,8 +3878,8 @@ export default function BookScreen() {
                             onPress={() => setPackageDetailsKey(pkg.key)}
                             style={pkgCard.detailsButton}
                           >
-                            <Text style={pkgCard.detailsButtonText}>View package details</Text>
-                            <Ionicons name="chevron-forward" size={12} color="rgba(255,183,125,0.64)" />
+                            <Text style={pkgCard.detailsButtonText}>{"See what's included"}</Text>
+                            <Ionicons name="chevron-forward" size={12} color={STEP_ONE_TONES.accentText} />
                           </TouchableOpacity>
                         </Animated.View>
                       );
@@ -4489,7 +4615,7 @@ export default function BookScreen() {
                   >
                     <LinearGradient colors={[PRIMARY_CTR, PRIMARY]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={ss.gradientBtn}>
                       {isSubmitting
-                        ? <ActivityIndicator size="small" color={ON_PRIMARY} />
+                        ? <PremiumLoader size="small" tone="light" accessibilityLabel="Confirming booking" />
                         : <><Ionicons name="checkmark-circle" size={18} color={ON_PRIMARY} /><Text style={ss.gradientBtnText}>Confirm Booking</Text></>
                       }
                     </LinearGradient>
@@ -4542,7 +4668,7 @@ export default function BookScreen() {
                 accessibilityState={{ disabled: !canProceedStep2, busy: isScheduleContinuing }}
               >
                 {isScheduleContinuing ? (
-                  <ActivityIndicator size="small" color={ON_PRIMARY} />
+                  <PremiumLoader size="small" tone="light" accessibilityLabel="Checking schedule" />
                 ) : (
                   <>
                     <Text style={[
@@ -4568,18 +4694,34 @@ export default function BookScreen() {
             bookingCta.container,
             { paddingBottom: Math.max(insets.bottom, 8) },
           ]}
-          onLayout={(event: LayoutChangeEvent) => setStepOneDockHeight(event.nativeEvent.layout.height)}
+          onLayout={(event: LayoutChangeEvent) => {
+            const measuredHeight = Math.ceil(event.nativeEvent.layout.height);
+            setStepOneDockHeight((currentHeight) => (
+              currentHeight === measuredHeight ? currentHeight : measuredHeight
+            ));
+          }}
         >
           <View style={bookingCta.summaryRow}>
-            <Text
-              style={[bookingCta.guidance, canProceedStep0 && bookingCta.guidanceReady]}
-              numberOfLines={1}
-            >
-              {stepOneGuidance}
-            </Text>
-            {selectedPackagePrice !== null ? (
-              <Text style={bookingCta.summaryPrice}>₱{selectedPackagePrice.toLocaleString()}</Text>
-            ) : null}
+            {selectedPackage && selectedPackagePrice !== null ? (
+              <>
+                <Text
+                  style={bookingCta.footerPackage}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.88}
+                  maxFontSizeMultiplier={1.1}
+                >
+                  {getPackageCode(selectedPackage.name)} — {selectedPackage.tier}
+                </Text>
+                <Text style={bookingCta.footerPrice} numberOfLines={1} maxFontSizeMultiplier={1.1}>
+                  ₱{selectedPackagePrice.toLocaleString()}
+                </Text>
+              </>
+            ) : (
+              <Text style={bookingCta.guidance} numberOfLines={2} maxFontSizeMultiplier={1.2}>
+                {stepOneGuidance}
+              </Text>
+            )}
           </View>
           <BookingContinueButton
             enabled={canProceedStep0}
@@ -4620,7 +4762,7 @@ export default function BookScreen() {
             ]}
           >
             {isDetailsContinuing ? (
-              <ActivityIndicator size="small" color={ON_PRIMARY} />
+              <PremiumLoader size="small" tone="light" accessibilityLabel="Saving vehicle details" />
             ) : (
               <>
                 <Text style={[
@@ -4643,6 +4785,7 @@ export default function BookScreen() {
         transparent
         animationType="slide"
         statusBarTranslucent
+        accessibilityViewIsModal
         onRequestClose={closePackageDetails}
       >
         <View style={packageDetailsStyles.overlay}>
@@ -4677,8 +4820,8 @@ export default function BookScreen() {
                         style={[
                           packageDetailsStyles.headerBadge,
                           {
-                            borderColor: `${packageDetails.badgeColor}55`,
-                            backgroundColor: `${packageDetails.badgeColor}16`,
+                            borderColor: STEP_ONE_TONES.accentBorder,
+                            backgroundColor: STEP_ONE_TONES.accentSoft,
                           },
                         ]}
                       >
@@ -4688,7 +4831,7 @@ export default function BookScreen() {
                       </View>
                     ) : null}
                   </View>
-                  <Text style={packageDetailsStyles.title}>{packageDetails.name}</Text>
+                  <Text style={packageDetailsStyles.title}>{getPackageCode(packageDetails.name)}</Text>
                 </View>
                 <TouchableOpacity
                   activeOpacity={0.75}
@@ -4706,23 +4849,35 @@ export default function BookScreen() {
                 contentContainerStyle={packageDetailsStyles.content}
                 showsVerticalScrollIndicator={false}
               >
-                <Text style={[
-                  packageDetailsStyles.price,
-                  packageDetails.price.status !== 'available' && packageDetailsStyles.priceUnavailable,
-                ]}>
-                  {packageDetails.price.status === 'available'
-                    ? `₱${packageDetails.price.value.toLocaleString()}`
-                    : 'Unable to load price'}
-                </Text>
-                {packageDetails.promotionPercent !== null && packageDetails.originalPrice !== null ? (
+                {packageDetails.price.status === 'available' ? (
+                  <View
+                    accessible
+                    accessibilityRole="text"
+                    accessibilityLabel={`₱${packageDetails.price.value.toLocaleString()}`}
+                    style={packageDetailsStyles.priceBlock}
+                  >
+                    <Text style={packageDetailsStyles.priceSymbol} maxFontSizeMultiplier={1.15}>₱</Text>
+                    <Text
+                      style={packageDetailsStyles.priceDigits}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.92}
+                      maxFontSizeMultiplier={1.15}
+                    >
+                      {packageDetails.price.value.toLocaleString()}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={packageDetailsStyles.priceUnavailable}>Unable to load price</Text>
+                )}
+                {packageDetails.price.status === 'available'
+                  && packageDetails.originalPrice !== null ? (
                   <View style={packageDetailsStyles.promotionRow}>
-                    <View style={packageDetailsStyles.promotionBadge}>
-                      <Text style={packageDetailsStyles.promotionBadgeText}>
-                        {packageDetails.promotionPercent}% OFF PROMO
-                      </Text>
-                    </View>
                     <Text style={packageDetailsStyles.originalPrice}>
-                      Original ₱{packageDetails.originalPrice.toLocaleString()}
+                      Was ₱{packageDetails.originalPrice.toLocaleString()}
+                    </Text>
+                    <Text style={packageDetailsStyles.promotionSavingsText}>
+                      Save ₱{(packageDetails.originalPrice - packageDetails.price.value).toLocaleString()}
                     </Text>
                   </View>
                 ) : null}
@@ -4883,15 +5038,25 @@ export default function BookScreen() {
 /** Screen-level & shared styles */
 const ss = StyleSheet.create({
   screen: { flex: 1, backgroundColor: SURFACE_LOW },
-  scroll: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 8 },
+  scrollRegion: {
+    flex: 1,
+    overflow: 'hidden',
+    backgroundColor: SURFACE_LOW,
+  },
+  scroll: {
+    flex: 1,
+    overflow: 'hidden',
+    backgroundColor: SURFACE_LOW,
+  },
+  content: { paddingHorizontal: 20, paddingTop: 6 },
   stepWrap: { gap: 28 },
-  stepOneWrap: { gap: 20 },
+  stepOneWrap: { gap: 0 },
 
   // ── Editorial Hero (Step 0) ──
   heroSection: {
-    paddingTop: 6,
-    paddingBottom: 2,
+    paddingTop: 2,
+    paddingBottom: 0,
+    marginBottom: 16,
   },
   heroLabel: {
     fontSize: 11,
@@ -4902,17 +5067,17 @@ const ss = StyleSheet.create({
     marginBottom: 8,
   },
   heroTitle: {
-    fontSize: 32,
+    fontSize: 29,
     fontWeight: '700',
     color: '#FFFFFF',
-    letterSpacing: -0.02 * 32,
-    lineHeight: 36,
-    marginBottom: 8,
+    letterSpacing: -0.58,
+    lineHeight: 34,
+    marginBottom: 4,
   },
   heroSub: {
     fontSize: 15,
-    color: DIM_TEXT,
-    lineHeight: 22,
+    color: '#8B8B94',
+    lineHeight: 20,
     letterSpacing: 0.01 * 15,
   },
 
@@ -6820,107 +6985,108 @@ const svc = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 8,
-    backgroundColor: `${PRIMARY}18`,
+    backgroundColor: STEP_ONE_TONES.accentSoft,
     borderWidth: 1,
-    borderColor: `${PRIMARY}40`,
+    borderColor: STEP_ONE_TONES.accentBorder,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
   noVehicleText: {
     fontSize: 12,
-    color: PRIMARY,
+    color: STEP_ONE_TONES.accentText,
     fontWeight: '500',
     flex: 1,
     lineHeight: 18,
   },
-  // ── Section header with numbered badge ──
-  stepSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 4,
-  },
-  stepNumBadge: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: `${PRIMARY_CTR}35`,
-    borderWidth: 1,
-    borderColor: `${PRIMARY}60`,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepNumText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: PRIMARY,
-  },
-  stepSectionTitle: {
-    fontSize: 13,
+  sectionTitle: {
+    fontSize: 18,
+    lineHeight: 23,
     fontWeight: '700',
-    color: SECONDARY,
-    letterSpacing: 0.3,
-    flex: 1,
+    color: '#F4F4F5',
+    letterSpacing: -0.35,
   },
-  pricingForLabel: {
-    fontSize: 11,
+  packageSectionHeading: {
+    gap: 2,
+    marginBottom: 0,
+  },
+  vehicleSection: {
+    gap: 8,
+    marginBottom: 20,
+  },
+  packageSection: {
+    gap: 12,
+  },
+  sectionSupport: {
+    fontSize: 12,
+    lineHeight: 17,
     fontWeight: '500',
-    color: DIM_TEXT,
+    color: STEP_ONE_TONES.textMuted,
   },
   // ── Full-width vehicle row card ──
   vehicleRow: {
-    minHeight: 88,
+    minHeight: 68,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    backgroundColor: SURFACE_HIGH,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    gap: 11,
+    backgroundColor: '#111113',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderWidth: 1,
     borderColor: GHOST,
   },
   vehicleRowActive: {
-    backgroundColor: 'rgba(255,140,0,0.025)',
-    borderColor: 'rgba(255,183,125,0.20)',
+    backgroundColor: STEP_ONE_TONES.selectedCardBackground,
+    borderColor: STEP_ONE_TONES.selectedCardBorder,
   },
   vehicleIconWrap: {
-    width: 44,
-    height: 44,
+    width: 42,
+    height: 42,
     borderRadius: 12,
-    backgroundColor: `${PRIMARY}15`,
+    backgroundColor: STEP_ONE_TONES.accentSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   vehicleIconWrapActive: {
-    backgroundColor: PRIMARY_CTR,
+    backgroundColor: STEP_ONE_TONES.accentSoft,
+    borderWidth: 1,
+    borderColor: STEP_ONE_TONES.accentBorder,
   },
   vehicleRowName: {
-    fontSize: 15,
+    fontSize: 16,
+    lineHeight: 21,
     fontWeight: '700',
     color: SECONDARY,
     letterSpacing: -0.2,
   },
   vehicleRowType: {
-    fontSize: 12,
+    flexShrink: 1,
+    fontSize: 11,
+    lineHeight: 15,
     fontWeight: '500',
-    color: MUTED,
-    marginTop: 2,
+    color: '#8B8B94',
   },
   selectedVehicleMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginTop: 5,
+    marginTop: 3,
+  },
+  vehicleMetaDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    marginHorizontal: 2,
+    backgroundColor: '#55555F',
   },
   selectedVehicleMetaText: {
-    color: PRIMARY,
+    color: STEP_ONE_TONES.accentText,
     fontSize: 10,
     fontWeight: '700',
   },
   changeVehicleAction: {
-    minWidth: 66,
+    minWidth: 72,
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
@@ -6928,7 +7094,7 @@ const svc = StyleSheet.create({
     gap: 2,
   },
   changeVehicleText: {
-    color: PRIMARY,
+    color: STEP_ONE_TONES.accentText,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -6944,27 +7110,28 @@ const svc = StyleSheet.create({
     flexShrink: 0,
   },
   radioOuterActive: {
-    borderColor: PRIMARY,
+    borderColor: STEP_ONE_TONES.accentText,
   },
   radioInner: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: PRIMARY,
+    backgroundColor: STEP_ONE_TONES.accentText,
   },
   // Add another vehicle — subtle secondary row
   addVehicleSecondary: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 4,
     alignSelf: 'flex-start',
   },
   addVehicleSecondaryText: {
     fontSize: 13,
     fontWeight: '600',
-    color: PRIMARY,
+    color: STEP_ONE_TONES.accentText,
   },
   // Locked package placeholder
   packageLockedCard: {
@@ -7008,10 +7175,62 @@ const svc = StyleSheet.create({
     lineHeight: 14,
     marginTop: 2,
   },
+  retryAction: {
+    minWidth: 52,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   retryText: {
-    color: PRIMARY,
+    color: STEP_ONE_TONES.accentText,
     fontSize: 12,
     fontWeight: '800',
+  },
+  emptyPackageState: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: '#111113',
+  },
+  emptyPackageIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    backgroundColor: STEP_ONE_TONES.accentSoft,
+  },
+  emptyPackageTitle: {
+    color: '#F4F4F5',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  emptyPackageBody: {
+    color: '#8B8B94',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 5,
+  },
+  emptyPackageAction: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingHorizontal: 14,
+    marginTop: 12,
+  },
+  emptyPackageActionText: {
+    color: STEP_ONE_TONES.accentText,
+    fontSize: 13,
+    fontWeight: '700',
   },
   // Package card check badge placeholder (unselected)
   checkBadgeEmpty: {
@@ -7026,7 +7245,7 @@ const svc = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: PRIMARY_CTR,
+    backgroundColor: STEP_ONE_TONES.accentPrimary,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -7036,9 +7255,9 @@ const svc = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    backgroundColor: `${PRIMARY_CTR}18`,
+    backgroundColor: STEP_ONE_TONES.accentSoft,
     borderWidth: 1,
-    borderColor: `${PRIMARY}50`,
+    borderColor: STEP_ONE_TONES.accentBorder,
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 18,
@@ -7047,14 +7266,14 @@ const svc = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 14,
-    backgroundColor: `${PRIMARY_CTR}25`,
+    backgroundColor: STEP_ONE_TONES.accentSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   addVehicleEmptyTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: PRIMARY,
+    color: STEP_ONE_TONES.accentText,
     marginBottom: 3,
   },
   addVehicleEmptySub: {
@@ -7197,9 +7416,9 @@ const skeleton = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.04)',
   },
   packageCard: {
-    minHeight: 184,
+    minHeight: 194,
     paddingHorizontal: 16,
-    paddingVertical: 15,
+    paddingVertical: 14,
   },
   block: {
     backgroundColor: 'rgba(255,255,255,0.06)',
@@ -7358,48 +7577,55 @@ const vehiclePicker = StyleSheet.create({
 
 // ── Compact package selection cards ──────────────────────────────────────────
 const pkgCard = StyleSheet.create({
+  list: {
+    gap: 10,
+  },
   base: {
-    borderRadius: 22,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.065)',
-    backgroundColor: '#111111',
+    borderColor: STEP_ONE_TONES.cardBorder,
+    backgroundColor: STEP_ONE_TONES.cardBackground,
     overflow: 'hidden',
   },
   selected: {
-    borderColor: 'rgba(255,183,125,0.34)',
-    backgroundColor: 'rgba(255,140,0,0.035)',
+    borderColor: STEP_ONE_TONES.selectedCardBorder,
+    backgroundColor: STEP_ONE_TONES.selectedCardBackground,
   },
   selectArea: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 14,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 12,
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
-    marginBottom: 5,
+    marginBottom: 3,
   },
   tier: {
-    fontSize: 9,
+    flexShrink: 1,
+    fontSize: 11,
+    lineHeight: 15,
     fontWeight: '600',
-    letterSpacing: 2.2,
-    color: 'rgba(255,255,255,0.48)',
-    textTransform: 'uppercase',
+    letterSpacing: 0.1,
+    color: STEP_ONE_TONES.textSecondary,
   },
   badge: {
     borderWidth: 1,
     borderRadius: 12,
+    minHeight: 23,
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 2,
     flexShrink: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   badgeText: {
-    fontSize: 8,
-    lineHeight: 11,
-    fontWeight: '700',
-    letterSpacing: 0.7,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
   nameRow: {
     flexDirection: 'row',
@@ -7408,19 +7634,42 @@ const pkgCard = StyleSheet.create({
     gap: 8,
   },
   name: {
-    fontSize: 17,
+    fontSize: 21,
     fontWeight: '800',
     color: '#FFFFFF',
     flex: 1,
-    lineHeight: 22,
+    minWidth: 76,
+    lineHeight: 25,
+    letterSpacing: -0.35,
   },
-  price: {
-    fontSize: 23,
+  priceBlock: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    alignSelf: 'stretch',
+    gap: 2,
+    marginTop: 3,
+    paddingTop: 4,
+    paddingBottom: 2,
+    overflow: 'visible',
+  },
+  priceSymbol: {
+    fontSize: 18,
+    lineHeight: 26,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.72)',
+    includeFontPadding: true,
+    flexShrink: 0,
+  },
+  priceDigits: {
+    flexShrink: 0,
+    fontSize: 28,
+    lineHeight: 38,
     fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: -0.7,
-    lineHeight: 28,
-    marginTop: 3,
+    fontVariant: ['tabular-nums'],
+    includeFontPadding: true,
   },
   priceError: {
     color: '#FCA5A5',
@@ -7428,60 +7677,52 @@ const pkgCard = StyleSheet.create({
     lineHeight: 22,
     letterSpacing: 0,
     marginTop: 7,
+    marginBottom: 3,
+    includeFontPadding: true,
   },
-  metadataRow: {
+  metadataText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+    color: '#B8B8BC',
+    marginTop: 7,
+  },
+  offerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 7,
-    marginTop: 8,
+    gap: 6,
+    marginTop: 4,
   },
-  metadataPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-    backgroundColor: 'rgba(255,183,125,0.08)',
-  },
-  metadataPillNeutral: {
-    backgroundColor: 'rgba(255,255,255,0.045)',
-  },
-  metadataText: {
+  originalPrice: {
+    color: '#85858D',
     fontSize: 10,
+    lineHeight: 14,
     fontWeight: '600',
-    color: PRIMARY,
+    textDecorationLine: 'line-through',
   },
-  metadataTextNeutral: {
-    color: '#A1A1AA',
+  offerSeparator: {
+    color: STEP_ONE_TONES.textMuted,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '600',
+  },
+  savings: {
+    color: STEP_ONE_TONES.accentText,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
   },
   tagline: {
     width: '100%',
     fontSize: 12,
-    lineHeight: 17,
+    lineHeight: 16,
     fontWeight: '500',
-    color: 'rgba(255,255,255,0.52)',
-    marginTop: 6,
-  },
-  featurePreview: {
-    gap: 8,
-    marginTop: 16,
-  },
-  featureRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  featureText: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.72)',
-    lineHeight: 17,
+    color: STEP_ONE_TONES.textSecondary,
+    marginTop: 7,
   },
   priceRetry: {
-    minHeight: 38,
+    minHeight: 44,
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
@@ -7490,14 +7731,14 @@ const pkgCard = StyleSheet.create({
     marginBottom: 6,
   },
   priceRetryText: {
-    color: PRIMARY,
+    color: STEP_ONE_TONES.accentText,
     fontSize: 11,
     fontWeight: '700',
   },
   checkCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
     backgroundColor: 'rgba(255,255,255,0.018)',
@@ -7508,20 +7749,21 @@ const pkgCard = StyleSheet.create({
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: 'rgba(255,255,255,0.06)',
-    marginHorizontal: 20,
+    marginHorizontal: 18,
   },
   detailsButton: {
-    minHeight: 38,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 7,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
   },
   detailsButtonText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: 'rgba(255,183,125,0.64)',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    color: STEP_ONE_TONES.accentText,
   },
 });
 
@@ -7532,14 +7774,14 @@ const bookingCta = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 30,
-    minHeight: 80,
+    minHeight: STEP_ONE_FOOTER_MIN_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 16,
-    paddingTop: 6,
+    paddingTop: STEP_ONE_FOOTER_TOP_PADDING,
     paddingBottom: 8,
-    backgroundColor: 'rgba(4,4,5,0.97)',
+    backgroundColor: SURFACE_LOW,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.06)',
     ...Platform.select({
@@ -7554,47 +7796,57 @@ const bookingCta = StyleSheet.create({
   },
   summaryRow: {
     flex: 1,
-    minHeight: 42,
+    minWidth: 0,
+    minHeight: STEP_ONE_CTA_HEIGHT,
     justifyContent: 'center',
     alignItems: 'flex-start',
-    gap: 3,
   },
   guidance: {
-    fontSize: 11,
+    fontSize: 12,
+    lineHeight: 17,
     fontWeight: '600',
     color: '#71717A',
     maxWidth: '100%',
   },
-  guidanceReady: {
-    color: PRIMARY,
-  },
-  summaryPrice: {
-    fontSize: 14,
-    fontWeight: '800',
+  footerPackage: {
     color: '#FFFFFF',
+    width: '100%',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+  },
+  footerPrice: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+    includeFontPadding: true,
   },
   buttonWrap: {
-    width: 148,
+    width: 132,
     flexShrink: 0,
   },
   button: {
-    minHeight: 46,
-    borderRadius: 16,
+    minHeight: STEP_ONE_CTA_HEIGHT,
+    borderRadius: 15,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingHorizontal: 22,
-    paddingVertical: 11,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
   },
   buttonEnabled: {
-    backgroundColor: PRIMARY_CTR,
+    backgroundColor: STEP_ONE_TONES.accentPrimary,
   },
   buttonDisabled: {
-    backgroundColor: '#202024',
+    backgroundColor: '#16161D',
+    borderWidth: 1,
+    borderColor: '#27272A',
   },
   buttonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
     color: ON_PRIMARY,
   },
@@ -7730,10 +7982,10 @@ const packageDetailsStyles = StyleSheet.create({
     paddingVertical: 3,
   },
   headerBadgeText: {
-    fontSize: 8,
-    lineHeight: 11,
-    fontWeight: '700',
-    letterSpacing: 0.7,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
   title: {
     fontSize: 20,
@@ -7742,9 +7994,9 @@ const packageDetailsStyles = StyleSheet.create({
     color: '#FFFFFF',
   },
   closeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(255,255,255,0.07)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -7758,24 +8010,46 @@ const packageDetailsStyles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 28,
   },
-  price: {
+  priceBlock: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    alignSelf: 'stretch',
+    gap: 2,
+    paddingTop: 4,
+    paddingBottom: 2,
+    overflow: 'visible',
+  },
+  priceSymbol: {
+    flexShrink: 0,
+    fontSize: 19,
+    lineHeight: 28,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.72)',
+    includeFontPadding: true,
+  },
+  priceDigits: {
+    flexShrink: 1,
     fontSize: 30,
-    lineHeight: 36,
+    lineHeight: 40,
     fontWeight: '900',
     letterSpacing: -1.2,
-    color: '#F97316',
+    color: '#FFFFFF',
+    fontVariant: ['tabular-nums'],
+    includeFontPadding: true,
   },
   priceUnavailable: {
     color: '#FCA5A5',
     fontSize: 17,
     lineHeight: 24,
     letterSpacing: 0,
+    includeFontPadding: true,
   },
   tagline: {
     fontSize: 13,
     lineHeight: 19,
     fontWeight: '600',
-    color: 'rgba(255,255,255,0.52)',
+    color: STEP_ONE_TONES.textSecondary,
     marginTop: 2,
   },
   promotionRow: {
@@ -7789,23 +8063,29 @@ const packageDetailsStyles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    backgroundColor: 'rgba(245,158,11,0.13)',
+    backgroundColor: STEP_ONE_TONES.accentSoft,
     borderWidth: 1,
-    borderColor: 'rgba(245,158,11,0.28)',
+    borderColor: STEP_ONE_TONES.accentBorder,
   },
   promotionBadgeText: {
     fontSize: 9,
     lineHeight: 12,
     fontWeight: '900',
     letterSpacing: 0.5,
-    color: '#FBBF24',
+    color: STEP_ONE_TONES.accentText,
   },
   originalPrice: {
     fontSize: 11,
     lineHeight: 16,
     fontWeight: '600',
-    color: 'rgba(255,255,255,0.42)',
+    color: '#85858D',
     textDecorationLine: 'line-through',
+  },
+  promotionSavingsText: {
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '800',
+    color: STEP_ONE_TONES.accentText,
   },
   specifications: {
     flexDirection: 'row',

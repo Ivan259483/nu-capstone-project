@@ -11,13 +11,13 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   RefreshControl,
   Platform,
   Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { PageSkeleton } from '@/components/ui/loading';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeInRight } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -387,10 +387,7 @@ export default function AppointmentsScreen() {
         ListEmptyComponent={() => {
           if (isLoading) {
             return (
-              <View style={s.emptyCenter}>
-                <ActivityIndicator size="large" color={ACCENT} />
-                <Text style={s.emptyText}>Loading bookings…</Text>
-              </View>
+              <PageSkeleton preset="list" rows={4} style={{ paddingHorizontal: 0 }} />
             );
           }
           return (

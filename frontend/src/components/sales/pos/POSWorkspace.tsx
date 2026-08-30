@@ -18,7 +18,6 @@ import { computeBillingTotals, type BillingComputed, type BillingLineItem } from
 import { toast } from 'sonner';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
-import { DEFAULT_SPF_ADDON_PRICES } from '@/lib/service-pricing';
 import { resolveReceiptPhone } from '@/lib/receipt-phone';
 import { normalizePlateNumber } from '@/lib/plate';
 import { useAuth } from '@/contexts/AuthContext';
@@ -32,36 +31,18 @@ import {
 } from '@/lib/pos-pickup-queue';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
-// Map vehicle.type string → VehicleType key
-const VEHICLE_TYPE_MAP: Record<string, VehicleType> = {
-  hatchback:  'hatchback',
-  sedan:      'sedan',
-  midsized:   'midsized',
-  'mid-sized':'midsized',
-  midsize:    'midsized',
-  suv:        'suv',
-  'pick up':  'pickup',
-  pickup:     'pickup',
-  'pick-up':  'pickup',
-  'large suv':'largesuv',
-  largesuv:   'largesuv',
-  van:        'largesuv',
-  'large suv/van': 'largesuv',
-  'highend sedan': 'highend',
-  highend:    'highend',
-  'high-end': 'highend',
-};
-
-function resolveVehicleType(vehicleTypeStr: string): VehicleType {
-  const normalized = (vehicleTypeStr || '').trim().toLowerCase();
-  return VEHICLE_TYPE_MAP[normalized] ?? 'sedan';
+function resolveVehicleType(pricingCategory?: string | null): VehicleType | null {
+  const pricingCategoryMap: Record<string, VehicleType> = {
+    HATCHBACK_SMALL_CAR: 'hatchback',
+    SEDAN: 'sedan',
+    MIDSIZED: 'midsized',
+    SUV: 'suv',
+    PICKUP: 'pickup',
+    LARGE_SUV_VAN: 'largesuv',
+    HIGH_END_SEDAN: 'highend',
+  };
+  return pricingCategoryMap[String(pricingCategory || '').trim().toUpperCase()] ?? null;
 }
-
-const TINT_PRICES: Record<string, Partial<Record<VehicleType, number | null>>> = {
-  'SPF 80': DEFAULT_SPF_ADDON_PRICES.spf80,
-  'SPF 89': DEFAULT_SPF_ADDON_PRICES.spf89,
-  'SPF 99': DEFAULT_SPF_ADDON_PRICES.spf99,
-};
 
 /** When billing + order have no stored reservation, assume ₱500 for booking-linked POS checkout. */
 const BOOKING_RESERVATION_DP_FALLBACK = 500;
@@ -246,7 +227,8 @@ function vehicleSnapshotFromOrder(order: any, orderId: string): Vehicle {
         ? order.vehicleYear
         : parseInt(String(order?.vehicleYear || '0'), 10) || 0,
     color: String(order?.vehicleColor || ''),
-    type: String(order?.vehicleType || order?.vehicleClass || order?.vehicleCategory || 'sedan'),
+    type: String(order?.vehicleType || order?.vehicleClass || order?.vehicleCategory || ''),
+    pricingCategory: order?.pricingSnapshot?.vehiclePricingCategory || order?.vehicle?.pricingCategory || null,
   };
 }
 
@@ -430,10 +412,10 @@ export default function POSWorkspace({
   }, [selectedVehicle]);
 
   const customerVehicleType: VehicleType | null = selectedVehicle
-    ? resolveVehicleType(selectedVehicle.type)
+    ? resolveVehicleType(selectedVehicle.pricingCategory)
     : null;
 
-  const effectiveVehicleType: VehicleType = manualVehicleType ?? customerVehicleType ?? 'sedan';
+  const effectiveVehicleType: VehicleType | null = manualVehicleType ?? customerVehicleType;
   const isVehicleFromCustomer = !manualVehicleType && customerVehicleType !== null;
 
   const customerPanelRef = useRef<CustomerVehiclePanelHandle>(null);
@@ -919,10 +901,14 @@ export default function POSWorkspace({
     const svc = services.find((s) => s._id === svcId);
     if (!svc) return;
     const lockedVehicleType = effectiveVehicleType;
+    if (!lockedVehicleType) {
+      toast.error('PRICE_CATEGORY_REQUIRED: configure this vehicle pricing category before checkout.');
+      return;
+    }
 
     if (withTint) {
-      const spfKey = Object.keys(TINT_PRICES).find((k) => svc.name.includes(k));
-      const tintPrice = spfKey ? (TINT_PRICES[spfKey][lockedVehicleType] ?? 0) : 0;
+      const pricingKey = lockedVehicleType === 'largesuv' ? 'largeSuv' : lockedVehicleType;
+      const tintPrice = svc.pricing?.[pricingKey]?.addon ?? null;
       if (tintPrice > 0) {
         const tintId = `${svcId}-tint`;
         if (!cartItems.find((c) => c.id === tintId)) {
@@ -944,6 +930,10 @@ export default function POSWorkspace({
     }
 
     const price = getEffectivePrice(svc, lockedVehicleType);
+    if (price == null || price <= 0) {
+      toast.error('This service has no configured price for the selected vehicle category.');
+      return;
+    }
     const existing = cartItems.find((c) => c.id === svcId);
     if (existing) {
       toast.info('This service is already in the transaction. Update quantity from the cart.');
@@ -977,21 +967,31 @@ export default function POSWorkspace({
     const service = services.find((candidate) => candidate._id === baseServiceId);
     if (!service) return { ...item, vehicleType: nextVehicleType };
     if (itemId.endsWith('-tint')) {
-      const spfKey = Object.keys(TINT_PRICES).find((key) => service.name.includes(key));
-      const tintPrice = spfKey ? (TINT_PRICES[spfKey][nextVehicleType] ?? item.price) : item.price;
-      return { ...item, price: tintPrice, vehicleType: nextVehicleType };
+      const pricingKey = nextVehicleType === 'largesuv' ? 'largeSuv' : nextVehicleType;
+      const tintPrice = service.pricing?.[pricingKey]?.addon;
+      return tintPrice != null && tintPrice > 0
+        ? { ...item, price: tintPrice, vehicleType: nextVehicleType }
+        : item;
     }
-    return { ...item, price: getEffectivePrice(service, nextVehicleType), vehicleType: nextVehicleType };
+    const nextPrice = getEffectivePrice(service, nextVehicleType);
+    return nextPrice != null && nextPrice > 0
+      ? { ...item, price: nextPrice, vehicleType: nextVehicleType }
+      : item;
   };
 
   const selectVehicleAndRefreshPricing = (vehicle: Vehicle) => {
-    const nextVehicleType = resolveVehicleType(vehicle.type);
+    const nextVehicleType = resolveVehicleType(vehicle.pricingCategory);
     const hadManualItems = cartItems.some((item) => item.source !== 'pickup_queue' && !item.orderLinked);
     setSelectedVehicle(vehicle);
     setManualVehicleType(null);
     setCashReceived('');
     setGcashAmountReceived('');
     setPaymentValidationAttempted(false);
+    if (!nextVehicleType) {
+      setCartItems((currentItems) => currentItems.filter((item) => item.source === 'pickup_queue' || item.orderLinked));
+      toast.error('PRICE_CATEGORY_REQUIRED: configure this vehicle before adding services.');
+      return;
+    }
     setCartItems((currentItems) => currentItems.map((item) => repriceManualCartItem(item, nextVehicleType)));
     if (hadManualItems) toast.info('Cart pricing updated for the selected vehicle.');
   };

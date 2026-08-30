@@ -1,9 +1,12 @@
 import Service from '../models/service.model.js';
 import {
   SPF_PACKAGE_PRICING,
+  UNDERCOATING_PRICING,
   VEHICLE_PRICE_FIELDS,
   getPackageKeyFromName,
 } from '../constants/spfPricing.js';
+import { PPF_FULL_WRAP_CATALOG } from '../constants/ppfCatalog.js';
+import { VEHICLE_PRICING_CATEGORIES } from '../constants/pricingCategories.js';
 
 const toNumberOrNull = (value) => {
   if (value === undefined || value === null || value === '') return null;
@@ -48,22 +51,18 @@ const VEHICLE_MODEL_ALIASES = [
   { make: 'Ford', model: 'Ranger', label: 'Ford Ranger', vehicleType: 'pickup', patterns: [/\bford\s+ranger\b/i, /\branger\b/i] },
 ];
 
-const PPF_PRICE_ROWS = [
-  { vehicle: 'Sedan / Hatch', prices: ['₱75,000', '₱80,000', '₱90,000', '₱120,000'] },
-  { vehicle: 'Crossover', prices: ['₱80,000', '₱85,000', '₱95,000', '₱135,000'] },
-  { vehicle: 'SUV / Pick Up', prices: ['₱85,000', '₱90,000', '₱100,000', '₱140,000'] },
-  { vehicle: 'Full-Size SUV', prices: ['₱100,000', '₱110,000', '₱120,000', '₱150,000'] },
-];
+const PPF_PRICE_ROWS = PPF_FULL_WRAP_CATALOG.vehicleGroups.map((group) => ({
+  vehicle: group.label,
+  prices: PPF_FULL_WRAP_CATALOG.brands.map((brand) => {
+    const price = PPF_FULL_WRAP_CATALOG.pricing[group.code]?.[brand.code];
+    return Number.isFinite(price) ? `₱${Number(price).toLocaleString('en-PH')}` : 'Unresolved';
+  }),
+}));
 
-const UNDERCOATING_ADDON_PRICES = [
-  'Hatchback ₱6,000',
-  'Sedan ₱6,500',
-  'Midsized ₱7,000',
-  'SUV ₱7,500',
-  'Pick Up ₱7,500',
-  'Large SUV / Van ₱9,000',
-  'Highend Sedan ₱8,000',
-];
+const UNDERCOATING_ADDON_PRICES = VEHICLE_PRICING_CATEGORIES.map((category) => {
+  const price = UNDERCOATING_PRICING[category.code];
+  return `${category.label} ₱${Number(price).toLocaleString('en-PH')}`;
+});
 
 const ADD_ON_SERVICE_ROWS = [
   { name: 'Undercoating', price: UNDERCOATING_ADDON_PRICES.join(' | ') },
@@ -266,7 +265,7 @@ export const buildCompleteServicePriceListReply = async () => {
     ...tintRows,
     '',
     'Full-body PPF — all TPU material:',
-    '• Columns: CEO PPF | XPEL | Vinyl Frog | ZIVENT',
+    `• Columns: ${PPF_FULL_WRAP_CATALOG.brands.map((brand) => brand.name || '[First brand name pending client confirmation]').join(' | ')}`,
     ...PPF_PRICE_ROWS.map((row) => `• ${row.vehicle}: ${row.prices.join(' | ')}`),
     '',
     'Add-on services:',

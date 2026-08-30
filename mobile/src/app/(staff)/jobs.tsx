@@ -1,10 +1,11 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl,
-  Alert, Pressable, TextInput, ActivityIndicator,
+  Alert, Pressable, TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import { PageSkeleton, PremiumLoader } from '@/components/ui/loading';
 import { useQCJobs, type UrgencyFilter } from '@/hooks/useQCJobs';
 import { getUrgencyLevel, URGENCY_COLORS, type QCJob } from '@/services/api/qcService';
 import QCReturnModal from '@/components/qc/QCReturnModal';
@@ -109,7 +110,7 @@ function JobCard({
           {/* Actions */}
           <View style={c.actions}>
             {actioning ? (
-              <ActivityIndicator size="small" color="#888" />
+              <PremiumLoader size="small" tone="muted" accessibilityLabel="Updating job" />
             ) : (
               <>
                 <TouchableOpacity onPress={onView} style={c.actionBtn} hitSlop={6}>
@@ -303,10 +304,7 @@ export default function QCJobsForReview() {
 
       {/* Job list */}
       {loading && jobs.length === 0 ? (
-        <View style={c.loadingWrap}>
-          <ActivityIndicator size="large" color="#FFB77D" />
-          <Text style={c.loadingText}>Loading jobs…</Text>
-        </View>
+        <PageSkeleton preset="list" rows={5} style={{ paddingHorizontal: 16 }} />
       ) : (
         <FlatList
           data={jobs}

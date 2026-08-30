@@ -19,7 +19,8 @@ const profilePhotoUpload = multer({
       return;
     }
 
-    const error = new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'photo');
+    const error = new Error('Upload a valid JPG or PNG image.');
+    error.code = 'PROFILE_PHOTO_UNSUPPORTED';
     error.message = 'Upload a JPG or PNG image.';
     cb(error);
   },
@@ -39,14 +40,30 @@ const handleProfilePhotoUpload = (req, res, next) => {
     }
 
     if (error instanceof multer.MulterError) {
-      const message = error.code === 'LIMIT_FILE_SIZE'
-        ? 'Profile photo is too large. Upload a JPG or PNG image under 2 MB.'
-        : error.message || 'Invalid profile photo upload.';
-      return res.status(400).json({ success: false, message });
+      if (error.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({
+          success: false,
+          code: 'PROFILE_PHOTO_TOO_LARGE',
+          message: 'Profile photo is too large. Upload a JPG or PNG image under 2 MB.',
+        });
+      }
+      if (error.code === 'LIMIT_UNEXPECTED_FILE') {
+        return res.status(400).json({
+          success: false,
+          code: 'PROFILE_PHOTO_FIELD_MISMATCH',
+          message: 'Expected the profile photo in multipart field "photo".',
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        code: 'PROFILE_PHOTO_INVALID_MULTIPART',
+        message: error.message || 'Invalid profile photo upload.',
+      });
     }
 
     return res.status(400).json({
       success: false,
+      code: error.code || 'PROFILE_PHOTO_INVALID_MULTIPART',
       message: error.message || 'Invalid profile photo upload.',
     });
   });
@@ -58,6 +75,13 @@ const handleProfilePhotoUpload = (req, res, next) => {
  * @access Private - Staff managers and sales customer-directory readers
  */
 router.get('/', authenticate, authorizeUserDirectoryReaders, userController.getAllUsers);
+
+/**
+ * @route GET /api/users/profile/photo/:fileId
+ * @desc Stream a currently referenced customer profile photo from GridFS
+ * @access Public unguessable URL, restricted to the profilePhotos bucket and live customer references
+ */
+router.get('/profile/photo/:fileId', userController.streamProfilePhoto);
 
 /**
  * @route PATCH /api/users/profile

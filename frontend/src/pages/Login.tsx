@@ -45,7 +45,13 @@ import {
     useRegisterLegalAcknowledgement,
 } from "@/components/auth/RegisterLegalAcknowledgement";
 import AuthSpotlight from "@/components/effects/AuthSpotlight";
-const DEFAULT_LOGIN_REDIRECT = "/customer/dashboard";
+import {
+    appendPostLoginRedirect,
+    consumePostLoginRedirect,
+    getSafeLoginRedirect,
+    isBookingIntentRedirect,
+    persistPostLoginRedirect,
+} from "@/lib/auth-redirect";
 const LOGIN_OTP_SESSION_KEY = "login_otp_session_v1";
 
 const LOGIN_TAB_CONTENT_TRANSITION = {
@@ -193,18 +199,6 @@ function getFailedAttemptsToastMessage(loginAttempts: number, remainingAttempts:
     return `${loginAttempts} ${failedLabel}. ${remainingAttempts} ${remainingLabel} remaining before your account is locked for 15 minutes.`;
 }
 
-function getSafeLoginRedirect(value: string | null): string {
-    if (!value) return "";
-    let path = value.trim();
-    try {
-        path = decodeURIComponent(path);
-    } catch {
-        return "";
-    }
-    if (!path.startsWith("/") || path.startsWith("//")) return "";
-    return path;
-}
-
 /* ═══════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════ */
@@ -214,14 +208,14 @@ export default function Login() {
     const location = useLocation();
     const { login, user, isLoading: isAuthLoading, isFirebaseAuthReady, setAuthUser } = useAuth();
     const redirectParamTo = useMemo(() => {
-        const params = new URLSearchParams(window.location.search);
+        const params = new URLSearchParams(location.search);
         return getSafeLoginRedirect(params.get("redirect") || params.get("next"));
     }, [location.search]);
     const invitedEmailParam = useMemo(() => {
         const value = String(new URLSearchParams(location.search).get("email") || "").trim().toLowerCase();
         return LOGIN_EMAIL_PATTERN.test(value) ? value : "";
     }, [location.search]);
-    const redirectTo = redirectParamTo || DEFAULT_LOGIN_REDIRECT;
+    const hasBookingIntent = useMemo(() => isBookingIntentRedirect(redirectParamTo), [redirectParamTo]);
 
     /* ── Form state ── */
     const [showPassword, setShowPassword] = useState(false);
@@ -236,6 +230,7 @@ export default function Login() {
     // React state disables the button visually; this synchronous ref closes the
     // same-tick gap where a double-click/Enter press could start two requests.
     const loginSubmissionInFlightRef = useRef(false);
+    const redirectNavigationStartedRef = useRef(false);
 
     /* ── Login attempt tracking & lock state ── */
     const [loginAttempts, setLoginAttempts] = useState(0);
@@ -337,8 +332,7 @@ export default function Login() {
 
     /* ── ?redirect= or ?next= — safe same-origin path only (e.g. return to a protected route after sign-in) ── */
     useEffect(() => {
-        if (!redirectParamTo) return;
-        sessionStorage.setItem("redirect_after_login", redirectParamTo);
+        persistPostLoginRedirect(redirectParamTo, sessionStorage);
     }, [redirectParamTo]);
 
     /* ── Login OTP expiry countdown (5 min) ── */
@@ -390,7 +384,9 @@ export default function Login() {
 
     /* ── Redirect helper ── */
     const performRedirect = useCallback((role: string) => {
-        const redirectUrl = redirectParamTo || getSafeLoginRedirect(sessionStorage.getItem("redirect_after_login"));
+        if (redirectNavigationStartedRef.current) return;
+        redirectNavigationStartedRef.current = true;
+        const redirectUrl = consumePostLoginRedirect(redirectParamTo, sessionStorage, role);
         const dashboardPath = getDashboardPathForRole(role);
         console.log('🧭 [DEBUG-Login] performRedirect called:', {
             inputRole: role,
@@ -399,16 +395,9 @@ export default function Login() {
             hasRedirectOverride: !!redirectUrl,
             redirectOverride: redirectUrl,
         });
-        if (redirectUrl) {
-            sessionStorage.removeItem("redirect_after_login");
-            console.log('🧭 [DEBUG-Login] Navigating to override:', redirectUrl);
-            navigate(redirectUrl, { replace: true });
-            return;
-        }
-        const fallbackPath = dashboardPath || redirectTo;
-        console.log('🧭 [DEBUG-Login] Navigating to dashboard:', fallbackPath);
-        navigate(fallbackPath, { replace: true });
-    }, [navigate, redirectParamTo, redirectTo]);
+        console.log('🧭 [DEBUG-Login] Navigating to destination:', redirectUrl);
+        navigate(redirectUrl, { replace: true });
+    }, [navigate, redirectParamTo]);
 
     /* ── Redirect on restored auth state ── */
     useEffect(() => {
@@ -511,7 +500,10 @@ export default function Login() {
             if (result.requiresOtp || result.data?.requiresOtp) {
                 dismissLoginAuthToasts();
                 const emailToVerify = result.data?.email || emailNorm;
-                navigate(`/verify-otp?email=${encodeURIComponent(emailToVerify)}`);
+                navigate(appendPostLoginRedirect(
+                    `/verify-otp?email=${encodeURIComponent(emailToVerify)}`,
+                    redirectParamTo,
+                ));
                 toast.info(t("auth.verifyEmailContinue"));
                 return;
             }
@@ -647,7 +639,10 @@ export default function Login() {
                 return;
             }
             toast.success(t("auth.checkEmailCode"));
-            navigate(`/verify-otp?email=${encodeURIComponent(emailNorm)}&from=register`);
+            navigate(appendPostLoginRedirect(
+                `/verify-otp?email=${encodeURIComponent(emailNorm)}&from=register`,
+                redirectParamTo,
+            ));
         } catch {
             toast.error(t("auth.registrationFailed"));
         } finally {
@@ -883,7 +878,11 @@ export default function Login() {
                                     transition={LOGIN_TAB_CONTENT_TRANSITION}
                                     className="text-[1.75rem] font-semibold leading-[1.12] tracking-[-0.025em] text-zinc-50 sm:text-[1.875rem]"
                                 >
-                                    {tab === "register" ? t("login.registerTitle") : t("login.title")}
+                                    {tab === "register"
+                                        ? t("login.registerTitle")
+                                        : hasBookingIntent
+                                            ? t("login.bookingTitle")
+                                            : t("login.normalTitle")}
                                 </motion.h1>
                             </AnimatePresence>
                             <AnimatePresence initial={false} mode="sync">
@@ -909,15 +908,22 @@ export default function Login() {
                                         </>
                                     ) : (
                                         <>
-                                            {t("login.noAccount")}{" "}
-                                            <button
-                                                type="button"
-                                                onClick={() => setTab("register")}
-                                                className="font-semibold text-zinc-100 transition-colors hover:text-orange-200"
-                                            >
-                                                {t("login.signUp")}
-                                            </button>
-                                            .
+                                            <span className="mb-1 block text-zinc-300">
+                                                {hasBookingIntent
+                                                    ? t("login.bookingSubtitle")
+                                                    : t("login.normalSubtitle")}
+                                            </span>
+                                            <span className="block">
+                                                {t("login.noAccount")}{" "}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTab("register")}
+                                                    className="font-semibold text-zinc-100 transition-colors hover:text-orange-200"
+                                                >
+                                                    {t("login.signUp")}
+                                                </button>
+                                                .
+                                            </span>
                                         </>
                                     )}
                                 </motion.p>

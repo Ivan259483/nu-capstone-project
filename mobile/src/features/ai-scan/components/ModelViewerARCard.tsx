@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import Animated, {
   useSharedValue,
@@ -16,6 +16,7 @@ import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
 import { Palette } from '@/constants/theme';
+import { PremiumLoader } from '@/components/ui/loading';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -399,7 +400,7 @@ function ReadyView({ modelUrl }: { modelUrl: string }) {
         {!loaded && (
           <View style={styles.loadingOverlay}>
             <View style={styles.loadingSpinnerWrap}>
-              <ActivityIndicator size="small" color={Palette.accent} />
+              <PremiumLoader size="small" accessibilityLabel="Loading 3D model" />
             </View>
             <Text style={styles.loadingTitle}>Loading 3D Model</Text>
             <Text style={styles.loadingSubtitle}>Downloading GLB asset...</Text>

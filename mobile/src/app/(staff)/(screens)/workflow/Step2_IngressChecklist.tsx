@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
-import { CheckCircle, Clock, CheckSquare, Square } from '@/components/ui/Icons';
+import { CheckCircle, CheckSquare, Square } from '@/components/ui/Icons';
+import { PremiumLoader } from '@/components/ui/loading';
 
 const CHECKLIST_TEMPLATES: Record<string, string[]> = {
   general: ['Vehicle Pre-Assessment Before Any Detailing Service', 'Verify Keys Received', 'Check Odometer Reading', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables', 'Verify Gas Level'],
@@ -88,7 +89,7 @@ export default function Step2_IngressChecklist() {
         onPress={handleComplete}
         disabled={saving || progress < 100}
       >
-        {saving ? <Clock color="#fff" style={{marginRight: 8}}/> : <CheckCircle color="#fff" style={{marginRight: 8}}/>}
+        {saving ? <PremiumLoader size={18} tone="light" accessibilityLabel="Saving pre-assessment" style={{ marginRight: 8 }} /> : <CheckCircle color="#fff" style={{marginRight: 8}}/>}
         <Text style={styles.saveBtnText}>
           {saving ? 'Saving...' : progress < 100 ? 'Complete All Items First' : 'Sign-off Pre-Assessment'}
         </Text>

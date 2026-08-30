@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'rea
 import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
 import { CheckCircle, Clock, Lock, Car, Shield, FileText } from '@/components/ui/Icons';
+import { PremiumLoader } from '@/components/ui/loading';
 import { useRouter } from 'expo-router';
 import { bookingService } from '@/services/api/bookingService';
 
@@ -117,7 +118,7 @@ export default function Step9_FinalRelease() {
         {!canRelease
           ? <><Lock color="#fff" size={20} style={{ marginRight: 8 }} /><Text style={styles.releaseBtnText}>QC Must Be Completed First</Text></>
           : saving
-            ? <><Clock color="#fff" size={20} style={{ marginRight: 8 }} /><Text style={styles.releaseBtnText}>Processing…</Text></>
+            ? <><PremiumLoader size={18} tone="light" accessibilityLabel="Releasing vehicle" style={{ marginRight: 8 }} /><Text style={styles.releaseBtnText}>Processing…</Text></>
             : <><Car color="#fff" size={20} style={{ marginRight: 8 }} /><Text style={styles.releaseBtnText}>Release Vehicle to Client</Text></>
         }
       </TouchableOpacity>

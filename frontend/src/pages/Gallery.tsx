@@ -8,6 +8,9 @@ import type { Variants } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
 import PageLayout from "@/components/PageLayout";
 import { cn } from "@/lib/utils";
+import { Link } from "react-router-dom";
+import { useOptionalAuth } from "@/contexts/AuthContext";
+import { getBookingEntryPath } from "@/lib/auth-redirect";
 
 /* ── Framer Variants ── */
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -433,6 +436,8 @@ function Lightbox({
    GALLERY PAGE
 ═══════════════════════════════════════ */
 export default function Gallery() {
+    const user = useOptionalAuth()?.user;
+    const bookingEntryPath = getBookingEntryPath(user?.role);
     return (
         <PageLayout>
 
@@ -466,7 +471,7 @@ export default function Gallery() {
                         Book your premium detailing session today and join our portfolio of satisfied clients.
                     </motion.p>
                     <motion.div variants={fadeUp} className="flex items-center justify-center gap-4 flex-wrap">
-                        <a href="/login">
+                        <Link to={bookingEntryPath}>
                             <motion.button
                                 whileHover={{ scale: 1.04 }}
                                 whileTap={{ scale: 0.97 }}
@@ -474,7 +479,7 @@ export default function Gallery() {
                             >
                                 Book Now <ArrowRight className="w-4 h-4" />
                             </motion.button>
-                        </a>
+                        </Link>
                         <a href="/services">
                             <motion.button
                                 whileHover={{ scale: 1.04 }}
@@ -490,4 +495,3 @@ export default function Gallery() {
         </PageLayout>
     );
 }
-

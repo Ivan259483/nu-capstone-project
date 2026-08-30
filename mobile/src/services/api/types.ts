@@ -43,6 +43,17 @@ export interface ServiceOption {
   icon: string;
   basePrice?: number | null;
   displayOrder?: number | null;
+  packageCode?: 'SPF80' | 'SPF89' | 'SPF99' | 'SPF101';
+  tier?: 'Essential' | 'Advanced' | 'Premium' | 'Flagship';
+  protectionYears?: number | null;
+  durationNeedsClientVerification?: boolean;
+  catalogVersion?: string;
+  available?: boolean;
+  promoPrice?: number | null;
+  srp?: number | null;
+  savings?: number | null;
+  tintBundlePrice?: number | null;
+  vehiclePricingCategory?: VehiclePricingCategory;
   prices?: Partial<Record<'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largesuv' | 'largeSuv' | 'highend', number | null>>;
   pricing?: Partial<Record<'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largeSuv' | 'highend', {
     base?: number | null;
@@ -76,8 +87,20 @@ export interface ServiceOption {
     accentMid?: string;
     popular?: boolean;
     flagship?: boolean;
-    originalPriceMultiplier?: number | null;
   } | null;
+}
+
+export interface ServicePricingCategory {
+  code: VehiclePricingCategory;
+  apiKey: 'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largeSuv' | 'highend';
+  legacyKey: 'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largesuv' | 'highend';
+  label: string;
+}
+
+export interface ServiceCatalog {
+  catalogVersion: string;
+  pricingCategories: ServicePricingCategory[];
+  packages: ServiceOption[];
 }
 
 export interface Vehicle {
@@ -89,10 +112,22 @@ export interface Vehicle {
   color?: string;
   plateNumber: string;
   vehicleType?: string;
+  pricingCategory?: VehiclePricingCategory | null;
+  pricingCategorySource?: 'customer_selected' | 'admin_assigned' | 'legacy_migration' | null;
+  pricingCategoryNeedsReview?: boolean;
   transmission?: string;
   fuelType?: string;
   customer?: string;
 }
+
+export type VehiclePricingCategory =
+  | 'HATCHBACK_SMALL_CAR'
+  | 'SEDAN'
+  | 'MIDSIZED'
+  | 'SUV'
+  | 'PICKUP'
+  | 'LARGE_SUV_VAN'
+  | 'HIGH_END_SEDAN';
 
 export interface BookingRecord {
   id: string;

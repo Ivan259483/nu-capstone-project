@@ -22,12 +22,16 @@ import type { ApiEnvelope, BackendUser } from '@/services/api/types';
 import { CUSTOMER_ROLE, isCustomerRole, normalizeToCanonical } from '@/services/api/roles';
 import { authStorage } from '@/services/storage/authStorage';
 import type { PendingLoginOtp } from '@/services/storage/authStorage';
+import { ProfilePhotoUploadError } from '@/features/settings/profile-photo';
 
 type ProfilePhotoUpload = {
   uri: string;
   fileName?: string | null;
   mimeType?: string | null;
+  fileSize?: number | null;
 };
+
+type ProfilePhotoEnvelope = ApiEnvelope<any> & { code?: string };
 
 export const MOBILE_CUSTOMER_ONLY_MESSAGE =
   'This account is not authorized to access the Customer Mobile App. Please use the appropriate web portal for your account role.';
@@ -708,7 +712,17 @@ export const authService = {
   async updateMyProfilePhoto(photo: ProfilePhotoUpload): Promise<BackendUser> {
     const formData = new FormData();
     const fileName = photo.fileName || `profile-${Date.now()}.jpg`;
-    let payload: ApiEnvelope<any>;
+    let payload: ProfilePhotoEnvelope;
+
+    if (__DEV__) {
+      console.log('[ProfilePhoto] upload request', {
+        endpoint: `${API_BASE_URL}/users/profile`,
+        fieldName: 'photo',
+        mimeType: photo.mimeType || 'image/jpeg',
+        fileName,
+        fileSize: photo.fileSize || null,
+      });
+    }
 
     if (Platform.OS === 'web') {
       const blob = await fetch(photo.uri).then((result) => {
@@ -717,21 +731,30 @@ export const authService = {
       });
       formData.append('photo', blob, fileName);
 
-      const response = await apiClient.patch<ApiEnvelope<any>>('/users/profile', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      const response = await apiClient.patch<ProfilePhotoEnvelope>('/users/profile', formData, {
         timeout: 30_000,
       });
+      if (__DEV__) console.log('[ProfilePhoto] upload response', { status: response.status });
       payload = response.data;
     } else {
       const token = await authStorage.getToken();
-      if (!token) throw new Error('Authentication required. Please sign in again.');
+      if (!token) {
+        throw new ProfilePhotoUploadError(
+          'Authentication required. Please sign in again.',
+          'PROFILE_PHOTO_UNAUTHORIZED',
+          401,
+        );
+      }
 
       // Expo File implements Blob on native. Unlike React Native's legacy
       // { uri, name, type } shim, expo/fetch streams the actual JPEG bytes and
       // supplies a valid multipart boundary automatically.
       const file = new File(photo.uri);
       if (!file.exists || file.size <= 0) {
-        throw new Error('Could not prepare the selected photo.');
+        throw new ProfilePhotoUploadError(
+          'Could not prepare the selected photo.',
+          'PROFILE_PHOTO_UNSUPPORTED',
+        );
       }
       formData.append('photo', file, fileName);
 
@@ -751,23 +774,46 @@ export const authService = {
         });
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
-          throw new Error('Profile photo upload timed out. Please try again.');
+          throw new ProfilePhotoUploadError(
+            'Profile photo upload timed out.',
+            'PROFILE_PHOTO_NETWORK',
+          );
         }
-        throw error;
+        throw new ProfilePhotoUploadError(
+          error instanceof Error ? error.message : 'Network request failed.',
+          'PROFILE_PHOTO_NETWORK',
+        );
       } finally {
         clearTimeout(timeout);
       }
 
-      let parsed: ApiEnvelope<any> | null = null;
+      let parsed: ProfilePhotoEnvelope | null = null;
       try {
-        parsed = await response.json() as ApiEnvelope<any>;
+        parsed = await response.json() as ProfilePhotoEnvelope;
       } catch {
         // The status-specific fallback below is clearer than a JSON parse error.
       }
 
       if (!response.ok) {
-        throw new Error(parsed?.message || `Profile photo upload failed (${response.status}).`);
+        if (__DEV__) {
+          console.warn('[ProfilePhoto] upload rejected', {
+            status: response.status,
+            code: parsed?.code || null,
+            message: parsed?.message || null,
+          });
+        }
+        const fallbackCode = response.status === 401
+          ? 'PROFILE_PHOTO_UNAUTHORIZED'
+          : response.status >= 500
+            ? 'PROFILE_PHOTO_STORAGE_FAILED'
+            : 'PROFILE_PHOTO_UNSUPPORTED';
+        throw new ProfilePhotoUploadError(
+          parsed?.message || `Profile photo upload failed (${response.status}).`,
+          parsed?.code || fallbackCode,
+          response.status,
+        );
       }
+      if (__DEV__) console.log('[ProfilePhoto] upload response', { status: response.status });
       payload = parsed || {
         success: false,
         message: 'Invalid profile photo response.',
@@ -776,7 +822,10 @@ export const authService = {
     }
 
     if (!payload.success) {
-      throw new Error(payload.message || 'Failed to update profile photo.');
+      throw new ProfilePhotoUploadError(
+        payload.message || 'Failed to update profile photo.',
+        payload.code || 'PROFILE_PHOTO_INVALID_RESPONSE',
+      );
     }
 
     const syncedUser = normalizeBackendUser(payload.data);

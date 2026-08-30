@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
-import { CheckCircle, Clock, XCircle, ShieldCheck, Lock } from '@/components/ui/Icons';
+import { CheckCircle, XCircle, ShieldCheck, Lock } from '@/components/ui/Icons';
+import { PremiumLoader } from '@/components/ui/loading';
 import SignatureScreen from 'react-native-signature-canvas';
 import { bookingService } from '@/services/api/bookingService';
 
@@ -168,7 +169,7 @@ export default function Step7_EgressChecklist() {
         {!canAdvance
           ? <><Lock color="#fff" size={20} style={{ marginRight: 8 }} /><Text style={styles.saveBtnText}>Complete All Items & Signatures</Text></>
           : saving
-            ? <><Clock color="#fff" size={20} style={{ marginRight: 8 }} /><Text style={styles.saveBtnText}>Saving…</Text></>
+            ? <><PremiumLoader size={18} tone="light" accessibilityLabel="Saving quality check" style={{ marginRight: 8 }} /><Text style={styles.saveBtnText}>Saving…</Text></>
             : <><CheckCircle color="#fff" size={20} style={{ marginRight: 8 }} /><Text style={styles.saveBtnText}>Approve & Advance to Warranty</Text></>
         }
       </TouchableOpacity>
