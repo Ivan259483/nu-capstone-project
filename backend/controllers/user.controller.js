@@ -44,7 +44,6 @@ import {
   assertOrdinaryUserManagementTarget,
   getProtectedAdministratorDirectoryExclusion,
 } from '../services/administratorProtection.service.js';
-import { config } from '../config/environment.js';
 import {
   deleteProfilePhotoFile,
   findProfilePhotoFile,
@@ -68,10 +67,7 @@ const canViewUser = (req, user) => {
 
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
 
-const buildProfilePhotoUrl = (req, fileId) => {
-  const origin = config.publicApiOrigin || `${req.protocol}://${req.get('host')}`;
-  return `${origin}/api/users/profile/photo/${fileId}`;
-};
+const buildProfilePhotoPath = (fileId) => `/api/users/profile/photo/${fileId}`;
 
 const cleanupUncommittedProfilePhoto = async (req) => {
   const upload = req.profilePhotoGridFsUpload;
@@ -745,7 +741,9 @@ export const updateMyProfile = async (req, res, next) => {
       }
 
       const updatedAt = new Date();
-      req.body.avatar = buildProfilePhotoUrl(req, storedPhoto.fileId);
+      // Persist a provider-independent path. Web and native clients resolve it
+      // against their configured API origin at runtime.
+      req.body.avatar = buildProfilePhotoPath(storedPhoto.fileId);
       req.profilePhotoGridFsUpload = {
         ...storedPhoto,
         updatedAt,

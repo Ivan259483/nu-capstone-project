@@ -7,6 +7,22 @@ export const USER_PROFILE_IMAGE_FIELDS = [
   'photo',
 ];
 
+const PROFILE_PHOTO_PATH = /^\/api\/users\/profile\/photo\/[a-f0-9]{24}\/?$/i;
+
+export function normalizeProfilePhotoReference(rawValue) {
+  const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+  if (!value) return '';
+
+  try {
+    const parsed = new URL(value, 'https://relative.invalid');
+    if (PROFILE_PHOTO_PATH.test(parsed.pathname)) return parsed.pathname;
+  } catch {
+    // Preserve non-URL legacy provider values for the existing resolver.
+  }
+
+  return value;
+}
+
 const readField = (source, field) => {
   if (!source) return undefined;
   if (typeof source.get === 'function') return source.get(field);
@@ -28,7 +44,9 @@ export function resolveProfileImageForClient(...sources) {
 export function attachProfileImageForClient(userDoc, userPayload) {
   if (!userDoc || !userPayload) return;
 
-  const profileImage = resolveProfileImageForClient(userDoc, userPayload);
+  const profileImage = normalizeProfilePhotoReference(
+    resolveProfileImageForClient(userDoc, userPayload)
+  );
   for (const field of USER_PROFILE_IMAGE_FIELDS) {
     if (field !== 'avatar') delete userPayload[field];
   }

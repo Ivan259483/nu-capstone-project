@@ -139,7 +139,7 @@ for (const format of ['jpeg', 'png']) {
 
     assert.equal(response.status, 200);
     assert.equal(body.success, true);
-    assert.match(body.data?.avatar, new RegExp(`^${baseUrl}/api/users/profile/photo/[a-f0-9]{24}$`));
+    assert.match(body.data?.avatar, /^\/api\/users\/profile\/photo\/[a-f0-9]{24}$/);
     assert.equal('profilePhotoFileId' in body.data, false);
     assert.equal('avatarPublicId' in body.data, false);
 
@@ -155,7 +155,7 @@ for (const format of ['jpeg', 'png']) {
     assert.equal(file.metadata.contentType, format === 'png' ? 'image/png' : 'image/jpeg');
     assert.ok(await chunksCollection().countDocuments({ files_id: persisted.profilePhotoFileId }) > 0);
 
-    const imageResponse = await fetch(body.data.avatar);
+    const imageResponse = await fetch(`${baseUrl}${body.data.avatar}`);
     assert.equal(imageResponse.status, 200);
     assert.equal(imageResponse.headers.get('content-type'), format === 'png' ? 'image/png' : 'image/jpeg');
     assert.match(imageResponse.headers.get('cache-control'), /immutable/);
@@ -164,7 +164,7 @@ for (const format of ['jpeg', 'png']) {
     const streamedMetadata = await sharp(streamedBytes).metadata();
     assert.equal(streamedMetadata.format, format);
 
-    const cachedResponse = await fetch(body.data.avatar, {
+    const cachedResponse = await fetch(`${baseUrl}${body.data.avatar}`, {
       headers: { 'If-None-Match': imageResponse.headers.get('etag') },
     });
     assert.equal(cachedResponse.status, 304);

@@ -86,6 +86,21 @@ const parseServerTime = (value: unknown, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const PROFILE_PHOTO_PATH = /^\/api\/users\/profile\/photo\/[a-f0-9]{24}\/?$/i;
+
+const resolveBackendMediaUrl = (rawValue: unknown): string | undefined => {
+  if (typeof rawValue !== 'string' || !rawValue.trim()) return undefined;
+  const value = rawValue.trim();
+
+  try {
+    const mediaUrl = new URL(value, 'https://relative.invalid');
+    if (!PROFILE_PHOTO_PATH.test(mediaUrl.pathname)) return value;
+    return `${new URL(API_BASE_URL).origin}${mediaUrl.pathname}`;
+  } catch {
+    return value;
+  }
+};
+
 const normalizeBackendUser = (raw: any, firebaseUid?: string): BackendUser => {
   const mongoId = raw?._id || raw?.id || '';
   const role = normalizeToCanonical(raw?.role);
@@ -101,7 +116,7 @@ const normalizeBackendUser = (raw: any, firebaseUid?: string): BackendUser => {
     name: raw?.name || safeNameFromEmail(raw?.email || ''),
     email: raw?.email || '',
     role,
-    avatar: raw?.avatar,
+    avatar: resolveBackendMediaUrl(raw?.avatar),
     phone: raw?.phone,
     createdAt: raw?.createdAt,
     updatedAt: raw?.updatedAt,

@@ -1,3 +1,6 @@
+import { BACKEND_API_URL } from './api';
+import { resolveMediaUrl } from './media-url';
+
 const PROFILE_IMAGE_FIELDS = [
     'avatar',
     'photoURL',
@@ -13,7 +16,9 @@ export function resolveProfileImage(...sources: Array<Record<string, unknown> | 
             const value = source?.[field];
             if (typeof value !== 'string') continue;
             const normalized = value.trim();
-            if (normalized && !normalized.startsWith('blob:')) return normalized;
+            if (normalized && !normalized.startsWith('blob:')) {
+                return resolveMediaUrl(normalized, BACKEND_API_URL);
+            }
         }
     }
     return '';

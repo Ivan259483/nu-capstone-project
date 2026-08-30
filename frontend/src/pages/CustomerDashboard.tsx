@@ -5991,10 +5991,16 @@ export default function CustomerDashboard() {
                               className="group flex w-full flex-col items-center rounded-lg border border-slate-200 bg-slate-50 px-4 py-5 text-center transition hover:border-blue-200 hover:bg-blue-50/50 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
                             >
                               <span className="relative mb-3 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white bg-white text-2xl font-bold text-blue-700 shadow-sm ring-1 ring-slate-200">
-                                {settingsProfileImage ? (
-                                  <img src={settingsProfileImage} alt="Profile" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                                ) : (
-                                  settingsInitial
+                                {settingsInitial}
+                                {settingsProfileImage && (
+                                  <img
+                                    key={settingsProfileImage}
+                                    src={settingsProfileImage}
+                                    alt=""
+                                    className="absolute inset-0 h-full w-full object-cover"
+                                    referrerPolicy="no-referrer"
+                                    onError={(event) => { event.currentTarget.hidden = true; }}
+                                  />
                                 )}
                                 <span className="absolute inset-0 flex items-center justify-center bg-slate-950/45 opacity-0 transition group-hover:opacity-100">
                                   <iconify-icon icon="solar:camera-add-linear" width="22" style={{ color: 'white' }}></iconify-icon>
@@ -6215,11 +6221,17 @@ export default function CustomerDashboard() {
                   <aside className="min-w-0 space-y-6">
                     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-50 text-xl font-bold text-blue-700 ring-1 ring-blue-100">
-                          {settingsProfileImage ? (
-                            <img src={settingsProfileImage} alt="Profile" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                          ) : (
-                            settingsInitial
+                        <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-50 text-xl font-bold text-blue-700 ring-1 ring-blue-100">
+                          {settingsInitial}
+                          {settingsProfileImage && (
+                            <img
+                              key={settingsProfileImage}
+                              src={settingsProfileImage}
+                              alt=""
+                              className="absolute inset-0 h-full w-full object-cover"
+                              referrerPolicy="no-referrer"
+                              onError={(event) => { event.currentTarget.hidden = true; }}
+                            />
                           )}
                         </div>
                         <div className="min-w-0">
@@ -6437,7 +6449,7 @@ export default function CustomerDashboard() {
                                 Awaiting Confirmation
                               </p>
                               <h2 id="payment-review-title">Payment Under Review</h2>
-                              <p>Our team is verifying your GCash payment. Please wait 1–3 minutes.</p>
+                              <p>Our team is reviewing your GCash payment.</p>
                             </div>
                             <div className="customer-payment-review-reference" aria-label={`Booking reference ${ref}`}>
                               <span className="customer-payment-review-reference-icon" aria-hidden>

@@ -37,12 +37,15 @@ const C = {
   surfaceHigh: '#16161D',
   border: '#27272A',
   borderSoft: 'rgba(255,255,255,0.09)',
+  borderFaint: 'rgba(255,255,255,0.055)',
   orange: '#FF8C00',
   orangeLight: '#FFB77D',
   orangeSoft: 'rgba(255,140,0,0.10)',
   orangeBorder: 'rgba(255,140,0,0.54)',
   onOrange: '#4D2600',
+  recommended: '#22C55E',
   white: '#FFFFFF',
+  primary: '#F4F4F5',
   secondary: '#A1A1AA',
   muted: '#71717A',
   danger: '#F87171',
@@ -437,8 +440,9 @@ export default function ServicesCatalogScreen() {
           <Ionicons name="chevron-back" size={21} color={C.white} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
+          <Text style={s.headerEyebrow}>AUTOSPF+ PROTECTION</Text>
           <Text style={s.headerTitle}>Services</Text>
-          <Text style={s.headerSubtitle}>Explore protection packages for every vehicle class.</Text>
+          <Text style={s.headerSubtitle}>Compare premium care packages tailored to your vehicle class.</Text>
         </View>
       </View>
 
@@ -461,10 +465,18 @@ export default function ServicesCatalogScreen() {
               style={s.selector}
             >
               <View style={s.selectorIcon}><Ionicons name="car-sport-outline" size={18} color={C.orange} /></View>
-              <Text style={s.selectorText}>{selectedCategory.label}</Text>
-              <Ionicons name="chevron-down" size={17} color={C.secondary} />
+              <View style={s.selectorCopy}>
+                <Text style={s.selectorOverline}>SELECTED CLASS</Text>
+                <Text style={s.selectorText}>{selectedCategory.label}</Text>
+              </View>
+              <View style={s.selectorChevron}>
+                <Ionicons name="chevron-down" size={16} color={C.secondary} />
+              </View>
             </TouchableOpacity>
-            <Text style={s.indicativeNote}>Indicative pricing only. Your saved vehicle determines the final booking price.</Text>
+            <View style={s.indicativeRow}>
+              <Ionicons name="information-circle-outline" size={13} color={C.muted} />
+              <Text style={s.indicativeNote}>Your saved vehicle confirms the final booking price.</Text>
+            </View>
           </Animated.View>
         ) : null}
 
@@ -481,11 +493,15 @@ export default function ServicesCatalogScreen() {
         ) : selectedCategory ? (
           <View style={s.catalogSection}>
             <View style={s.sectionHeading}>
-              <View>
-                <Text style={s.sectionEyebrow}>CERAMIC & PROTECTION LINEUP</Text>
-                <Text style={s.sectionTitle}>{visiblePackages.length} packages available</Text>
+              <View style={s.sectionTitleBlock}>
+                <Text style={s.sectionEyebrow}>CURATED SERVICE CATALOG</Text>
+                <Text style={s.sectionTitle}>Ceramic &amp; Protection Lineup</Text>
               </View>
-              <View style={s.livePill}><View style={s.liveDot} /><Text style={s.liveText}>LIVE PRICING</Text></View>
+              <View style={s.sectionMeta}>
+                <Text style={s.packageCount}>{visiblePackages.length} packages available</Text>
+                <View style={s.sectionMetaDivider} />
+                <View style={s.livePill}><View style={s.liveDot} /><Text style={s.liveText}>LIVE PRICING</Text></View>
+              </View>
             </View>
 
             <View style={s.cardList}>
@@ -493,39 +509,101 @@ export default function ServicesCatalogScreen() {
                 const price = getPriceView(service, selectedCategory)!;
                 const badge = service.catalogCard?.badge?.trim();
                 const busy = checkingServiceId === service.id;
+                const recommended = Boolean(service.catalogCard?.popular || badge?.toLowerCase().includes('recommended'));
+                const flagship = Boolean(service.catalogCard?.flagship || badge?.toLowerCase().includes('all-in'));
+                const premium = Boolean(!flagship && badge?.toLowerCase().includes('premium'));
                 return (
-                  <Animated.View key={service.id} entering={FadeInDown.delay(index * 45).duration(200)} style={s.packageCard}>
+                  <Animated.View
+                    key={service.id}
+                    entering={FadeInDown.delay(index * 45).duration(200)}
+                    style={s.packageCardShadow}
+                  >
+                    <View style={[s.packageCard, recommended && s.packageCardRecommended, flagship && s.packageCardFlagship]}>
+                    <LinearGradient
+                      colors={flagship
+                        ? ['rgba(255,183,125,0.085)', 'rgba(255,255,255,0.018)', 'transparent']
+                        : ['rgba(255,255,255,0.035)', 'transparent']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={s.cardSurfaceGradient}
+                      pointerEvents="none"
+                    />
+                    <View style={[s.cardAccent, recommended && s.cardAccentRecommended]} />
                     <View style={s.cardTopRow}>
                       <View style={{ flex: 1 }}>
-                        <Text style={s.tier}>{service.catalogCard?.tierLabel || service.tier || 'PACKAGE'}</Text>
-                        <View style={s.nameRow}>
-                          <Text style={s.packageCode}>{serviceCode(service)}</Text>
-                          <Text style={s.packageName}>— {serviceName(service)}</Text>
+                        <View style={s.tierRow}>
+                          <View style={s.tierRule} />
+                          <Text style={s.tier}>{service.catalogCard?.tierLabel || service.tier || 'PACKAGE'}</Text>
                         </View>
                       </View>
-                      {badge ? <View style={s.badge}><Text style={s.badgeText} numberOfLines={1}>{badge}</Text></View> : null}
+                      {badge ? (
+                        <View style={[
+                          s.badge,
+                          recommended && s.badgeRecommended,
+                          premium && s.badgePremium,
+                          flagship && s.badgeFlagship,
+                        ]}>
+                          <Ionicons
+                            name={recommended ? 'star' : flagship ? 'diamond-outline' : premium ? 'shield-checkmark-outline' : 'pricetag-outline'}
+                            size={11}
+                            color={recommended ? C.recommended : premium ? C.primary : C.orangeLight}
+                          />
+                          <Text
+                            style={[s.badgeText, recommended && s.badgeTextRecommended, premium && s.badgeTextPremium]}
+                            numberOfLines={1}
+                          >
+                            {badge}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
 
-                    <View style={s.priceRow}>
-                      <Text style={s.price}>{money(price.price)}</Text>
-                      {price.original !== null ? <Text style={s.originalPrice}>{money(price.original)}</Text> : null}
-                      {price.savings !== null ? <View style={s.savePill}><Text style={s.saveText}>SAVE {money(price.savings)}</Text></View> : null}
+                    <Text style={s.packageCode}>{serviceCode(service)}</Text>
+                    <Text style={s.packageSubtitle} numberOfLines={2}>
+                      {service.catalogCard?.tagline || serviceName(service)}
+                    </Text>
+
+                    <View style={s.priceBlock}>
+                      <Text style={s.priceLabel}>PACKAGE PRICE</Text>
+                      <View style={s.priceRow}>
+                        <Text style={s.price}>{money(price.price)}</Text>
+                        <View style={s.priceComparison}>
+                          {price.original !== null ? <Text style={s.originalPrice}>SRP {money(price.original)}</Text> : null}
+                          {price.savings !== null ? <View style={s.savePill}><Text style={s.saveText}>Save {money(price.savings)}</Text></View> : null}
+                        </View>
+                      </View>
                     </View>
 
                     <View style={s.metadataRow}>
                       {service.catalogCard?.warrantyLabel ? (
-                        <View style={s.metadataItem}><Ionicons name="shield-checkmark-outline" size={14} color={C.orangeLight} /><Text style={s.metadataText}>{service.catalogCard.warrantyLabel}</Text></View>
+                        <View style={s.metadataItem}>
+                          <View style={s.metadataIcon}><Ionicons name="shield-checkmark-outline" size={15} color={C.orangeLight} /></View>
+                          <View style={s.metadataCopy}>
+                            <Text style={s.metadataLabel}>PROTECTION</Text>
+                            <Text style={s.metadataText} numberOfLines={1}>{service.catalogCard.warrantyLabel}</Text>
+                          </View>
+                        </View>
                       ) : null}
                       {service.duration ? (
-                        <View style={s.metadataItem}><Ionicons name="time-outline" size={14} color={C.secondary} /><Text style={s.metadataText}>{service.duration}</Text></View>
+                        <View style={s.metadataItem}>
+                          <View style={s.metadataIcon}><Ionicons name="time-outline" size={15} color={C.secondary} /></View>
+                          <View style={s.metadataCopy}>
+                            <Text style={s.metadataLabel}>SERVICE TIME</Text>
+                            <Text style={s.metadataText} numberOfLines={1}>{service.duration}</Text>
+                          </View>
+                        </View>
                       ) : null}
                     </View>
-                    <Text style={s.tagline} numberOfLines={1}>{service.catalogCard?.tagline || service.description || 'Protection package'}</Text>
+
+                    <View style={s.descriptionBlock}>
+                      <Text style={s.descriptionLabel}>PACKAGE OVERVIEW</Text>
+                      <Text style={s.description} numberOfLines={3}>{service.description || 'Premium vehicle protection package.'}</Text>
+                    </View>
 
                     <View style={s.cardActions}>
                       <TouchableOpacity accessibilityRole="button" accessibilityLabel={`See what's included in ${service.name}`} onPress={() => setDetailsService(service)} style={s.detailsButton}>
+                        <Ionicons name="list-outline" size={15} color={C.orangeLight} />
                         <Text style={s.detailsButtonText}>See what’s included</Text>
-                        <Ionicons name="chevron-forward" size={13} color={C.orange} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         accessibilityRole="button"
@@ -538,6 +616,7 @@ export default function ServicesCatalogScreen() {
                         <Text style={s.bookButtonText}>{busy ? 'Checking…' : 'Book This Package'}</Text>
                         {!busy ? <Ionicons name="arrow-forward" size={15} color={C.onOrange} /> : null}
                       </TouchableOpacity>
+                    </View>
                     </View>
                   </Animated.View>
                 );
@@ -695,46 +774,75 @@ export default function ServicesCatalogScreen() {
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
-  headerGlow: { position: 'absolute', top: 0, left: 0, right: 0, height: 210 },
-  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 13, paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.borderSoft },
-  backButton: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.055)', borderWidth: 1, borderColor: C.borderSoft },
-  headerTitle: { color: C.white, fontSize: 23, lineHeight: 28, fontWeight: '800', letterSpacing: -0.35 },
-  headerSubtitle: { color: C.secondary, fontSize: 12.5, lineHeight: 18, marginTop: 2 },
-  content: { paddingHorizontal: 20, paddingTop: 20 },
-  fieldLabel: { color: C.muted, fontSize: 10, lineHeight: 14, fontWeight: '800', letterSpacing: 1.35, marginBottom: 7 },
-  selector: { minHeight: 55, flexDirection: 'row', alignItems: 'center', gap: 11, paddingHorizontal: 13, backgroundColor: C.surfaceHigh, borderRadius: 15, borderWidth: 1, borderColor: C.orangeBorder },
-  selectorIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: C.orangeSoft },
-  selectorText: { flex: 1, color: C.white, fontSize: 14, fontWeight: '700' },
-  indicativeNote: { color: C.muted, fontSize: 10.5, lineHeight: 15, marginTop: 8 },
-  catalogSection: { marginTop: 25 },
-  sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: 10, marginBottom: 12 },
-  sectionEyebrow: { color: C.orange, fontSize: 9, lineHeight: 12, fontWeight: '800', letterSpacing: 1.1 },
-  sectionTitle: { color: C.secondary, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
-  livePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 7, paddingVertical: 5, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.045)' },
+  headerGlow: { position: 'absolute', top: 0, left: 0, right: 0, height: 240 },
+  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingHorizontal: 20, paddingBottom: 22, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.borderSoft },
+  backButton: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.045)', borderWidth: 1, borderColor: C.borderSoft },
+  headerEyebrow: { color: C.orange, fontSize: 8.5, lineHeight: 11, fontWeight: '800', letterSpacing: 1.35, marginBottom: 4 },
+  headerTitle: { color: C.white, fontSize: 27, lineHeight: 31, fontWeight: '800', letterSpacing: -0.55 },
+  headerSubtitle: { maxWidth: 310, color: C.secondary, fontSize: 12.5, lineHeight: 18, marginTop: 5 },
+  content: { paddingHorizontal: 18, paddingTop: 22 },
+  fieldLabel: { color: C.muted, fontSize: 9, lineHeight: 12, fontWeight: '800', letterSpacing: 1.4, marginBottom: 8 },
+  selector: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, backgroundColor: C.surfaceHigh, borderRadius: 16, borderWidth: 1, borderColor: C.orangeBorder },
+  selectorIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.orangeSoft, borderWidth: 1, borderColor: 'rgba(255,140,0,0.17)' },
+  selectorCopy: { flex: 1 },
+  selectorOverline: { color: C.muted, fontSize: 7.5, lineHeight: 10, fontWeight: '800', letterSpacing: 0.85 },
+  selectorText: { color: C.white, fontSize: 14.5, lineHeight: 19, fontWeight: '700', marginTop: 2 },
+  selectorChevron: { width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.045)' },
+  indicativeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 5, marginTop: 9, paddingHorizontal: 2 },
+  indicativeNote: { flex: 1, color: C.muted, fontSize: 10.5, lineHeight: 15 },
+  catalogSection: { marginTop: 29 },
+  sectionHeading: { gap: 11, marginBottom: 14 },
+  sectionTitleBlock: { gap: 3 },
+  sectionEyebrow: { color: C.orange, fontSize: 8.5, lineHeight: 11, fontWeight: '800', letterSpacing: 1.15 },
+  sectionTitle: { color: C.primary, fontSize: 18, lineHeight: 23, fontWeight: '800', letterSpacing: -0.28 },
+  sectionMeta: { minHeight: 28, flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: 10, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.035)', borderWidth: 1, borderColor: C.borderFaint },
+  packageCount: { color: C.secondary, fontSize: 9.5, lineHeight: 13, fontWeight: '600' },
+  sectionMetaDivider: { width: StyleSheet.hairlineWidth, height: 12, marginHorizontal: 8, backgroundColor: C.borderSoft },
+  livePill: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: C.orange },
-  liveText: { color: C.secondary, fontSize: 8, fontWeight: '800', letterSpacing: 0.7 },
-  cardList: { gap: 12 },
-  packageCard: { padding: 15, borderRadius: 18, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
-  cardTopRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  tier: { color: C.orange, fontSize: 9, lineHeight: 12, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' },
-  nameRow: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', marginTop: 3 },
-  packageCode: { color: C.white, fontSize: 18, lineHeight: 23, fontWeight: '800', letterSpacing: -0.25 },
-  packageName: { color: C.secondary, fontSize: 13, lineHeight: 19, fontWeight: '600' },
-  badge: { maxWidth: 112, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 999, backgroundColor: C.orangeSoft, borderWidth: 1, borderColor: C.orangeBorder },
-  badgeText: { color: C.orangeLight, fontSize: 8, lineHeight: 10, fontWeight: '800', letterSpacing: 0.65 },
-  priceRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  price: { color: C.white, fontSize: 25, lineHeight: 29, fontWeight: '800', letterSpacing: -0.65 },
-  originalPrice: { color: C.muted, fontSize: 11, textDecorationLine: 'line-through' },
-  savePill: { paddingHorizontal: 7, paddingVertical: 4, borderRadius: 999, backgroundColor: 'rgba(255,140,0,0.09)' },
-  saveText: { color: C.orangeLight, fontSize: 8.5, fontWeight: '800', letterSpacing: 0.35 },
-  metadataRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 13, marginTop: 10 },
-  metadataItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  metadataText: { color: C.secondary, fontSize: 10.5, fontWeight: '600' },
-  tagline: { color: C.muted, fontSize: 11.5, lineHeight: 16, marginTop: 9 },
-  cardActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.borderSoft },
-  detailsButton: { flex: 1, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.surfaceHigh },
-  detailsButtonText: { color: C.orange, fontSize: 10.5, fontWeight: '700' },
-  bookButton: { flex: 1.25, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 12, backgroundColor: C.orange },
+  liveText: { color: C.orangeLight, fontSize: 7.5, lineHeight: 10, fontWeight: '800', letterSpacing: 0.65 },
+  cardList: { gap: 14 },
+  packageCardShadow: { borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.24, shadowRadius: 18, elevation: 3 },
+  packageCard: { padding: 17, borderRadius: 20, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
+  packageCardRecommended: { borderColor: 'rgba(255,140,0,0.36)' },
+  packageCardFlagship: { borderColor: 'rgba(255,183,125,0.26)' },
+  cardSurfaceGradient: { ...StyleSheet.absoluteFillObject },
+  cardAccent: { position: 'absolute', top: 0, left: 17, right: 17, height: 1, backgroundColor: 'rgba(255,183,125,0.32)' },
+  cardAccentRecommended: { backgroundColor: C.orange },
+  cardTopRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  tierRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  tierRule: { width: 12, height: 1, backgroundColor: C.orange },
+  tier: { color: C.orangeLight, fontSize: 8.5, lineHeight: 11, fontWeight: '800', letterSpacing: 1.3, textTransform: 'uppercase' },
+  packageCode: { color: C.white, fontSize: 25, lineHeight: 30, fontWeight: '800', letterSpacing: -0.65, marginTop: 14 },
+  packageSubtitle: { maxWidth: '90%', color: C.secondary, fontSize: 12, lineHeight: 17, fontWeight: '600', marginTop: 2 },
+  badge: { maxWidth: '48%', flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 999, backgroundColor: C.orangeSoft, borderWidth: 1, borderColor: 'rgba(255,140,0,0.30)' },
+  badgeRecommended: { backgroundColor: 'rgba(34,197,94,0.08)', borderColor: 'rgba(34,197,94,0.24)' },
+  badgePremium: { backgroundColor: 'rgba(255,255,255,0.055)', borderColor: C.borderSoft },
+  badgeFlagship: { backgroundColor: 'rgba(255,183,125,0.075)', borderColor: 'rgba(255,183,125,0.23)' },
+  badgeText: { flexShrink: 1, color: C.orangeLight, fontSize: 7.5, lineHeight: 10, fontWeight: '800', letterSpacing: 0.55 },
+  badgeTextRecommended: { color: C.recommended },
+  badgeTextPremium: { color: C.primary },
+  priceBlock: { marginTop: 17, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.borderSoft },
+  priceLabel: { color: C.muted, fontSize: 7.5, lineHeight: 10, fontWeight: '800', letterSpacing: 1.05 },
+  priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 3 },
+  price: { flexShrink: 1, color: C.white, fontSize: 29, lineHeight: 34, fontWeight: '800', letterSpacing: -0.85 },
+  priceComparison: { alignItems: 'flex-end', gap: 4 },
+  originalPrice: { color: C.muted, fontSize: 10, lineHeight: 13, fontWeight: '600', textDecorationLine: 'line-through' },
+  savePill: { paddingHorizontal: 7, paddingVertical: 4, borderRadius: 999, backgroundColor: 'rgba(255,140,0,0.09)', borderWidth: 1, borderColor: 'rgba(255,140,0,0.14)' },
+  saveText: { color: C.orangeLight, fontSize: 8.5, lineHeight: 11, fontWeight: '800', letterSpacing: 0.15 },
+  metadataRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  metadataItem: { flex: 1, minWidth: 0, minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 9, paddingVertical: 8, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.028)', borderWidth: 1, borderColor: C.borderFaint },
+  metadataIcon: { width: 25, height: 25, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.035)' },
+  metadataCopy: { flex: 1, minWidth: 0 },
+  metadataLabel: { color: C.muted, fontSize: 6.8, lineHeight: 9, fontWeight: '800', letterSpacing: 0.55 },
+  metadataText: { color: C.primary, fontSize: 9.5, lineHeight: 13, fontWeight: '700', marginTop: 2 },
+  descriptionBlock: { marginTop: 14 },
+  descriptionLabel: { color: C.muted, fontSize: 7.5, lineHeight: 10, fontWeight: '800', letterSpacing: 0.9 },
+  description: { color: C.secondary, fontSize: 11, lineHeight: 16, marginTop: 4 },
+  cardActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.borderSoft },
+  detailsButton: { flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.surfaceHigh },
+  detailsButtonText: { color: C.primary, fontSize: 10, fontWeight: '700' },
+  bookButton: { flex: 1.25, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 12, backgroundColor: C.orange },
   bookButtonText: { color: C.onOrange, fontSize: 10.5, fontWeight: '800' },
   buttonDisabled: { opacity: 0.5 },
   errorCard: { marginTop: 64, alignItems: 'center', padding: 24, borderRadius: 18, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
