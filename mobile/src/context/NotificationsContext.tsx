@@ -230,10 +230,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     }
 
     try {
-      const serverUnreadCount = await notificationService.setReadState(id, isRead);
+      await notificationService.setReadState(id, isRead);
       if (readMutationByIdRef.current.get(id) === operation) {
         readMutationByIdRef.current.delete(id);
-        setUnreadCount(serverUnreadCount);
       }
     } catch (markError) {
       if (readMutationByIdRef.current.get(id) !== operation) throw markError;
@@ -274,10 +273,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     }
 
     try {
-      const serverUnreadCount = await notificationService.clearNotification(id);
+      await notificationService.clearNotification(id);
       if (readMutationByIdRef.current.get(id) === operation) {
         readMutationByIdRef.current.delete(id);
-        setUnreadCount(serverUnreadCount);
       }
     } catch (clearError) {
       if (readMutationByIdRef.current.get(id) !== operation) throw clearError;
