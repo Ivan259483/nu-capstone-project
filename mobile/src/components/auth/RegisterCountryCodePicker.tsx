@@ -1,8 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
   FlatList,
-  KeyboardAvoidingView,
-  Modal,
   Platform,
   StyleSheet,
   Text,
@@ -11,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { MotionSheet } from '@/components/ui/MotionOverlay';
 import {
   REGISTER_COUNTRY_DIALS,
   REGISTER_PHONE_PRIORITY_ISO,
@@ -104,17 +103,12 @@ export default function RegisterCountryCodePicker({ countryIso, onCountryIsoChan
         />
       </TouchableOpacity>
 
-      <Modal visible={pickerOpen} animationType="slide" transparent onRequestClose={closePicker}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalRoot}
-        >
-          <TouchableOpacity
-            style={styles.modalBackdrop}
-            activeOpacity={1}
-            onPress={closePicker}
-          />
-          <View style={styles.modalSheet}>
+      <MotionSheet
+        visible={pickerOpen}
+        onClose={closePicker}
+        contentStyle={styles.modalSheet}
+        accessibilityLabel="Choose country code"
+      >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Country</Text>
               <TouchableOpacity onPress={closePicker} hitSlop={12}>
@@ -163,9 +157,7 @@ export default function RegisterCountryCodePicker({ countryIso, onCountryIsoChan
               }}
               ListEmptyComponent={<Text style={styles.empty}>No country found.</Text>}
             />
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      </MotionSheet>
     </>
   );
 }
@@ -187,8 +179,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
-  modalRoot: { flex: 1, justifyContent: 'flex-end' },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
   modalSheet: {
     maxHeight: '78%',
     backgroundColor: '#1A1A2E',

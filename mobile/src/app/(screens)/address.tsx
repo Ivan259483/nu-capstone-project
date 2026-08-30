@@ -4,22 +4,18 @@
  * Stored in AsyncStorage until backend address endpoints are available.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Modal,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
+import Animated, { FadeInUp, FadeIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Palette } from '@/constants/theme';
@@ -27,6 +23,7 @@ import PremiumInput from '@/components/ui/PremiumInput';
 import { Toast } from '@/components/ui/PremiumToast';
 import SkeletonPulse from '@/components/ui/SkeletonPulse';
 import { PremiumLoader } from '@/components/ui/loading';
+import { MotionSheet } from '@/components/ui/MotionOverlay';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/services/api/client';
 
@@ -436,22 +433,18 @@ export default function AddressScreen() {
       )}
 
       {/* ═══ Add / Edit Modal ═══ */}
-      <Modal
+      <MotionSheet
         visible={modalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setModalVisible(false)}
+        onClose={() => setModalVisible(false)}
+        contentStyle={s.modalContent}
+        accessibilityLabel={editingAddress ? 'Edit address' : 'Add address'}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={s.modalOverlay}
-        >
           <ScrollView
             bounces={false}
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end' }}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={s.modalScrollContent}
           >
-            <View style={s.modalContent}>
               <View style={s.modalHeader}>
                 <View>
                   <Text style={s.modalTitle}>
@@ -546,10 +539,8 @@ export default function AddressScreen() {
                   </Text>
                 )}
               </TouchableOpacity>
-            </View>
           </ScrollView>
-        </KeyboardAvoidingView>
-      </Modal>
+      </MotionSheet>
     </View>
   );
 }
@@ -761,11 +752,8 @@ const s = StyleSheet.create({
   },
 
   // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-  },
   modalContent: {
+    maxHeight: '92%',
     backgroundColor: '#0D0D12',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
@@ -775,6 +763,7 @@ const s = StyleSheet.create({
     borderBottomWidth: 0,
     borderColor: 'rgba(255,255,255,0.06)',
   },
+  modalScrollContent: { paddingBottom: 8 },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',

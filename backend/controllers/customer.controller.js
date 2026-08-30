@@ -14,13 +14,13 @@ import {
   canManageCustomerGarage,
   isCustomerRole,
 } from '../constants/roles.js';
+import {
+  CUSTOMER_NOTIFICATION_PREFERENCE_FIELDS,
+  normalizeCustomerNotificationPreferences,
+} from '../utils/customerNotificationPreferences.utils.js';
 
 const SAFE_USER_FIELDS = 'name email role avatar isActive status';
-const NOTIFICATION_PREFERENCE_FIELDS = new Set([
-  'pushEnabled', 'emailEnabled', 'smsEnabled', 'bookingConfirmation',
-  'jobStatusUpdates', 'paymentReminders', 'promotionalOffers', 'chatMessages',
-  'vehicleReminders', 'loyaltyRewards', 'newsletter',
-]);
+const NOTIFICATION_PREFERENCE_FIELDS = new Set(CUSTOMER_NOTIFICATION_PREFERENCE_FIELDS);
 
 function applyCustomerPreferenceUpdates(customer, body = {}, { allowLoyalty = false } = {}) {
   const suppliedFields = Object.keys(body);
@@ -244,6 +244,86 @@ export const updateMe = async (req, res, next) => {
       success: true,
       message: 'Profile updated successfully',
       data: customer,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get the current customer's canonical six notification preferences.
+ */
+export const getMyNotificationPreferences = async (req, res, next) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    let customer = await Customer.findOne({ user: req.user.id })
+      .select('notificationPreferences');
+    if (!customer) {
+      customer = await Customer.create({ user: req.user.id });
+    }
+
+    return res.json({
+      success: true,
+      data: normalizeCustomerNotificationPreferences(customer.notificationPreferences),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Atomically update any subset of the canonical preference object.
+ */
+export const updateMyNotificationPreferences = async (req, res, next) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const supplied = req.body?.notificationPreferences ?? req.body;
+    if (!supplied || typeof supplied !== 'object' || Array.isArray(supplied)) {
+      return res.status(400).json({
+        success: false,
+        message: 'notificationPreferences must be an object.',
+      });
+    }
+
+    const entries = Object.entries(supplied);
+    if (entries.length === 0) {
+      return res.status(400).json({ success: false, message: 'At least one preference is required.' });
+    }
+    for (const [key, value] of entries) {
+      if (!NOTIFICATION_PREFERENCE_FIELDS.has(key) || typeof value !== 'boolean') {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid notification preference: ${key}`,
+        });
+      }
+    }
+
+    const set = Object.fromEntries(
+      entries.map(([key, value]) => [`notificationPreferences.${key}`, value])
+    );
+    let customer = await Customer.findOneAndUpdate(
+      { user: req.user.id },
+      { $set: set },
+      { new: true, runValidators: true }
+    ).select('notificationPreferences');
+
+    if (!customer) {
+      customer = await Customer.create({
+        user: req.user.id,
+        notificationPreferences: supplied,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Notification preferences updated.',
+      data: normalizeCustomerNotificationPreferences(customer.notificationPreferences),
     });
   } catch (error) {
     next(error);

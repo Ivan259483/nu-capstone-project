@@ -36,6 +36,7 @@ import { isCustomerRole } from '@/services/api/roles';
 import { SystemStatusProvider } from '@/context/SystemStatusContext';
 import SystemStatusGate from '@/components/SystemStatusGate';
 import { FullScreenLoader } from '@/components/ui/loading';
+import { Motion } from '@/constants/motion';
 
 // Prevent the native splash from auto-hiding until our custom one is ready.
 SplashScreen.preventAutoHideAsync();
@@ -90,7 +91,14 @@ function InnerLayout() {
 
     return (
       <>
-        <Stack screenOptions={{ headerShown: false }}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.background },
+            animation: 'simple_push',
+            animationDuration: Motion.duration.screen,
+          }}
+        >
           {/* Keep the root gate registered because successful login/OTP flows
               replace to "/" before RootIndex performs the final redirect. */}
           <Stack.Screen name="index" />
@@ -108,13 +116,20 @@ function InnerLayout() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
-          animation: 'ios_from_right',
+          animation: 'simple_push',
+          animationDuration: Motion.duration.screen,
           freezeOnBlur: true,
+          gestureEnabled: true,
+          fullScreenGestureEnabled: true,
         }}
       >
-        <Stack.Screen name="index" options={{ animation: 'fade' }} />
-        <Stack.Screen name="(customer)" options={{ animation: 'fade' }} />
-        <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
+        <Stack.Screen name="index" options={{ animation: 'fade', animationDuration: Motion.duration.standard }} />
+        <Stack.Screen name="(customer)" options={{ animation: 'fade', animationDuration: Motion.duration.standard }} />
+        <Stack.Screen name="(auth)" options={{ animation: 'fade', animationDuration: Motion.duration.standard }} />
+        <Stack.Screen
+          name="(screens)/booking-details"
+          options={{ animation: 'simple_push', animationDuration: Motion.duration.screen }}
+        />
         <Stack.Screen
           name="(screens)/payments"
           options={{ animation: 'ios_from_right' }}

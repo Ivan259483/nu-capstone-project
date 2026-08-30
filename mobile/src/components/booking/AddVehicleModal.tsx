@@ -12,7 +12,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Animated,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -30,6 +29,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Toast } from '@/components/ui/PremiumToast';
 import { PremiumLoader } from '@/components/ui/loading';
+import { MotionModal } from '@/components/ui/MotionOverlay';
 import {
   FUEL_TYPE_OPTIONS,
   TRANSMISSION_OPTIONS,
@@ -193,6 +193,7 @@ export type AddVehicleModalProps = {
   onVehicleAdded: (vehicle: Vehicle) => void;
   vehicle?: Vehicle | null;
   onVehicleUpdated?: (vehicle: Vehicle) => void;
+  onClosed?: () => void;
 };
 
 type PickerKind = 'type' | 'brand' | 'model' | 'year' | 'transmission' | 'fuel' | null;
@@ -204,6 +205,7 @@ export default function AddVehicleModal({
   onVehicleAdded,
   vehicle = null,
   onVehicleUpdated,
+  onClosed,
 }: AddVehicleModalProps) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
@@ -505,11 +507,13 @@ export default function AddVehicleModal({
       : 'Select model';
 
   return (
-    <Modal
+    <MotionModal
       visible={visible}
-      animationType="slide"
-      presentationStyle="fullScreen"
-      onRequestClose={picker ? closePicker : handleClose}
+      onClose={picker ? closePicker : handleClose}
+      onClosed={onClosed}
+      dismissOnBackdrop={false}
+      fullScreen
+      accessibilityLabel={isEditing ? 'Edit vehicle' : 'Add vehicle'}
     >
       <View style={[s.root, { paddingTop: Math.max(insets.top, 14) }]}>
 
@@ -802,7 +806,7 @@ export default function AddVehicleModal({
           </>
         ) : null}
       </View>
-    </Modal>
+    </MotionModal>
   );
 }
 

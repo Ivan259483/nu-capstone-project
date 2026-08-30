@@ -21,7 +21,6 @@ import {
   Platform,
   Image,
   Alert,
-  Modal,
   useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -30,12 +29,16 @@ import Svg, { Circle } from 'react-native-svg';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { PageSkeleton as LoadingPageSkeleton, PremiumLoader } from '@/components/ui/loading';
+import { MotionModal } from '@/components/ui/MotionOverlay';
 import Animated, {
   FadeIn,
   FadeInDown,
   useSharedValue,
   useAnimatedStyle,
   useAnimatedProps,
+  useReducedMotion,
+  cancelAnimation,
+  withDelay,
   withRepeat,
   withTiming,
   withSequence,
@@ -297,6 +300,7 @@ const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string }) {
+  const reducedMotion = useReducedMotion();
   const progress = useSharedValue(0);
   const pulse = useSharedValue(0);
   const orbit = useSharedValue(0);
@@ -310,10 +314,23 @@ function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string
     : ['rgba(249,115,22,0)', 'rgba(253,186,116,0.24)', 'rgba(249,115,22,0)'];
 
   useEffect(() => {
+    if (reducedMotion) {
+      progress.value = pct / 100;
+      return;
+    }
     progress.value = withTiming(pct / 100, { duration: 1400, easing: Easing.out(Easing.cubic) });
-  }, [pct]);
+  }, [pct, progress, reducedMotion]);
 
   useEffect(() => {
+    if (reducedMotion) {
+      cancelAnimation(pulse);
+      cancelAnimation(orbit);
+      cancelAnimation(sweep);
+      pulse.value = 0;
+      orbit.value = 0;
+      sweep.value = 0;
+      return;
+    }
     pulse.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 1300, easing: Easing.inOut(Easing.cubic) }),
@@ -332,7 +349,12 @@ function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string
       -1,
       false,
     );
-  }, []);
+    return () => {
+      cancelAnimation(pulse);
+      cancelAnimation(orbit);
+      cancelAnimation(sweep);
+    };
+  }, [orbit, pulse, reducedMotion, sweep]);
 
   const animatedProps = useAnimatedProps(() => ({
     strokeDashoffset: CIRCUMFERENCE * (1 - progress.value),
@@ -467,9 +489,17 @@ const rg = StyleSheet.create({
 
 // ─── Live Badge ───────────────────────────────────────────────────────────────
 function LiveBadge() {
+  const reducedMotion = useReducedMotion();
   const pulse = useSharedValue(0);
   const sweep = useSharedValue(0);
   useEffect(() => {
+    if (reducedMotion) {
+      cancelAnimation(pulse);
+      cancelAnimation(sweep);
+      pulse.value = 0;
+      sweep.value = 0;
+      return;
+    }
     pulse.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 900, easing: Easing.inOut(Easing.cubic) }),
@@ -483,7 +513,11 @@ function LiveBadge() {
       -1,
       false,
     );
-  }, []);
+    return () => {
+      cancelAnimation(pulse);
+      cancelAnimation(sweep);
+    };
+  }, [pulse, reducedMotion, sweep]);
   const haloStyle = useAnimatedStyle(() => ({
     opacity: 0.2 + pulse.value * 0.45,
     transform: [{ scale: 1 + pulse.value * 0.75 }],
@@ -600,6 +634,7 @@ function TimelineStep({
   const [galleryPage, setGalleryPage] = useState(0);
   const galleryScrollRef = useRef<ScrollView>(null);
   const insetsModal = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
 
   const isFinalStep = index === TRACKER_STEPS.length - 1;
   const isSecuredSlotStep = index === 0 && appointmentSecuredComplete;
@@ -634,7 +669,7 @@ function TimelineStep({
     setGalleryStartIndex(null);
   };
 
-  const hasPremiumMotion = isActive || isSecuredSlotStep;
+  const hasPremiumMotion = !reducedMotion && (isActive || isSecuredSlotStep);
   const premiumSweepColors: [string, string, string] = isSecuredSlotStep
     ? ['rgba(34,197,94,0)', 'rgba(187,247,208,0.18)', 'rgba(34,197,94,0)']
     : ['rgba(249,115,22,0)', 'rgba(253,186,116,0.16)', 'rgba(249,115,22,0)'];
@@ -643,7 +678,7 @@ function TimelineStep({
   const glowOp = useSharedValue(0);
 
   useEffect(() => {
-    if (isActive) {
+    if (isActive && !reducedMotion) {
       glowOp.value = withRepeat(
         withSequence(
           withTiming(0.6, { duration: 900 }),
@@ -656,7 +691,7 @@ function TimelineStep({
       glowOp.value = 0;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Reanimated shared value ref
-  }, [isActive]);
+  }, [isActive, reducedMotion]);
 
   useEffect(() => {
     if (hasPremiumMotion) {
@@ -827,13 +862,17 @@ function TimelineStep({
               </Text>
             ) : null}
 
-            <Modal
+            <MotionModal
               visible={galleryOpen}
-              transparent
-              animationType="fade"
-              onRequestClose={closeGallery}
+              onClose={closeGallery}
+              dismissOnBackdrop={false}
+              fullScreen
+              contentStyle={[
+                tl.modalRoot,
+                { paddingTop: insetsModal.top + 8, paddingBottom: insetsModal.bottom + 8 },
+              ]}
+              accessibilityLabel={`${step.label} photo viewer`}
             >
-              <View style={[tl.modalRoot, { paddingTop: insetsModal.top + 8, paddingBottom: insetsModal.bottom + 8 }]}>
                 <View style={tl.modalHeader}>
                   <View style={{ flex: 1, paddingRight: 12 }}>
                     <Text style={tl.modalStage}>{step.label}</Text>
@@ -897,8 +936,7 @@ function TimelineStep({
                     </View>
                   ))}
                 </ScrollView>
-              </View>
-            </Modal>
+            </MotionModal>
           </>
         ) : null}
       </Animated.View>
@@ -1151,25 +1189,37 @@ function ServiceCompleteCard({
   countdown: number;
   onViewSummary: () => void;
 }) {
+  const reducedMotion = useReducedMotion();
   const checkScale = useSharedValue(0.4);
   const ringScale  = useSharedValue(0.6);
   const pulse      = useSharedValue(1);
 
   useEffect(() => {
+    if (reducedMotion) {
+      checkScale.value = 1;
+      ringScale.value = 1;
+      pulse.value = 1;
+      return;
+    }
     checkScale.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.back(1.8)) });
     ringScale.value  = withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) });
-    // Subtle pulse starts after entrance
-    setTimeout(() => {
-      pulse.value = withRepeat(
+    pulse.value = withDelay(
+      600,
+      withRepeat(
         withSequence(
           withTiming(1.07, { duration: 1400, easing: Easing.inOut(Easing.ease) }),
           withTiming(1,    { duration: 1400, easing: Easing.inOut(Easing.ease) }),
         ),
         -1,
         true,
-      );
-    }, 600);
-  }, []);
+      ),
+    );
+    return () => {
+      cancelAnimation(checkScale);
+      cancelAnimation(ringScale);
+      cancelAnimation(pulse);
+    };
+  }, [checkScale, pulse, reducedMotion, ringScale]);
 
   const checkStyle = useAnimatedStyle(() => ({
     transform: [{ scale: checkScale.value * pulse.value }],
@@ -1267,6 +1317,7 @@ const EMPTY_BOOKINGS: BookingRecord[] = [];
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function TrackScreen() {
+  const reducedMotion = useReducedMotion();
   const { profile } = useAuth();
   const router      = useRouter();
   const insets      = useSafeAreaInsets();
@@ -1289,6 +1340,13 @@ export default function TrackScreen() {
   const premiumSweep = useSharedValue(0);
 
   useEffect(() => {
+    if (reducedMotion) {
+      cancelAnimation(premiumPulse);
+      cancelAnimation(premiumSweep);
+      premiumPulse.value = 0;
+      premiumSweep.value = 0;
+      return;
+    }
     premiumPulse.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.cubic) }),
@@ -1302,7 +1360,11 @@ export default function TrackScreen() {
       -1,
       false,
     );
-  }, []);
+    return () => {
+      cancelAnimation(premiumPulse);
+      cancelAnimation(premiumSweep);
+    };
+  }, [premiumPulse, premiumSweep, reducedMotion]);
 
   const stageSweepStyle = useAnimatedStyle(() => ({
     opacity: 0.09 + premiumPulse.value * 0.06,

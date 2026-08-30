@@ -1,9 +1,9 @@
 /** Premium customer notification inbox backed by the authenticated notifications API. */
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  BackHandler,
   FlatList,
-  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,27 +11,25 @@ import {
   Text,
   View,
 } from 'react-native';
-import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import { Haptics } from '@/utils/haptics';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PageSkeleton, PremiumLoader } from '@/components/ui/loading';
 import PremiumButton from '@/components/ui/PremiumButton';
+import { MotionSheet } from '@/components/ui/MotionOverlay';
 import { Toast } from '@/components/ui/PremiumToast';
-import { BorderRadius, Palette, Spacing, Typography } from '@/constants/theme';
+import { BorderRadius, Colors, Palette, Spacing, Typography } from '@/constants/theme';
 import { useNotifications } from '@/context/NotificationsContext';
-import { useTheme } from '@/hooks/useThemeContext';
-import { bookingService } from '@/services/api/bookingService';
 import { getApiErrorMessage } from '@/services/api/client';
 import type { NotificationRecord } from '@/services/api/types';
 import {
-  getNotificationEntityId,
   getNotificationRoute,
   hasNotificationAction,
 } from '@/utils/notificationNavigation';
 
-type InboxFilter = 'all' | 'unread' | 'bookings' | 'payments' | 'promotions';
+type InboxFilter = 'all' | 'important' | 'unread' | 'bookings' | 'payments' | 'promotions';
 type SummaryCategory = 'important' | 'promotions';
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -40,7 +38,6 @@ const FILTERS: { id: InboxFilter; label: string }[] = [
   { id: 'unread', label: 'Unread' },
   { id: 'bookings', label: 'Bookings' },
   { id: 'payments', label: 'Payments' },
-  { id: 'promotions', label: 'Promotions' },
 ];
 
 const SUMMARY_COPY: Record<SummaryCategory, {
@@ -128,6 +125,9 @@ function isBookingNotification(notification: NotificationRecord): boolean {
 
 function matchesFilter(notification: NotificationRecord, filter: InboxFilter): boolean {
   if (filter === 'all') return true;
+  if (filter === 'important') {
+    return notification.category !== 'promotion' && notificationEvent(notification) !== 'promotion';
+  }
   if (filter === 'unread') return !notification.isRead;
   if (filter === 'bookings') return isBookingNotification(notification);
   if (filter === 'payments') return isPaymentNotification(notification);
@@ -152,6 +152,23 @@ function formatNotificationTime(value?: string): string {
 
   const day = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return `${day} · ${time}`;
+}
+
+function formatCategoryNotificationTime(value?: string): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const notificationDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayDifference = Math.round((today.getTime() - notificationDay.getTime()) / 86_400_000);
+  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+  if (dayDifference === 0) return `Today · ${time}`;
+  if (dayDifference === 1) return `Yesterday · ${time}`;
+  const day = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return `${day} · ${time}`;
 }
 
@@ -213,12 +230,14 @@ function detailFacts(notification: NotificationRecord): { label: string; value: 
 }
 
 export default function NotificationsScreen() {
-  const { colors } = useTheme();
+  const colors = Colors.dark;
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<InboxFilter>('all');
+  const [categoryView, setCategoryView] = useState<SummaryCategory | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [detailNotification, setDetailNotification] = useState<NotificationRecord | null>(null);
+  const navigationInFlightRef = useRef(false);
   const {
     notifications,
     unreadCount,
@@ -238,77 +257,87 @@ export default function NotificationsScreen() {
     markAllAsRead,
   } = useNotifications();
 
+  const activeFilter: InboxFilter = categoryView || filter;
   const visibleNotifications = useMemo(
-    () => notifications.filter((notification) => matchesFilter(notification, filter)),
-    [filter, notifications]
+    () => notifications.filter((notification) => matchesFilter(notification, activeFilter)),
+    [activeFilter, notifications]
   );
+
+  useFocusEffect(useCallback(() => {
+    navigationInFlightRef.current = false;
+    setOpeningId(null);
+    return undefined;
+  }, []));
+
+  useEffect(() => {
+    if (!categoryView) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      setCategoryView(null);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [categoryView]);
 
   const handleFilterChange = (nextFilter: InboxFilter) => {
     setFilter(nextFilter);
-    void Haptics.selectionAsync();
+    Haptics.selection();
+  };
+
+  const openCategoryView = (category: SummaryCategory) => {
+    setCategoryView(category);
+    Haptics.selection();
+  };
+
+  const handleHeaderBack = () => {
+    if (categoryView) {
+      setCategoryView(null);
+      return;
+    }
+    router.back();
   };
 
   const handleReadAll = async () => {
     if (markingAllRead || unreadCount === 0) return;
     try {
       await markAllAsRead();
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Haptics.notify('success');
       Toast.show('All notifications marked as read.', 'success');
     } catch (readError) {
       Toast.show(getApiErrorMessage(readError, 'Unable to mark notifications as read.'), 'error');
     }
   };
 
-  const openDetail = async (notification: NotificationRecord) => {
-    if (openingId) return;
-    setOpeningId(notification.id);
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (!notification.isRead) {
-      try {
-        await markAsRead(notification.id);
-      } catch (readError) {
-        Toast.show(getApiErrorMessage(readError, 'Unable to update this notification.'), 'error');
-      }
-    }
+  const openDetail = (notification: NotificationRecord) => {
+    Haptics.impact('light');
     setDetailNotification({ ...notification, isRead: true });
-    setOpeningId(null);
+    if (!notification.isRead) {
+      void markAsRead(notification.id).catch((readError) => {
+        Toast.show(getApiErrorMessage(readError, 'Unable to update this notification.'), 'error');
+      });
+    }
   };
 
-  const navigateToAction = async (notification: NotificationRecord) => {
-    if (!hasNotificationAction(notification) || openingId) return;
+  const navigateToAction = (notification: NotificationRecord) => {
+    if (!hasNotificationAction(notification) || navigationInFlightRef.current) return;
+    navigationInFlightRef.current = true;
     setOpeningId(notification.id);
-    try {
-      const route = getNotificationRoute(notification);
-      const entityId = getNotificationEntityId(notification);
-      const event = notificationEvent(notification);
-      const actionType = String(notification.actionType || '').toLowerCase();
-      const requiresBookingRecord = [
-        'booking', 'tracking', 'damage_report', 'payment', 'receipt',
-      ].includes(actionType)
-        || event.startsWith('booking_')
-        || event.startsWith('service_')
-        || ['appointment_reminder', 'vehicle_received', 'damage_report_ready'].includes(event)
-        || isPaymentNotification(notification);
+    setDetailNotification(null);
+    router.push(getNotificationRoute(notification) as any);
+  };
 
-      if (entityId && requiresBookingRecord) {
-        try {
-          await bookingService.getBookingById(entityId);
-        } catch {
-          Toast.show('This booking or service record is no longer available.', 'warning');
-          return;
-        }
-      }
-      setDetailNotification(null);
-      router.push(route as any);
-    } finally {
-      setOpeningId(null);
+  const handleNotificationAction = (notification: NotificationRecord) => {
+    if (!notification.isRead) {
+      void markAsRead(notification.id).catch((readError) => {
+        Toast.show(getApiErrorMessage(readError, 'Unable to update this notification.'), 'error');
+      });
     }
+    navigateToAction(notification);
   };
 
   const toggleReadState = async (notification: NotificationRecord) => {
     try {
       await setReadState(notification.id, !notification.isRead);
-      void Haptics.selectionAsync();
+      Haptics.selection();
     } catch (readError) {
       Toast.show(getApiErrorMessage(readError, 'Unable to update this notification.'), 'error');
     }
@@ -318,27 +347,29 @@ export default function NotificationsScreen() {
     try {
       await clearNotification(notification.id);
       if (detailNotification?.id === notification.id) setDetailNotification(null);
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Haptics.notify('success');
       Toast.show('Notification removed.', 'success');
     } catch (clearError) {
       Toast.show(getApiErrorMessage(clearError, 'Unable to remove this notification.'), 'error');
     }
   };
 
-  const listHeader = (
+  const listHeader = categoryView ? null : (
     <View style={styles.listHeader}>
-      <FilterChips selected={filter} onSelect={handleFilterChange} />
-
       <View style={styles.categoryStack}>
-        <SummaryCard
+        <SummaryRow
           category="important"
           unreadCount={importantUnread}
+          onPress={() => openCategoryView('important')}
         />
-        <SummaryCard
+        <SummaryRow
           category="promotions"
           unreadCount={promotionUnread}
+          onPress={() => openCategoryView('promotions')}
         />
       </View>
+
+      <FilterChips selected={filter} onSelect={handleFilterChange} />
 
       {error && notifications.length > 0 ? (
         <Pressable onPress={() => void refreshNotifications()} style={styles.inlineError}>
@@ -348,7 +379,7 @@ export default function NotificationsScreen() {
       ) : null}
 
       <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Latest updates</Text>
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>SERVICE UPDATES</Text>
         {unreadCount > 0 ? (
           <Pressable
             onPress={() => void handleReadAll()}
@@ -363,7 +394,7 @@ export default function NotificationsScreen() {
             {markingAllRead ? (
               <PremiumLoader size="small" accessibilityLabel="Marking notifications as read" />
             ) : (
-              <Text style={styles.readAllText}>Mark all as read</Text>
+              <Text style={styles.readAllText}>Mark all as read ({unreadCount})</Text>
             )}
           </Pressable>
         ) : null}
@@ -401,8 +432,9 @@ export default function NotificationsScreen() {
     <GestureHandlerRootView style={[styles.screen, { backgroundColor: colors.background }]}>
       <Header
         topInset={insets.top}
-        onBack={() => router.back()}
-        onSettings={() => router.push('/(screens)/notification-preferences')}
+        title={categoryView === 'important' ? 'Important' : categoryView === 'promotions' ? 'Promotions' : 'Notifications'}
+        onBack={handleHeaderBack}
+        onSettings={categoryView ? undefined : () => router.push('/(screens)/notification-preferences')}
       />
       <FlatList
         data={visibleNotifications}
@@ -421,11 +453,14 @@ export default function NotificationsScreen() {
             notification={item}
             busy={openingId === item.id}
             onPress={() => void openDetail(item)}
+            onAction={() => void handleNotificationAction(item)}
+            calendarTimestamp={Boolean(categoryView)}
+            showInlineActions={categoryView !== 'important'}
             onToggleRead={() => void toggleReadState(item)}
             onDelete={() => void deleteNotification(item)}
           />
         )}
-        ListEmptyComponent={<EmptyState filter={filter} />}
+        ListEmptyComponent={<EmptyState filter={activeFilter} />}
         ListFooterComponent={loadingMore ? (
           <PremiumLoader
             style={styles.footerLoader}
@@ -459,28 +494,34 @@ export default function NotificationsScreen() {
 
 function Header({
   topInset,
+  title,
   onBack,
   onSettings,
 }: {
   topInset: number;
+  title?: string;
   onBack: () => void;
-  onSettings: () => void;
+  onSettings?: () => void;
 }) {
-  const { colors } = useTheme();
+  const colors = Colors.dark;
   return (
     <View
       style={[
         styles.header,
         {
           paddingTop: topInset + 8,
-          backgroundColor: colors.card,
+          backgroundColor: colors.background,
           borderBottomColor: colors.border,
         },
       ]}
     >
       <HeaderIconButton icon="chevron-back" label="Go back" onPress={onBack} />
-      <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>Notifications</Text>
-      <HeaderIconButton icon="settings-outline" label="Notification settings" onPress={onSettings} subtle />
+      <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>{title || 'Notifications'}</Text>
+      {onSettings ? (
+        <HeaderIconButton icon="settings-outline" label="Notification settings" onPress={onSettings} subtle />
+      ) : (
+        <View style={styles.headerSideSpacer} />
+      )}
     </View>
   );
 }
@@ -496,7 +537,7 @@ function HeaderIconButton({
   onPress: () => void;
   subtle?: boolean;
 }) {
-  const { colors } = useTheme();
+  const colors = Colors.dark;
   return (
     <Pressable
       accessibilityRole="button"
@@ -506,13 +547,13 @@ function HeaderIconButton({
       style={({ pressed }) => [
         styles.headerButton,
         {
-          backgroundColor: subtle ? 'transparent' : colors.cardAlt,
-          borderColor: subtle ? 'transparent' : colors.border,
+          backgroundColor: 'transparent',
+          borderColor: 'transparent',
         },
         pressed ? styles.pressed : null,
       ]}
     >
-      <Ionicons name={icon} size={subtle ? 19 : 21} color={subtle ? colors.textSecondary : colors.text} />
+      <Ionicons name={icon} size={subtle ? 21 : 23} color={subtle ? colors.textSecondary : colors.text} />
     </Pressable>
   );
 }
@@ -524,7 +565,7 @@ function FilterChips({
   selected: InboxFilter;
   onSelect: (filter: InboxFilter) => void;
 }) {
-  const { colors } = useTheme();
+  const colors = Colors.dark;
   return (
     <ScrollView
       horizontal
@@ -543,13 +584,13 @@ function FilterChips({
             style={({ pressed }) => [
               styles.filterChip,
               {
-                backgroundColor: active ? Palette.accent : colors.cardAlt,
+                backgroundColor: active ? 'rgba(255, 107, 53, 0.11)' : colors.cardAlt,
                 borderColor: active ? Palette.accent : colors.border,
               },
               pressed ? styles.pressed : null,
             ]}
           >
-            <Text style={[styles.filterLabel, { color: active ? '#FFFFFF' : colors.textSecondary }]}>
+            <Text style={[styles.filterLabel, { color: active ? Palette.accent : colors.textSecondary }]}>
               {item.label}
             </Text>
           </Pressable>
@@ -559,39 +600,54 @@ function FilterChips({
   );
 }
 
-function SummaryCard({
+function SummaryRow({
   category,
   unreadCount,
+  onPress,
 }: {
   category: SummaryCategory;
   unreadCount: number;
+  onPress: () => void;
 }) {
-  const { colors } = useTheme();
+  const colors = Colors.dark;
   const copy = SUMMARY_COPY[category];
-  const countLabel = unreadCount > 0
-    ? `${unreadCount > 99 ? '99+' : unreadCount} unread`
-    : category === 'promotions' ? 'No new offers' : '0 unread';
+  const emptyLabel = category === 'promotions' ? 'No new offers' : '0 unread';
   return (
-    <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <View style={styles.summaryIcon}>
-        <Ionicons name={copy.icon} size={19} color={Palette.accent} />
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${copy.title}, ${unreadCount > 0 ? `${unreadCount} unread` : emptyLabel}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.summaryRow,
+        {
+          backgroundColor: colors.background,
+          borderBottomColor: colors.border,
+        },
+        pressed ? styles.pressed : null,
+      ]}
+    >
+      <View style={[styles.summaryIcon, { borderColor: 'rgba(255, 107, 53, 0.24)' }]}>
+        <Ionicons name={copy.icon} size={20} color={Palette.accent} />
       </View>
       <View style={styles.summaryCopy}>
         <Text style={[styles.summaryTitle, { color: colors.text }]}>{copy.title}</Text>
-        <Text style={[styles.summarySubtitle, { color: colors.textMuted }]} numberOfLines={1}>
+        <Text style={[styles.summarySubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
           {copy.subtitle}
         </Text>
       </View>
-      <Text
-        style={[
-          styles.summaryCount,
-          { color: unreadCount > 0 ? Palette.accent : colors.textMuted },
-        ]}
-        numberOfLines={1}
-      >
-        {countLabel}
-      </Text>
-    </View>
+      <View style={styles.summaryTrailing}>
+        {unreadCount > 0 ? (
+          <View style={styles.summaryBadge}>
+            <Text style={styles.summaryBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+          </View>
+        ) : (
+          <Text style={[styles.summaryEmptyLabel, { color: colors.textMuted }]} numberOfLines={1}>
+            {emptyLabel}
+          </Text>
+        )}
+        <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
+      </View>
+    </Pressable>
   );
 }
 
@@ -599,22 +655,29 @@ function NotificationRow({
   notification,
   busy,
   onPress,
+  onAction,
+  calendarTimestamp,
+  showInlineActions,
   onToggleRead,
   onDelete,
 }: {
   notification: NotificationRecord;
   busy: boolean;
   onPress: () => void;
+  onAction: () => void;
+  calendarTimestamp: boolean;
+  showInlineActions: boolean;
   onToggleRead: () => void;
   onDelete: () => void;
 }) {
-  const { colors } = useTheme();
+  const colors = Colors.dark;
   const swipeableRef = useRef<Swipeable>(null);
   const meta = iconMetaFor(notification);
   const label = actionLabel(notification);
+  const hasLongMessage = notification.message.trim().length > 120;
 
   const confirmDelete = () => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Haptics.impact('medium');
     Alert.alert(
       'Remove notification?',
       'This removes it from your inbox without deleting the service record.',
@@ -668,10 +731,9 @@ function NotificationRow({
         onPress={onPress}
         disabled={busy}
         style={({ pressed }) => [
-          styles.notificationCard,
+          styles.notificationRow,
           {
-            backgroundColor: notification.isRead ? colors.card : colors.cardAlt,
-            borderColor: notification.isRead ? colors.border : 'rgba(255, 107, 53, 0.42)',
+            backgroundColor: notification.isRead ? colors.background : 'rgba(255, 107, 53, 0.045)',
           },
           !notification.isRead ? styles.notificationUnread : null,
           pressed ? styles.pressed : null,
@@ -685,7 +747,8 @@ function NotificationRow({
             <Text
               style={[
                 styles.notificationTitle,
-                { color: notification.isRead ? colors.textSecondary : colors.text },
+                { color: colors.text },
+                notification.isRead ? styles.notificationTitleRead : null,
               ]}
               numberOfLines={2}
             >
@@ -700,22 +763,49 @@ function NotificationRow({
           <Text
             style={[
               styles.notificationMessage,
-              { color: notification.isRead ? colors.textMuted : colors.textSecondary },
+              { color: colors.textSecondary },
             ]}
-            numberOfLines={3}
+            numberOfLines={4}
           >
             {notification.message}
           </Text>
           <View style={styles.notificationMetaRow}>
             <Text style={[styles.notificationTime, { color: colors.textMuted }]}>
-              {formatNotificationTime(notification.createdAt)}
+              {calendarTimestamp
+                ? formatCategoryNotificationTime(notification.createdAt)
+                : formatNotificationTime(notification.createdAt)}
             </Text>
-            {label ? (
-              <View style={styles.cardAction}>
-                <Text style={styles.actionText}>{label}</Text>
-                <Ionicons name="arrow-forward" size={13} color={Palette.accent} />
-              </View>
-            ) : null}
+            <View style={styles.rowActions}>
+              {showInlineActions && hasLongMessage ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="See full notification"
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    onPress();
+                  }}
+                  hitSlop={8}
+                  style={({ pressed }) => pressed ? styles.pressed : null}
+                >
+                  <Text style={styles.moreText}>See more</Text>
+                </Pressable>
+              ) : null}
+              {showInlineActions && label ? (
+                <Pressable
+                  accessibilityRole="link"
+                  accessibilityLabel={label}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    onAction();
+                  }}
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.cardAction, pressed ? styles.pressed : null]}
+                >
+                  <Text style={styles.actionText}>{label}</Text>
+                  <Ionicons name="arrow-forward" size={14} color={Palette.accent} />
+                </Pressable>
+              ) : null}
+            </View>
           </View>
         </View>
       </Pressable>
@@ -736,31 +826,28 @@ function NotificationDetailModal({
   onClose: () => void;
   onAction: (notification: NotificationRecord) => void;
 }) {
-  const { colors } = useTheme();
-  if (!notification) return null;
-  const meta = iconMetaFor(notification);
-  const label = actionLabel(notification);
-  const facts = detailFacts(notification);
+  const colors = Colors.dark;
+  const previousNotification = useRef<NotificationRecord | null>(notification);
+  if (notification) previousNotification.current = notification;
+  const displayedNotification = notification || previousNotification.current;
+  if (!displayedNotification) return null;
+  const meta = iconMetaFor(displayedNotification);
+  const label = actionLabel(displayedNotification);
+  const facts = detailFacts(displayedNotification);
   return (
-    <Modal
-      visible
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-      statusBarTranslucent
+    <MotionSheet
+      visible={Boolean(notification)}
+      onClose={onClose}
+      accessibilityLabel="Notification details"
+      contentStyle={[
+        styles.detailSheet,
+        {
+          backgroundColor: colors.card,
+          borderColor: colors.border,
+          paddingBottom: Math.max(bottomInset, Spacing.md) + Spacing.md,
+        },
+      ]}
     >
-      <View style={styles.modalRoot}>
-        <Pressable accessibilityLabel="Close notification detail" onPress={onClose} style={styles.modalBackdrop} />
-        <View
-          style={[
-            styles.detailSheet,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.border,
-              paddingBottom: Math.max(bottomInset, Spacing.md) + Spacing.md,
-            },
-          ]}
-        >
           <View style={styles.sheetHandle} />
           <View style={styles.detailHeader}>
             <View style={[styles.detailIcon, { backgroundColor: meta.background, borderColor: meta.border }]}>
@@ -768,7 +855,7 @@ function NotificationDetailModal({
             </View>
             <View style={styles.detailHeading}>
               <Text style={[styles.detailEyebrow, { color: Palette.accent }]}>NOTIFICATION</Text>
-              <Text style={[styles.detailTitle, { color: colors.text }]}>{notification.title}</Text>
+              <Text style={[styles.detailTitle, { color: colors.text }]}>{displayedNotification.title}</Text>
             </View>
             <Pressable
               accessibilityRole="button"
@@ -782,12 +869,12 @@ function NotificationDetailModal({
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailScroll}>
             <Text style={[styles.detailMessage, { color: colors.textSecondary }]}>
-              {notification.message}
+              {displayedNotification.message}
             </Text>
             <View style={styles.detailTimestampRow}>
               <Ionicons name="time-outline" size={15} color={colors.textMuted} />
               <Text style={[styles.detailTimestamp, { color: colors.textMuted }]}>
-                {formatFullTimestamp(notification.createdAt)}
+                {formatFullTimestamp(displayedNotification.createdAt)}
               </Text>
             </View>
             {facts.length > 0 ? (
@@ -815,18 +902,16 @@ function NotificationDetailModal({
               title={label}
               icon="arrow-forward-outline"
               loading={busy}
-              onPress={() => onAction(notification)}
+              onPress={() => onAction(displayedNotification)}
               style={styles.detailAction}
             />
           ) : null}
-        </View>
-      </View>
-    </Modal>
+    </MotionSheet>
   );
 }
 
 function EmptyState({ filter }: { filter: InboxFilter }) {
-  const { colors } = useTheme();
+  const colors = Colors.dark;
   const promotions = filter === 'promotions';
   return (
     <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -850,7 +935,7 @@ function EmptyState({ filter }: { filter: InboxFilter }) {
 }
 
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
-  const { colors } = useTheme();
+  const colors = Colors.dark;
   return (
     <View style={styles.centerState}>
       <View style={[styles.errorIcon, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -866,54 +951,62 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: Spacing.md, paddingTop: 12 },
+  content: { paddingTop: 0 },
   emptyContent: { flexGrow: 1 },
   header: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    paddingHorizontal: Spacing.md, paddingBottom: 10,
+    paddingHorizontal: 12, paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerTitle: { flex: 1, textAlign: 'center', ...Typography.heading, letterSpacing: 0 },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 20, lineHeight: 26, fontWeight: '700', letterSpacing: -0.2 },
   headerButton: {
-    width: 44, height: 44, borderRadius: BorderRadius.md, borderWidth: 1,
+    width: 44, height: 44, borderRadius: BorderRadius.md, borderWidth: 0,
     alignItems: 'center', justifyContent: 'center',
   },
-  listHeader: { gap: 14, marginBottom: 10 },
-  filterScroll: { marginHorizontal: -Spacing.md },
-  filterContent: { paddingHorizontal: Spacing.md, gap: 8 },
+  headerSideSpacer: { width: 44, height: 44 },
+  listHeader: { marginBottom: 0 },
+  filterScroll: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.075)' },
+  filterContent: { paddingHorizontal: 18, paddingVertical: 10, gap: 6 },
   filterChip: {
-    minHeight: 34, borderRadius: BorderRadius.full, borderWidth: 1,
-    paddingHorizontal: 15, alignItems: 'center', justifyContent: 'center',
+    minHeight: 28, borderRadius: BorderRadius.full, borderWidth: 1,
+    paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center',
   },
-  filterLabel: { fontSize: 13, lineHeight: 18, fontWeight: '700', letterSpacing: 0 },
-  categoryStack: { gap: 8 },
-  summaryCard: {
-    height: 80, borderRadius: BorderRadius.lg, borderWidth: 1,
-    paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', gap: 10,
+  filterLabel: { fontSize: 11.5, lineHeight: 15, fontWeight: '700', letterSpacing: 0 },
+  categoryStack: { paddingHorizontal: 18, paddingTop: 4 },
+  summaryRow: {
+    minHeight: 88, borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 2, paddingVertical: 12,
   },
   summaryIcon: {
-    width: 38, height: 38, borderRadius: 12,
-    backgroundColor: 'rgba(255, 107, 53, 0.11)',
-    alignItems: 'center', justifyContent: 'center',
+    width: 44, height: 44, borderRadius: 22, borderWidth: 1,
+    backgroundColor: 'rgba(255, 107, 53, 0.09)',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
   summaryCopy: { flex: 1, minWidth: 0, gap: 2 },
-  summaryTitle: { fontSize: 15, lineHeight: 20, fontWeight: '700', letterSpacing: 0 },
-  summarySubtitle: { fontSize: 12, lineHeight: 16, fontWeight: '500', letterSpacing: 0 },
-  summaryCount: { maxWidth: 86, fontSize: 12, lineHeight: 16, fontWeight: '700', textAlign: 'right' },
+  summaryTitle: { fontSize: 16, lineHeight: 21, fontWeight: '700', letterSpacing: -0.1 },
+  summarySubtitle: { fontSize: 13, lineHeight: 18, fontWeight: '400', letterSpacing: 0 },
+  summaryTrailing: { maxWidth: 112, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
+  summaryBadge: { minWidth: 25, height: 25, paddingHorizontal: 7, borderRadius: 13, backgroundColor: Palette.accent, alignItems: 'center', justifyContent: 'center' },
+  summaryBadgeText: { color: '#FFFFFF', fontSize: 11.5, lineHeight: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  summaryEmptyLabel: { flexShrink: 1, fontSize: 11.5, lineHeight: 16, fontWeight: '500', textAlign: 'right' },
   inlineError: {
     flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: BorderRadius.md,
-    paddingHorizontal: 12, paddingVertical: 10, backgroundColor: 'rgba(255, 107, 53, 0.09)',
+    marginHorizontal: 18, marginVertical: 10, paddingHorizontal: 12, paddingVertical: 10,
+    backgroundColor: 'rgba(255, 107, 53, 0.09)',
   },
   inlineErrorText: { flex: 1, color: Palette.accent, fontSize: 12, lineHeight: 17, fontWeight: '600' },
   sectionHeader: {
-    minHeight: 34, flexDirection: 'row', alignItems: 'center',
+    minHeight: 44, flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between', gap: Spacing.sm,
+    paddingHorizontal: 18, backgroundColor: 'rgba(255,255,255,0.025)',
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.075)',
   },
-  sectionTitle: { ...Typography.bodyMedium, letterSpacing: 0 },
+  sectionTitle: { fontSize: 11, lineHeight: 15, fontWeight: '700', letterSpacing: 0.8 },
   readAllButton: { minHeight: 32, alignItems: 'flex-end', justifyContent: 'center' },
-  readAllText: { color: Palette.accent, fontSize: 13, lineHeight: 18, fontWeight: '700' },
+  readAllText: { color: Palette.accent, fontSize: 12, lineHeight: 17, fontWeight: '700' },
   disabledAction: { opacity: 0.48 },
-  swipeContainer: { marginBottom: 10, borderRadius: BorderRadius.lg, overflow: 'hidden' },
+  swipeContainer: { marginHorizontal: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.075)', overflow: 'hidden' },
   swipeActions: { width: 154, flexDirection: 'row' },
   swipeReadAction: {
     flex: 1, backgroundColor: Palette.accent,
@@ -924,31 +1017,33 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', gap: 5,
   },
   swipeActionText: { color: '#FFFFFF', fontSize: 11, lineHeight: 14, fontWeight: '700' },
-  notificationCard: {
-    minHeight: 132, flexDirection: 'row', alignItems: 'flex-start', gap: 11,
-    borderRadius: BorderRadius.lg, borderWidth: 1,
-    paddingHorizontal: 13, paddingVertical: 14,
+  notificationRow: {
+    minHeight: 116, flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+    paddingHorizontal: 2, paddingVertical: 16,
   },
-  notificationUnread: { borderLeftWidth: 3, paddingLeft: 11 },
+  notificationUnread: { borderLeftWidth: 2, borderLeftColor: Palette.accent, paddingLeft: 10 },
   notificationIcon: {
-    width: 40, height: 40, borderRadius: 13, borderWidth: 1,
-    alignItems: 'center', justifyContent: 'center',
+    width: 44, height: 44, borderRadius: 22, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  notificationBody: { flex: 1, minWidth: 0, gap: 5 },
+  notificationBody: { flex: 1, minWidth: 0, gap: 6 },
   notificationTitleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  notificationTitle: { flex: 1, fontSize: 15, lineHeight: 20, fontWeight: '700', letterSpacing: 0 },
-  notificationMessage: { fontSize: 13, lineHeight: 18, fontWeight: '400', letterSpacing: 0 },
+  notificationTitle: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: '700', letterSpacing: -0.1 },
+  notificationTitleRead: { fontWeight: '600' },
+  notificationMessage: { fontSize: 14, lineHeight: 20, fontWeight: '400', letterSpacing: 0 },
   notificationMetaRow: {
-    minHeight: 20, flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between', flexWrap: 'wrap', columnGap: 10, rowGap: 2,
+    minHeight: 21, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', flexWrap: 'wrap', columnGap: 10, rowGap: 4,
   },
-  notificationTime: { fontSize: 11, lineHeight: 15, fontWeight: '500', fontVariant: ['tabular-nums'] },
-  cardAction: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  actionText: { color: Palette.accent, fontSize: 12, lineHeight: 16, fontWeight: '700' },
-  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Palette.accent, marginTop: 5 },
+  notificationTime: { fontSize: 12, lineHeight: 16, fontWeight: '500', fontVariant: ['tabular-nums'] },
+  rowActions: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', columnGap: 11, rowGap: 3 },
+  moreText: { color: Palette.accent, fontSize: 12, lineHeight: 16, fontWeight: '600' },
+  cardAction: { minHeight: 20, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  actionText: { color: Palette.accent, fontSize: 12.5, lineHeight: 17, fontWeight: '700' },
+  unreadDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Palette.accent, marginTop: 6 },
   emptyCard: {
     alignItems: 'center', borderRadius: BorderRadius.xl, borderWidth: 1,
-    paddingHorizontal: Spacing.lg, paddingVertical: 28, gap: 7,
+    marginHorizontal: 18, marginTop: 24, paddingHorizontal: Spacing.lg, paddingVertical: 28, gap: 7,
   },
   emptyIcon: {
     width: 52, height: 52, borderRadius: 18,
@@ -967,8 +1062,6 @@ const styles = StyleSheet.create({
   },
   retryButton: { marginTop: Spacing.sm },
   footerLoader: { paddingVertical: Spacing.lg },
-  modalRoot: { flex: 1, justifyContent: 'flex-end' },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0, 0, 0, 0.72)' },
   detailSheet: {
     maxHeight: '86%', minHeight: 360,
     borderTopLeftRadius: 26, borderTopRightRadius: 26, borderWidth: 1,

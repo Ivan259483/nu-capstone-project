@@ -21,6 +21,18 @@ router.get('/me', authorize(...CUSTOMER_ROLES), customerController.getMe);
  */
 router.put('/me', authorize(...CUSTOMER_ROLES), customerController.updateMe);
 
+router.get(
+  '/me/notification-preferences',
+  authorize(...CUSTOMER_ROLES),
+  customerController.getMyNotificationPreferences
+);
+
+router.patch(
+  '/me/notification-preferences',
+  authorize(...CUSTOMER_ROLES),
+  customerController.updateMyNotificationPreferences
+);
+
 /**
  * @route GET /api/customers/vehicles
  * @desc Get customer vehicles

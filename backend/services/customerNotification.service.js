@@ -7,9 +7,18 @@ import {
   getInvalidExpoPushTokensFromReceipts,
   sendExpoPushNotification,
 } from '../utils/push.utils.js';
+import {
+  customerNotificationAllowsExternalDelivery,
+  resolveCustomerNotificationPreferenceField,
+} from '../utils/customerNotificationPreferences.utils.js';
 
 const CUSTOMER_CATEGORIES = new Set(['important', 'service', 'promotion', 'system']);
 const EXPO_RECEIPT_DELAY_MS = 15 * 60 * 1000;
+let customerPushSender = sendExpoPushNotification;
+
+export function setCustomerPushSenderForTests(sender) {
+  customerPushSender = sender || sendExpoPushNotification;
+}
 
 const idOf = (value) =>
   value?._id?.toString?.() || value?.toString?.() || String(value || '');
@@ -64,25 +73,6 @@ function notificationPayload(notification) {
   };
 }
 
-function preferenceAllowsPush(preferences, notification) {
-  if (preferences?.pushEnabled === false) return false;
-  const kind = String(notification?.metadata?.kind || notification?.event || '').toLowerCase();
-  if (notification?.category === 'promotion' && preferences?.promotionalOffers === false) return false;
-  if (kind === 'booking_confirmed' || kind === 'confirmed') {
-    return preferences?.bookingConfirmation !== false;
-  }
-  if (kind.includes('payment') || kind.includes('receipt')) {
-    return preferences?.paymentReminders !== false;
-  }
-  if (
-    notification?.category === 'service'
-    || ['vehicle_received', 'service_started', 'service_progress', 'service_completed'].includes(kind)
-  ) {
-    return preferences?.jobStatusUpdates !== false;
-  }
-  return true;
-}
-
 async function emitRealtime(userId, notification) {
   const payload = notificationPayload(notification);
   if (!payload) return;
@@ -104,10 +94,17 @@ async function sendPush(userId, notification) {
       Customer.findOne({ user: userId }).select('notificationPreferences').lean(),
     ]);
     const tokens = Array.isArray(user?.expoPushTokens) ? user.expoPushTokens.filter(Boolean) : [];
-    if (!tokens.length || !preferenceAllowsPush(customer?.notificationPreferences, notification)) return;
+    if (
+      !tokens.length
+      || !customerNotificationAllowsExternalDelivery(
+        customer?.notificationPreferences,
+        notification,
+        'push'
+      )
+    ) return;
 
     const payload = notificationPayload(notification);
-    const result = await sendExpoPushNotification(tokens, notification.title, notification.message, {
+    const result = await customerPushSender(tokens, notification.title, notification.message, {
       notificationId: payload.id,
       type: payload.type,
       event: payload.event,
@@ -118,13 +115,13 @@ async function sendPush(userId, notification) {
       link: payload.link,
     });
 
-    if (result.invalidTokens?.length) {
+    if (result?.invalidTokens?.length) {
       await User.updateOne(
         { _id: userId },
         { $pull: { expoPushTokens: { $in: result.invalidTokens } } }
       );
     }
-    if (Object.keys(result.receiptTokens || {}).length) {
+    if (Object.keys(result?.receiptTokens || {}).length) {
       const receiptTimer = setTimeout(async () => {
         try {
           const { runTrackedSystemMutation } = await import('../middleware/systemLifecycle.middleware.js');
@@ -182,6 +179,13 @@ export async function createCustomerNotification(input, options = {}) {
     customerId: userId,
     ...(eventKey ? { idempotencyKey: eventKey } : {}),
   };
+  const notificationPreferenceField = resolveCustomerNotificationPreferenceField({
+    ...input,
+    metadata,
+  });
+  if (notificationPreferenceField) {
+    metadata.notificationPreferenceField = notificationPreferenceField;
+  }
   const insertMetadata = input.insertMetadata || {};
   const document = {
     title,

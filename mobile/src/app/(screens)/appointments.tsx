@@ -4,7 +4,7 @@
  * AutoGloss Premium Automotive Aesthetic
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -17,24 +17,21 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { PageSkeleton } from '@/components/ui/loading';
+import { PageSkeleton, PremiumLoader } from '@/components/ui/loading';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeInDown, FadeInRight } from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { Haptics } from '@/utils/haptics';
 import { useAuth } from '@/context/AuthContext';
 import { bookingService } from '@/services/api/bookingService';
 import { getApiErrorMessage } from '@/services/api/client';
 import type { BookingRecord } from '@/services/api/types';
 import { Toast } from '@/components/ui/PremiumToast';
-import { useQuery } from '@tanstack/react-query';
+import { useCustomerBookings } from '@/hooks/useCustomerBookings';
 
 // ─── Design Tokens ───────────────────────────────────────────────────────────
 const ACCENT = '#FF6B35';
-const ACCENT_DARK = '#CC5214';
 const BLACK = '#0A0A0A';
 const SURFACE = '#111114';
-const SURFACE_ALT = '#1A1A22';
 const BORDER = '#2A2A30';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
@@ -65,7 +62,7 @@ const REBOOKABLE_STATUSES = ['completed', 'cancelled'];
 // ─── Booking Card ────────────────────────────────────────────────────────────
 
 const BookingCard = React.memo(
-  function BookingCard({ booking, index, onPress, onCancel, onRebook }: { booking: BookingRecord; index: number; onPress: (id: string) => void; onCancel?: (id: string) => void; onRebook?: (booking: BookingRecord) => void }) {
+  function BookingCard({ booking, index, onPress, onCancel, onRebook, cancelling }: { booking: BookingRecord; index: number; onPress: (id: string) => void; onCancel?: (id: string) => void; onRebook?: (booking: BookingRecord) => void; cancelling?: boolean }) {
     const sc = getStatusConfig(booking.status);
 
     const displayDate = booking.bookingDate || booking.date || 'No date';
@@ -120,13 +117,18 @@ const BookingCard = React.memo(
                 <TouchableOpacity
                   style={c.cancelBtn}
                   activeOpacity={0.8}
+                  disabled={cancelling}
                   onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    Haptics.impact('medium');
                     onCancel(booking.id);
                   }}
                 >
-                  <Ionicons name="close-circle-outline" size={14} color="#EF4444" />
-                  <Text style={c.cancelBtnText}>Cancel</Text>
+                  {cancelling ? (
+                    <PremiumLoader size="small" tone="danger" accessibilityLabel="Cancelling booking" />
+                  ) : (
+                    <Ionicons name="close-circle-outline" size={14} color="#EF4444" />
+                  )}
+                  <Text style={c.cancelBtnText}>{cancelling ? 'Cancelling' : 'Cancel'}</Text>
                 </TouchableOpacity>
               )}
               {onRebook && REBOOKABLE_STATUSES.includes(booking.status) && (
@@ -134,7 +136,7 @@ const BookingCard = React.memo(
                   style={c.rebookBtn}
                   activeOpacity={0.8}
                   onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    Haptics.impact('medium');
                     onRebook(booking);
                   }}
                 >
@@ -151,8 +153,7 @@ const BookingCard = React.memo(
         </TouchableOpacity>
       </Animated.View>
     );
-  },
-  (prev, next) => prev.booking.id === next.booking.id && prev.booking.status === next.booking.status
+  }
 );
 
 
@@ -246,16 +247,12 @@ export default function AppointmentsScreen() {
   const {
     data: bookings = [],
     isLoading,
-    refetch,
-  } = useQuery({
-    queryKey: ['bookings'],
-    queryFn: () => bookingService.getMyBookings(),
-    enabled: !!profile,
-  });
+    refreshBookings,
+  } = useCustomerBookings(Boolean(profile));
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refetch();
+    await refreshBookings();
     setRefreshing(false);
   };
 
@@ -275,7 +272,7 @@ export default function AppointmentsScreen() {
               await bookingService.cancelBooking(bookingId);
               Toast.show('Booking cancelled successfully.', 'success');
               // Update local state immediately
-              await refetch();
+              await refreshBookings();
             } catch (error) {
               Toast.show(getApiErrorMessage(error, 'Failed to cancel booking.'), 'error');
             } finally {
@@ -285,11 +282,10 @@ export default function AppointmentsScreen() {
         },
       ]
     );
-  }, [refetch]);
+  }, [refreshBookings]);
 
   // ── Re-Book Handler ──
   const handleRebook = useCallback((booking: BookingRecord) => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     // Navigate to booking screen — the customer will pick date/time fresh
     router.push('/(customer)/book');
   }, [router]);
@@ -345,7 +341,7 @@ export default function AppointmentsScreen() {
             activeOpacity={0.8}
             onPress={() => {
               setActiveTab(tab);
-              Haptics.selectionAsync();
+              Haptics.selection();
             }}
           >
             <Ionicons
@@ -368,7 +364,7 @@ export default function AppointmentsScreen() {
       {/* Content */}
       <FlatList
         data={displayed}
-        keyExtractor={(item) => item.id || Math.random().toString()}
+        keyExtractor={(item, index) => String(item.id || item._id || `booking-${index}`)}
         style={s.scroll}
         contentContainerStyle={s.listContent}
         showsVerticalScrollIndicator={false}
@@ -426,9 +422,10 @@ export default function AppointmentsScreen() {
             index={index}
             onCancel={handleCancelBooking}
             onRebook={handleRebook}
+            cancelling={cancellingId === String(item.id || item._id)}
             onPress={(id) => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push({ pathname: '/(customer)/track', params: { id } });
+              Haptics.impact('light');
+              router.push({ pathname: '/(screens)/booking-details', params: { id } });
             }}
           />
         )}

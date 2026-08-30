@@ -74,7 +74,7 @@ export function getNotificationRoute(payload: Payload): NotificationRoute {
     || link.includes('booking')
   ) {
     return entityId
-      ? { pathname: '/(customer)/track', params: { id: entityId } }
+      ? { pathname: '/(screens)/booking-details', params: { id: entityId } }
       : '/(screens)/appointments';
   }
 

@@ -24,11 +24,8 @@ import {
   Platform,
   Alert,
   Image,
-  Modal,
   AppState,
   BackHandler,
-  Animated as RNAnimated,
-  PanResponder,
   type LayoutChangeEvent,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -60,6 +57,7 @@ import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import type { ServiceOption, Vehicle } from '@/services/api/types';
 import { Toast } from '@/components/ui/PremiumToast';
 import AddVehicleModal from '@/components/booking/AddVehicleModal';
+import { MotionSheet } from '@/components/ui/MotionOverlay';
 import {
   bookingDraftStorage,
   type BookingDraftV1,
@@ -1634,9 +1632,10 @@ export default function BookScreen() {
   const [showAddVehicle, setShowAddVehicle] = useState(false);
   const [showVehiclePicker, setShowVehiclePicker] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
-  const vehicleModalTransitionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const vehicleEditorAfterPickerRef = useRef<Vehicle | null>(null);
+  const addVehicleAfterPickerRef = useRef(false);
+  const reopenVehiclePickerAfterEditorRef = useRef(false);
   const [packageDetailsKey, setPackageDetailsKey] = useState<string | null>(null);
-  const packageSheetTranslateY = useRef(new RNAnimated.Value(0)).current;
   const [isContinuing, setIsContinuing] = useState(false);
   const [stepOneDockHeight, setStepOneDockHeight] = useState(0);
   const [stepTwoDockHeight, setStepTwoDockHeight] = useState(0);
@@ -1657,43 +1656,8 @@ export default function BookScreen() {
   const prefillAppliedRef = useRef(false);
 
   const closePackageDetails = useCallback(() => {
-    packageSheetTranslateY.setValue(0);
     setPackageDetailsKey(null);
-  }, [packageSheetTranslateY]);
-
-  const packageSheetPanResponder = useRef(PanResponder.create({
-    onMoveShouldSetPanResponder: (_event, gesture) =>
-      gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
-    onPanResponderMove: (_event, gesture) => {
-      packageSheetTranslateY.setValue(Math.max(0, gesture.dy));
-    },
-    onPanResponderRelease: (_event, gesture) => {
-      if (gesture.dy > 72 || gesture.vy > 0.9) {
-        RNAnimated.timing(packageSheetTranslateY, {
-          toValue: 520,
-          duration: 170,
-          useNativeDriver: true,
-        }).start(closePackageDetails);
-        return;
-      }
-      RNAnimated.spring(packageSheetTranslateY, {
-        toValue: 0,
-        damping: 22,
-        stiffness: 240,
-        mass: 0.8,
-        useNativeDriver: true,
-      }).start();
-    },
-    onPanResponderTerminate: () => {
-      RNAnimated.spring(packageSheetTranslateY, {
-        toValue: 0,
-        damping: 22,
-        stiffness: 240,
-        mass: 0.8,
-        useNativeDriver: true,
-      }).start();
-    },
-  })).current;
+  }, []);
 
   // Validation Errors
   const [phoneError, setPhoneError] = useState('');
@@ -2576,7 +2540,7 @@ export default function BookScreen() {
     }
 
     if (Number.isFinite(requestedStep) && requestedStep > 0 && prefillCanAdvance) {
-      setTimeout(() => setStep(Math.min(5, Math.max(0, requestedStep))), 120);
+      setStep(Math.min(5, Math.max(0, requestedStep)));
     } else if (Number.isFinite(requestedStep) && requestedStep > 0) {
       Toast.show('Please choose an available vehicle and package to continue.', 'warning');
     }
@@ -2622,22 +2586,14 @@ export default function BookScreen() {
   }, [selectedPkg, services]);
 
   const openVehicleEditor = useCallback((vehicle: Vehicle) => {
+    vehicleEditorAfterPickerRef.current = vehicle;
     setShowVehiclePicker(false);
-    if (vehicleModalTransitionRef.current) clearTimeout(vehicleModalTransitionRef.current);
-    vehicleModalTransitionRef.current = setTimeout(() => {
-      setEditingVehicle(vehicle);
-      vehicleModalTransitionRef.current = null;
-    }, 240);
     Haptics.selectionAsync();
   }, []);
 
   const closeVehicleEditor = useCallback(() => {
+    reopenVehiclePickerAfterEditorRef.current = true;
     setEditingVehicle(null);
-    if (vehicleModalTransitionRef.current) clearTimeout(vehicleModalTransitionRef.current);
-    vehicleModalTransitionRef.current = setTimeout(() => {
-      setShowVehiclePicker(true);
-      vehicleModalTransitionRef.current = null;
-    }, 240);
   }, []);
 
   const handleVehicleUpdated = useCallback((updatedVehicle: Vehicle) => {
@@ -2653,8 +2609,23 @@ export default function BookScreen() {
     closeVehicleEditor();
   }, [closeVehicleEditor, selectVehicle, selectedVehicle]);
 
-  useEffect(() => () => {
-    if (vehicleModalTransitionRef.current) clearTimeout(vehicleModalTransitionRef.current);
+  const handleVehiclePickerClosed = useCallback(() => {
+    const vehicleToEdit = vehicleEditorAfterPickerRef.current;
+    if (vehicleToEdit) {
+      vehicleEditorAfterPickerRef.current = null;
+      setEditingVehicle(vehicleToEdit);
+      return;
+    }
+    if (addVehicleAfterPickerRef.current) {
+      addVehicleAfterPickerRef.current = false;
+      setShowAddVehicle(true);
+    }
+  }, []);
+
+  const handleVehicleEditorClosed = useCallback(() => {
+    if (!reopenVehiclePickerAfterEditorRef.current) return;
+    reopenVehiclePickerAfterEditorRef.current = false;
+    setShowVehiclePicker(true);
   }, []);
 
   const flushBookingDraft = useCallback(async () => {
@@ -2802,20 +2773,6 @@ export default function BookScreen() {
     setIsSubmitting(true);
 
     try {
-      // 🔍 DEBUG: Verify outbound booking payload (remove after verification)
-      console.log('🔍 [BOOKING_PAYLOAD] Outbound:', {
-        customerName: profile?.full_name,
-        customerPhone: (phone || profile?.phone || backendUser?.phone || '').trim() || undefined,
-        vehiclePlate: selectedVehicle?.plateNumber,
-        vehicleYear: selectedVehicle?.year?.toString(),
-        vehicleMake: selectedVehicle?.make,
-        vehicleModel: selectedVehicle?.model,
-        vehicleColor: selectedVehicle?.color,
-        serviceType: effectiveName,
-        vehicleCategory: vehicleType,
-        date: selectedDate,
-        time: selectedTime,
-      });
       await bookingService.createBooking({
         service: selectedService!,
         date: selectedDate,
@@ -3568,6 +3525,7 @@ export default function BookScreen() {
               <AddVehicleModal
                 visible={showAddVehicle || Boolean(editingVehicle)}
                 vehicle={editingVehicle}
+                onClosed={handleVehicleEditorClosed}
                 onClose={() => {
                   if (editingVehicle) closeVehicleEditor();
                   else setShowAddVehicle(false);
@@ -3580,22 +3538,13 @@ export default function BookScreen() {
                 onVehicleUpdated={handleVehicleUpdated}
               />
 
-              <Modal
+              <MotionSheet
                 visible={showVehiclePicker}
-                transparent
-                animationType="slide"
-                statusBarTranslucent
-                onRequestClose={() => setShowVehiclePicker(false)}
+                onClose={() => setShowVehiclePicker(false)}
+                onClosed={handleVehiclePickerClosed}
+                contentStyle={vehiclePicker.sheet}
+                accessibilityLabel="Choose a vehicle"
               >
-                <View style={vehiclePicker.overlay}>
-                  <TouchableOpacity
-                    activeOpacity={1}
-                    accessibilityRole="button"
-                    accessibilityLabel="Close vehicle selector"
-                    onPress={() => setShowVehiclePicker(false)}
-                    style={vehiclePicker.backdrop}
-                  />
-                  <View style={[vehiclePicker.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                     <View style={vehiclePicker.handle} />
                     <View style={vehiclePicker.header}>
                       <View>
@@ -3668,17 +3617,15 @@ export default function BookScreen() {
                       activeOpacity={0.85}
                       accessibilityRole="button"
                       onPress={() => {
+                        addVehicleAfterPickerRef.current = true;
                         setShowVehiclePicker(false);
-                        setShowAddVehicle(true);
                       }}
                       style={vehiclePicker.addButton}
                     >
                       <Ionicons name="add" size={18} color={ON_PRIMARY} />
                       <Text style={vehiclePicker.addButtonText}>Add another vehicle</Text>
                     </TouchableOpacity>
-                  </View>
-                </View>
-              </Modal>
+              </MotionSheet>
 
               {/* ══ SECTION 2: CHOOSE PACKAGE ══ */}
               <Animated.View entering={FadeInDown.delay(200).duration(200)} style={svc.packageSection}>
@@ -4780,35 +4727,15 @@ export default function BookScreen() {
         </View>
       ) : null}
 
-      <Modal
+      <MotionSheet
         visible={packageDetails !== null}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        accessibilityViewIsModal
-        onRequestClose={closePackageDetails}
+        onClose={closePackageDetails}
+        contentStyle={packageDetailsStyles.sheet}
+        accessibilityLabel="Package details"
       >
-        <View style={packageDetailsStyles.overlay}>
-          <TouchableOpacity
-            activeOpacity={1}
-            accessibilityRole="button"
-            accessibilityLabel="Close package details"
-            onPress={closePackageDetails}
-            style={packageDetailsStyles.backdrop}
-          />
-
           {packageDetails ? (
-            <RNAnimated.View
-              style={[
-                packageDetailsStyles.sheet,
-                { paddingBottom: Math.max(insets.bottom, 16) },
-                { transform: [{ translateY: packageSheetTranslateY }] },
-              ]}
-            >
-              <View
-                style={packageDetailsStyles.handleTouchArea}
-                {...packageSheetPanResponder.panHandlers}
-              >
+            <>
+              <View style={packageDetailsStyles.handleTouchArea}>
                 <View style={packageDetailsStyles.handle} />
               </View>
               <View style={packageDetailsStyles.header}>
@@ -5023,10 +4950,9 @@ export default function BookScreen() {
                   <Text style={packageDetailsStyles.retryActionText}>Retry pricing</Text>
                 </TouchableOpacity>
               )}
-            </RNAnimated.View>
+            </>
           ) : null}
-        </View>
-      </Modal>
+      </MotionSheet>
     </View>
   );
 }
@@ -7444,14 +7370,6 @@ const skeleton = StyleSheet.create({
 });
 
 const vehiclePicker = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.72)',
-  },
   sheet: {
     maxHeight: '76%',
     paddingHorizontal: 18,
@@ -7923,14 +7841,6 @@ const detailsDock = StyleSheet.create({
 });
 
 const packageDetailsStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.72)',
-  },
   sheet: {
     maxHeight: '90%',
     backgroundColor: '#111111',

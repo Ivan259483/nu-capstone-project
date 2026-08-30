@@ -15,7 +15,6 @@ import {
 } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useThemeContext';
@@ -24,6 +23,7 @@ import { apiClient, getApiErrorMessage } from '@/services/api/client';
 import { Palette } from '@/constants/theme';
 import PremiumButton from '@/components/ui/PremiumButton';
 import AuthFeedback, { type AuthFeedbackData } from '@/components/auth/AuthFeedback';
+import { Haptics } from '@/utils/haptics';
 
 const OTP_LENGTH = 6;
 const OTP_GAP = 8;
@@ -88,6 +88,7 @@ export default function VerifyScreen() {
       : null
   ));
   const otpInputRef = useRef<TextInput | null>(null);
+  const previousOtpLengthRef = useRef(0);
   const restingWindowHeightRef = useRef(windowHeight);
 
   useEffect(() => {
@@ -167,15 +168,11 @@ export default function VerifyScreen() {
   }, [challengeExpired, codeExpired]);
 
   const triggerOutcomeHaptic = (type: 'success' | 'error') => {
-    if (Platform.OS === 'web') return;
-    void Haptics.notificationAsync(
-      type === 'success'
-        ? Haptics.NotificationFeedbackType.Success
-        : Haptics.NotificationFeedbackType.Error,
-    );
+    Haptics.notify(type);
   };
 
   const resetOtpInput = () => {
+    previousOtpLengthRef.current = 0;
     setOtp('');
     otpInputRef.current?.focus();
   };
@@ -279,7 +276,12 @@ export default function VerifyScreen() {
   }
 
   function handleOtpChange(text: string) {
-    setOtp(normalizeOtp(text));
+    const nextOtp = normalizeOtp(text);
+    if (previousOtpLengthRef.current < OTP_LENGTH && nextOtp.length === OTP_LENGTH) {
+      Haptics.impact('light');
+    }
+    previousOtpLengthRef.current = nextOtp.length;
+    setOtp(nextOtp);
     setFeedback(null);
   }
 

@@ -1,5 +1,5 @@
 import Order from '../models/order.model.js';
-import { createCustomerNotification } from './customerNotification.service.js';
+import { createCustomerOrderEventNotification } from '../utils/customerStageNotifications.utils.js';
 import { runTrackedSystemMutation } from '../middleware/systemLifecycle.middleware.js';
 
 const REMINDER_INTERVAL_MS = 15 * 60 * 1000;
@@ -49,27 +49,20 @@ export async function runAppointmentReminderSweep(now = new Date()) {
 
   let created = 0;
   for (const order of orders) {
-    const userId = idOf(order.customer);
     const orderId = idOf(order._id);
-    const eventKey = `customer:${userId}:order:${orderId}:event:appointment_reminder:${bookingDate}:${order.bookingTime || ''}`;
-    const before = await createCustomerNotification({
-      userId,
-      type: 'appointment_reminder',
+    const before = await createCustomerOrderEventNotification(orderId, {
       event: 'appointment_reminder',
       category: 'important',
       title: 'Appointment Reminder',
       message: `Your ${serviceLabel(order)} appointment starts tomorrow${order.bookingTime ? ` at ${formatTime(order.bookingTime)}` : ''}. Please arrive 10 minutes early.`,
       actionType: 'booking',
-      actionId: orderId,
       actionLabel: 'View booking',
       link: `/customer/dashboard?section=appointments&bookingId=${encodeURIComponent(orderId)}`,
-      eventKey,
+      eventSuffix: `appointment_reminder:${bookingDate}:${order.bookingTime || ''}`,
       metadata: {
-        orderId,
         bookingDate,
         bookingTime: order.bookingTime || null,
         bookingReference: order.bookingReference || order.orderNumber || null,
-        kind: 'appointment_reminder',
       },
     });
     if (before) created += 1;

@@ -20,12 +20,11 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
-  TouchableOpacity,
   Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
+import { Haptics } from '@/utils/haptics';
 import * as ImagePicker from 'expo-image-picker';
 import * as LocalAuthentication from 'expo-local-authentication';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -37,6 +36,7 @@ import { useTheme } from '@/hooks/useThemeContext';
 import { Palette, TabBarHeight } from '@/constants/theme';
 import { Toast } from '@/components/ui/PremiumToast';
 import { PremiumLoader } from '@/components/ui/loading';
+import MotionPressable from '@/components/ui/MotionPressable';
 import {
   getProfilePhotoUploadMessage,
   prepareProfilePhoto,
@@ -82,11 +82,11 @@ const SettingsRow = ({
   rightElement?: React.ReactNode;
   danger?: boolean;
 }) => (
-  <TouchableOpacity
+  <MotionPressable
     style={s.rowContainer}
     onPress={onPress}
     disabled={!onPress}
-    activeOpacity={0.7}
+    pressedScale={0.99}
   >
     <View style={[s.iconBox, danger && s.iconBoxDanger]}>
       <Ionicons
@@ -109,7 +109,7 @@ const SettingsRow = ({
           />
         ))}
     </View>
-  </TouchableOpacity>
+  </MotionPressable>
 );
 
 const Div = () => <View style={s.rowDivider} />;
@@ -142,7 +142,7 @@ export default function SettingsScreen() {
 
   // ── Navigation helper ──
   const nav = (path: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.impact('light');
     router.push(path as any);
   };
 
@@ -162,11 +162,10 @@ export default function SettingsScreen() {
       if (!selectedPhoto) return;
 
       setIsUpdatingAvatar(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       const preparedPhoto = await prepareProfilePhoto(selectedPhoto);
       await authService.updateMyProfilePhoto(preparedPhoto);
       await refreshProfile();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Haptics.notify('success');
       Toast.show('Profile photo updated', 'success');
     } catch (error: any) {
       Alert.alert('Error', getProfilePhotoUploadMessage(error));
@@ -216,7 +215,7 @@ export default function SettingsScreen() {
           setIsSigningOut(true);
           try {
             await signOut();
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            Haptics.notify('success');
             // AuthContext publishes the unauthenticated state; the root auth
             // guard is the sole owner of the replacement to /(auth)/login.
           } catch {
@@ -383,7 +382,7 @@ export default function SettingsScreen() {
               iconName="help-buoy-outline"
               title="Help Center"
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                Haptics.impact('light');
                 Toast.show('Launching Help Center…', 'info');
               }}
             />
@@ -392,7 +391,7 @@ export default function SettingsScreen() {
               iconName="shield-checkmark-outline"
               title="Privacy Policy & Terms"
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                Haptics.impact('light');
                 Toast.show('Loading Legal Terms…', 'info');
               }}
             />
@@ -406,7 +405,7 @@ export default function SettingsScreen() {
               danger
               rightElement={isSigningOut ? <PremiumLoader size="small" tone="danger" accessibilityLabel="Signing out" /> : undefined}
               onPress={isSigningOut ? undefined : () => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                Haptics.impact('heavy');
                 handleLogout();
               }}
             />
@@ -416,7 +415,7 @@ export default function SettingsScreen() {
               title="Delete Account"
               danger
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                Haptics.impact('heavy');
                 handleDeleteAccount();
               }}
             />

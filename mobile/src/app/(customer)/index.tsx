@@ -38,16 +38,17 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn, FadeInDown, FadeInUp, FadeInRight, SlideInRight,
   useSharedValue, useAnimatedStyle,
+  useReducedMotion, cancelAnimation,
   withRepeat, withTiming, withSequence,
   Easing, interpolate,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import SkeletonPulse from '@/components/ui/SkeletonPulse';
+import MotionPressable from '@/components/ui/MotionPressable';
 import { useAuth } from '@/context/AuthContext';
 import { invalidateCache } from '@/services/api/client';
 import {
@@ -69,8 +70,13 @@ import {
 } from '@/utils/customer-home-rail-step';
 import { useNotifications } from '@/context/NotificationsContext';
 import { TabBarContentHeight } from '@/constants/theme';
-import { useCustomerBookings } from '@/hooks/useCustomerBookings';
+import {
+  customerBookingDetailQueryKey,
+  useCustomerBookings,
+} from '@/hooks/useCustomerBookings';
 import { resolveCustomerPaymentState } from '@/utils/customer-payment-state';
+import { bookingService } from '@/services/api/bookingService';
+import { Haptics } from '@/utils/haptics';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // VIEWPORT
@@ -323,13 +329,19 @@ function Spec({ op = 0.06 }: { op?: number }) {
 // ATOM: Pulse dot — live tracking indicator
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Pulse({ color = D.A, size = 7 }: { color?: string; size?: number }) {
+  const reducedMotion = useReducedMotion();
   const p = useSharedValue(0);
   useEffect(() => {
+    if (reducedMotion) {
+      p.value = 0;
+      return;
+    }
     p.value = withRepeat(withSequence(
       withTiming(1, { duration: 1100, easing: Easing.out(Easing.cubic) }),
       withTiming(0, { duration: 1500, easing: Easing.in(Easing.cubic) }),
     ), -1, false);
-  }, [p]);
+    return () => cancelAnimation(p);
+  }, [p, reducedMotion]);
   const ring = useAnimatedStyle(() => ({
     transform: [{ scale: interpolate(p.value, [0,1], [1,2.4]) }],
     opacity:   interpolate(p.value, [0,0.25,1], [0.5,0.10,0]),
@@ -363,19 +375,17 @@ function Tap({
   style?: any; h?: 'Light'|'Medium'|'Heavy'; targetScale?: number;
   accessibilityLabel?: string;
 }) {
-  const sc = useSharedValue(1);
-  const anim = useAnimatedStyle(() => ({ transform: [{ scale: sc.value }] }));
   return (
-    <Animated.View style={[anim, style]}>
-      <Pressable
-        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle[h]); onPress?.(); }}
-        onPressIn={() => { sc.value = withTiming(targetScale, { duration: 140 }); }}
-        onPressOut={() => { sc.value = withTiming(1, { duration: 160 }); }}
-        style={{ flex: 1 }}
-        accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel}
-      >{children}</Pressable>
-    </Animated.View>
+    <MotionPressable
+      onPress={onPress}
+      pressedScale={targetScale}
+      haptic={h.toLowerCase() as 'light' | 'medium' | 'heavy'}
+      style={[{ flex: 1 }, style]}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+    >
+      {children}
+    </MotionPressable>
   );
 }
 
@@ -472,7 +482,7 @@ function HeaderSection({
       <View style={$.hdrIdentity}>
         <Tap
           onPress={() => router.push('/(customer)/settings')}
-          style={{ width:avatarSize, height:avatarSize, flexShrink:0, alignSelf:'center' }}
+          style={[$.hdrControl, { width:avatarSize, height:avatarSize }]}
           targetScale={0.97}
           accessibilityLabel="Open profile"
         >
@@ -505,7 +515,7 @@ function HeaderSection({
       <View style={$.hdrActions}>
         <Tap
           onPress={() => router.push('/(screens)/notifications')}
-          style={{ width:controlSize, height:controlSize, flexShrink:0, alignSelf:'center' }}
+          style={[$.hdrControl, { width:controlSize, height:controlSize }]}
           targetScale={0.97}
           accessibilityLabel="Open notifications"
         >
@@ -625,6 +635,8 @@ function HeroSection({ job, isLoading, step, router }: {
             : 'Track My Car';
     const actionRoute = isPayment
       ? { pathname:'/(screens)/payments' as const, params:{ orderId:job.id } }
+      : isUpcoming && !needsReservationReceipt && !reservationActionRequired
+        ? { pathname:'/(screens)/booking-details' as const, params:{ id:job.id } }
       : { pathname:'/(customer)/track' as const, params:{ id:job.id } };
     const outstandingAmount = getOutstandingAmount(job);
     const eyebrow = reservationActionRequired
@@ -939,6 +951,9 @@ function QuickSection({ router, completed, job, isLoading }: {
   const paymentRoute = job
     ? { pathname:'/(screens)/payments' as const, params:{ orderId:job.id } }
     : '/(screens)/payments';
+  const bookingRoute = job
+    ? { pathname:'/(screens)/booking-details' as const, params:{ id:job.id } }
+    : '/(screens)/appointments';
   const isTrackerRelevant = Boolean(job && bookingShowsCustomerLiveTracker(job));
   const noBookingActions = [
     { icon:'calendar-outline' as const, n:'New Booking', sub:'Schedule a service', r:'/(customer)/book', badge:0 },
@@ -947,7 +962,7 @@ function QuickSection({ router, completed, job, isLoading }: {
     { icon:'receipt-outline' as const, n:'Service Records', sub:'History and receipts', r:'/(screens)/appointments', badge:completed },
   ];
   const currentBookingActions = [
-    { icon:'calendar-outline' as const, n:'View Booking', sub:'Appointment details', r:'/(screens)/appointments', badge:0 },
+    { icon:'calendar-outline' as const, n:'View Booking', sub:'Appointment details', r:bookingRoute, badge:0 },
     ...(isTrackerRelevant ? [{
       icon:'navigate-outline' as const,
       n:'Track Booking',
@@ -1345,7 +1360,7 @@ function HistorySection({
                   <View style={$.histEnd}>
                     <Text style={$.histPrice}>₱{item.totalPrice?.toLocaleString()||'—'}</Text>
                     <Pressable
-                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push('/(customer)/book'); }}
+                      onPress={() => { Haptics.impact('medium'); router.push('/(customer)/book'); }}
                       style={$.rebookPill} hitSlop={10}
                     >
                       <Text style={$.rebookTxt}>Re-book</Text>
@@ -1376,10 +1391,8 @@ function HistorySection({
             <Text style={$.emptyH}>{emptyTitle}</Text>
             <Text style={$.emptySub}>{emptyDescription}</Text>
             <Tap
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                router.push(emptyActionRoute as any);
-              }}
+              onPress={() => router.push(emptyActionRoute as any)}
+              h="Medium"
               accessibilityLabel={emptyActionLabel}
             >
               <LinearGradient
@@ -1406,6 +1419,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { unreadCount } = useNotifications();
+  const queryClient = useQueryClient();
 
   const {
     data: bookings = [],
@@ -1459,6 +1473,15 @@ export default function HomeScreen() {
   }, [bookings]);
 
   const heroStep = job ? resolveCustomerHomeRailStep(job) : 0;
+
+  useEffect(() => {
+    if (!job?.id) return;
+    void queryClient.prefetchQuery({
+      queryKey: customerBookingDetailQueryKey(job.id),
+      queryFn: () => bookingService.getBookingById(job.id),
+      staleTime: 15_000,
+    });
+  }, [job?.id, queryClient]);
 
   const name = getFirstName(profile?.full_name);
 
@@ -1575,12 +1598,13 @@ const $ = StyleSheet.create({
   inlineRetry:{ color:D.A, fontSize:11.5, fontWeight:'800' },
 
   // ── HEADER ────────────────────────────────────────────────────
-  hdr:      { flexDirection:'row', justifyContent:'space-between', alignItems:'center', gap:SPACE.md, marginBottom:SPACE.xxl },
-  hdrIdentity:{ flex:1, minWidth:0, flexDirection:'row', alignItems:'center', gap:12 },
+  hdr:      { width:'100%', flexDirection:'row', justifyContent:'space-between', alignItems:'center', gap:SPACE.lg, marginBottom:SPACE.xxl },
+  hdrIdentity:{ flex:1, flexShrink:1, minWidth:0, flexDirection:'row', alignItems:'center', gap:12 },
   hdrCopy:  { flex:1, minWidth:0, justifyContent:'center' },
   greet:    { fontSize:13, lineHeight:17, color:'rgba(237,229,221,0.58)', fontWeight:'500', letterSpacing:0.1 },
   nameText: { fontWeight:'800', color:D.w100, letterSpacing:-0.9 },
   hdrActions:{ flexDirection:'row', alignItems:'center', gap:8, flexShrink:0 },
+  hdrControl:{ flex:0, flexShrink:0, alignSelf:'center' },
   bellBtn:{
     backgroundColor:'#101011',
     borderWidth:1, borderColor:'rgba(255,255,255,0.08)', alignItems:'center', justifyContent:'center',

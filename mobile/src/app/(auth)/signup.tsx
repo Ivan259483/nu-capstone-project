@@ -13,7 +13,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Modal,
   NativeSyntheticEvent,
   NativeScrollEvent,
   Dimensions,
@@ -24,6 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import PremiumButton from '@/components/ui/PremiumButton';
+import { MotionSheet } from '@/components/ui/MotionOverlay';
 import PremiumInput from '@/components/ui/PremiumInput';
 import { Toast } from '@/components/ui/PremiumToast';
 import RegisterCountryCodePicker from '@/components/auth/RegisterCountryCodePicker';
@@ -671,19 +671,12 @@ export default function SignUpScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Modal
+      <MotionSheet
         visible={ppfTermsModalOpen}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setPpfTermsModalOpen(false)}
+        onClose={() => setPpfTermsModalOpen(false)}
+        contentStyle={[s.ppfModalSheet, { maxHeight: SCREEN_H * 0.94 }]}
+        accessibilityLabel="Paint protection film terms"
       >
-        <View style={s.ppfModalRoot}>
-          <TouchableOpacity
-            style={s.ppfModalBackdrop}
-            activeOpacity={1}
-            onPress={() => setPpfTermsModalOpen(false)}
-          />
-          <View style={[s.ppfModalSheet, { maxHeight: SCREEN_H * 0.94 }]}>
             <View style={s.ppfModalHeader}>
               <Ionicons name="shield-checkmark" size={22} color="#F97316" />
               <View style={{ flex: 1, marginLeft: 10 }}>
@@ -766,9 +759,7 @@ export default function SignUpScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
-      </Modal>
+      </MotionSheet>
     </View>
   );
 }
@@ -1012,8 +1003,6 @@ const s = StyleSheet.create({
   successCta: {
     marginTop: 30,
   },
-  ppfModalRoot: { flex: 1, justifyContent: 'flex-end' },
-  ppfModalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.76)' },
   ppfModalSheet: {
     backgroundColor: '#0B0B0D',
     borderTopLeftRadius: 24,

@@ -3,7 +3,7 @@
  * (`activeSection === 'payments'`): per-booking cards, reservation fee + full payment, totals.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,8 +12,6 @@ import {
   StyleSheet,
   Platform,
   RefreshControl,
-  Modal,
-  Pressable,
   Image,
   useWindowDimensions,
   Share,
@@ -22,6 +20,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { PageSkeleton, PremiumLoader } from '@/components/ui/loading';
+import { MotionModal } from '@/components/ui/MotionOverlay';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { WebView } from 'react-native-webview';
@@ -256,7 +255,10 @@ export default function PaymentsScreen() {
   const [proofModalUrl, setProofModalUrl] = useState<string | null>(null);
   const [pdfFileUri, setPdfFileUri] = useState<string | null>(null);
   const [receiptLoadingId, setReceiptLoadingId] = useState<string | null>(null);
+  const [receiptModalOrderId, setReceiptModalOrderId] = useState<string | null>(null);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
   const handledRouteKey = useRef<string | null>(null);
+  const receiptRequestRef = useRef(0);
 
   const {
     data: bookings = [],
@@ -270,47 +272,59 @@ export default function PaymentsScreen() {
     ? getApiErrorMessage(bookingsError, 'Failed to load payment history')
     : null;
 
-  const visible = sortBookingsNewestFirst(filterBookingsForPaymentHistory(bookings));
+  const visible = useMemo(() => {
+    const sorted = sortBookingsNewestFirst(filterBookingsForPaymentHistory(bookings));
+    const selectedOrderId = String(routeOrderId || '').trim();
+    if (!selectedOrderId) return sorted;
+    return [...sorted].sort((left, right) => {
+      const leftSelected = String(left.id || left._id) === selectedOrderId;
+      const rightSelected = String(right.id || right._id) === selectedOrderId;
+      return Number(rightSelected) - Number(leftSelected);
+    });
+  }, [bookings, routeOrderId]);
   const bookingCount = countPaymentHistoryBookings(bookings);
   const resvSum = sumReservationFeesDisplayed(bookings);
   const fullSum = sumFullPaymentsDisplayed(bookings);
 
   const openReceipt = useCallback(async (orderId: string) => {
+    const request = ++receiptRequestRef.current;
+    const previousUri = pdfFileUri;
+    setReceiptModalOrderId(orderId);
     setReceiptLoadingId(orderId);
+    setReceiptError(null);
+    setPdfFileUri(null);
+    if (previousUri) void deleteAsync(previousUri, { idempotent: true }).catch(() => undefined);
     try {
       const fileUri = await bookingService.saveOrderReceiptPdfToCache(orderId);
+      if (receiptRequestRef.current !== request) {
+        void deleteAsync(fileUri, { idempotent: true }).catch(() => undefined);
+        return;
+      }
       setPdfFileUri(fileUri);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Could not open receipt';
-      Toast.show(msg, 'error');
+      if (receiptRequestRef.current === request) setReceiptError(msg);
     } finally {
-      setReceiptLoadingId(null);
+      if (receiptRequestRef.current === request) setReceiptLoadingId(null);
     }
-  }, []);
+  }, [pdfFileUri]);
 
   useEffect(() => {
     const orderId = String(routeOrderId || '').trim();
     const routeKey = `${orderId}:${routeOpenReceipt || ''}`;
-    if (!orderId || loading || error || handledRouteKey.current === routeKey) return;
+    if (!orderId || routeOpenReceipt !== '1' || handledRouteKey.current === routeKey) return;
     handledRouteKey.current = routeKey;
-    const exists = bookings.some((booking) => String(booking.id || booking._id) === orderId);
-    if (!exists) {
-      Toast.show('This payment or booking record is no longer available.', 'warning');
-      return;
-    }
-    if (routeOpenReceipt === '1') void openReceipt(orderId);
-  }, [bookings, error, loading, openReceipt, routeOpenReceipt, routeOrderId]);
+    void openReceipt(orderId);
+  }, [openReceipt, routeOpenReceipt, routeOrderId]);
 
-  const closePdfModal = useCallback(async () => {
+  const closePdfModal = useCallback(() => {
+    receiptRequestRef.current += 1;
     const uri = pdfFileUri;
-    if (uri) {
-      try {
-        await deleteAsync(uri, { idempotent: true });
-      } catch {
-        /* ignore */
-      }
-    }
+    setReceiptModalOrderId(null);
+    setReceiptLoadingId(null);
+    setReceiptError(null);
     setPdfFileUri(null);
+    if (uri) void deleteAsync(uri, { idempotent: true }).catch(() => undefined);
   }, [pdfFileUri]);
 
   const sharePdfReceipt = useCallback(async () => {
@@ -464,39 +478,61 @@ export default function PaymentsScreen() {
         />
       )}
 
-      <Modal visible={Boolean(proofModalUrl)} transparent animationType="fade">
-        <Pressable style={styles.modalBackdrop} onPress={() => setProofModalUrl(null)}>
-          <Pressable style={styles.modalInner} onPress={(e) => e.stopPropagation()}>
+      <MotionModal
+        visible={Boolean(proofModalUrl)}
+        onClose={() => setProofModalUrl(null)}
+        contentStyle={styles.modalInner}
+        accessibilityLabel="Payment proof"
+      >
             <TouchableOpacity style={styles.modalClose} onPress={() => setProofModalUrl(null)}>
               <Text style={styles.modalCloseTxt}>Close</Text>
             </TouchableOpacity>
             {proofModalUrl ? (
               <Image source={{ uri: proofModalUrl }} style={styles.proofImage} resizeMode="contain" />
             ) : null}
-          </Pressable>
-        </Pressable>
-      </Modal>
+      </MotionModal>
 
-      <Modal
-        visible={Boolean(pdfFileUri)}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => void closePdfModal()}
+      <MotionModal
+        visible={Boolean(receiptModalOrderId)}
+        onClose={closePdfModal}
+        dismissOnBackdrop={false}
+        fullScreen
+        contentStyle={[styles.pdfSheet, { paddingTop: insets.top, backgroundColor: colors.background }]}
+        accessibilityLabel="Payment receipt"
       >
-        <View style={[styles.pdfSheet, { paddingTop: insets.top, backgroundColor: colors.background }]}>
           <View style={[styles.pdfToolbar, { borderBottomColor: colors.border }]}>
             <Text style={[styles.pdfTitle, { color: colors.text }]}>Payment receipt</Text>
             <View style={styles.pdfToolbarActions}>
-              <TouchableOpacity onPress={() => void sharePdfReceipt()} style={styles.pdfToolbarBtn}>
-                <Ionicons name="share-outline" size={18} color={Palette.accent} />
-                <Text style={[styles.pdfToolbarBtnTxt, { color: Palette.accent }]}>Open / Share</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => void closePdfModal()}>
+              {pdfFileUri ? (
+                <TouchableOpacity onPress={() => void sharePdfReceipt()} style={styles.pdfToolbarBtn}>
+                  <Ionicons name="share-outline" size={18} color={Palette.accent} />
+                  <Text style={[styles.pdfToolbarBtnTxt, { color: Palette.accent }]}>Open / Share</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity onPress={closePdfModal}>
                 <Text style={[styles.pdfCloseTxt, { color: colors.text }]}>Close</Text>
               </TouchableOpacity>
             </View>
           </View>
-          {pdfFileUri ? (
+          {receiptLoadingId ? (
+            <View style={styles.receiptPreparing}>
+              <PremiumLoader accessibilityLabel="Preparing payment receipt" />
+              <Text style={[styles.pdfFallbackTitle, { color: colors.text }]}>Preparing receipt</Text>
+              <Text style={[styles.pdfFallbackBody, { color: colors.textMuted }]}>The receipt viewer is already open. Your PDF will appear here when it is ready.</Text>
+            </View>
+          ) : receiptError ? (
+            <View style={styles.receiptPreparing}>
+              <Ionicons name="cloud-offline-outline" size={48} color={Palette.accent} />
+              <Text style={[styles.pdfFallbackTitle, { color: colors.text }]}>Receipt unavailable</Text>
+              <Text style={[styles.pdfFallbackBody, { color: colors.textMuted }]}>{receiptError}</Text>
+              {receiptModalOrderId ? (
+                <TouchableOpacity onPress={() => void openReceipt(receiptModalOrderId)} style={[styles.pdfFallbackCta, { backgroundColor: Palette.accent }]}>
+                  <Ionicons name="refresh" size={20} color="#fff" />
+                  <Text style={styles.pdfFallbackCtaTxt}>Try Again</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : pdfFileUri ? (
             Platform.OS === 'android' ? (
               <View style={[styles.pdfFallback, { paddingHorizontal: 24 }]}>
                 <Ionicons name="document-text-outline" size={56} color={colors.textMuted} />
@@ -535,8 +571,7 @@ export default function PaymentsScreen() {
               />
             )
           ) : null}
-        </View>
-      </Modal>
+      </MotionModal>
     </View>
   );
 }
@@ -720,18 +755,20 @@ const styles = StyleSheet.create({
   },
   retryText: { fontSize: 14, fontWeight: '600' },
 
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalInner: { borderRadius: 16, overflow: 'hidden', maxHeight: '88%' },
+  modalInner: { borderRadius: 16, overflow: 'hidden', maxHeight: '88%', backgroundColor: '#111' },
   modalClose: { alignSelf: 'flex-end', padding: 8, marginBottom: 8 },
   modalCloseTxt: { fontSize: 14, fontWeight: '700', color: '#fff' },
   proofImage: { width: '100%', height: 420, backgroundColor: '#111' },
 
   pdfSheet: { flex: 1 },
+  receiptPreparing: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    paddingBottom: 48,
+    gap: 12,
+  },
   pdfToolbar: {
     flexDirection: 'row',
     alignItems: 'center',

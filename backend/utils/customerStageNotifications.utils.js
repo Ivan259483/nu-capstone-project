@@ -6,6 +6,7 @@ import { countGatePhotos, REQUIRED_GATE_PHOTOS } from './trackerGatePhotos.utils
 import { computeOrderBalanceDue } from './readyPickupPaymentFlow.utils.js';
 import { sendCustomerNotificationEmail } from './mail.utils.js';
 import { createCustomerNotification } from '../services/customerNotification.service.js';
+import { customerNotificationAllowsExternalDelivery } from './customerNotificationPreferences.utils.js';
 
 const EMAIL_STATUSES = {
   PENDING: 'pending',
@@ -161,8 +162,10 @@ async function getLatestOrder(orderOrId) {
     .populate('vehicle', 'year make model color plateNumber vehicleType');
 }
 
-async function resolveCustomerContact(order, spec) {
-  const customerId = idOf(spec.customerId);
+async function resolveCustomerContact(order, notification) {
+  const customerId = idOf(
+    notification?.metadata?.customerId || getOrderCustomerId(order)
+  );
   const populated = order?.customer && typeof order.customer === 'object' ? order.customer : null;
   let user = populated;
   if (!user?.email && customerId) {
@@ -172,24 +175,14 @@ async function resolveCustomerContact(order, spec) {
   const customerProfile = customerId
     ? await Customer.findOne({ user: customerId }).select('notificationPreferences')
     : null;
-  const prefs = customerProfile?.notificationPreferences;
-
-  let disabled = false;
-  if (prefs?.emailEnabled === false) disabled = true;
-  if (spec.kind === 'confirmed' && prefs?.bookingConfirmation === false) disabled = true;
-  if (
-    ['received', 'in_progress', 'quality_check', 'ready_pickup', 'stage_media'].includes(spec.kind)
-    && prefs?.jobStatusUpdates === false
-  ) {
-    disabled = true;
-  }
-  if (['payment_due', 'receipt_ready'].includes(spec.kind) && prefs?.paymentReminders === false) {
-    disabled = true;
-  }
 
   return {
     email: String(user?.email || '').trim(),
-    disabled,
+    disabled: !customerNotificationAllowsExternalDelivery(
+      customerProfile?.notificationPreferences,
+      notification,
+      'email'
+    ),
   };
 }
 
@@ -220,7 +213,7 @@ async function maybeSendEmail({ notification, order, spec }) {
     return markEmailSkipped(notification._id, spec.emailSkippedReason || 'not_email_worthy', subject);
   }
 
-  const contact = await resolveCustomerContact(order, spec);
+  const contact = await resolveCustomerContact(order, notification);
   if (!contact.email) {
     return markEmailSkipped(notification._id, 'missing_customer_email', subject);
   }
@@ -618,7 +611,7 @@ async function buildMediaSpec(order, stage) {
   };
 }
 
-async function createOrderEventNotification(orderOrId, {
+export async function createCustomerOrderEventNotification(orderOrId, {
   event,
   category = 'important',
   title,
@@ -626,6 +619,7 @@ async function createOrderEventNotification(orderOrId, {
   actionType = 'booking',
   actionLabel = 'View booking',
   eventSuffix = event,
+  link: explicitLink,
   metadata = {},
   priority = 'normal',
 }) {
@@ -635,12 +629,18 @@ async function createOrderEventNotification(orderOrId, {
   if (!customerId) return null;
   const orderId = idOf(order._id);
   const eventKey = `customer:${idOf(customerId)}:order:${orderId}:event:${eventSuffix}`;
-  const link = actionType === 'payment' || actionType === 'receipt'
-    ? paymentLink(orderId)
-    : trackerLink(orderId, event);
+  const link = explicitLink || (
+    actionType === 'payment' || actionType === 'receipt'
+      ? paymentLink(orderId)
+      : trackerLink(orderId, event)
+  );
 
-  return createCustomerNotification({
-    userId: customerId,
+  return persistAndNotify(order, {
+    customerId,
+    orderId,
+    kind: event,
+    stage: event,
+    idempotencyKey: eventKey,
     title,
     message,
     type: event,
@@ -648,18 +648,23 @@ async function createOrderEventNotification(orderOrId, {
     category,
     priority,
     link,
+    ctaPath: link,
+    ctaLabel: actionLabel,
     actionType,
     actionId: orderId,
-    actionLabel,
-    eventKey,
-    metadata: {
-      orderId,
-      bookingReference: bookingRef(order),
-      serviceName: serviceLabel(order),
-      vehicle: vehicleLabel(order),
-      kind: event,
-      ...metadata,
-    },
+    emailSubject: title,
+    emailCategory: event,
+    emailWorthy: true,
+    emailSkippedReason: null,
+    bookingReference: bookingRef(order),
+    orderNumber: order.orderNumber || null,
+    vehicle: vehicleLabel(order),
+    serviceName: serviceLabel(order),
+    stageLabel: title,
+    status: order.status || null,
+    paymentStatus: order.paymentStatus || null,
+    mediaCount: 0,
+    metadata,
   });
 }
 
@@ -668,7 +673,7 @@ export async function createCustomerBookingCancelledNotification(orderOrId, reas
   if (!order) return null;
   const ref = bookingRef(order);
   const cleanReason = String(reason || '').trim();
-  return createOrderEventNotification(order, {
+  return createCustomerOrderEventNotification(order, {
     event: 'booking_cancelled',
     title: 'Booking Cancelled',
     message: `Your booking ${ref} has been cancelled.${cleanReason ? ` Reason: ${cleanReason}.` : ''}`,
@@ -682,7 +687,7 @@ export async function createCustomerBookingRescheduledNotification(orderOrId, pr
   if (!order) return null;
   const schedule = formatAppointmentSchedule(order);
   const slotKey = `${order.bookingDate || ''}:${order.bookingTime || ''}`;
-  return createOrderEventNotification(order, {
+  return createCustomerOrderEventNotification(order, {
     event: 'booking_rescheduled',
     title: 'Booking Rescheduled',
     message: `Your ${serviceLabel(order)} appointment has been rescheduled${schedule ? ` to ${schedule}` : ''}.`,
@@ -700,7 +705,7 @@ export async function createCustomerBookingRejectedNotification(orderOrId, reaso
   const order = await getLatestOrder(orderOrId);
   if (!order) return null;
   const cleanReason = String(reason || '').trim();
-  return createOrderEventNotification(order, {
+  return createCustomerOrderEventNotification(order, {
     event: 'booking_cancelled',
     title: 'Appointment Not Approved',
     message: `Your booking ${bookingRef(order)} was not approved.${cleanReason ? ` Reason: ${cleanReason}.` : ''}`,
@@ -714,7 +719,7 @@ export async function createCustomerServiceProgressNotification(orderOrId, progr
   if (!order) return null;
   const normalized = Math.max(0, Math.min(100, Math.round(Number(progress))));
   if (!Number.isFinite(normalized)) return null;
-  return createOrderEventNotification(order, {
+  return createCustomerOrderEventNotification(order, {
     event: normalized >= 100 ? 'service_completed' : 'service_progress',
     category: 'service',
     title: normalized >= 100 ? 'Service Completed' : 'Service Update',
@@ -731,7 +736,7 @@ export async function createCustomerServiceProgressNotification(orderOrId, progr
 export async function createCustomerDamageReportNotification(orderOrId) {
   const order = await getLatestOrder(orderOrId);
   if (!order) return null;
-  return createOrderEventNotification(order, {
+  return createCustomerOrderEventNotification(order, {
     event: 'damage_report_ready',
     category: 'service',
     title: 'Damage Report Ready',
@@ -749,7 +754,7 @@ export async function createCustomerPaymentConfirmedNotification(orderOrId, paym
   const invoiceId = String(payment.invoiceId || order.invoiceId || '').trim();
   const amount = Number(payment.amount ?? order.totalPrice ?? order.totalAmount ?? 0);
   const amountLabel = formatCurrency(amount);
-  return createOrderEventNotification(order, {
+  return createCustomerOrderEventNotification(order, {
     event: 'payment_confirmed',
     title: 'Payment Confirmed',
     message: `Your payment${amountLabel ? ` of ${amountLabel}` : ''} was confirmed${invoiceId ? ` for ${invoiceId}` : ''}.`,
@@ -767,7 +772,7 @@ export async function createCustomerTechnicianAssignedNotification(orderOrId) {
   const order = await getLatestOrder(orderOrId);
   if (!order) return null;
   const assignedId = idOf(order.assignedDetailer?._id || order.assignedDetailer) || 'assigned';
-  return createOrderEventNotification(order, {
+  return createCustomerOrderEventNotification(order, {
     event: 'service_progress',
     category: 'service',
     title: 'Technician Assigned',

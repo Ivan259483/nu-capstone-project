@@ -257,7 +257,12 @@ apiClient.interceptors.response.use(
       // ── Offline Queue Integration ────────────────────────────────
       const isMutation = ['post', 'put', 'patch', 'delete'].includes(config.method?.toLowerCase() || '');
       // Make sure we aren't enqueuing a replay of a queue operation itself
-      if (isMutation && !isSensitiveAuthRequest && !(config as any)._isRetry) {
+      if (
+        isMutation
+        && !isSensitiveAuthRequest
+        && !(config as any)._isRetry
+        && !(config as any)._skipOfflineQueue
+      ) {
         await enqueueRequest(config);
         Toast.show('You are offline. Request saved and will sync later.', 'warning');
         // Return a mocked success for optimistic UI offline

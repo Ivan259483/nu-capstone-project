@@ -2,14 +2,15 @@ import React, { useEffect } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
 } from 'react-native';
 import { Image } from 'expo-image';
 import Animated, {
   FadeInDown,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
+  cancelAnimation,
   withRepeat,
   withSequence,
   withTiming,
@@ -18,6 +19,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { MobileProfile } from '@/services/api/types';
 import { PremiumLoader } from '@/components/ui/loading';
+import { Motion } from '@/constants/motion';
+import MotionPressable from '@/components/ui/MotionPressable';
 
 const ACCENT = '#FF6B35';
 
@@ -30,8 +33,13 @@ interface ProfileHeaderProps {
 export default function ProfileHeader({ profile, isUpdatingAvatar, onPickImage }: ProfileHeaderProps) {
   // ── Pulsing glow animation ──
   const glowOpacity = useSharedValue(0.25);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    if (reducedMotion) {
+      glowOpacity.value = 0.25;
+      return;
+    }
     glowOpacity.value = withRepeat(
       withSequence(
         withTiming(0.55, { duration: 1800 }),
@@ -40,7 +48,8 @@ export default function ProfileHeader({ profile, isUpdatingAvatar, onPickImage }
       -1,
       true
     );
-  }, [glowOpacity]);
+    return () => cancelAnimation(glowOpacity);
+  }, [glowOpacity, reducedMotion]);
 
   const glowStyle = useAnimatedStyle(() => ({
     opacity: glowOpacity.value,
@@ -58,9 +67,10 @@ export default function ProfileHeader({ profile, isUpdatingAvatar, onPickImage }
   return (
     <Animated.View entering={FadeInDown.duration(200)} style={s.container}>
       {/* Avatar with glow ring */}
-      <TouchableOpacity
+      <MotionPressable
         onPress={onPickImage}
-        activeOpacity={0.8}
+        pressedScale={Motion.scale.compactPress}
+        haptic="light"
         style={s.avatarOuter}
         disabled={isUpdatingAvatar}
         accessibilityRole="button"
@@ -93,7 +103,7 @@ export default function ProfileHeader({ profile, isUpdatingAvatar, onPickImage }
         <View style={s.editBadge}>
           <Ionicons name="camera" size={13} color="#FFF" />
         </View>
-      </TouchableOpacity>
+      </MotionPressable>
 
       {/* Name + Email */}
       <Text style={s.name}>{profile?.full_name || 'Customer User'}</Text>

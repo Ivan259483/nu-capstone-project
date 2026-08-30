@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { DEFAULT_CUSTOMER_NOTIFICATION_PREFERENCES } from '../utils/customerNotificationPreferences.utils.js';
 
 const customerSchema = new mongoose.Schema(
   {
@@ -28,17 +29,12 @@ const customerSchema = new mongoose.Schema(
       default: 0,
     },
     notificationPreferences: {
-      pushEnabled: { type: Boolean, default: true },
-      emailEnabled: { type: Boolean, default: true },
-      smsEnabled: { type: Boolean, default: false },
-      bookingConfirmation: { type: Boolean, default: true },
-      jobStatusUpdates: { type: Boolean, default: true },
-      paymentReminders: { type: Boolean, default: true },
-      promotionalOffers: { type: Boolean, default: true },
-      chatMessages: { type: Boolean, default: true },
-      vehicleReminders: { type: Boolean, default: true },
-      loyaltyRewards: { type: Boolean, default: true },
-      newsletter: { type: Boolean, default: false },
+      pushEnabled: { type: Boolean, default: DEFAULT_CUSTOMER_NOTIFICATION_PREFERENCES.pushEnabled },
+      emailEnabled: { type: Boolean, default: DEFAULT_CUSTOMER_NOTIFICATION_PREFERENCES.emailEnabled },
+      bookingConfirmation: { type: Boolean, default: DEFAULT_CUSTOMER_NOTIFICATION_PREFERENCES.bookingConfirmation },
+      jobStatusUpdates: { type: Boolean, default: DEFAULT_CUSTOMER_NOTIFICATION_PREFERENCES.jobStatusUpdates },
+      paymentReminders: { type: Boolean, default: DEFAULT_CUSTOMER_NOTIFICATION_PREFERENCES.paymentReminders },
+      vehicleReminders: { type: Boolean, default: DEFAULT_CUSTOMER_NOTIFICATION_PREFERENCES.vehicleReminders },
     },
   },
   { timestamps: true }

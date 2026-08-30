@@ -14,11 +14,12 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/hooks/useThemeContext';
 import { Palette, BorderRadius } from '@/constants/theme';
 import { LoadingMotion, PremiumLoader, SuccessMark } from '@/components/ui/loading';
+import { Motion, reducedMotionDuration } from '@/constants/motion';
+import { Haptics } from '@/utils/haptics';
 
 type Variant = 'primary' | 'outline' | 'ghost' | 'danger';
 
@@ -87,17 +88,23 @@ export default function PremiumButton({
 
   const handlePressIn = () => {
     if (reduceMotion) return;
-    scale.value = withTiming(premiumAuth ? 0.975 : 0.96, { duration: 180 });
+    scale.value = withTiming(premiumAuth ? 0.985 : 0.98, {
+      duration: reducedMotionDuration(reduceMotion, Motion.duration.instant),
+      easing: Motion.easing.standard,
+    });
   };
   const handlePressOut = () => {
     if (reduceMotion) return;
-    scale.value = withTiming(1, { duration: 220 });
+    scale.value = withTiming(1, {
+      duration: reducedMotionDuration(reduceMotion, Motion.duration.fast),
+      easing: Motion.easing.enter,
+    });
   };
   const handlePress = () => {
     if (isDisabled) return;
     // Authentication outcomes provide the meaningful haptic. Avoid vibrating
     // merely because the request entered its loading state.
-    if (!premiumAuth) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (!premiumAuth) Haptics.impact('medium');
     onPress();
   };
 

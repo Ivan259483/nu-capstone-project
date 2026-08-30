@@ -13,8 +13,8 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   Alert,
-  Image,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,7 +25,7 @@ import { useAuth } from '@/context/AuthContext';
 import { authService } from '@/services/api/authService';
 import { getApiErrorMessage } from '@/services/api/client';
 import { getRoleLabel } from '@/services/api/roles';
-import { Palette, BorderRadius } from '@/constants/theme';
+import { Palette } from '@/constants/theme';
 import PremiumInput from '@/components/ui/PremiumInput';
 import PremiumButton from '@/components/ui/PremiumButton';
 import { Toast } from '@/components/ui/PremiumToast';
@@ -37,7 +37,6 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 
 const SURFACE = '#111114';
-const SURFACE_ALT = '#1A1A22';
 const BORDER = '#2A2A30';
 
 export default function EditProfileScreen() {
@@ -123,6 +122,7 @@ export default function EditProfileScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
       Toast.show('Profile updated successfully!', 'success');
+      router.back();
 
     } catch (err: any) {
       if (Platform.OS !== 'web') {
@@ -233,9 +233,12 @@ export default function EditProfileScreen() {
             >
               {profile?.avatar_url ? (
                 <View style={[styles.avatar, { overflow: 'hidden' }]}>
-                  <Image 
-                    source={{ uri: profile.avatar_url }} 
-                    style={styles.avatar} 
+                  <Image
+                    source={profile.avatar_url}
+                    style={styles.avatar}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={160}
                   />
                 </View>
               ) : (
@@ -345,7 +348,6 @@ export default function EditProfileScreen() {
                 loading={loading}
                 success={success}
                 successTitle="Saved"
-                onSuccessAnimationComplete={() => router.back()}
               />
             </Animated.View>
 

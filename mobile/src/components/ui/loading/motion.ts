@@ -1,4 +1,5 @@
 import { Easing } from 'react-native-reanimated';
+import { Motion } from '@/constants/motion';
 
 /**
  * Loading motion contract
@@ -12,10 +13,10 @@ import { Easing } from 'react-native-reanimated';
  * accessibility state must always communicate progress without animation.
  */
 export const LoadingMotion = {
-  contentExit: 140,
+  contentExit: Motion.duration.fast,
   contentEnter: 180,
-  sectionEnter: 220,
-  success: 420,
+  sectionEnter: Motion.duration.standard,
+  success: Motion.duration.standard,
   orbit: 1080,
   shimmer: 1450,
   easing: Easing.bezier(0.22, 1, 0.36, 1),

@@ -78,9 +78,8 @@ const SAFE_EXPORT_SCHEMAS = Object.freeze({
     vehicles: [true],
     bookings: [true],
     notificationPreferences: scalarFields(
-      'pushEnabled', 'emailEnabled', 'smsEnabled', 'bookingConfirmation',
-      'jobStatusUpdates', 'paymentReminders', 'promotionalOffers', 'chatMessages',
-      'vehicleReminders', 'loyaltyRewards', 'newsletter',
+      'pushEnabled', 'emailEnabled', 'bookingConfirmation',
+      'jobStatusUpdates', 'paymentReminders', 'vehicleReminders',
     ),
     ...timestamps,
   },

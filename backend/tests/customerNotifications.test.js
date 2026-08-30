@@ -29,6 +29,8 @@ const { registerPushToken, unregisterPushToken } = await import(
   '../controllers/user.controller.js'
 );
 const {
+  createCustomerBookingCancelledNotification,
+  createCustomerBookingRescheduledNotification,
   createCustomerPaymentConfirmedNotification,
   createCustomerServiceProgressNotification,
   createCustomerStageNotification,
@@ -198,6 +200,28 @@ test('duplicate concurrent stage calls create one notification and send one emai
   assert.equal(sentEmails.length, 1);
 });
 
+test('booking reschedule and cancellation each create at most one external email', async () => {
+  const { order } = await seedOrder({
+    bookingDate: '2026-09-15',
+    bookingTime: '2:00 PM',
+  });
+
+  await createCustomerBookingRescheduledNotification(order, {
+    oldDate: '2026-09-14',
+    oldTime: '1:00 PM',
+  });
+  await createCustomerBookingRescheduledNotification(order._id, {
+    oldDate: '2026-09-14',
+    oldTime: '1:00 PM',
+  });
+  await createCustomerBookingCancelledNotification(order, 'Customer request');
+  await createCustomerBookingCancelledNotification(order._id, 'Customer request');
+
+  assert.equal(await Notification.countDocuments({ event: 'booking_rescheduled' }), 1);
+  assert.equal(await Notification.countDocuments({ event: 'booking_cancelled' }), 1);
+  assert.equal(sentEmails.length, 2);
+});
+
 test('ready pickup with pending payment creates payment due instead of pickup copy', async () => {
   const { order } = await seedOrder({
     status: 'ready_for_payment',
@@ -279,6 +303,22 @@ test('email is skipped when customer email is disabled', async () => {
 
   const notification = await createCustomerStageNotification(order, 'confirmed');
 
+  assert.equal(notification.metadata.emailStatus, 'skipped');
+  assert.equal(notification.metadata.emailSkippedReason, 'customer_email_disabled');
+  assert.equal(sentEmails.length, 0);
+});
+
+test('category OFF suppresses Email but keeps the in-app operational record', async () => {
+  const { customer, order } = await seedOrder();
+  await Customer.create({
+    user: customer._id,
+    notificationPreferences: { bookingConfirmation: false },
+  });
+
+  const notification = await createCustomerStageNotification(order, 'confirmed');
+
+  assert.ok(notification?._id);
+  assert.equal(await Notification.countDocuments({}), 1);
   assert.equal(notification.metadata.emailStatus, 'skipped');
   assert.equal(notification.metadata.emailSkippedReason, 'customer_email_disabled');
   assert.equal(sentEmails.length, 0);

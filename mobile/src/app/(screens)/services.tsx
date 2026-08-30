@@ -1,7 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,11 +9,13 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
+import { Haptics } from '@/utils/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import AddVehicleModal from '@/components/booking/AddVehicleModal';
 import SkeletonPulse from '@/components/ui/SkeletonPulse';
+import { PremiumLoader } from '@/components/ui/loading';
+import { MotionModal, MotionSheet } from '@/components/ui/MotionOverlay';
 import { Toast } from '@/components/ui/PremiumToast';
 import { getApiErrorMessage, invalidateCache } from '@/services/api/client';
 import {
@@ -117,35 +117,24 @@ const categoryForCode = (
 function SheetShell({
   visible,
   onClose,
+  onClosed,
   children,
 }: {
   visible: boolean;
   onClose: () => void;
+  onClosed?: () => void;
   children: React.ReactNode;
 }) {
-  const insets = useSafeAreaInsets();
   return (
-    <Modal
+    <MotionSheet
       visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-      onRequestClose={onClose}
-      accessibilityViewIsModal
+      onClose={onClose}
+      onClosed={onClosed}
+      contentStyle={s.sheet}
     >
-      <View style={s.overlay}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-          onPress={onClose}
-          style={s.backdrop}
-        />
-        <View style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}> 
           <View style={s.handle} />
           {children}
-        </View>
-      </View>
-    </Modal>
+    </MotionSheet>
   );
 }
 
@@ -286,6 +275,12 @@ export default function ServicesCatalogScreen() {
   const [detailsService, setDetailsService] = useState<ServiceOption | null>(null);
   const [pendingService, setPendingService] = useState<ServiceOption | null>(null);
   const [checkingServiceId, setCheckingServiceId] = useState<string | null>(null);
+  const serviceIntentRef = useRef(0);
+  const sheetTransitionRef = useRef<
+    | { kind: 'add' }
+    | { kind: 'continue'; vehicle: Vehicle; service: ServiceOption }
+    | null
+  >(null);
   const [priceUpdate, setPriceUpdate] = useState<PriceUpdateState | null>(null);
   const [unavailable, setUnavailable] = useState<UnavailableState | null>(null);
 
@@ -411,26 +406,59 @@ export default function ServicesCatalogScreen() {
   }, [categories, navigateToBooking, selectedCategory]);
 
   const handleBook = useCallback(async (service: ServiceOption) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const intent = ++serviceIntentRef.current;
+    Haptics.impact('medium');
     setPendingService(service);
     setCheckingServiceId(service.id);
+    const openedForLoading = !vehiclesLoaded;
+    if (openedForLoading) setVehiclePickerOpen(true);
     const garage = vehiclesLoaded ? vehicles : await loadVehicles();
+    if (serviceIntentRef.current !== intent) return;
     if (!garage) {
       setCheckingServiceId(null);
+      setVehiclePickerOpen(false);
       return;
     }
     if (garage.length === 0) {
       setCheckingServiceId(null);
-      setAddVehicleOpen(true);
+      if (openedForLoading) {
+        sheetTransitionRef.current = { kind: 'add' };
+        setVehiclePickerOpen(false);
+      } else {
+        setAddVehicleOpen(true);
+      }
       return;
     }
     if (garage.length === 1) {
-      await continueWithVehicle(garage[0], service);
+      if (openedForLoading) {
+        sheetTransitionRef.current = { kind: 'continue', vehicle: garage[0], service };
+        setVehiclePickerOpen(false);
+      } else {
+        await continueWithVehicle(garage[0], service);
+      }
       return;
     }
     setCheckingServiceId(null);
     setVehiclePickerOpen(true);
   }, [continueWithVehicle, loadVehicles, vehicles, vehiclesLoaded]);
+
+  const closeVehiclePicker = useCallback(() => {
+    serviceIntentRef.current += 1;
+    sheetTransitionRef.current = null;
+    setCheckingServiceId(null);
+    setVehiclePickerOpen(false);
+  }, []);
+
+  const handleVehiclePickerClosed = useCallback(() => {
+    const transition = sheetTransitionRef.current;
+    sheetTransitionRef.current = null;
+    if (!transition) return;
+    if (transition.kind === 'add') {
+      setAddVehicleOpen(true);
+      return;
+    }
+    void continueWithVehicle(transition.vehicle, transition.service);
+  }, [continueWithVehicle]);
 
   return (
     <View style={s.screen}>
@@ -459,7 +487,7 @@ export default function ServicesCatalogScreen() {
               accessibilityHint="Opens the vehicle class selector"
               activeOpacity={0.84}
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                Haptics.impact('light');
                 setCategoryPickerOpen(true);
               }}
               style={s.selector}
@@ -644,7 +672,7 @@ export default function ServicesCatalogScreen() {
                 accessibilityLabel={category.label}
                 activeOpacity={0.82}
                 onPress={() => {
-                  Haptics.selectionAsync();
+                  Haptics.selection();
                   setSelectedCategoryCode(category.code);
                 }}
                 style={[s.choiceRow, active && s.choiceRowActive]}
@@ -661,14 +689,23 @@ export default function ServicesCatalogScreen() {
         </TouchableOpacity>
       </SheetShell>
 
-      <SheetShell visible={vehiclePickerOpen} onClose={() => setVehiclePickerOpen(false)}>
+      <SheetShell
+        visible={vehiclePickerOpen}
+        onClose={closeVehiclePicker}
+        onClosed={handleVehiclePickerClosed}
+      >
         <View style={s.sheetHeader}>
           <View><Text style={s.eyebrow}>YOUR GARAGE</Text><Text style={s.sheetTitle}>Choose Vehicle</Text></View>
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close vehicle selector" onPress={() => setVehiclePickerOpen(false)} style={s.closeButton}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close vehicle selector" onPress={closeVehiclePicker} style={s.closeButton}>
             <Ionicons name="close" size={19} color={C.white} />
           </TouchableOpacity>
         </View>
-        <ScrollView contentContainerStyle={s.choiceList} showsVerticalScrollIndicator={false}>
+        {!vehiclesLoaded ? (
+          <View style={s.sheetLoading}>
+            <PremiumLoader accessibilityLabel="Loading saved vehicles" />
+            <Text style={s.sheetLoadingText}>Loading your garage…</Text>
+          </View>
+        ) : <ScrollView contentContainerStyle={s.choiceList} showsVerticalScrollIndicator={false}>
           {vehicles.map((vehicle) => {
             const vehicleCategory = categoryForCode(categories, vehicle.pricingCategory);
             return (
@@ -678,8 +715,10 @@ export default function ServicesCatalogScreen() {
                 accessibilityLabel={`Book for ${vehicle.make} ${vehicle.model}`}
                 activeOpacity={0.82}
                 onPress={() => {
+                  if (pendingService) {
+                    sheetTransitionRef.current = { kind: 'continue', vehicle, service: pendingService };
+                  }
                   setVehiclePickerOpen(false);
-                  if (pendingService) void continueWithVehicle(vehicle, pendingService);
                 }}
                 style={s.vehicleRow}
               >
@@ -692,7 +731,7 @@ export default function ServicesCatalogScreen() {
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </ScrollView>}
       </SheetShell>
 
       <PackageDetailsSheet service={detailsService} category={selectedCategory} onClose={() => setDetailsService(null)} />
@@ -708,9 +747,7 @@ export default function ServicesCatalogScreen() {
         }}
       />
 
-      <Modal visible={Boolean(priceUpdate)} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setPriceUpdate(null)} accessibilityViewIsModal>
-        <View style={s.dialogOverlay}>
-          <View style={s.dialog}>
+      <MotionModal visible={Boolean(priceUpdate)} onClose={() => setPriceUpdate(null)} contentStyle={s.dialog} accessibilityLabel="Pricing update">
             <View style={s.dialogIcon}><Ionicons name="pricetag-outline" size={21} color={C.orange} /></View>
             <Text style={s.dialogEyebrow}>AUTHORITATIVE PRICE</Text>
             <Text style={s.dialogTitle}>Pricing updated for your {priceUpdate ? `${priceUpdate.vehicle.make} ${priceUpdate.vehicle.model}`.trim() : 'vehicle'}</Text>
@@ -734,13 +771,9 @@ export default function ServicesCatalogScreen() {
                 <Text style={s.dialogPrimaryText}>Continue to Booking</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
-      </Modal>
+      </MotionModal>
 
-      <Modal visible={Boolean(unavailable)} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setUnavailable(null)} accessibilityViewIsModal>
-        <View style={s.dialogOverlay}>
-          <View style={[s.dialog, s.unavailableDialog]}>
+      <MotionModal visible={Boolean(unavailable)} onClose={() => setUnavailable(null)} contentStyle={[s.dialog, s.unavailableDialog]} accessibilityLabel="Package availability">
             <View style={s.dialogIcon}><Ionicons name="alert-circle-outline" size={21} color={C.orange} /></View>
             <Text style={s.dialogEyebrow}>PACKAGE AVAILABILITY</Text>
             <Text style={s.dialogTitle}>
@@ -765,9 +798,7 @@ export default function ServicesCatalogScreen() {
               ))}
             </ScrollView>
             <TouchableOpacity accessibilityRole="button" onPress={() => setUnavailable(null)} style={s.unavailableClose}><Text style={s.dialogSecondaryText}>Keep browsing</Text></TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      </MotionModal>
     </View>
   );
 }
@@ -857,8 +888,6 @@ const s = StyleSheet.create({
   skeletonLinePrice: { width: '42%', height: 26, borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.07)', marginTop: 14 },
   skeletonLineBody: { width: '78%', height: 10, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.06)', marginTop: 14 },
   skeletonActions: { height: 42, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.065)', marginTop: 20 },
-  overlay: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.74)' },
   sheet: { maxHeight: '86%', minHeight: 250, backgroundColor: '#101014', borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderColor: C.border, paddingHorizontal: 18, paddingTop: 8 },
   handle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 3, backgroundColor: '#3F3F46', marginBottom: 14 },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, paddingBottom: 14 },
@@ -880,6 +909,8 @@ const s = StyleSheet.create({
   vehicleIcon: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: C.orangeSoft },
   vehicleName: { color: C.white, fontSize: 13, lineHeight: 18, fontWeight: '700' },
   vehicleMeta: { color: C.muted, fontSize: 10.5, lineHeight: 15, marginTop: 2 },
+  sheetLoading: { minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  sheetLoadingText: { color: C.secondary, fontSize: 12, lineHeight: 17, fontWeight: '600' },
   detailsContent: { paddingBottom: 12 },
   detailsPriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 9 },
   detailsPrice: { color: C.white, fontSize: 30, lineHeight: 36, fontWeight: '800', letterSpacing: -0.8 },
@@ -904,7 +935,6 @@ const s = StyleSheet.create({
   coverageText: { color: C.secondary, fontSize: 9.5, fontWeight: '600' },
   notesBlock: { marginTop: 19, paddingBottom: 8 },
   notesText: { color: C.secondary, fontSize: 11, lineHeight: 17 },
-  dialogOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 22, backgroundColor: 'rgba(0,0,0,0.80)' },
   dialog: { width: '100%', maxWidth: 390, padding: 20, borderRadius: 21, backgroundColor: '#111114', borderWidth: 1, borderColor: C.border },
   unavailableDialog: { maxHeight: '78%' },
   dialogIcon: { width: 43, height: 43, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: C.orangeSoft, marginBottom: 13 },

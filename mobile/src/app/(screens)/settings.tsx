@@ -1,6 +1,6 @@
 /**
  * Settings & Profile Module
- * Profile management, preferences, notifications toggle, logout
+ * Profile management, preferences, notifications navigation, logout
  * AutoGloss Premium Automotive Aesthetic
  */
 
@@ -13,10 +13,7 @@ import {
   TextInput,
   StyleSheet,
   Alert,
-  Platform,
   Switch,
-  Modal,
-  KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,6 +26,7 @@ import { getRoleLabel } from '@/services/api/roles';
 import { useTheme } from '@/hooks/useThemeContext';
 import { Toast } from '@/components/ui/PremiumToast';
 import { PremiumLoader } from '@/components/ui/loading';
+import { MotionSheet } from '@/components/ui/MotionOverlay';
 
 // ─── Design Tokens ───────────────────────────────────────────────────────────
 const ACCENT = '#FF6B35';
@@ -112,8 +110,6 @@ export default function SettingsScreen() {
   const { profile, signOut, deleteAccount } = useAuth();
   const { isDark, toggleTheme } = useTheme();
 
-  const [pushNotifs, setPushNotifs] = useState(true);
-  const [emailNotifs, setEmailNotifs] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
   // ── Delete Account State ────────────────────────────────────────────
@@ -286,38 +282,12 @@ export default function SettingsScreen() {
           <View style={s.card}>
             <MenuItem
               icon="notifications-outline"
-              label="Push Notifications"
-              sub="Service alerts, status updates"
-              rightElement={
-                <Switch
-                  value={pushNotifs}
-                  onValueChange={(val) => {
-                    setPushNotifs(val);
-                    Haptics.selectionAsync();
-                  }}
-                  trackColor={{ false: '#333', true: 'rgba(255,107,53,0.4)' }}
-                  thumbColor={pushNotifs ? ACCENT : '#666'}
-                  ios_backgroundColor="#333"
-                />
-              }
-            />
-            <View style={s.divider} />
-            <MenuItem
-              icon="mail-outline"
-              label="Email Notifications"
-              sub="Receipts, promotions, newsletters"
-              rightElement={
-                <Switch
-                  value={emailNotifs}
-                  onValueChange={(val) => {
-                    setEmailNotifs(val);
-                    Haptics.selectionAsync();
-                  }}
-                  trackColor={{ false: '#333', true: 'rgba(255,107,53,0.4)' }}
-                  thumbColor={emailNotifs ? ACCENT : '#666'}
-                  ios_backgroundColor="#333"
-                />
-              }
+              label="Notification Preferences"
+              sub="Control delivery channels and service alerts"
+              onPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push('/(screens)/notification-preferences');
+              }}
             />
             <View style={s.divider} />
             <MenuItem
@@ -476,17 +446,14 @@ export default function SettingsScreen() {
       </ScrollView>
 
       {/* ─── Delete Account Password Modal ────────────────────────────── */}
-      <Modal
+      <MotionSheet
         visible={showDeleteModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => { if (!isDeleting) setShowDeleteModal(false); }}
+        onClose={() => { if (!isDeleting) setShowDeleteModal(false); }}
+        dismissOnBackdrop={!isDeleting}
+        swipeToDismiss={!isDeleting}
+        contentStyle={s.modalSheet}
+        accessibilityLabel="Confirm account deletion"
       >
-        <KeyboardAvoidingView
-          style={s.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={s.modalSheet}>
             {/* Handle bar */}
             <View style={s.modalHandle} />
 
@@ -552,9 +519,7 @@ export default function SettingsScreen() {
                 )}
               </TouchableOpacity>
             </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      </MotionSheet>
     </View>
   );
 }
@@ -729,11 +694,6 @@ const s = StyleSheet.create({
   },
 
   // ─── Delete Account Modal ────────────────────────────────────────────
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'flex-end',
-  },
   modalSheet: {
     backgroundColor: '#111114',
     borderTopLeftRadius: 24,

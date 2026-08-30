@@ -18,14 +18,13 @@ import { router } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
 import { Validation } from '@/utils/validation';
 import PremiumButton from '@/components/ui/PremiumButton';
 import AuthFeedback, { type AuthFeedbackData } from '@/components/auth/AuthFeedback';
+import { Haptics } from '@/utils/haptics';
 
 type AuthButtonState = 'idle' | 'loading' | 'success';
-type PostAuthDestination = 'root' | 'verify' | null;
 type FocusedField = 'email' | 'password' | null;
 
 const MIN_KEYBOARD_GAP = 24;
@@ -65,7 +64,6 @@ export default function LoginScreen() {
   const emailInputRef = useRef<TextInput>(null);
   const passwordInputRef = useRef<TextInput>(null);
   const requestInFlightRef = useRef(false);
-  const postAuthDestinationRef = useRef<PostAuthDestination>(null);
   const fullViewportHeightRef = useRef(0);
   const keyboardSessionViewportHeightRef = useRef<number | null>(null);
   const compactContentHeightRef = useRef(0);
@@ -236,22 +234,8 @@ export default function LoginScreen() {
   }
 
   const triggerOutcomeHaptic = (type: 'success' | 'warning' | 'error') => {
-    if (Platform.OS === 'web') return;
-    void Haptics.notificationAsync(
-      type === 'success'
-        ? Haptics.NotificationFeedbackType.Success
-        : type === 'warning'
-          ? Haptics.NotificationFeedbackType.Warning
-          : Haptics.NotificationFeedbackType.Error,
-    );
+    Haptics.notify(type);
   };
-
-  const handleSuccessAnimationComplete = useCallback(() => {
-    const destination = postAuthDestinationRef.current;
-    postAuthDestinationRef.current = null;
-    if (destination === 'verify') router.push('/(auth)/verify');
-    if (destination === 'root') router.replace('/');
-  }, []);
 
   async function handleLogin() {
     Keyboard.dismiss();
@@ -289,8 +273,8 @@ export default function LoginScreen() {
         triggerOutcomeHaptic('success');
         setIsLocked(false);
         setLockUntilMs(null);
-        postAuthDestinationRef.current = 'root';
         setButtonState('success');
+        router.replace('/');
       } else if (result.requiresEmailOtp && result.verifyEmail) {
         triggerOutcomeHaptic('warning');
         setButtonState('idle');
@@ -299,8 +283,8 @@ export default function LoginScreen() {
         triggerOutcomeHaptic('success');
         // The opaque challenge is held in encrypted storage by AuthContext. Do
         // not put it (or the raw email) in navigation URLs/history.
-        postAuthDestinationRef.current = 'verify';
         setButtonState('success');
+        router.push('/(auth)/verify');
       } else {
         triggerOutcomeHaptic('error');
         setButtonState('idle');
@@ -524,7 +508,7 @@ export default function LoginScreen() {
               {/* Keep signed in */}
               <TouchableOpacity
                 style={[styles.checkRow, compactMode && styles.checkRowCompact]}
-                onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); setKeepSignedIn(!keepSignedIn); }}
+                onPress={() => { Haptics.selection(); setKeepSignedIn(!keepSignedIn); }}
                 activeOpacity={0.7}
               >
                 <View style={[styles.checkbox, keepSignedIn && styles.checkboxOn]}>
@@ -542,7 +526,6 @@ export default function LoginScreen() {
                 loading={isSigningIn}
                 success={buttonState === 'success'}
                 successTitle="Verified"
-                onSuccessAnimationComplete={handleSuccessAnimationComplete}
                 premiumAuth
                 style={styles.signInBtn}
               />
@@ -767,7 +750,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.70)',
     fontWeight: '500',
   },
-
   // Sign In Button — premium orange
   signInBtn: {
     marginTop: 0,

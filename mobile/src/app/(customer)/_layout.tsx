@@ -11,12 +11,12 @@ import {
   StyleSheet,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
+  useReducedMotion,
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,6 +25,8 @@ import { Palette, TabBarContentHeight } from '@/constants/theme';
 import AskAiFab from '@/components/ui/AskAiFab';
 import { useAuth } from '@/context/AuthContext';
 import { isCustomerRole } from '@/services/api/roles';
+import { Motion, reducedMotionDuration } from '@/constants/motion';
+import { Haptics } from '@/utils/haptics';
 
 const SHOW_FLOATING_AI_CHATBOT = false;
 
@@ -152,13 +154,14 @@ function TabBarButton({
   onPress: () => void;
 }) {
   const scale = useSharedValue(1);
+  const reducedMotion = useReducedMotion();
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
   const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.impact('light');
     onPress();
   };
 
@@ -167,8 +170,19 @@ function TabBarButton({
   return (
     <TouchableOpacity
       onPress={handlePress}
-      onPressIn={() => { scale.value = withTiming(0.98, { duration:120 }); }}
-      onPressOut={() => { scale.value = withTiming(1, { duration:160 }); }}
+      onPressIn={() => {
+        if (reducedMotion) return;
+        scale.value = withTiming(Motion.scale.compactPress, {
+          duration: reducedMotionDuration(reducedMotion, Motion.duration.instant),
+          easing: Motion.easing.standard,
+        });
+      }}
+      onPressOut={() => {
+        scale.value = withTiming(1, {
+          duration: reducedMotionDuration(reducedMotion, Motion.duration.fast),
+          easing: Motion.easing.enter,
+        });
+      }}
       activeOpacity={0.84}
       style={styles.tabButton}
       accessibilityRole="tab"

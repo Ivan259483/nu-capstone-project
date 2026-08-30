@@ -15,6 +15,19 @@ const isExpoGoAndroid = Constants.appOwnership === 'expo' && Platform.OS === 'an
 type NotificationsModule = typeof import('expo-notifications');
 let Notifications: NotificationsModule | null = null;
 let registeredExpoPushToken: string | undefined;
+let pushRegistrationPromise: Promise<PushRegistrationResult> | null = null;
+
+export type PushPermissionState =
+  | 'granted'
+  | 'denied'
+  | 'undetermined'
+  | 'unavailable'
+  | 'error';
+
+export type PushRegistrationResult = {
+  state: PushPermissionState | 'ready';
+  token?: string;
+};
 
 if (!isExpoGoAndroid) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -30,10 +43,23 @@ if (!isExpoGoAndroid) {
   });
 }
 
-async function registerForPushNotificationsAsync() {
-  if (!Notifications) return undefined;
+export async function getPushNotificationPermissionState(): Promise<PushPermissionState> {
+  if (!Notifications || !Device.isDevice) return 'unavailable';
+  try {
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status === 'granted' || status === 'denied' || status === 'undetermined') {
+      return status;
+    }
+    return 'undetermined';
+  } catch {
+    return 'error';
+  }
+}
 
-  let token: string | undefined;
+async function registerForPushNotificationsAsync(
+  requestPermission: boolean
+): Promise<PushRegistrationResult> {
+  if (!Notifications || !Device.isDevice) return { state: 'unavailable' };
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
@@ -44,37 +70,81 @@ async function registerForPushNotificationsAsync() {
     });
   }
 
-  if (Device.isDevice) {
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  let finalStatus = existingStatus;
 
-    if (existingStatus !== 'granted') {
+  if (existingStatus !== 'granted') {
+    if (requestPermission) {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }
 
     if (finalStatus !== 'granted') {
-      console.log('Failed to get push token for push notification!');
-      return;
+      return {
+        state: finalStatus === 'denied' ? 'denied' : 'undetermined',
+      };
     }
-
-    try {
-      const projectId =
-        Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
-
-      token = (
-        await Notifications.getExpoPushTokenAsync({
-          projectId,
-        })
-      ).data;
-    } catch (e) {
-      console.warn('Could not fetch expo push token ->', e);
-    }
-  } else {
-    console.log('Must use physical device for Push Notifications');
   }
 
-  return token;
+  try {
+    const projectId =
+      Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
+
+    const token = (
+      await Notifications.getExpoPushTokenAsync({
+        projectId,
+      })
+    ).data;
+    return token ? { state: 'ready', token } : { state: 'error' };
+  } catch (e) {
+    console.warn('Could not fetch Expo push token ->', e);
+    return { state: 'error' };
+  }
+}
+
+/** Verify OS permission, fetch the Expo token, and register this installation. */
+export async function ensureCurrentPushTokenRegistered({
+  requestPermission = true,
+}: {
+  requestPermission?: boolean;
+} = {}): Promise<PushRegistrationResult> {
+  if (registeredExpoPushToken) {
+    const permissionState = await getPushNotificationPermissionState();
+    if (permissionState === 'granted') {
+      return { state: 'ready', token: registeredExpoPushToken };
+    }
+    if (!requestPermission || permissionState !== 'undetermined') {
+      return { state: permissionState };
+    }
+  }
+  if (pushRegistrationPromise) return pushRegistrationPromise;
+
+  const task = (async (): Promise<PushRegistrationResult> => {
+    const jwtUserToken = await authStorage.getToken();
+    if (!jwtUserToken) return { state: 'error' as const };
+
+    const registration = await registerForPushNotificationsAsync(requestPermission);
+    if (registration.state !== 'ready' || !registration.token) return registration;
+
+    try {
+      await apiClient.post('/users/push-token', { token: registration.token });
+      registeredExpoPushToken = registration.token;
+      return registration;
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 401) {
+        console.warn('[PUSH] Session expired during push registration.');
+      } else {
+        console.warn('[PUSH] Failed to submit push token to backend:', error?.message || error);
+      }
+      return { state: 'error' };
+    }
+  })().finally(() => {
+    pushRegistrationPromise = null;
+  });
+  pushRegistrationPromise = task;
+
+  return task;
 }
 
 /** Detach only this installation before local credentials are cleared. */
@@ -123,29 +193,17 @@ export const usePushNotifications = (authenticated = false) => {
     const setupToken = async () => {
       if (cancelled) return;
 
-      const jwtUserToken = await authStorage.getToken();
-      if (!jwtUserToken) {
-        console.warn('[PUSH] Session exists but no JWT token in storage yet — skipping push registration');
-        return;
-      }
-
-      const token = await registerForPushNotificationsAsync();
+      const registration = await ensureCurrentPushTokenRegistered();
       if (cancelled) return;
+      const token = registration.token;
       setExpoPushToken(token);
 
       if (token) {
-        try {
-          await apiClient.post('/users/push-token', { token });
-          registeredExpoPushToken = token;
-          if (__DEV__) console.log('[PUSH] Device token registered with AutoSPF+ backend.');
-        } catch (error: any) {
-          const status = error?.response?.status;
-          if (status === 401) {
-            console.warn('[PUSH] Auth token expired during push registration — will retry on next session change');
-          } else {
-            console.warn('[PUSH] Failed to submit push token to backend:', error?.message || error);
-          }
-        }
+        if (__DEV__) console.log('[PUSH] Device token registered with AutoSPF+ backend.');
+      } else if (registration.state === 'unavailable' && isExpoGoAndroid) {
+        console.warn(
+          '[PUSH] Skipped in Expo Go on Android (SDK 53+). Use a development build for push notifications.'
+        );
       }
     };
 

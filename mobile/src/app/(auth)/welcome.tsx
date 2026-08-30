@@ -3,28 +3,32 @@
  * Features a cinematic entry for the application.
  */
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown, FadeInUp, ZoomIn, useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence, Easing } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
+import Animated, { FadeInUp, ZoomIn, cancelAnimation, useReducedMotion, useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence, Easing } from 'react-native-reanimated';
 import { Palette } from '@/constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-const { width, height } = Dimensions.get('window');
+import MotionPressable from '@/components/ui/MotionPressable';
 
 // We use the brand amber instead of lime green, per default instruction
 const BRAND_AMBER = Palette.accent || '#FF6B35';
 
 export default function WelcomeScreen() {
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
 
   // Animations
   const bgScale = useSharedValue(1.15); // Start slightly zoomed in
   const ctaScale = useSharedValue(1);
 
   useEffect(() => {
+    if (reducedMotion) {
+      bgScale.value = 1;
+      ctaScale.value = 1;
+      return;
+    }
     // 1. Ken Burns Slow Zoom Effect on Background
     bgScale.value = withTiming(1, { duration: 12000, easing: Easing.out(Easing.cubic) });
 
@@ -37,14 +41,11 @@ export default function WelcomeScreen() {
       -1,
       true
     );
-
-    // 3. Welcome Mount Haptic (feels like a premium app finished loading)
-    if (Platform.OS !== 'web') {
-      setTimeout(() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      }, 600); // Trigger haptic exactly when the text slams in
-    }
-  }, []);
+    return () => {
+      cancelAnimation(bgScale);
+      cancelAnimation(ctaScale);
+    };
+  }, [bgScale, ctaScale, reducedMotion]);
 
   const bgAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale.value }]
@@ -53,14 +54,6 @@ export default function WelcomeScreen() {
   const ctaAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: ctaScale.value }]
   }));
-
-  const triggerHapticImpact = () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
-
-  const triggerHapticLight = () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
 
   return (
     <View style={styles.container}>
@@ -112,26 +105,24 @@ export default function WelcomeScreen() {
         <Animated.View entering={FadeInUp.delay(800).duration(200)} style={styles.actionWrap}>
           
           <Animated.View style={[styles.ctaWrapper, ctaAnimatedStyle]}>
-            <TouchableOpacity 
+            <MotionPressable
               style={styles.primaryButton}
-              activeOpacity={0.85}
-              onPress={() => {
-                triggerHapticImpact();
-                router.push('/(auth)/signup');
-              }}
+              haptic="medium"
+              onPress={() => router.push('/(auth)/signup')}
             >
               <Text style={styles.primaryButtonText}>Get Started</Text>
-            </TouchableOpacity>
+            </MotionPressable>
           </Animated.View>
 
           <View style={styles.loginRow}>
             <Text style={styles.loginTextSub}>Already have an account? </Text>
-            <TouchableOpacity hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }} onPress={() => {
-              triggerHapticLight();
-              router.push('/(auth)/login');
-            }}>
+            <MotionPressable
+              haptic="light"
+              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+              onPress={() => router.push('/(auth)/login')}
+            >
               <Text style={styles.loginTextLink}>Login</Text>
-            </TouchableOpacity>
+            </MotionPressable>
           </View>
           
         </Animated.View>

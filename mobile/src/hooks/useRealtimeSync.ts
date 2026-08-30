@@ -110,8 +110,10 @@ function patchOrderQueryCaches(payload: any): void {
   if (!id) return;
 
   globalQueryClient.setQueriesData({ queryKey: ['bookings'] }, (current: any) => {
-    if (!Array.isArray(current)) return current;
-    return current.map((row) => mergeOrderRealtimePatch(row, patch));
+    if (Array.isArray(current)) {
+      return current.map((row) => mergeOrderRealtimePatch(row, patch));
+    }
+    return current ? mergeOrderRealtimePatch(current, patch) : current;
   });
 
   globalQueryClient.setQueryData(['booking', id], (current: any) =>
