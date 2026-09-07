@@ -916,10 +916,6 @@ export default function CustomerLiveTrackerPage() {
                 {AI_INSPECTION_HISTORY_ENABLED ? 'AI Lab' : 'Soon'}
               </span>
             </button>
-            <button onClick={() => navigate('/customer/dashboard')} className={navButtonClass()}>
-              <iconify-icon icon="solar:calendar-linear" width="20"></iconify-icon>
-              My Bookings
-            </button>
             <button onClick={() => navigate('/customer/live-tracker')} className={navButtonClass(true)}>
               <iconify-icon icon="solar:routing-2-linear" width="20"></iconify-icon>
               Live Tracker

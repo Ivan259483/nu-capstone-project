@@ -83,17 +83,6 @@ function SkeletonBookingRows({ count = 2 }: { count?: number }) {
   );
 }
 
-export function CustomerBookingsSkeleton() {
-  return (
-    <div className="customer-content-fade-in space-y-6 pb-10" aria-busy="true">
-      <SkeletonHeader action />
-      <SkeletonStatGrid />
-      <SkeletonTabs count={5} />
-      <SkeletonBookingRows count={2} />
-    </div>
-  );
-}
-
 function SkeletonGarageCard() {
   return (
     <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">

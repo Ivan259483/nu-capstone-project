@@ -109,7 +109,7 @@ function ScanLine({ containerH }: { containerH: number }) {
           colors={['transparent', ACCENT, '#FF9A6C', ACCENT, 'transparent']}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
       </Animated.View>
     </>
@@ -309,7 +309,7 @@ function AnimatedDamageBox({
       {/* Glow background fill */}
       <Animated.View
         style={[
-          StyleSheet.absoluteFillObject,
+          StyleSheet.absoluteFill,
           { backgroundColor: sev.glow, borderRadius: 4 },
           glowStyle,
         ]}
@@ -318,7 +318,7 @@ function AnimatedDamageBox({
       {/* Main border */}
       <Animated.View
         style={[
-          StyleSheet.absoluteFillObject,
+          StyleSheet.absoluteFill,
           {
             borderWidth: isHighlighted ? 2 : 1.5,
             borderColor: sev.border,
@@ -333,7 +333,7 @@ function AnimatedDamageBox({
       {isHighlighted && (
         <Animated.View
           style={[
-            StyleSheet.absoluteFillObject,
+            StyleSheet.absoluteFill,
             {
               borderWidth: 6,
               borderColor: sev.glow,
@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
 
   /* Grid */
   grid: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 1,
   },
   gridLine: {

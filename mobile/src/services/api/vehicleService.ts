@@ -4,6 +4,12 @@ import type { ApiEnvelope, Vehicle } from '@/services/api/types';
 const VEHICLES_URL = '/customers/vehicles';
 // 30-second cache — vehicles change rarely, eliminates re-fetch on every screen focus
 const VEHICLES_TTL = 30_000;
+const ABSENT_VEHICLE_COLORS = new Set(['', 'unknown', 'unknown color', 'n/a', 'na', 'none', 'not set']);
+
+const normalizeVehicleColorDisplay = (value: unknown): string => {
+  const color = String(value ?? '').trim().replace(/\s+/g, ' ');
+  return ABSENT_VEHICLE_COLORS.has(color.toLowerCase()) ? 'Not specified' : color;
+};
 
 type VehicleMutationParams = {
   year: string;
@@ -12,7 +18,10 @@ type VehicleMutationParams = {
   color?: string;
   plateNumber: string;
   vehicleType?: string;
-  pricingCategory: string;
+  pricingCategory?: string | null;
+  generation?: string;
+  facelift?: string;
+  drivetrain?: string;
   transmission?: string;
   fuelType?: string;
 };
@@ -23,12 +32,22 @@ const toVehicle = (raw: any): Vehicle => ({
   year: raw?.year ?? '',
   make: raw?.make || '',
   model: raw?.model || '',
-  color: raw?.color,
+  color: normalizeVehicleColorDisplay(raw?.color),
+  standardColor: raw?.standardColor,
+  factoryColorName: raw?.factoryColorName || '',
+  paintCode: raw?.paintCode || '',
+  finishType: raw?.finishType || '',
+  colorHex: raw?.colorHex || '',
+  colorRgb: raw?.colorRgb,
+  colorSource: raw?.colorSource,
   plateNumber: raw?.plateNumber || '',
   vehicleType: raw?.vehicleType,
   pricingCategory: raw?.pricingCategory ?? null,
   pricingCategorySource: raw?.pricingCategorySource ?? null,
   pricingCategoryNeedsReview: Boolean(raw?.pricingCategoryNeedsReview),
+  generation: raw?.generation || '',
+  facelift: raw?.facelift || '',
+  drivetrain: raw?.drivetrain || '',
   transmission: raw?.transmission,
   fuelType: raw?.fuelType,
   customer: raw?.customer,

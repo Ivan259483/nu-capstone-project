@@ -3,10 +3,8 @@ import Vehicle from '../models/vehicle.model.js';
 import User from '../models/user.model.js';
 import mongoose from 'mongoose';
 import { normalizePlateNumber, findVehicleByNormalizedPlate } from '../utils/plate.utils.js';
-import {
-  normalizeVehiclePricingCategory,
-  resolveVehiclePricingCategory,
-} from '../constants/pricingCategories.js';
+import { vehicleClassificationFields, latestDefinitions } from '../services/vehicleIntelligence.service.js';
+import { vehicleColorFields } from '../services/vehicleColorIntelligence.service.js';
 
 import {
   isFullAdminRole,
@@ -403,6 +401,24 @@ export const deleteCustomer = async (req, res, next) => {
 /**
  * Add vehicle to customer
  */
+const validateVehicleIdentityInput = (body, partial = false) => {
+  for (const key of ['make', 'model', 'generation', 'facelift', 'drivetrain']) {
+    if (partial && body[key] === undefined) continue;
+    if (!['make', 'model'].includes(key) && body[key] === undefined) continue;
+    if (typeof body[key] !== 'string' || body[key].length > 200 || (['make', 'model'].includes(key) && !body[key].trim())) {
+      return `${key} must be a valid ${['make', 'model'].includes(key) ? 'nonempty ' : ''}string of at most 200 characters.`;
+    }
+  }
+  if (body.year != null && body.year !== '' && (!['string', 'number'].includes(typeof body.year)
+    || !Number.isInteger(Number(body.year)) || Number(body.year) < 1886)) return 'Enter a valid vehicle year.';
+  for (const [key, max] of [['color', 200], ['factoryColorName', 200], ['paintCode', 100]]) {
+    if (body[key] !== undefined && (typeof body[key] !== 'string' || body[key].trim().length > max)) {
+      return `${key} must be a string of at most ${max} characters.`;
+    }
+  }
+  return null;
+};
+
 export const addVehicle = async (req, res, next) => {
   try {
     // Controller-Level Authorization Guard
@@ -413,6 +429,9 @@ export const addVehicle = async (req, res, next) => {
       });
     }
 
+    const identityError = validateVehicleIdentityInput(req.body, false);
+    if (identityError) return res.status(422).json({ success: false, code: 'VEHICLE_IDENTITY_INVALID', message: identityError });
+
     const {
       year,
       make,
@@ -420,7 +439,6 @@ export const addVehicle = async (req, res, next) => {
       color,
       plateNumber,
       vehicleType,
-      pricingCategory: pricingCategoryInput,
       transmission,
       fuelType,
       customerUserId,
@@ -442,18 +460,16 @@ export const addVehicle = async (req, res, next) => {
     }
 
     const txAllowed = ['', 'Automatic', 'Manual', 'CVT'];
-    const fuelAllowed = ['', 'Gasoline', 'Diesel', 'Electric', 'Hybrid'];
+    const fuelAllowed = ['', 'Gasoline', 'Diesel', 'Electric', 'Hybrid', 'PHEV', 'HEV', 'MHEV', 'BEV', 'FCEV'];
     const tx = txAllowed.includes(transmission) ? transmission : '';
     const fuel = fuelAllowed.includes(fuelType) ? fuelType : '';
-    const pricingCategory = normalizeVehiclePricingCategory(pricingCategoryInput);
-    if (!pricingCategory) {
-      return res.status(422).json({
-        success: false,
-        code: 'PRICE_CATEGORY_REQUIRED',
-        message: 'Select a valid vehicle pricing category before saving this vehicle.',
-      });
-    }
-    const staffAssignedCategory = canManageCustomerGarage(req.user.role);
+    const classificationFields = await vehicleClassificationFields({ make, model, year, fuelType: fuel,
+      generation: req.body.generation || '', facelift: req.body.facelift || '', drivetrain: req.body.drivetrain || '', vehicleType });
+    const resolvedColorFields = await vehicleColorFields({
+      make, model, year, color,
+      factoryColorName: req.body.factoryColorName,
+      paintCode: req.body.paintCode,
+    });
 
     // ── Plate uniqueness check (normalized + legacy spaced formats in DB) ───
     const existingVehicle = await findVehicleByNormalizedPlate(normalizedPlate);
@@ -465,7 +481,11 @@ export const addVehicle = async (req, res, next) => {
         return res.status(200).json({
           success: true,
           message: 'Vehicle already registered to your account.',
-          data: existingVehicle,
+          data: {
+            ...existingVehicle.toObject(),
+            ...await vehicleClassificationFields(existingVehicle.toObject(), existingVehicle.toObject()),
+            ...await vehicleColorFields(existingVehicle.toObject()),
+          },
         });
       }
       // Different customer — the plate is genuinely taken
@@ -481,14 +501,12 @@ export const addVehicle = async (req, res, next) => {
       year: year || '',
       make: make || '',
       model: model || '',
-      color: color || 'Unknown',
       plateNumber: normalizedPlate,
-      vehicleType: vehicleType || '',
-      pricingCategory,
-      pricingCategorySource: staffAssignedCategory ? 'admin_assigned' : 'customer_selected',
-      pricingCategoryNeedsReview: !staffAssignedCategory,
-      pricingCategoryReviewedAt: staffAssignedCategory ? new Date() : null,
-      pricingCategoryReviewedBy: staffAssignedCategory ? req.user.id : null,
+      generation: req.body.generation || '',
+      facelift: req.body.facelift || '',
+      drivetrain: req.body.drivetrain || '',
+      ...classificationFields,
+      ...resolvedColorFields,
       transmission: tx,
       fuelType: fuel,
     });
@@ -548,22 +566,15 @@ export const getVehicles = async (req, res, next) => {
     }
 
     const vehicles = await Vehicle.find({ customer: ownerId })
-      .select('year make model color plateNumber vehicleType pricingCategory pricingCategorySource pricingCategoryNeedsReview pricingCategoryReviewedAt pricingCategoryReviewedBy transmission fuelType customer')
+      .select('year make model color standardColor factoryColorName paintCode finishType colorHex colorRgb colorSource colorDatabaseId colorResolution plateNumber vehicleType pricingCategory pricingCategorySource pricingCategoryNeedsReview pricingCategoryReviewedAt pricingCategoryReviewedBy transmission fuelType customer generation facelift drivetrain classification __v')
       .lean();
 
-    const vehiclesWithEffectiveCategory = vehicles.map((vehicle) => {
-      const effectivePricingCategory = resolveVehiclePricingCategory(vehicle);
-      const usesLegacyClassification = Boolean(
-        effectivePricingCategory && effectivePricingCategory !== vehicle.pricingCategory
-      );
-      return {
-        ...vehicle,
-        pricingCategory: effectivePricingCategory || vehicle.pricingCategory || null,
-        pricingCategorySource: vehicle.pricingCategorySource
-          || (usesLegacyClassification ? 'legacy_migration' : null),
-        pricingCategoryNeedsReview: vehicle.pricingCategoryNeedsReview ?? usesLegacyClassification,
-      };
-    });
+    const definitions = vehicles.length ? await latestDefinitions() : [];
+    const vehiclesWithEffectiveCategory = await Promise.all(vehicles.map(async (vehicle) => ({
+      ...vehicle,
+      ...await vehicleClassificationFields(vehicle, vehicle, definitions),
+      ...await vehicleColorFields(vehicle),
+    })));
 
     res.json({
       success: true,
@@ -587,6 +598,9 @@ export const updateVehicle = async (req, res, next) => {
       });
     }
 
+    const identityError = validateVehicleIdentityInput(req.body, true);
+    if (identityError) return res.status(422).json({ success: false, code: 'VEHICLE_IDENTITY_INVALID', message: identityError });
+
     const {
       year,
       make,
@@ -594,13 +608,12 @@ export const updateVehicle = async (req, res, next) => {
       color,
       plateNumber,
       vehicleType,
-      pricingCategory: pricingCategoryInput,
       transmission,
       fuelType,
     } = req.body;
     const platePattern = /^[A-Z0-9]{4,9}$/;
     const txAllowed = ['', 'Automatic', 'Manual', 'CVT'];
-    const fuelAllowed = ['', 'Gasoline', 'Diesel', 'Electric', 'Hybrid'];
+    const fuelAllowed = ['', 'Gasoline', 'Diesel', 'Electric', 'Hybrid', 'PHEV', 'HEV', 'MHEV', 'BEV', 'FCEV'];
 
     // Find vehicle first to check ownership
     const vehicle = await Vehicle.findById(req.params.id);
@@ -624,27 +637,18 @@ export const updateVehicle = async (req, res, next) => {
       });
     }
 
+    const previousIdentity = vehicle.toObject();
+    // A model change must not retain the previous model's variant selectors.
+    if ((make !== undefined && make !== vehicle.make) || (model !== undefined && model !== vehicle.model)) {
+      vehicle.generation = ''; vehicle.facelift = ''; vehicle.drivetrain = '';
+    }
     // Update fields
     if (year !== undefined) vehicle.year = year;
     if (make !== undefined) vehicle.make = make;
     if (model !== undefined) vehicle.model = model;
-    if (color !== undefined) vehicle.color = color;
     if (vehicleType !== undefined) vehicle.vehicleType = vehicleType;
-    if (pricingCategoryInput !== undefined) {
-      const pricingCategory = normalizeVehiclePricingCategory(pricingCategoryInput);
-      if (!pricingCategory) {
-        return res.status(422).json({
-          success: false,
-          code: 'PRICE_CATEGORY_REQUIRED',
-          message: 'Select a valid vehicle pricing category before saving this vehicle.',
-        });
-      }
-      const staffAssignedCategory = canManageCustomerGarage(req.user.role);
-      vehicle.pricingCategory = pricingCategory;
-      vehicle.pricingCategorySource = staffAssignedCategory ? 'admin_assigned' : 'customer_selected';
-      vehicle.pricingCategoryNeedsReview = !staffAssignedCategory;
-      vehicle.pricingCategoryReviewedAt = staffAssignedCategory ? new Date() : null;
-      vehicle.pricingCategoryReviewedBy = staffAssignedCategory ? req.user.id : null;
+    for (const key of ['generation', 'facelift', 'drivetrain']) {
+      if (req.body[key] !== undefined) vehicle[key] = req.body[key];
     }
     if (plateNumber) {
       const normalizedPlate = normalizePlateNumber(typeof plateNumber === 'string' ? plateNumber : '');
@@ -670,6 +674,22 @@ export const updateVehicle = async (req, res, next) => {
     if (fuelType !== undefined) {
       vehicle.fuelType = fuelAllowed.includes(fuelType) ? fuelType : '';
     }
+
+    const submittedColorData = [color, req.body.factoryColorName, req.body.paintCode].some((value) => value !== undefined);
+    const currentVehicle = vehicle.toObject();
+    const colorInput = submittedColorData
+      ? {
+          ...currentVehicle,
+          color: color ?? req.body.factoryColorName ?? '',
+          factoryColorName: req.body.factoryColorName || '',
+          paintCode: req.body.paintCode || '',
+        }
+      : currentVehicle;
+    Object.assign(
+      vehicle,
+      await vehicleClassificationFields(currentVehicle, previousIdentity),
+      await vehicleColorFields(colorInput),
+    );
 
     await vehicle.save();
 

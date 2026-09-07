@@ -5,11 +5,15 @@ import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
+process.env.EMAIL_PROVIDER = 'console';
 process.env.JWT_SECRET ||= 'test_jwt_secret';
 process.env.ENCRYPTION_KEY ||= '12345678901234567890123456789012';
 
 const { config } = await import('../config/environment.js');
 const { STAFF_2FA_AUTH_LEVEL, requiresStaffTwoFactor } = await import('../constants/roles.js');
+const { initSocket } = await import('../utils/socket.utils.js');
+const socketEvents = [];
+let socketServer;
 const { default: Billing } = await import('../models/billing.model.js');
 const { default: Order } = await import('../models/order.model.js');
 const { default: Payment } = await import('../models/payment.model.js');
@@ -19,6 +23,7 @@ const {
 } = await import('../models/shopAvailability.model.js');
 const { default: User } = await import('../models/user.model.js');
 const orderRoutes = (await import('../routes/orders.routes.js')).default;
+const qcRoutes = (await import('../routes/qc.routes.js')).default;
 const {
   evaluateReadyForPickupQueueEligibility,
 } = await import('../utils/readyPickupPaymentFlow.utils.js');
@@ -134,23 +139,28 @@ before(async () => {
   const app = express();
   app.use(express.json());
   app.use('/api/bookings', orderRoutes);
+  app.use('/api/qc', qcRoutes);
   app.use((err, _req, res, _next) => {
     res.status(err.statusCode || 500).json({ success: false, message: err.message, code: err.code });
   });
   server = await new Promise((resolve) => {
     const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
   });
+  socketServer = initSocket(server);
+  socketServer.to = (room) => ({ emit: (event, payload) => socketEvents.push({ room, event, payload }) });
   const address = server.address();
   baseUrl = `http://127.0.0.1:${address.port}`;
 });
 
 beforeEach(async () => {
+  socketEvents.length = 0;
   await mongoose.connection.db.dropDatabase();
   await Payment.syncIndexes();
 });
 
 after(async () => {
-  if (server) {
+  if (socketServer) await new Promise((resolve) => socketServer.close(resolve));
+  if (server?.listening) {
     await new Promise((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve()))
     );
@@ -268,4 +278,92 @@ test('balance pickup queue route is protected and registered before dynamic orde
   assert.ok(queuedRow.readyForPaymentAt);
   assert.equal(queuedRow.queueReason, 'readyForFinalPayment');
   assert.equal(queuedRow.remainingBalance, 800);
+});
+
+
+test('final QC gate creates a Sales task; payment enables handover without completing the service', async () => {
+  const qc = await seedUser('staff_quality_checker');
+  const sales = await seedUser('sales');
+  const { order } = await seedEligibleOrder({ order: {
+    serviceTrackingStage: 'quality_check',
+    qcCompletedAt: null,
+    trackerStageMedia: [...pickupMedia(), { stage: 'quality_check', slot: 'front', photoUrl: 'https://example.test/qc.jpg' }],
+  } });
+  const qcHeaders = { Authorization: `Bearer ${tokenFor(qc)}` };
+  const salesHeaders = { Authorization: `Bearer ${tokenFor(sales)}` };
+  const setStage = (stage) => requestJson(`/api/qc/jobs/${order._id}/service-status`, {
+    method: 'PATCH', headers: qcHeaders, body: JSON.stringify({ stage }),
+  });
+
+  const finalGate = await setStage('ready_pickup');
+  assert.equal(finalGate.response.status, 200, JSON.stringify(finalGate.body));
+  const queued = await Order.findById(order._id);
+  assert.equal(queued.posQueueStatus, 'balance_pickup_queue');
+  assert.equal(queued.status, 'ready_for_payment');
+  assert.ok(queued.qcCompletedAt);
+  assert.ok(queued.readyForPaymentAt);
+
+  for (const terminalStage of ['released', 'completed']) {
+    const blocked = await setStage(terminalStage);
+    assert.equal(blocked.response.status, 400);
+    assert.match(blocked.body.message, /final balance/);
+  }
+  const deniedCheckout = await requestJson(`/api/bookings/${order._id}/billing/checkout`, {
+    method: 'POST', headers: qcHeaders, body: JSON.stringify({ paymentMethod: 'cash', cashReceived: 800 }),
+  });
+  assert.equal(deniedCheckout.response.status, 403);
+
+  const checkout = await requestJson(`/api/bookings/${order._id}/billing/checkout`, {
+    method: 'POST', headers: salesHeaders, body: JSON.stringify({ paymentMethod: 'cash', cashReceived: 800 }),
+  });
+  assert.equal(checkout.response.status, 200, JSON.stringify(checkout.body));
+  assert.ok(checkout.body.data.receipt.transactionId);
+  assert.equal(checkout.body.data.vehicleReleaseAvailable, true);
+  const paid = await Order.findById(order._id);
+  assert.equal(paid.paymentStatus, 'paid');
+  assert.equal(paid.status, 'ready_for_payment');
+  assert.equal(paid.serviceTrackingStage, 'ready_pickup');
+  assert.equal(paid.posQueueStatus, null);
+  const paymentUpdate = socketEvents.find(({ room, event, payload }) => room === 'realtime:staff' && event === 'orderUpdated' && payload.paymentStatus === 'paid');
+  assert.ok(paymentUpdate, 'QC receives payment confirmation without MongoDB change streams');
+  assert.equal(paymentUpdate.payload.serviceTrackingStage, 'ready_pickup');
+  assert.equal(paymentUpdate.payload.posQueueStatus, null);
+  assert.ok(paymentUpdate.payload.invoiceId);
+  assert.equal(paid.readyForPaymentAt.getTime(), queued.readyForPaymentAt.getTime());
+
+  const qcJobs = await requestJson(`/api/qc/jobs?scope=all&orderId=${order._id}`, { headers: qcHeaders });
+  assert.equal(qcJobs.response.status, 200);
+  const paidJob = qcJobs.body.jobs[0];
+  assert.equal(paidJob.paymentStatus, 'paid');
+  assert.equal(paidJob.orderStatus, 'ready_for_payment');
+  assert.ok(paidJob.invoiceId);
+  assert.equal(paidJob.readyForPickupEvidenceComplete, true);
+  const paymentQueue = await requestJson('/api/bookings/queue/balance-pickup', { headers: salesHeaders });
+  assert.equal(paymentQueue.body.data.length, 0);
+
+  const duplicate = await requestJson(`/api/bookings/${order._id}/billing/checkout`, {
+    method: 'POST', headers: salesHeaders, body: JSON.stringify({ paymentMethod: 'cash', cashReceived: 800 }),
+  });
+  assert.equal(duplicate.response.status, 400);
+  assert.equal(await Payment.countDocuments({ order: order._id, transactionType: 'service_balance' }), 1);
+
+  const handover = await setStage('released');
+  assert.equal(handover.response.status, 200, JSON.stringify(handover.body));
+  const completed = await Order.findById(order._id);
+  assert.equal(completed.status, 'released');
+  assert.equal(completed.serviceTrackingStage, 'released');
+});
+
+
+test('prepaid service retains pickup evidence readiness after final QC completion', async () => {
+  const { order } = await seedEligibleOrder({ billingStatus: 'checked_out', order: { paymentStatus: 'paid' } });
+  await Payment.create({ invoiceId: `BAL-${order.orderNumber}`, order: order._id, customer: order.customer, amount: 800, amountSubmitted: 800, amountVerified: 800, status: 'succeeded', transactionType: 'service_balance', method: 'cash' });
+  const result = await evaluateReadyForPickupQueueEligibility(order, { persist: true, emit: false });
+  const saved = await Order.findById(order._id);
+  assert.equal(result.eligible, false);
+  assert.equal(saved.posQueueStatus, null);
+  assert.equal(saved.readyForPickupEvidenceComplete, true);
+  assert.equal(saved.serviceTrackingStage, 'ready_pickup');
+  assert.notEqual(saved.status, 'completed');
+  assert.notEqual(saved.status, 'released');
 });

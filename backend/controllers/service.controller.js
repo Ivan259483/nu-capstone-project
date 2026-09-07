@@ -1,3 +1,4 @@
+import { requireVehiclePricing } from '../services/vehicleIntelligence.service.js';
 import Service from '../models/service.model.js';
 import Vehicle from '../models/vehicle.model.js';
 import ActivityLog from '../models/activityLog.model.js';
@@ -10,7 +11,6 @@ import {
 import { PPF_FULL_WRAP_CATALOG } from '../constants/ppfCatalog.js';
 import {
     VEHICLE_PRICING_CATEGORIES,
-    resolveVehiclePricingCategory,
 } from '../constants/pricingCategories.js';
 import { isCustomerRole } from '../constants/roles.js';
 import { ServicePricingError, resolveServicePricing } from '../services/servicePricing.service.js';
@@ -198,30 +198,7 @@ export const getBookingOptions = async (req, res, next) => {
             return res.status(403).json({ success: false, message: 'This vehicle does not belong to your account.' });
         }
 
-        const effectivePricingCategory = resolveVehiclePricingCategory(pricingVehicle);
-        if (effectivePricingCategory && pricingVehicle.pricingCategory !== effectivePricingCategory) {
-            const categoryGuard = pricingVehicle.pricingCategory === undefined
-                ? { pricingCategory: { $exists: false } }
-                : { pricingCategory: pricingVehicle.pricingCategory };
-            await Vehicle.updateOne(
-                { _id: pricingVehicle._id, ...categoryGuard },
-                {
-                    $set: {
-                        pricingCategory: effectivePricingCategory,
-                        pricingCategorySource: 'legacy_migration',
-                        pricingCategoryNeedsReview: true,
-                        pricingCategoryReviewedAt: null,
-                        pricingCategoryReviewedBy: null,
-                    },
-                }
-            );
-            pricingVehicle = {
-                ...pricingVehicle,
-                pricingCategory: effectivePricingCategory,
-                pricingCategorySource: 'legacy_migration',
-                pricingCategoryNeedsReview: true,
-            };
-        }
+        pricingVehicle = await requireVehiclePricing(pricingVehicle);
 
         const services = await Service.find({
             status: 'Active',

@@ -1,3 +1,4 @@
+import { formatHandoffTime } from '@/lib/service-handoff';
 import React, {
   forwardRef,
   useCallback,
@@ -154,17 +155,6 @@ function queueReference(row: any): string {
   return String(normalized.bookingReference || row?.orderNumber || normalized.orderId || 'Queued order');
 }
 
-function readyTime(row: any): string {
-  const normalized = normalizeQueuedPickupOrder(row);
-  if (row?.bookingTime) return String(row.bookingTime);
-  const raw = normalized.readyForPaymentAt || row?.updatedAt || row?.createdAt;
-  if (!raw) return 'Ready now';
-  try {
-    return new Date(raw).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
-  } catch {
-    return 'Ready now';
-  }
-}
 
 /** Name, email, phone (with digit normalization), plate hints, loaded vehicles */
 function matchesDirectoryQuery(c: Customer, rawQuery: string): boolean {
@@ -445,7 +435,7 @@ const CustomerVehiclePanel = forwardRef<CustomerVehiclePanelHandle, Props>(funct
     const disabledReason = hydratingOrderId ? 'Loading queued order...' : normalized.disabledReason;
     const disabled = Boolean(disabledReason || hydratingOrderId);
     const active = activeOptionKey === itemKey || idString(selectedQueuedOrderId) === orderId;
-    const balance = normalized.remainingBalance || normalizeMoney(row.totalAmount ?? row.totalPrice);
+    const balance = kind === 'queue' ? normalized.remainingBalance : normalizeMoney(row.remainingBalance ?? row.totalAmount ?? row.totalPrice);
     return (
       <button
         key={itemKey}
@@ -454,9 +444,8 @@ const CustomerVehiclePanel = forwardRef<CustomerVehiclePanelHandle, Props>(funct
         title={disabledReason || undefined}
         onMouseDown={(e) => {
           e.preventDefault();
-          if (disabledReason) return;
-          void handleLoadQueueRow(row);
         }}
+        onClick={() => { if (!disabled) void handleLoadQueueRow(row); }}
         className={`w-full px-3 py-3 text-left transition-all duration-150 ${
           active
             ? 'bg-blue-50 ring-1 ring-inset ring-blue-200'
@@ -465,47 +454,25 @@ const CustomerVehiclePanel = forwardRef<CustomerVehiclePanelHandle, Props>(funct
               : 'bg-slate-50 hover:bg-slate-100'
         } ${disabled ? 'cursor-wait opacity-70' : ''}`}
       >
-        <div className="flex items-start gap-3">
-          <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-black ${
-            kind === 'queue' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-200 text-slate-700'
-          }`}>
-            {(normalized.customerName || row.customerName || 'C').charAt(0).toUpperCase()}
+        <div className="space-y-2.5">
+          <p className="text-sm font-semibold text-slate-900">{normalized.customerName || 'Customer'}</p>
+          <div className="flex flex-wrap gap-1.5">
+            <span className={`rounded-md px-2 py-1 text-[11px] font-semibold ${normalized.qcComplete ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{normalized.qcComplete ? 'QC Completed' : 'QC Not Confirmed'}</span>
+            <span className="rounded-md bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800">{normalized.paymentStatusLabel}</span>
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <p className="text-xs font-bold text-slate-900">{normalized.customerName || row.customerName || 'Customer'}</p>
-              <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
-                Ready for payment
-              </span>
-              <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">
-                Balance due
-              </span>
-              {isLoading && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">
-                  <Loader2 size={9} className="animate-spin" />
-                  Loading queued order...
-                </span>
-              )}
-            </div>
-            <p className="mt-1 truncate text-[11px] font-semibold text-slate-600">
-              {normalized.plateNumber || row.vehiclePlate || 'No plate'} · {row.serviceType || row.serviceName || 'Service/package'}
-            </p>
-            <p className="mt-0.5 truncate text-[10px] text-slate-400">
-              {normalized.bookingReference || queueReference(row)} · {readyTime(row)}
-            </p>
+          <div className="space-y-1 text-xs text-slate-600">
+            <p className="font-semibold">{normalized.vehicleLabel} · {normalized.plateNumber || 'No plate'}</p>
+            <p>Service package: {normalized.servicePackage}</p>
+            <p>Assigned team: <span className="font-semibold">Sales Department</span></p>
+            <p>Assigned: {formatHandoffTime(normalized.readyForPaymentAt)}</p>
           </div>
-          <div className="shrink-0 text-right">
-            <p className="text-xs font-black text-amber-700">{formatPeso(balance)}</p>
-            {disabledReason ? (
-              <span className="mt-1 inline-flex max-w-[7rem] justify-end rounded-full bg-slate-100 px-2 py-1 text-[9px] font-semibold text-slate-500">
-                {disabledReason}
-              </span>
-            ) : (
-              <span className="mt-1 inline-flex rounded-full bg-blue-600 px-2 py-1 text-[9px] font-bold text-white">
-                Load to POS
-              </span>
-            )}
+          <div className="flex flex-wrap items-end justify-between gap-2 border-t border-slate-100 pt-2.5">
+            <div><p className="text-[11px] font-medium text-slate-500">Remaining balance</p><p className="mt-0.5 text-base font-bold tabular-nums text-slate-900">{formatPeso(balance)}</p></div>
+            <span className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold ${disabledReason ? 'bg-slate-100 text-slate-500' : 'bg-slate-900 text-white'}`}>
+              {isLoading ? <Loader2 size={12} className="animate-spin" /> : null}{disabledReason || 'Load to POS'}
+            </span>
           </div>
+          <p className="text-[10px] text-slate-400">{normalized.bookingReference || queueReference(row)}</p>
         </div>
       </button>
     );
@@ -665,7 +632,7 @@ const CustomerVehiclePanel = forwardRef<CustomerVehiclePanelHandle, Props>(funct
             {showDropdown && (
               <div
                 id="pos-customer-vehicle-search-results"
-                className="absolute z-50 top-full left-0 right-0 mt-1 max-h-[26rem] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"
+                className="absolute z-50 top-full left-0 right-0 mt-1 max-h-[min(26rem,45vh)] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"
               >
                 <div className={`border-b border-slate-100 bg-gradient-to-r from-blue-50 to-white px-3 py-2 ${
                   highlightQueue ? 'ring-2 ring-inset ring-blue-300' : ''

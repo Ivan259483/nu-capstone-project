@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   gridOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   gridLine: {
     position: 'absolute',
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   reticleWrapper: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -301,7 +301,7 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   ringLabel: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'flex-end',
     paddingBottom: 16,
@@ -333,7 +333,7 @@ const styles = StyleSheet.create({
     height: 8,
   },
   cornerNodeDot: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: 4,
     backgroundColor: Palette.accent,
   },

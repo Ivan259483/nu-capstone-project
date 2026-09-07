@@ -527,7 +527,7 @@ export default function BeforeAfterSlider({
                   'rgba(0,0,0,0.55)',
                 ]}
                 locations={[0, 0.3, 0.7, 1]}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 pointerEvents="none"
               />
               {/* Damage markers */}
@@ -586,7 +586,7 @@ export default function BeforeAfterSlider({
                         'rgba(255,255,255,0.02)',
                         'rgba(255,255,255,0.04)',
                       ]}
-                      style={StyleSheet.absoluteFillObject}
+                      style={StyleSheet.absoluteFill}
                     />
                     {/* Per-damage heal zones */}
                     {issues.map(issue => {
@@ -608,7 +608,7 @@ export default function BeforeAfterSlider({
                           <BlurView
                             intensity={Platform.OS === 'ios' ? 18 : 12}
                             tint="default"
-                            style={StyleSheet.absoluteFillObject}
+                            style={StyleSheet.absoluteFill}
                           />
                           <LinearGradient
                             colors={[
@@ -616,7 +616,7 @@ export default function BeforeAfterSlider({
                               'rgba(16,185,129,0.06)',
                               'rgba(16,185,129,0.14)',
                             ]}
-                            style={StyleSheet.absoluteFillObject}
+                            style={StyleSheet.absoluteFill}
                           />
                           <LinearGradient
                             colors={[
@@ -626,7 +626,7 @@ export default function BeforeAfterSlider({
                             ]}
                             start={{ x: 0.2, y: 0 }}
                             end={{ x: 0.8, y: 1 }}
-                            style={StyleSheet.absoluteFillObject}
+                            style={StyleSheet.absoluteFill}
                           />
                           <View style={fallbackS.checkBadge}>
                             <Ionicons name="checkmark-circle" size={10} color={GREEN} />
@@ -645,7 +645,7 @@ export default function BeforeAfterSlider({
                     'rgba(0,0,0,0.45)',
                   ]}
                   locations={[0, 0.3, 0.7, 1]}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                   pointerEvents="none"
                 />
                 <SideLabel side="right" mode="after" hasReal={hasRealAfter} />

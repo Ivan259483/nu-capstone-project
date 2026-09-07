@@ -11,7 +11,7 @@ export const ADD_VEHICLE_TYPE_LABELS = [
   'Highend Sedan',
 ] as const;
 
-export const BOOKING_YEAR_OPTIONS = Array.from({ length: 36 }, (_, i) => String(2025 - i));
+export const BOOKING_YEAR_OPTIONS = Array.from({ length: new Date().getFullYear() + 2 - 1886 + 1 }, (_, i) => String(new Date().getFullYear() + 2 - i));
 
 export const VEHICLE_COLOR_PRESETS = [
   'White',
@@ -24,6 +24,12 @@ export const VEHICLE_COLOR_PRESETS = [
   'Yellow',
   'Orange',
   'Brown',
+  'Gold',
+  'Purple',
+  'Pink',
+  'Beige',
+  'Bronze',
+  'Two-Tone',
 ] as const;
 
 export const CAR_BRANDS = [
@@ -53,6 +59,7 @@ export const CAR_BRANDS = [
 const VEHICLE_TYPE_MAP: Record<string, string> = {
   hatchback: 'hatchback',
   sedan: 'sedan',
+  midsize: 'midsized',
   midsized: 'midsized',
   suv: 'suv',
   'pick up': 'pickup',
@@ -78,6 +85,7 @@ const VEHICLE_PRICING_CATEGORY_MAP: Record<string, VehiclePricingCategory> = {
   hatchback: 'HATCHBACK_SMALL_CAR',
   'small car': 'HATCHBACK_SMALL_CAR',
   sedan: 'SEDAN',
+  midsize: 'MIDSIZED',
   midsized: 'MIDSIZED',
   suv: 'SUV',
   'pick up': 'PICKUP',
@@ -119,14 +127,24 @@ export function getVehiclePricingCategoryLabel(category?: string | null): string
 }
 
 export type VehicleGarageFormValues = {
+  vehicleId?: string;
   plate: string;
   year: string;
   brand: string;
   model: string;
   color: string;
   type: string;
+  pricingCategory?: VehiclePricingCategory | null;
   transmission: string;
   fuelType: string;
+  generation?: string;
+  facelift?: string;
+  drivetrain?: string;
+  bodyType?: string;
+  vehicleClass?: string;
+  segment?: string;
+  recommendedServiceCategory?: string;
+  classificationStatus?: 'loading' | 'classified' | 'review_required' | 'unavailable';
 };
 
 export const emptyVehicleGarageForm = (): VehicleGarageFormValues => ({
@@ -156,10 +174,17 @@ export function validateVehicleGarageForm(v: VehicleGarageFormValues): Record<st
   if (!brand) errors.brand = 'Select a brand.';
   if (!model) {
     errors.model = 'Model is required (e.g. Vios, Civic).';
-  } else if (model.length < 2) {
-    errors.model = 'Too short — enter the model name.';
+  } else if (model.length > 200) {
+    errors.model = 'Model name must be at most 200 characters.';
   }
-  if (!type) errors.type = 'We could not classify this model. Choose a listed model or contact AutoSPF+.';
+  if (v.classificationStatus === 'loading') errors.type = 'Checking vehicle classification. Please wait.';
+  else if (v.classificationStatus === 'review_required' || v.classificationStatus === 'unavailable') {
+    // Garage registration can proceed; only an approved server classification can unlock pricing.
+  }
+  else if (!type) errors.type = 'Select a brand and model for automatic classification.';
+  else if (!getVehiclePricingCategory(type) && !getVehiclePriceKeyForPricingCategory(v.pricingCategory)) {
+    errors.type = 'Please select a pricing category for this vehicle type.';
+  }
 
   return errors;
 }

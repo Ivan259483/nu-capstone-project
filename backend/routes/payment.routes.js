@@ -14,6 +14,7 @@ import {
   createPaymentRefund,
 } from '../controllers/payment.controller.js';
 import { POS_MANAGER_ROLES } from '../constants/roles.js';
+import { getMyPaymentReceipt } from '../controllers/customerReceipt.controller.js';
 
 const router = express.Router();
 
@@ -21,6 +22,7 @@ router.use(authenticate);
 
 // Customer-accessible: own payment history
 router.get('/my', getMyPayments);
+router.get('/my/:paymentId/receipt', getMyPaymentReceipt);
 
 router.post('/stripe/checkout', createStripeCheckoutSession);
 router.post('/stripe/intent', createStripePaymentIntent);

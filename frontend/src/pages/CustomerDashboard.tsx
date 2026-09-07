@@ -42,14 +42,11 @@ import { getTrackerPipelineProgressPct } from '../lib/tracker-pipeline-progress'
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '../lib/cloudinary-delivery-url';
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
 import { CustomerDashboardOverviewStrip } from '../components/customer/CustomerDashboardOverviewStrip';
-import { CustomerBookingsSection } from '../components/customer/CustomerBookingsSection';
 import CustomerGarageVehicleSilhouette from '../components/customer/CustomerGarageVehicleSilhouette';
 import { CustomerPaymentHistorySection } from '../components/customer/CustomerPaymentHistorySection';
 import {
-  CustomerBookingsSkeleton,
   CustomerDashboardHomeSkeleton,
   CustomerDocumentsSkeleton,
-  CustomerPaymentsSkeleton,
   CustomerRewardsSkeleton,
   CustomerServicesSkeleton,
 } from '../components/customer/CustomerSkeleton';
@@ -72,8 +69,10 @@ import {
   getVehiclePriceKeyForPricingCategory,
   getVehiclePricingCategoryLabel,
   validateVehicleGarageForm,
+  type VehicleGarageFormValues,
 } from '@/components/shared/vehicle-garage-constants';
-import { garageFormToApiPayload } from '@/lib/vehicle-service';
+import { garageFormToApiPayload, normalizeVehicleColorDisplay } from '@/lib/vehicle-service';
+import { getVehicleAccentTheme, getVehicleCardTheme } from '@/lib/vehicle-card-theme';
 import {
   type CustomerGarageLoadState,
   getCatalogBookingVehicleAction,
@@ -86,13 +85,13 @@ import {
   updateCustomerBookingFunnelDraft,
 } from '@/lib/customer-booking-funnel';
 
-type DashboardSection = 'dashboard' | 'scan' | 'services' | 'settings' | 'bookings' | 'documents' | 'rewards' | 'tracker' | 'payments';
+type DashboardSection = 'dashboard' | 'scan' | 'services' | 'settings' | 'documents' | 'rewards' | 'tracker' | 'payments';
 type CustomerVehicleFetchResult =
   | { status: 'loaded'; count: number }
   | { status: 'error'; message: string }
   | { status: 'stale' };
-const CUSTOMER_BOOKINGS_DATA_SECTIONS: readonly DashboardSection[] = ['dashboard', 'services', 'bookings', 'documents', 'rewards', 'tracker', 'payments'];
-const CUSTOMER_SKELETON_SECTIONS: readonly DashboardSection[] = ['dashboard', 'services', 'bookings', 'documents', 'rewards', 'payments'];
+const CUSTOMER_BOOKINGS_DATA_SECTIONS: readonly DashboardSection[] = ['dashboard', 'services', 'documents', 'rewards', 'tracker', 'payments'];
+const CUSTOMER_SKELETON_SECTIONS: readonly DashboardSection[] = ['dashboard', 'services', 'documents', 'rewards', 'payments'];
 
 type ScanUpload = {
   id: string;
@@ -141,13 +140,10 @@ function resolveCustomerDashboardSection(pathname: string, searchString: string)
   if (pathname === '/customer/book') return 'dashboard';
 
   const search = new URLSearchParams(searchString);
-  if (search.get('ref')) return 'bookings';
   const s = search.get('section');
   return s === 'settings'
     ? 'settings'
-    : s === 'bookings'
-      ? 'bookings'
-      : s === 'services'
+    : s === 'services'
         ? 'services'
         : s === 'scan' && AI_INSPECTION_HISTORY_ENABLED
           ? 'scan'
@@ -162,19 +158,6 @@ function resolveCustomerDashboardSection(pathname: string, searchString: string)
                   : 'dashboard';
 }
 
-function normalizeAppointmentReference(value: unknown): string {
-  return String(value || '').trim().replace(/\s+/g, '').toUpperCase();
-}
-
-function bookingMatchesAppointmentReference(booking: any, targetRef: string): boolean {
-  const normalizedTarget = normalizeAppointmentReference(targetRef);
-  if (!normalizedTarget) return false;
-  return [
-    booking?.bookingReference,
-    booking?.orderNumber,
-  ].some((value) => normalizeAppointmentReference(value) === normalizedTarget);
-}
-
 function getStoredSidebarCollapsed() {
   if (typeof window === 'undefined') return false;
   try {
@@ -186,29 +169,7 @@ function getStoredSidebarCollapsed() {
 
 // ---- STATIC DATA FOR BOOKING ----
 /** Preset names matching Add Vehicle color swatches (custom colors use free-text). */
-const EDIT_VEHICLE_COLOR_PRESETS = ['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Brown'] as const;
-
-type CustomerVehicleColorTheme = {
-  from: string;
-  to: string;
-  glow: string;
-  text: string;
-  border: string;
-  tint: string;
-};
-
-const CUSTOMER_VEHICLE_COLOR_THEMES: Record<string, CustomerVehicleColorTheme> = {
-  white: { from: '#f6f1ea', to: '#d9d1c7', glow: 'rgba(213,198,180,0.22)', text: '#4b5563', border: '#C9BCAF', tint: '#FBF8F3' },
-  black: { from: '#8c8791', to: '#59545f', glow: 'rgba(130,122,138,0.22)', text: '#f8fafc', border: '#7A7480', tint: '#F5F2F5' },
-  silver: { from: '#d8d6d3', to: '#a7a2a3', glow: 'rgba(167,162,163,0.22)', text: '#374151', border: '#A7A2A3', tint: '#F8F6F4' },
-  gray: { from: '#b2abb4', to: '#77717c', glow: 'rgba(129,121,135,0.22)', text: '#f8fafc', border: '#8A8290', tint: '#F5F2F5' },
-  blue: { from: '#aab4cf', to: '#6f7fa5', glow: 'rgba(129,140,177,0.2)', text: '#f8fbff', border: '#7D8DB7', tint: '#F4F6FC' },
-  red: { from: '#c7a2a0', to: '#926e72', glow: 'rgba(183,125,128,0.18)', text: '#fff7f7', border: '#B78384', tint: '#FCF4F3' },
-  green: { from: '#9aaf9e', to: '#637b69', glow: 'rgba(116,146,124,0.18)', text: '#f7fff9', border: '#7B977F', tint: '#F4F8F3' },
-  yellow: { from: '#d7be82', to: '#9f8350', glow: 'rgba(198,162,89,0.18)', text: '#2c2518', border: '#C2A25F', tint: '#FBF6EA' },
-  orange: { from: '#c39a78', to: '#936c52', glow: 'rgba(180,126,86,0.17)', text: '#fff8f2', border: '#B98462', tint: '#FAF2EC' },
-  brown: { from: '#9b8170', to: '#685449', glow: 'rgba(139,103,82,0.18)', text: '#fffaf5', border: '#927463', tint: '#F8F2ED' },
-};
+const EDIT_VEHICLE_COLOR_PRESETS = ['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Brown', 'Gold', 'Purple', 'Pink', 'Beige', 'Bronze', 'Two-Tone'] as const;
 
 const CUSTOMER_VEHICLE_TYPE_ICONS: Record<string, string> = {
   hatchback: 'solar:car-2-bold',
@@ -228,11 +189,6 @@ const BOOKING_PACKAGE_ACCENTS: Record<string, { border: string; tint: string; ba
   spf99: { border: CUSTOMER_UI.gold, tint: '#FFFBEB', badge: '#FEF3C7', text: '#B45309' },
   spf101: { border: CUSTOMER_UI.gold, tint: '#FFFBEB', badge: '#FEF3C7', text: '#B45309' },
 };
-
-function getCustomerVehicleColorTheme(color?: string | null): CustomerVehicleColorTheme {
-  const colorKey = color?.trim().toLowerCase() || 'white';
-  return CUSTOMER_VEHICLE_COLOR_THEMES[colorKey] || CUSTOMER_VEHICLE_COLOR_THEMES.white;
-}
 
 function getCustomerVehicleTypeIcon(type?: string | null): string {
   return CUSTOMER_VEHICLE_TYPE_ICONS[(type || '').toLowerCase()] || 'solar:car-bold';
@@ -325,7 +281,9 @@ const toTitleCase = (str: string) =>
   str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase());
 
 const formatTitleCaseDisplay = (value: unknown, fallback = '—') => {
-  const formatted = toTitleCase(String(value ?? '').trim());
+  const raw = String(value ?? '').trim();
+  if (raw.toLowerCase() === 'not specified') return 'Not specified';
+  const formatted = toTitleCase(raw);
   return formatted || fallback;
 };
 
@@ -561,13 +519,22 @@ function mapCustomerVehicleApiRecord(v: any) {
     make: v.make || '',
     model: v.model || '',
     name: [year, v.make, v.model].filter(Boolean).join(' ') || v.name || '',
-    color: v.color || '',
+    color: normalizeVehicleColorDisplay(v.color),
+    standardColor: v.standardColor || null,
+    factoryColorName: v.factoryColorName || '',
+    paintCode: v.paintCode || '',
+    finishType: v.finishType || '',
+    colorHex: v.colorHex || '',
+    colorSource: v.colorSource || null,
     type: v.vehicleType || v.type || '',
     transmission: v.transmission || '',
     fuelType: v.fuelType || '',
     pricingCategory: v.pricingCategory ?? null,
     pricingCategorySource: v.pricingCategorySource ?? null,
     pricingCategoryNeedsReview: Boolean(v.pricingCategoryNeedsReview),
+    generation: v.generation || '',
+    facelift: v.facelift || '',
+    drivetrain: v.drivetrain || '',
   };
 }
 
@@ -699,10 +666,6 @@ export default function CustomerDashboard() {
   const [sidebarTransitionsReady, setSidebarTransitionsReady] = useState(false);
   const sidebarTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const location = useLocation();
-  const targetAppointmentRef = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    return normalizeAppointmentReference(params.get('ref'));
-  }, [location.search]);
   const targetTrackerBookingId = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return String(params.get('bookingId') || '').trim();
@@ -764,22 +727,16 @@ export default function CustomerDashboard() {
   const scanProgressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scanTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // My Bookings
+  // Customer booking records shared by the dashboard, tracker, documents, and payments.
   const [myBookings, setMyBookings] = useState<any[]>([]);
   const myBookingsRef = useRef<any[]>([]);
   const [myBookingsLoading, setMyBookingsLoading] = useState(false);
   const [customerBookingsLoadedOnce, setCustomerBookingsLoadedOnce] = useState(false);
   const customerBookingsLoadedOnceRef = useRef(false);
-  const [bookingsFilter, setBookingsFilter] = useState<'all' | 'upcoming' | 'active' | 'completed' | 'cancelled'>('all');
-  const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
-  const [highlightedAppointmentRef, setHighlightedAppointmentRef] = useState('');
   const [highlightedTrackerStage, setHighlightedTrackerStage] = useState('');
-  const bookingCardRefs = useRef<Record<string, HTMLElement | null>>({});
   const trackerStageCardRefs = useRef<Record<string, HTMLElement | null>>({});
   const trackerDetailPanelRef = useRef<HTMLDivElement | null>(null);
-  const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
-  // Payment History lightbox
-  const [paymentLightboxUrl, setPaymentLightboxUrl] = useState<string | null>(null);
+  // Order receipt preview for booking and document links.
   const [orderReceiptPdfUrl, setOrderReceiptPdfUrl] = useState<string | null>(null);
   const [orderReceiptPdfName, setOrderReceiptPdfName] = useState('AutoSPF-Official-Receipt.pdf');
   const orderReceiptPdfUrlRef = useRef<string | null>(null);
@@ -1138,7 +1095,7 @@ export default function CustomerDashboard() {
 
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [newVehicle, setNewVehicle] = useState({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' });
+  const [newVehicle, setNewVehicle] = useState<VehicleGarageFormValues>({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' });
   const [newVehicleShowColorInput, setNewVehicleShowColorInput] = useState(false);
   const [vehicleErrors, setVehicleErrors] = useState<Record<string, string>>({});
   const [vehicleApiError, setVehicleApiError] = useState('');
@@ -1171,13 +1128,29 @@ export default function CustomerDashboard() {
   // Edit Vehicle Modal
   const [editVehicleOpen, setEditVehicleOpen] = useState(false);
   const [editVehicleIndex, setEditVehicleIndex] = useState<number>(-1);
-  const [editVehicleForm, setEditVehicleForm] = useState({
+  const [editVehicleForm, setEditVehicleForm] = useState<VehicleGarageFormValues>({
     plate: '', brand: '', model: '', year: '', color: '', type: '', transmission: '', fuelType: '',
+    generation: '', facelift: '', drivetrain: '',
   });
   const [editVehicleShowColorInput, setEditVehicleShowColorInput] = useState(false);
   const [editVehicleErrors, setEditVehicleErrors] = useState<Record<string, string>>({});
   const [editVehicleApiError, setEditVehicleApiError] = useState('');
   const [deleteConfirmIdx, setDeleteConfirmIdx] = useState<number>(-1);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deletingVehicleId, setDeletingVehicleId] = useState<string | null>(null);
+  const [addVehiclePending, setAddVehiclePending] = useState(false);
+  const [editVehiclePending, setEditVehiclePending] = useState(false);
+  const [recentlyAddedId, setRecentlyAddedId] = useState<string | null>(null);
+  const [recentlyEditedId, setRecentlyEditedId] = useState<string | null>(null);
+  const recentlyAddedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recentlyEditedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (recentlyAddedTimerRef.current) clearTimeout(recentlyAddedTimerRef.current);
+      if (recentlyEditedTimerRef.current) clearTimeout(recentlyEditedTimerRef.current);
+    };
+  }, []);
 
   const fetchVehiclesAndApply = useCallback(async (expectedGen: number): Promise<CustomerVehicleFetchResult> => {
     try {
@@ -1301,10 +1274,11 @@ export default function CustomerDashboard() {
 
   const openEditVehicle = (v: any, idx: number) => {
     setEditVehicleIndex(idx);
-    const rawColor = (v.color || '').trim();
+    const rawColor = (v.color || '').trim() === 'Not specified' ? '' : (v.color || '').trim();
     const presetMatch = EDIT_VEHICLE_COLOR_PRESETS.find(c => c.toLowerCase() === rawColor.toLowerCase());
     setEditVehicleShowColorInput(Boolean(rawColor && !presetMatch));
     setEditVehicleForm({
+      vehicleId: v._id || v.id,
       plate: v.plate || '',
       brand: (v.make || '').trim(),
       model: (v.model || '').trim(),
@@ -1313,12 +1287,16 @@ export default function CustomerDashboard() {
       type: (v.type || '').trim(),
       transmission: (v.transmission || '').trim(),
       fuelType: (v.fuelType || '').trim(),
+      generation: v.generation || '',
+      facelift: v.facelift || '',
+      drivetrain: v.drivetrain || '',
     });
     setEditVehicleErrors({});
     setEditVehicleApiError('');
     setEditVehicleOpen(true);
   };
   const saveEditVehicle = async () => {
+    if (editVehiclePending) return;
     const errors = validateVehicleGarageForm(editVehicleForm);
     if (Object.keys(errors).length > 0) {
       setEditVehicleErrors(errors);
@@ -1327,43 +1305,76 @@ export default function CustomerDashboard() {
     const plateRaw = editVehicleForm.plate.trim();
     const plateNorm = normalizePlateNumber(plateRaw);
     const targetVehicle = vehicles[editVehicleIndex];
-    const vehicleId = targetVehicle?._id || targetVehicle?.id;
+    const vehicleId = editVehicleForm.vehicleId || targetVehicle?._id || targetVehicle?.id;
     setEditVehicleApiError('');
+    setEditVehiclePending(true);
+
     try {
       const { VehicleService } = await import('../lib/vehicle-service');
       const res = await VehicleService.updateVehicle(
         vehicleId,
         garageFormToApiPayload(editVehicleForm, plateNorm),
       );
-      if (!res.success) {
+      if (!res.success || !res.data) {
         setEditVehicleApiError(res.message || 'Failed to update vehicle.');
         return;
       }
+
+      // Immediately patch the vehicle in state so the card updates smoothly without waiting for an extra round trip
+      const updatedVehicle = mapCustomerVehicleApiRecord(res.data);
+      setVehicles(prev => prev.map(v => (String(v._id || v.id) === String(vehicleId) ? updatedVehicle : v)));
+
+      if (vehicleId) {
+        setRecentlyEditedId(String(vehicleId));
+        if (recentlyEditedTimerRef.current) clearTimeout(recentlyEditedTimerRef.current);
+        recentlyEditedTimerRef.current = setTimeout(() => setRecentlyEditedId(null), 850);
+      }
+
+      setEditVehicleOpen(false);
+      setEditVehicleApiError('');
+
+      // Background synchronization
+      void refetchVehiclesAfterMutation();
     } catch (err: any) {
       setEditVehicleApiError(err?.response?.data?.message || 'Failed to update. Please check your details.');
-      return;
+    } finally {
+      setEditVehiclePending(false);
     }
-    await refetchVehiclesAfterMutation();
-    setEditVehicleOpen(false);
-    setEditVehicleApiError('');
   };
 
   const deleteVehicle = async (idx: number) => {
     const target = vehicles[idx];
     const vehicleId = target?._id || target?.id;
+    if (!vehicleId || deletingVehicleId) return;
+    setDeletingVehicleId(String(vehicleId));
+
     try {
       const { VehicleService } = await import('../lib/vehicle-service');
       const res = await VehicleService.deleteVehicle(vehicleId);
       if (!res.success) {
-        alert(res.message || 'Failed to delete vehicle.');
+        toast.error(res.message || 'Failed to delete vehicle.');
+        setDeletingVehicleId(null);
         return;
       }
+
+      // Remove vehicle from state immediately so AnimatePresence exit animation triggers without delay
+      setVehicles(prev => {
+        const next = prev.filter(v => String(v._id || v.id) !== String(vehicleId));
+        setGarageLoadState(getLoadedCustomerGarageState(next.length));
+        if (next.length === 0) setShowOnboarding(true);
+        return next;
+      });
+
+      setDeleteConfirmIdx(-1);
+      setDeleteConfirmId(null);
+      setDeletingVehicleId(null);
+
+      // Background authoritative synchronization
+      void refetchVehiclesAfterMutation();
     } catch (err: any) {
-      alert(err?.response?.data?.message || 'Failed to delete vehicle.');
-      return;
+      toast.error(err?.response?.data?.message || 'Failed to delete vehicle.');
+      setDeletingVehicleId(null);
     }
-    await refetchVehiclesAfterMutation();
-    setDeleteConfirmIdx(-1);
   };
   const [bookingForm, setBookingForm] = useState({
     service: '', serviceName: '', servicePrice: 0,
@@ -1868,9 +1879,7 @@ export default function CustomerDashboard() {
     setProfileMenuOpen(false);
     setProfileSubMenu(null);
     setTrackerEvidenceLightbox(null);
-    setPaymentLightboxUrl(null);
     closeCustomerOrderReceiptPdf();
-    setCancelConfirmId(null);
     setAddVehicleOpen(false);
     setVehicleHistoryOpen(false);
     setEditVehicleOpen(false);
@@ -2235,6 +2244,7 @@ export default function CustomerDashboard() {
 
   const handleAddVehicleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (addVehiclePending) return;
     const errors = validateVehicleGarageForm(newVehicle);
     if (Object.keys(errors).length > 0) {
       setVehicleErrors(errors);
@@ -2243,35 +2253,13 @@ export default function CustomerDashboard() {
 
     const plate = newVehicle.plate.trim();
     const plateNorm = normalizePlateNumber(plate);
-    const brand = newVehicle.brand.trim();
-    const model = newVehicle.model.trim();
     const vehiclePayload = garageFormToApiPayload(newVehicle, plateNorm);
     setVehicleApiError('');
-    const displayName = [newVehicle.year, brand, model].filter(Boolean).join(' ');
-    const optimisticId = `optimistic-${Date.now()}`;
-    const optimisticVehicle = {
-      _id: optimisticId,
-      id: optimisticId,
-      _optimistic: true,
-      plate: plateNorm,
-      year: newVehicle.year || '',
-      make: brand,
-      model,
-      name: displayName,
-      color: newVehicle.color.trim() || 'Unknown',
-      type: newVehicle.type || '',
-      pricingCategory: vehiclePayload.pricingCategory,
-      transmission: newVehicle.transmission || '',
-      fuelType: newVehicle.fuelType || '',
-    };
-
-    vehiclesFetchGenRef.current += 1;
-    setVehicles(prev => [...prev, optimisticVehicle]);
+    setAddVehiclePending(true);
 
     try {
       const jwt = await ensureBackendAuthToken();
       if (!jwt) {
-        setVehicles((prev) => prev.filter((v) => v.id !== optimisticId));
         setVehicleApiError(
           'Could not verify your login with the server. Please sign out and sign in again, then add your vehicle.',
         );
@@ -2287,31 +2275,40 @@ export default function CustomerDashboard() {
             selectedVehicleId: savedVehicleId,
           });
         }
-        const refreshed = await refetchVehiclesAfterMutation();
-        if (!refreshed) {
-          const existingVehicleCount = vehicles.filter((vehicle) => vehicle.id !== optimisticId).length;
-          setVehicles(prev => {
-            const rest = prev.filter(v => v.id !== optimisticId);
-            const merged = mapCustomerVehicleApiRecord(res.data);
-            const mid = merged._id || merged.id;
-            if (!mid || rest.some(x => String(x._id || x.id) === String(mid))) return rest;
-            return [...rest, merged];
-          });
-          setGarageLoadState(getLoadedCustomerGarageState(existingVehicleCount + 1));
-          setGarageLoadError('');
+
+        // Insert returned vehicle directly into state immediately so the new card animates in without extra round trip
+        const newVehicleRecord = mapCustomerVehicleApiRecord(res.data);
+        const newVehicleId = newVehicleRecord._id || newVehicleRecord.id;
+        setVehicles(prev => {
+          if (newVehicleId && prev.some(x => String(x._id || x.id) === String(newVehicleId))) return prev;
+          const next = [...prev, newVehicleRecord];
+          setGarageLoadState(getLoadedCustomerGarageState(next.length));
+          return next;
+        });
+        setGarageLoadError('');
+        setShowOnboarding(false);
+
+        if (newVehicleId) {
+          setRecentlyAddedId(String(newVehicleId));
+          if (recentlyAddedTimerRef.current) clearTimeout(recentlyAddedTimerRef.current);
+          recentlyAddedTimerRef.current = setTimeout(() => setRecentlyAddedId(null), 1100);
         }
+
         setAddVehicleOpen(false);
         setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' });
         setNewVehicleShowColorInput(false);
         setVehicleErrors({});
         setVehicleApiError('');
+
+        // Authoritative background synchronization
+        void refetchVehiclesAfterMutation();
       } else {
-        setVehicles(prev => prev.filter(v => v.id !== optimisticId));
         setVehicleApiError(res.message || 'Failed to add vehicle. Please try again.');
       }
     } catch (err: any) {
-      setVehicles(prev => prev.filter(v => v.id !== optimisticId));
       setVehicleApiError(err?.response?.data?.message || 'Failed to add vehicle. Please check your details.');
+    } finally {
+      setAddVehiclePending(false);
     }
   };
 
@@ -2352,7 +2349,6 @@ export default function CustomerDashboard() {
     showOnboarding ||
     trackerEvidenceLightbox ||
     feedbackOpen ||
-    paymentLightboxUrl ||
     orderReceiptPdfUrl,
   );
 
@@ -2555,6 +2551,11 @@ export default function CustomerDashboard() {
   useLayoutEffect(() => {
     const search = new URLSearchParams(location.search);
     const s = search.get('section');
+    if (location.pathname === '/customer/dashboard' && s === 'bookings') {
+      setActiveSection('dashboard');
+      navigate('/customer/dashboard', { replace: true });
+      return;
+    }
     if (location.pathname === '/customer/dashboard' && s === 'scan' && !AI_INSPECTION_HISTORY_ENABLED) {
       setActiveSection('dashboard');
       navigate('/customer/dashboard', { replace: true });
@@ -2567,7 +2568,7 @@ export default function CustomerDashboard() {
     setActiveSection(nextSection);
   }, [location.pathname, location.search, navigate]);
 
-  // Fetch My Bookings whenever section opens — with socket-driven instant updates
+  // Fetch customer booking records for dashboard, tracker, documents, and payment views.
   useEffect(() => {
     if (!CUSTOMER_BOOKINGS_DATA_SECTIONS.includes(activeSection) || !user) return;
 
@@ -2665,39 +2666,6 @@ export default function CustomerDashboard() {
       }
     };
   }, [activeSection, user]);
-
-  useEffect(() => {
-    if (!targetAppointmentRef || !customerBookingsLoadedOnce || myBookingsLoading) return;
-
-    setActiveSection('bookings');
-    setBookingsFilter('all');
-
-    const matchedBooking = myBookings.find((booking) =>
-      bookingMatchesAppointmentReference(booking, targetAppointmentRef)
-    );
-    if (!matchedBooking) return;
-
-    const matchedRef = normalizeAppointmentReference(
-      matchedBooking.bookingReference || matchedBooking.orderNumber || targetAppointmentRef
-    );
-    setHighlightedAppointmentRef(matchedRef || targetAppointmentRef);
-
-    const scrollTimer = window.setTimeout(() => {
-      const el = bookingCardRefs.current[matchedRef] || bookingCardRefs.current[targetAppointmentRef];
-      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 180);
-
-    const clearTimer = window.setTimeout(() => {
-      setHighlightedAppointmentRef((current) =>
-        current === matchedRef || current === targetAppointmentRef ? '' : current
-      );
-    }, 6500);
-
-    return () => {
-      window.clearTimeout(scrollTimer);
-      window.clearTimeout(clearTimer);
-    };
-  }, [targetAppointmentRef, customerBookingsLoadedOnce, myBookingsLoading, myBookings]);
 
   const activeTrackerBooking = useMemo(() => {
     if (targetTrackerBookingId) {
@@ -2870,7 +2838,6 @@ export default function CustomerDashboard() {
       scan: '/customer/dashboard?section=scan',
       services: '/customer/dashboard?section=services',
       settings: '/customer/dashboard?section=settings',
-      bookings: '/customer/dashboard?section=bookings',
       documents: '/customer/dashboard?section=documents',
       payments: '/customer/dashboard?section=payments',
       rewards: '/customer/dashboard?section=rewards',
@@ -3252,9 +3219,7 @@ export default function CustomerDashboard() {
     CUSTOMER_SKELETON_SECTIONS.includes(activeSection) &&
     (myBookingsLoading || !customerBookingsLoadedOnce);
   const dashboardSectionLoading = activeSection === 'dashboard' && (customerSectionDataLoading || vehiclesLoading);
-  const bookingsSectionLoading = activeSection === 'bookings' && customerSectionDataLoading;
   const documentsSectionLoading = activeSection === 'documents' && customerSectionDataLoading;
-  const paymentsSectionLoading = activeSection === 'payments' && customerSectionDataLoading;
   const rewardsSectionLoading = activeSection === 'rewards' && customerSectionDataLoading;
   const servicesSectionLoading = false;
   const settingsInitial = (profile.fullName || user?.name || user?.email || 'C').charAt(0).toUpperCase();
@@ -3354,7 +3319,7 @@ export default function CustomerDashboard() {
               type="button"
               className={`customer-sidebar-item ${activeSection === 'dashboard' ? 'is-active' : ''}`}
               aria-label="Dashboard"
-              title={sidebarCollapsed ? 'Dashboard' : undefined}
+              data-sidebar-tooltip="Dashboard"
             >
               <CustomerSidebarAnimatedIcon name="dashboard" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Dashboard</span>
@@ -3363,8 +3328,9 @@ export default function CustomerDashboard() {
               type="button"
               disabled={!AI_INSPECTION_HISTORY_ENABLED}
               onClick={() => nav('scan')}
-              title={sidebarCollapsed ? 'AI Inspection History' : AI_INSPECTION_HISTORY_ENABLED ? undefined : 'Coming soon'}
+              title={!sidebarCollapsed && !AI_INSPECTION_HISTORY_ENABLED ? 'Coming soon' : undefined}
               aria-label="AI Inspection History"
+              data-sidebar-tooltip="AI Inspection"
               className={`customer-sidebar-item customer-sidebar-item--soon ${AI_INSPECTION_HISTORY_ENABLED && activeSection === 'scan' ? 'is-active' : ''}`}
             >
               <CustomerSidebarAnimatedIcon name="scan" size={18} />
@@ -3375,25 +3341,10 @@ export default function CustomerDashboard() {
             </button>
             <button
               type="button"
-              onClick={() => nav('bookings')}
-              className={`customer-sidebar-item ${activeSection === 'bookings' ? 'is-active' : ''}`}
-              aria-label="My Bookings"
-              title={sidebarCollapsed ? 'My Bookings' : undefined}
-            >
-              <CustomerSidebarAnimatedIcon name="bookings" size={18} />
-              <span className="customer-sidebar-label flex-1 min-w-0 text-left">My Bookings</span>
-              {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length > 0 && (
-                <span className="customer-sidebar-extra ml-auto">
-                  {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length}
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
               onClick={() => nav('services')}
               className={`customer-sidebar-item ${activeSection === 'services' ? 'is-active' : ''}`}
               aria-label="Services"
-              title={sidebarCollapsed ? 'Services' : undefined}
+              data-sidebar-tooltip="Services"
             >
               <CustomerSidebarAnimatedIcon name="services" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Services</span>
@@ -3403,7 +3354,7 @@ export default function CustomerDashboard() {
               onClick={() => nav('tracker')}
               className={`customer-sidebar-item ${activeSection === 'tracker' ? 'is-active' : ''}`}
               aria-label="Live Tracker"
-              title={sidebarCollapsed ? 'Live Tracker' : undefined}
+              data-sidebar-tooltip="Live Tracker"
             >
               <CustomerSidebarAnimatedIcon name="tracker" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Live Tracker</span>
@@ -3414,7 +3365,7 @@ export default function CustomerDashboard() {
               onClick={() => nav('documents')}
               className={`customer-sidebar-item ${activeSection === 'documents' ? 'is-active' : ''}`}
               aria-label="Documents"
-              title={sidebarCollapsed ? 'Documents' : undefined}
+              data-sidebar-tooltip="Documents"
             >
               <CustomerSidebarAnimatedIcon name="documents" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Documents</span>
@@ -3425,7 +3376,7 @@ export default function CustomerDashboard() {
               onClick={() => nav('payments')}
               className={`customer-sidebar-item ${activeSection === 'payments' ? 'is-active' : ''}`}
               aria-label="Payment History"
-              title={sidebarCollapsed ? 'Payment History' : undefined}
+              data-sidebar-tooltip="Payment History"
             >
               <CustomerSidebarAnimatedIcon name="payments" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Payment History</span>
@@ -3436,7 +3387,7 @@ export default function CustomerDashboard() {
               onClick={() => nav('rewards')}
               className={`customer-sidebar-item ${activeSection === 'rewards' ? 'is-active' : ''}`}
               aria-label="Rewards"
-              title={sidebarCollapsed ? 'Rewards' : undefined}
+              data-sidebar-tooltip="Rewards"
             >
               <CustomerSidebarAnimatedIcon name="rewards" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Rewards</span>
@@ -3491,15 +3442,13 @@ export default function CustomerDashboard() {
             </div>
 
             <div className="customer-dashboard-actions flex items-center gap-2">
-              {activeSection !== 'bookings' && (
-                <button
-                  onClick={() => void openBookingModal()}
-                  className="customer-dashboard-header-action hidden sm:inline-flex h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-white transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25"
-                >
-                  <iconify-icon icon="solar:calendar-add-bold" width="17" height="17" className="shrink-0"></iconify-icon>
-                  Book Service
-                </button>
-              )}
+              <button
+                onClick={() => void openBookingModal()}
+                className="customer-dashboard-header-action hidden sm:inline-flex h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-white transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25"
+              >
+                <iconify-icon icon="solar:calendar-add-bold" width="17" height="17" className="shrink-0"></iconify-icon>
+                Book Service
+              </button>
 
               <div className="relative shrink-0">
                 <button
@@ -3816,886 +3765,13 @@ export default function CustomerDashboard() {
           </header>
 
           {/* Scrollable Area */}
-          <main className="customer-dashboard-scroll-root customer-dashboard-main min-w-0 w-full flex-1 overflow-y-auto bg-slate-50 p-3 sm:p-4 lg:p-5">
+          <main
+            className={`customer-dashboard-scroll-root customer-dashboard-main min-w-0 w-full flex-1 overflow-y-auto bg-slate-50 p-3 sm:p-4 lg:p-5 ${
+              activeSection === 'dashboard' ? 'is-dashboard-home' : ''
+            }`}
+          >
 
-            {activeSection === 'bookings' ? (
-              bookingsSectionLoading ? (
-                <CustomerBookingsSkeleton />
-              ) : (
-              /* ═══════════════════════════════════════════
-                 MY BOOKINGS — Premium customer portal
-              ═══════════════════════════════════════════ */
-              (() => {
-                return (
-                  <CustomerBookingsSection
-                    bookings={myBookings}
-                    activeFilter={bookingsFilter}
-                    highlightedAppointmentRef={highlightedAppointmentRef}
-                    onFilterChange={setBookingsFilter}
-                    onNewBooking={() => void openBookingModal()}
-                    onTrackService={() => nav('tracker')}
-                    onViewReceipt={(orderId) => void openCustomerOrderReceiptPdf(orderId)}
-                    onCancelBooking={async (booking) => {
-                      const id = booking._id || booking.id;
-                      try {
-                        const { OrderService } = await import('../lib/order-service');
-                        await (OrderService as any).updateOrder?.(id, { status: 'cancelled' });
-                        setMyBookings((previous) => previous.map((item) => (
-                          (item._id || item.id) === id
-                            ? { ...item, status: 'cancelled' }
-                            : item
-                        )));
-                      } catch {
-                        // Preserve the existing cancellation behavior when the update request fails.
-                      }
-                    }}
-                    registerBookingRef={(reference, element) => {
-                      if (reference) bookingCardRefs.current[reference] = element;
-                    }}
-                  />
-                );
-
-                const upcomingStatuses = ['pending_confirmation', 'pending', 'confirmed', 'approved', 'assigned'];
-                const activeStatuses = ['in-progress', 'in_progress', 'processing', 'checked-in', 'received'];
-                const doneStatuses = ['completed', 'released', 'done', 'delivered', 'paid'];
-                const cancelledStatuses = ['cancelled', 'rejected'];
-                const filteredBookings = bookingsFilter === 'all' ? myBookings
-                  : bookingsFilter === 'upcoming' ? myBookings.filter(b => upcomingStatuses.includes(b.status))
-                    : bookingsFilter === 'active' ? myBookings.filter(b => activeStatuses.includes(b.status))
-                      : bookingsFilter === 'completed' ? myBookings.filter(b => doneStatuses.includes(b.status))
-                        : myBookings.filter(b => cancelledStatuses.includes(b.status));
-
-                const statusCfg: Record<string, {
-                  label: string;
-                  badge: string;
-                  icon: string;
-                  accent: string;
-                  helper: string;
-                  live?: boolean;
-                }> = {
-                  pending_confirmation: {
-                    label: 'Awaiting confirmation',
-                    badge: 'border-amber-200 bg-amber-50 text-amber-800',
-                    icon: 'bg-amber-50 text-amber-700 ring-amber-100',
-                    accent: 'bg-amber-500',
-                    helper: 'Payment verification in progress',
-                  },
-                  pending: {
-                    label: 'Pending',
-                    badge: 'border-amber-200 bg-amber-50 text-amber-800',
-                    icon: 'bg-amber-50 text-amber-700 ring-amber-100',
-                    accent: 'bg-amber-500',
-                    helper: 'Waiting for appointment confirmation',
-                  },
-                  approved: {
-                    label: 'Approved',
-                    badge: 'border-blue-200 bg-blue-50 text-blue-800',
-                    icon: 'bg-blue-50 text-blue-700 ring-blue-100',
-                    accent: 'bg-blue-600',
-                    helper: 'Your appointment is secured',
-                  },
-                  confirmed: {
-                    label: 'Confirmed',
-                    badge: 'border-blue-200 bg-blue-50 text-blue-800',
-                    icon: 'bg-blue-50 text-blue-700 ring-blue-100',
-                    accent: 'bg-blue-600',
-                    helper: 'Your appointment is secured',
-                  },
-                  assigned: {
-                    label: 'Team assigned',
-                    badge: 'border-blue-200 bg-blue-50 text-blue-800',
-                    icon: 'bg-blue-50 text-blue-700 ring-blue-100',
-                    accent: 'bg-blue-600',
-                    helper: 'A service team is preparing for your visit',
-                  },
-                  received: {
-                    label: 'Vehicle received',
-                    badge: 'border-cyan-200 bg-cyan-50 text-cyan-800',
-                    icon: 'bg-cyan-50 text-cyan-700 ring-cyan-100',
-                    accent: 'bg-cyan-600',
-                    helper: 'Your vehicle is now with our team',
-                    live: true,
-                  },
-                  'checked-in': {
-                    label: 'Checked in',
-                    badge: 'border-cyan-200 bg-cyan-50 text-cyan-800',
-                    icon: 'bg-cyan-50 text-cyan-700 ring-cyan-100',
-                    accent: 'bg-cyan-600',
-                    helper: 'Your vehicle is now with our team',
-                    live: true,
-                  },
-                  in_progress: {
-                    label: 'In service',
-                    badge: 'border-teal-200 bg-teal-50 text-teal-800',
-                    icon: 'bg-teal-50 text-teal-700 ring-teal-100',
-                    accent: 'bg-teal-600',
-                    helper: 'Service work is currently underway',
-                    live: true,
-                  },
-                  'in-progress': {
-                    label: 'In service',
-                    badge: 'border-teal-200 bg-teal-50 text-teal-800',
-                    icon: 'bg-teal-50 text-teal-700 ring-teal-100',
-                    accent: 'bg-teal-600',
-                    helper: 'Service work is currently underway',
-                    live: true,
-                  },
-                  processing: {
-                    label: 'In service',
-                    badge: 'border-teal-200 bg-teal-50 text-teal-800',
-                    icon: 'bg-teal-50 text-teal-700 ring-teal-100',
-                    accent: 'bg-teal-600',
-                    helper: 'Service work is currently underway',
-                    live: true,
-                  },
-                  completed: {
-                    label: 'Completed',
-                    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-                    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
-                    accent: 'bg-emerald-600',
-                    helper: 'Service completed successfully',
-                  },
-                  paid: {
-                    label: 'Paid',
-                    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-                    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
-                    accent: 'bg-emerald-600',
-                    helper: 'Payment and service are complete',
-                  },
-                  released: {
-                    label: 'Released',
-                    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-                    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
-                    accent: 'bg-emerald-600',
-                    helper: 'Vehicle returned to customer',
-                  },
-                  done: {
-                    label: 'Completed',
-                    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-                    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
-                    accent: 'bg-emerald-600',
-                    helper: 'Service completed successfully',
-                  },
-                  delivered: {
-                    label: 'Released',
-                    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-                    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
-                    accent: 'bg-emerald-600',
-                    helper: 'Vehicle returned to customer',
-                  },
-                  cancelled: {
-                    label: 'Cancelled',
-                    badge: 'border-rose-200 bg-rose-50 text-rose-800',
-                    icon: 'bg-rose-50 text-rose-700 ring-rose-100',
-                    accent: 'bg-rose-500',
-                    helper: 'This appointment was cancelled',
-                  },
-                  rejected: {
-                    label: 'Not approved',
-                    badge: 'border-rose-200 bg-rose-50 text-rose-800',
-                    icon: 'bg-rose-50 text-rose-700 ring-rose-100',
-                    accent: 'bg-rose-500',
-                    helper: 'This booking needs a new request',
-                  },
-                  failed: {
-                    label: 'Payment issue',
-                    badge: 'border-rose-200 bg-rose-50 text-rose-800',
-                    icon: 'bg-rose-50 text-rose-700 ring-rose-100',
-                    accent: 'bg-rose-500',
-                    helper: 'Payment could not be completed',
-                  },
-                };
-
-                const filterCounts = {
-                  all: myBookings.length,
-                  upcoming: myBookings.filter(b => upcomingStatuses.includes(b.status)).length,
-                  active: myBookings.filter(b => activeStatuses.includes(b.status)).length,
-                  completed: myBookings.filter(b => doneStatuses.includes(b.status)).length,
-                  cancelled: myBookings.filter(b => cancelledStatuses.includes(b.status)).length,
-                };
-                const nextUpcomingBooking = myBookings
-                  .filter((booking) => upcomingStatuses.includes(String(booking.status || '').toLowerCase()))
-                  .map((booking) => ({
-                    booking,
-                    timestamp: new Date(booking.bookingDate || booking.date || 0).getTime(),
-                  }))
-                  .filter((entry) => Number.isFinite(entry.timestamp) && entry.timestamp > 0)
-                  .sort((a, b) => a.timestamp - b.timestamp)[0]?.booking;
-                const nextAppointmentLabel = nextUpcomingBooking
-                  ? `${formatBookingDayLabel(nextUpcomingBooking.bookingDate || nextUpcomingBooking.date)}${nextUpcomingBooking.bookingTime || nextUpcomingBooking.time ? ` · ${nextUpcomingBooking.bookingTime || nextUpcomingBooking.time}` : ''}`
-                  : 'No upcoming appointment';
-                const summaryCards = [
-                  { key: 'all', label: 'Total Bookings', count: filterCounts.all, helper: 'Lifetime appointments', icon: 'solar:calendar-mark-bold', tone: 'text-slate-700 bg-slate-100 ring-slate-200' },
-                  { key: 'upcoming', label: 'Upcoming', count: filterCounts.upcoming, helper: 'Scheduled or pending', icon: 'solar:calendar-date-bold', tone: 'text-amber-700 bg-amber-50 ring-amber-100' },
-                  { key: 'active', label: 'Active', count: filterCounts.active, helper: 'Currently in service', icon: 'solar:steering-wheel-bold', tone: 'text-cyan-700 bg-cyan-50 ring-cyan-100' },
-                  { key: 'completed', label: 'Completed', count: filterCounts.completed, helper: 'Finished appointments', icon: 'solar:check-circle-bold', tone: 'text-emerald-700 bg-emerald-50 ring-emerald-100' },
-                  { key: 'cancelled', label: 'Cancelled', count: filterCounts.cancelled, helper: 'Cancelled or rejected', icon: 'solar:close-circle-bold', tone: 'text-rose-700 bg-rose-50 ring-rose-100' },
-                ] as const;
-                const filterMeta = {
-                  all: { label: 'All', icon: 'solar:layers-minimalistic-linear' },
-                  upcoming: { label: 'Upcoming', icon: 'solar:calendar-date-linear' },
-                  active: { label: 'Active', icon: 'solar:play-circle-linear' },
-                  completed: { label: 'Completed', icon: 'solar:check-circle-linear' },
-                  cancelled: { label: 'Cancelled', icon: 'solar:close-circle-linear' },
-                } as const;
-                const progressSteps = [
-                  { label: 'Confirmed', short: 'Confirmed' },
-                  { label: 'Vehicle arrived', short: 'Arrived' },
-                  { label: 'In service', short: 'In Service' },
-                  { label: 'Quality review', short: 'QC Review' },
-                  { label: 'Ready for pickup', short: 'Pickup' },
-                ] as const;
-
-                return (
-                  <div className="customer-content-fade-in mx-auto w-full max-w-[1380px] space-y-4 pb-12 pt-1">
-
-                    {/* ── Header ── */}
-                    <section className="overflow-hidden rounded-[20px] border border-slate-200/80 bg-[#fffefd] shadow-[0_16px_44px_-38px_rgba(15,23,42,0.42)]">
-                      <div className="flex flex-col gap-4 px-5 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="min-w-0">
-                          <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                            <p className={CUSTOMER_SECTION_LABEL}>Service appointments</p>
-                            {myBookings.length > 0 && (
-                              <span className="rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
-                                {myBookings.length} total
-                              </span>
-                            )}
-                          </div>
-                          <h2 className="text-[26px] font-bold tracking-[-0.035em] text-slate-950 sm:text-[30px]">My Bookings</h2>
-                          <p className="mt-0.5 max-w-2xl text-sm leading-5 text-slate-500">
-                            Your current service journey and complete vehicle care history.
-                          </p>
-                        </div>
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                          <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3.5 py-2.5 sm:min-w-[220px]">
-                            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">
-                              <span className={`h-2 w-2 rounded-full ${filterCounts.active > 0 ? 'bg-teal-500' : 'bg-slate-300'}`} />
-                              Next appointment
-                            </div>
-                            <p className="mt-1 truncate text-sm font-semibold text-slate-800">{nextAppointmentLabel}</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => void openBookingModal()}
-                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_-16px_rgba(37,99,235,0.9)] transition hover:bg-blue-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
-                          >
-                            <iconify-icon icon="solar:calendar-add-bold" width="17"></iconify-icon>
-                            New Booking
-                          </button>
-                        </div>
-                      </div>
-                    </section>
-
-                    {/* ── Stats Summary ── */}
-                    <div className="grid grid-cols-2 overflow-hidden rounded-[20px] border border-slate-200/80 bg-white shadow-[0_14px_34px_-30px_rgba(15,23,42,0.44)] md:grid-cols-3 xl:grid-cols-5">
-                      {summaryCards.map((summary) => (
-                        <button
-                          type="button"
-                          key={summary.key}
-                          onClick={() => setBookingsFilter(summary.key)}
-                          className={`group relative min-h-[82px] border-b border-r border-slate-100 p-3.5 text-left transition hover:bg-slate-50/80 ${
-                            bookingsFilter === summary.key ? 'bg-blue-50/65' : 'bg-white'
-                          }`}
-                        >
-                          {bookingsFilter === summary.key && <span className="absolute inset-x-4 top-0 h-0.5 rounded-full bg-blue-600" />}
-                          <div className="flex items-center justify-between gap-3">
-                            <div className={`flex h-8 w-8 items-center justify-center rounded-lg ring-1 ring-inset ${summary.tone}`}>
-                              <iconify-icon icon={summary.icon} width="16"></iconify-icon>
-                            </div>
-                            <span className="text-[22px] font-bold leading-none tracking-[-0.04em] text-slate-950">{summary.count}</span>
-                          </div>
-                          <div className="mt-2">
-                            <p className="text-[11px] font-bold text-slate-800 sm:text-xs">{summary.label}</p>
-                            <p className="mt-0.5 truncate text-[9px] text-slate-400 sm:text-[10px]">{summary.helper}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* ── Filter Tabs ── */}
-                    <div className="sticky top-0 z-20 -mx-3 overflow-x-auto bg-[#f7f6f2]/95 px-3 py-2 backdrop-blur-md [scrollbar-width:none] sm:-mx-4 sm:px-4 lg:-mx-5 lg:px-5 [&::-webkit-scrollbar]:hidden">
-                      <div className="inline-flex min-w-max items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-[0_12px_28px_-22px_rgba(15,23,42,0.5)]">
-                      {(['all', 'upcoming', 'active', 'completed', 'cancelled'] as const).map((filter) => {
-                        const meta = filterMeta[filter];
-                        const isActive = bookingsFilter === filter;
-                        return (
-                          <button
-                            type="button"
-                            key={filter}
-                            onClick={() => setBookingsFilter(filter)}
-                            className={`flex min-h-9 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
-                              isActive
-                                ? 'bg-slate-950 text-white shadow-sm'
-                                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
-                            }`}
-                          >
-                            <iconify-icon icon={meta.icon} width="14"></iconify-icon>
-                            {meta.label}
-                            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${
-                              isActive ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-500'
-                            }`}>
-                              {filterCounts[filter]}
-                            </span>
-                          </button>
-                        );
-                      })}
-                      </div>
-                    </div>
-
-                    {/* ── Content ── */}
-                    {myBookingsLoading ? (
-                      <div className="grid gap-3 lg:grid-cols-2">
-                        {[1, 2, 3, 4].map((key) => (
-                          <div key={key} className="min-h-[248px] animate-pulse rounded-[20px] border border-slate-200 bg-white p-5">
-                            <div className="flex items-start justify-between gap-6">
-                              <div className="flex flex-1 gap-3">
-                                <div className="h-11 w-11 rounded-xl bg-slate-100" />
-                                <div className="flex-1 space-y-2">
-                                  <div className="h-3 w-24 rounded-full bg-slate-100" />
-                                  <div className="h-5 w-48 rounded-full bg-slate-200" />
-                                </div>
-                              </div>
-                              <div className="h-6 w-24 rounded-full bg-slate-100" />
-                            </div>
-                            <div className="mt-6 grid grid-cols-2 gap-3">
-                              <div className="h-20 rounded-2xl bg-slate-50" />
-                              <div className="h-20 rounded-2xl bg-slate-50" />
-                            </div>
-                            <div className="mt-4 h-16 rounded-2xl bg-slate-50" />
-                            <div className="mt-4 flex justify-end gap-2">
-                              <div className="h-10 w-28 rounded-xl bg-slate-100" />
-                              <div className="h-10 w-32 rounded-xl bg-slate-200" />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : filteredBookings.length === 0 ? (
-                      <div className="flex min-h-[360px] flex-col items-center justify-center rounded-[22px] border border-dashed border-slate-300 bg-white/80 px-6 py-14 text-center shadow-[0_18px_40px_-36px_rgba(15,23,42,0.5)]">
-                        <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
-                          <iconify-icon icon="solar:calendar-minimalistic-linear" width="30"></iconify-icon>
-                        </div>
-                        <p className={CUSTOMER_SECTION_LABEL}>Your service history</p>
-                        <h3 className="mt-2 text-lg font-bold text-slate-950">
-                          {bookingsFilter === 'all' ? 'No bookings yet' : `No ${bookingsFilter} bookings`}
-                        </h3>
-                        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-                          {bookingsFilter === 'all'
-                            ? 'Schedule your first AutoSPF+ visit and track every stage from confirmation to pickup.'
-                            : `There are no ${bookingsFilter} appointments in your service history right now.`
-                          }
-                        </p>
-                        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-                          {bookingsFilter !== 'all' && (
-                            <button
-                              type="button"
-                              onClick={() => setBookingsFilter('all')}
-                              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                            >
-                              View all bookings
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => void openBookingModal()}
-                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-                          >
-                            <iconify-icon icon="solar:calendar-add-bold" width="16"></iconify-icon>
-                            Book a Service
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid items-stretch gap-3 lg:grid-cols-2">
-                        {filteredBookings.map((booking: any, idx: number) => {
-                          const st = String(booking.status || 'pending').toLowerCase();
-                          const cfg = statusCfg[st] || statusCfg['pending'];
-                          const bookingId = booking._id || booking.id || String(idx);
-                          const bookingIdString = String(bookingId);
-                          const isCancelling = cancelConfirmId === bookingId;
-                          const canCancel = ['pending', 'confirmed'].includes(st);
-                          const isExpanded = expandedBookingId === bookingIdString;
-                          const hasLiveTracker = bookingShowsCustomerLiveTracker(booking);
-                          const isCompleted = doneStatuses.includes(st) && !hasLiveTracker;
-                          const isCancelled = cancelledStatuses.includes(st) || st === 'failed';
-                          const isJourneyCard = hasLiveTracker || [
-                            'approved',
-                            'confirmed',
-                            'assigned',
-                            'received',
-                            'checked-in',
-                            'in_progress',
-                            'in-progress',
-                            'processing',
-                          ].includes(st);
-                          const dateStr = (() => {
-                            const raw = booking.bookingDate || booking.date;
-                            if (!raw) return 'Date to be confirmed';
-                            try { return new Date(raw).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }); }
-                            catch { return raw; }
-                          })();
-                          const timeStr = formatTrackerClockLabel(booking.bookingTime || booking.time, 'Time to be confirmed');
-                          const serviceIcons: Record<string, string> = {
-                            'exterior': 'solar:washing-machine-bold', 'interior': 'solar:sofa-2-bold',
-                            'paint': 'solar:pallete-2-bold', 'ceramic': 'solar:shield-check-bold',
-                            'engine': 'solar:settings-bold', 'full': 'solar:star-shine-bold',
-                          };
-                          const svcName = (booking.serviceName || booking.serviceType || '').toLowerCase();
-                          const svcIcon = Object.entries(serviceIcons).find(([k]) => svcName.includes(k))?.[1] || 'solar:car-wash-bold';
-                          const rawVehicleLabel = [
-                            booking.vehicleYear,
-                            booking.vehicleBrand || booking.vehicleMake,
-                            booking.vehicleModel,
-                          ].filter(Boolean).join(' ') || booking.vehicleInfo || '';
-                          const vehicleLabel = /^(vehicle\s+details?|plate)\s+(pending|tbd)$/i.test(String(rawVehicleLabel).trim())
-                            ? ''
-                            : String(rawVehicleLabel).trim();
-                          const rawPlateLabel = displayVehicleLabel(booking.vehiclePlate, '');
-                          const plateLabel = /^(plate\s*)?(pending|tbd|n\/a|none)$/i.test(rawPlateLabel)
-                            ? ''
-                            : rawPlateLabel;
-                          const vehicleDescriptors = [
-                            formatTitleCaseDisplay(booking.vehicleColor, ''),
-                            formatTitleCaseDisplay(
-                              booking.vehicleClass || booking.vehicleType || booking.vehicleCategory,
-                              ''
-                            ),
-                          ].filter(Boolean);
-                          const appointmentRef = normalizeAppointmentReference(booking.bookingReference || booking.orderNumber);
-                          const referenceLabel = appointmentRef || bookingIdString.slice(-8).toUpperCase();
-                          const isHighlightedAppointment = Boolean(
-                            highlightedAppointmentRef && bookingMatchesAppointmentReference(booking, highlightedAppointmentRef)
-                          );
-                          const paymentStatus = String(booking.paymentStatus || '').toLowerCase();
-                          const paymentMeta = paymentStatus === 'paid'
-                            ? { label: 'Paid', className: 'border-emerald-200 bg-emerald-50 text-emerald-700', icon: 'solar:verified-check-linear' }
-                            : paymentStatus === 'failed'
-                              ? { label: 'Payment failed', className: 'border-rose-200 bg-rose-50 text-rose-700', icon: 'solar:danger-circle-linear' }
-                              : paymentStatus === 'refunded'
-                                ? { label: 'Refunded', className: 'border-slate-200 bg-slate-50 text-slate-600', icon: 'solar:restart-linear' }
-                                : paymentStatus
-                                  ? { label: 'Payment pending', className: 'border-amber-200 bg-amber-50 text-amber-700', icon: 'solar:wallet-money-linear' }
-                                  : null;
-                          const amountValue = [
-                            booking.totalAmount,
-                            booking.serviceTotal,
-                            booking.totalPrice,
-                            booking.price,
-                          ].find((value) => Number.isFinite(Number(value)) && Number(value) > 0);
-                          const hasReceipt = Boolean(
-                            paymentStatus === 'paid'
-                            || st === 'paid'
-                            || booking.invoiceId
-                            || booking.invoiceRecord?._id
-                          );
-                          const rawStage = normTrackerStr(booking.serviceTrackingStage || st);
-                          const stageIndexMap: Record<string, number> = {
-                            pending: 0,
-                            pending_confirmation: 0,
-                            approved: 0,
-                            confirmed: 0,
-                            assigned: 0,
-                            received: 1,
-                            checked_in: 1,
-                            in_progress: 2,
-                            processing: 2,
-                            quality_check: 3,
-                            ready_pickup: 4,
-                            completed: 4,
-                          };
-                          const progressIndex = Math.max(0, Math.min(4, stageIndexMap[rawStage] ?? 0));
-                          const showProgress = [
-                            'approved',
-                            'confirmed',
-                            'assigned',
-                            'received',
-                            'checked-in',
-                            'in_progress',
-                            'in-progress',
-                            'processing',
-                          ].includes(st) || ['received', 'in_progress', 'quality_check', 'ready_pickup'].includes(rawStage);
-                          const currentStage = progressSteps[progressIndex];
-                          const nextStage = progressSteps[progressIndex + 1];
-                          const assignedTeam = Array.isArray(booking.serviceStaffAssignments)
-                            ? booking.serviceStaffAssignments.map((entry: any) => entry?.name).filter(Boolean).join(', ')
-                            : '';
-                          const rejectionMessage = booking.rejectionReason
-                            || (st === 'cancelled' ? 'This appointment was cancelled.' : '')
-                            || (st === 'failed' ? 'The payment for this booking could not be completed.' : '');
-
-                          return (
-                            <div
-                              key={bookingId}
-                              ref={(el) => {
-                                if (appointmentRef) bookingCardRefs.current[appointmentRef] = el;
-                              }}
-                              data-appointment-ref={appointmentRef || undefined}
-                              className={`relative flex h-full flex-col overflow-hidden rounded-[20px] border bg-[#fffefd] shadow-[0_16px_38px_-32px_rgba(15,23,42,0.5)] transition duration-300 motion-reduce:transform-none motion-reduce:transition-none hover:-translate-y-0.5 hover:shadow-[0_22px_44px_-30px_rgba(15,23,42,0.55)] ${
-                                isJourneyCard ? 'lg:col-span-2 border-blue-200/90' : ''
-                              } ${
-                                isHighlightedAppointment
-                                  ? 'border-blue-300 ring-4 ring-blue-500/15'
-                                  : isCancelled
-                                    ? 'border-rose-200/80'
-                                    : isCompleted
-                                      ? 'border-emerald-100'
-                                      : isJourneyCard
-                                        ? ''
-                                        : 'border-amber-100'
-                              }`}
-                              style={{
-                                scrollMarginTop: 76,
-                              }}
-                            >
-                              <div className={`absolute inset-y-0 left-0 ${isJourneyCard ? 'w-1.5' : 'w-1'} ${cfg.accent}`} />
-                              {isJourneyCard && (
-                                <>
-                                  <div className="pointer-events-none absolute right-0 top-0 h-32 w-32 rounded-full bg-blue-50/80 blur-3xl" />
-                                  <iconify-icon
-                                    icon="solar:wheel-angle-linear"
-                                    width="76"
-                                    className="pointer-events-none absolute right-4 top-4 text-blue-950 opacity-[0.025]"
-                                  ></iconify-icon>
-                                </>
-                              )}
-
-                              {/* Cancel banner */}
-                              {isCancelling && (
-                                <div className="flex flex-col gap-3 border-b border-rose-200 bg-rose-50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <iconify-icon icon="solar:danger-triangle-bold" width="16" className="text-rose-600"></iconify-icon>
-                                    <p className="text-sm font-semibold text-red-700">Cancel this booking?</p>
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <button type="button" onClick={() => setCancelConfirmId(null)} className="min-h-9 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:flex-none">Keep booking</button>
-                                    <button type="button" onClick={async () => { try { const { OrderService } = await import('../lib/order-service'); await (OrderService as any).updateOrder?.(bookingId, { status: 'cancelled' }); setMyBookings(prev => prev.map(b => (b._id || b.id) === bookingId ? { ...b, status: 'cancelled' } : b)); } catch {} setCancelConfirmId(null); }} className="min-h-9 flex-1 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-700 sm:flex-none">Yes, cancel</button>
-                                  </div>
-                                </div>
-                              )}
-
-                              <div className={`relative flex flex-1 flex-col ${isJourneyCard ? 'p-4 sm:p-5' : 'p-4 sm:p-[18px]'}`}>
-                                {isJourneyCard && (
-                                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-blue-100/80 pb-2.5">
-                                    <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">
-                                      <span className="relative flex h-2 w-2">
-                                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-60 motion-reduce:animate-none" />
-                                        <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-600" />
-                                      </span>
-                                      Current service journey
-                                    </div>
-                                    <span className="rounded-full border border-blue-100 bg-blue-50/80 px-2.5 py-1 text-[10px] font-semibold text-blue-700">
-                                      Stage {progressIndex + 1} of {progressSteps.length}
-                                    </span>
-                                  </div>
-                                )}
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                                  <div className="flex min-w-0 items-start gap-3">
-                                    <div className={`flex shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${isJourneyCard ? 'h-11 w-11' : 'h-10 w-10'} ${cfg.icon}`}>
-                                      <iconify-icon icon={svcIcon} width={isJourneyCard ? '21' : '19'}></iconify-icon>
-                                    </div>
-                                    <div className="min-w-0">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${cfg.badge}`}>
-                                          {cfg.live && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
-                                          {cfg.label}
-                                        </span>
-                                        <span className="font-mono text-[10px] font-semibold tracking-[0.04em] text-slate-400">
-                                          #{referenceLabel}
-                                        </span>
-                                      </div>
-                                      <h3 className={`mt-1.5 line-clamp-2 font-bold tracking-[-0.025em] text-slate-950 ${isJourneyCard ? 'text-lg sm:text-xl' : 'text-[16px] sm:text-[17px]'}`}>
-                                        {displayServiceTitle(booking.serviceName || booking.serviceType, 'AutoSPF+ Service')}
-                                      </h3>
-                                      {!isCompleted && <p className="mt-0.5 text-[11px] text-slate-500">{cfg.helper}</p>}
-                                    </div>
-                                  </div>
-                                  {amountValue !== undefined && (
-                                    <div className="shrink-0 pl-14 text-left sm:pl-0 sm:text-right">
-                                      <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400">Service total</p>
-                                      <p className="mt-0.5 text-lg font-bold tracking-[-0.03em] text-slate-950">
-                                        ₱{Number(amountValue).toLocaleString()}
-                                      </p>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {isJourneyCard ? (
-                                  <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
-                                    <div className="grid content-start gap-2.5 sm:grid-cols-2">
-                                      {(vehicleLabel || plateLabel || vehicleDescriptors.length > 0) && (
-                                        <div className="rounded-xl border border-slate-100 bg-slate-50/65 p-3">
-                                          <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.09em] text-slate-400">
-                                            <iconify-icon icon="solar:wheel-angle-bold" width="13" className="text-slate-500"></iconify-icon>
-                                            Vehicle
-                                          </div>
-                                          {vehicleLabel && <p className="mt-1.5 truncate text-sm font-semibold text-slate-800">{vehicleLabel}</p>}
-                                          {(plateLabel || vehicleDescriptors.length > 0) && (
-                                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                              {plateLabel && (
-                                                <span className="inline-flex rounded-md border border-slate-200 bg-white px-2 py-0.5 font-mono text-[9px] font-bold tracking-[0.08em] text-slate-600">
-                                                  {plateLabel}
-                                                </span>
-                                              )}
-                                              {vehicleDescriptors.map((descriptor) => (
-                                                <span key={descriptor} className="text-[10px] font-medium text-slate-400">{descriptor}</span>
-                                              ))}
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
-                                      <div className={`rounded-xl border border-slate-100 bg-slate-50/65 p-3 ${
-                                        vehicleLabel || plateLabel || vehicleDescriptors.length > 0 ? '' : 'sm:col-span-2'
-                                      }`}>
-                                        <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.09em] text-slate-400">
-                                          <iconify-icon icon="solar:calendar-date-bold" width="13" className="text-slate-500"></iconify-icon>
-                                          Schedule
-                                        </div>
-                                        <p className="mt-1.5 text-sm font-semibold text-slate-800">{dateStr}</p>
-                                        <p className="mt-0.5 text-[11px] font-medium text-slate-500">{timeStr}</p>
-                                      </div>
-                                      {(paymentMeta || booking.paymentMethod || booking.paymentProvider) && (
-                                        <div className="flex min-h-[54px] items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5 sm:col-span-2">
-                                          <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.09em] text-slate-400">
-                                            <iconify-icon icon="solar:wallet-money-bold" width="13" className="text-slate-500"></iconify-icon>
-                                            Payment
-                                          </div>
-                                          <div className="flex flex-wrap items-center justify-end gap-2">
-                                            {paymentMeta && (
-                                              <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${paymentMeta.className}`}>
-                                                <iconify-icon icon={paymentMeta.icon} width="13"></iconify-icon>
-                                                {paymentMeta.label}
-                                              </span>
-                                            )}
-                                            {(booking.paymentMethod || booking.paymentProvider) && (
-                                              <span className="text-[10px] font-medium text-slate-400">
-                                                via {formatTitleCaseDisplay(booking.paymentMethod || booking.paymentProvider, '')}
-                                              </span>
-                                            )}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-
-                                    <div className="rounded-2xl border border-blue-100 bg-[linear-gradient(145deg,#f8fbff,#f1f7ff)] p-3.5 sm:p-4">
-                                      <div className="flex items-start justify-between gap-4">
-                                        <div>
-                                          <p className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.1em] text-blue-500">
-                                            <iconify-icon icon="solar:route-bold" width="13"></iconify-icon>
-                                            Current stage
-                                          </p>
-                                          <p className="mt-1.5 text-base font-bold tracking-[-0.02em] text-blue-950">{currentStage.label}</p>
-                                        </div>
-                                        <div className="max-w-[48%] text-right">
-                                          <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400">Next step</p>
-                                          <p className="mt-1 text-xs font-semibold text-slate-700">
-                                            {nextStage ? nextStage.label : 'Vehicle ready for pickup'}
-                                          </p>
-                                        </div>
-                                      </div>
-
-                                      {showProgress && (
-                                        <div className="mt-4">
-                                          <div className="grid grid-cols-5 gap-1">
-                                            {progressSteps.map((step, stepIndex) => {
-                                              const complete = stepIndex < progressIndex;
-                                              const current = stepIndex === progressIndex;
-                                              return (
-                                                <div key={step.label} className="min-w-0">
-                                                  <div className="flex items-center">
-                                                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[8px] font-bold ${
-                                                      complete
-                                                        ? 'border-emerald-500 bg-emerald-500 text-white'
-                                                        : current
-                                                          ? 'border-blue-600 bg-blue-600 text-white ring-4 ring-blue-100'
-                                                          : 'border-slate-200 bg-white text-slate-400'
-                                                    }`}>
-                                                      {complete
-                                                        ? <iconify-icon icon="solar:check-circle-bold" width="10"></iconify-icon>
-                                                        : stepIndex + 1}
-                                                    </span>
-                                                    {stepIndex < progressSteps.length - 1 && (
-                                                      <span className={`mx-1 h-px flex-1 ${
-                                                        complete ? 'bg-emerald-500' : current ? 'bg-blue-500' : 'bg-slate-200'
-                                                      }`} />
-                                                    )}
-                                                  </div>
-                                                  <p className={`mt-1.5 truncate text-[8px] font-semibold sm:text-[9px] ${
-                                                    complete ? 'text-emerald-700' : current ? 'text-blue-700' : 'text-slate-400'
-                                                  }`}>
-                                                    {step.short}
-                                                  </p>
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-2.5 border-y border-slate-100 py-3 sm:grid-cols-2">
-                                    {(vehicleLabel || plateLabel || vehicleDescriptors.length > 0) && (
-                                      <div className="flex min-w-0 items-center gap-2.5">
-                                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-500">
-                                          <iconify-icon icon="solar:wheel-angle-linear" width="16"></iconify-icon>
-                                        </span>
-                                        <div className="min-w-0">
-                                          {vehicleLabel && <p className="truncate text-xs font-semibold text-slate-800">{vehicleLabel}</p>}
-                                          {(plateLabel || vehicleDescriptors.length > 0) && (
-                                            <p className="mt-0.5 truncate text-[10px] font-medium text-slate-400">
-                                              {[plateLabel, ...vehicleDescriptors].filter(Boolean).join(' · ')}
-                                            </p>
-                                          )}
-                                        </div>
-                                      </div>
-                                    )}
-                                    <div className="flex min-w-0 items-center gap-2.5">
-                                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-500">
-                                        <iconify-icon icon="solar:calendar-date-linear" width="16"></iconify-icon>
-                                      </span>
-                                      <div className="min-w-0">
-                                        <p className="truncate text-xs font-semibold text-slate-800">{dateStr}</p>
-                                        {timeStr !== 'Time to be confirmed' && (
-                                          <p className="mt-0.5 truncate text-[10px] font-medium text-slate-400">{timeStr}</p>
-                                        )}
-                                      </div>
-                                    </div>
-                                    {(paymentMeta || booking.paymentMethod || booking.paymentProvider) && (
-                                      <div className="flex min-w-0 items-center gap-2.5 sm:col-span-2">
-                                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-500">
-                                          <iconify-icon icon="solar:wallet-money-linear" width="16"></iconify-icon>
-                                        </span>
-                                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                          {paymentMeta && (
-                                            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${paymentMeta.className}`}>
-                                              <iconify-icon icon={paymentMeta.icon} width="13"></iconify-icon>
-                                              {paymentMeta.label}
-                                            </span>
-                                          )}
-                                          {(booking.paymentMethod || booking.paymentProvider) && (
-                                            <span className="truncate text-[10px] font-medium text-slate-400">
-                                              via {formatTitleCaseDisplay(booking.paymentMethod || booking.paymentProvider, '')}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                {isCancelled && (
-                                  <div className="mt-3 flex gap-2.5 rounded-xl border border-rose-100 bg-rose-50/70 p-3 text-rose-800">
-                                    <iconify-icon icon="solar:info-circle-linear" width="17" className="mt-0.5 shrink-0"></iconify-icon>
-                                    <p className="text-xs leading-5">{rejectionMessage || 'This booking is no longer active. You can create a new appointment anytime.'}</p>
-                                  </div>
-                                )}
-
-                                {isExpanded && (
-                                  <div className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-xs sm:grid-cols-2">
-                                    <div>
-                                      <p className="font-bold uppercase tracking-[0.08em] text-slate-400">Last update</p>
-                                      <p className="mt-1.5 font-medium text-slate-700">{formatActivityWhen(booking) || 'No update available'}</p>
-                                    </div>
-                                    <div>
-                                      <p className="font-bold uppercase tracking-[0.08em] text-slate-400">Assigned team</p>
-                                      <p className="mt-1.5 font-medium text-slate-700">{assignedTeam || (typeof booking.assignedDetailer === 'object' ? booking.assignedDetailer?.name : booking.assignedDetailer) || 'To be assigned'}</p>
-                                    </div>
-                                    {booking.notes && (
-                                      <div className="sm:col-span-2">
-                                        <p className="font-bold uppercase tracking-[0.08em] text-slate-400">Appointment notes</p>
-                                        <p className="mt-1.5 leading-5 text-slate-600">{booking.notes}</p>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                <div className={`mt-auto flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between ${
-                                  isJourneyCard ? 'border-t border-blue-100 pt-3.5' : 'pt-3.5'
-                                }`}>
-                                  <div className="flex flex-wrap gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => setExpandedBookingId(isExpanded ? null : bookingIdString)}
-                                      className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-slate-950"
-                                    >
-                                      <iconify-icon icon={isExpanded ? 'solar:alt-arrow-up-linear' : 'solar:document-text-linear'} width="14"></iconify-icon>
-                                      {isExpanded ? 'Hide Details' : isCompleted ? 'View Summary' : 'View Details'}
-                                    </button>
-                                    {canCancel && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setCancelConfirmId(bookingId)}
-                                        className="inline-flex min-h-10 items-center justify-center rounded-xl px-3 py-2 text-xs font-semibold text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
-                                      >
-                                        Cancel Booking
-                                      </button>
-                                    )}
-                                  </div>
-
-                                  <div className="flex flex-wrap gap-2 sm:justify-end">
-                                  {hasReceipt && (
-                                    <button
-                                      type="button"
-                                      onClick={() => void openCustomerOrderReceiptPdf(bookingIdString)}
-                                      className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:flex-none"
-                                    >
-                                      <iconify-icon icon="solar:receipt-linear" width="15"></iconify-icon>
-                                      View Receipt
-                                    </button>
-                                  )}
-                                  {(isCompleted || isCancelled) && (
-                                    <button
-                                      type="button"
-                                      onClick={() => void openBookingModal()}
-                                      className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 sm:flex-none"
-                                    >
-                                      <iconify-icon icon="solar:restart-bold" width="14"></iconify-icon>
-                                      Book Again
-                                    </button>
-                                  )}
-                                  {hasLiveTracker ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => nav('tracker')}
-                                    className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-[0_10px_22px_-16px_rgba(37,99,235,0.9)] transition hover:bg-blue-700 sm:flex-none"
-                                  >
-                                    <iconify-icon icon="solar:map-arrow-right-bold" width="14"></iconify-icon>
-                                    Track Service
-                                  </button>
-                                  ) : null}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {bookingsFilter === 'all' && myBookings.length > 0 && myBookings.length <= 3 && (
-                          <div className="rounded-[20px] border border-dashed border-blue-200 bg-blue-50/40 p-5 shadow-sm transition-colors hover:bg-blue-50 xl:col-span-2 sm:flex sm:items-center sm:justify-between sm:gap-6">
-                            <div className="flex items-start gap-3">
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 ring-1 ring-blue-100">
-                                <iconify-icon icon="solar:shield-star-linear" width="20"></iconify-icon>
-                              </div>
-                              <div>
-                                <p className="text-sm font-semibold text-slate-900">Book another service to keep your vehicle protected.</p>
-                                <p className="mt-1 text-xs leading-relaxed text-slate-500">Schedule your next visit whenever your ride needs a refresh.</p>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => openBookingModal()}
-                              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 sm:mt-0 sm:w-auto"
-                            >
-                              <iconify-icon icon="solar:add-circle-linear" width="16"></iconify-icon>
-                              New Booking
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()
-              )
-            ) : activeSection === 'services' ? (
+            {activeSection === 'services' ? (
               servicesSectionLoading ? (
                 <CustomerServicesSkeleton />
               ) : (
@@ -5578,45 +4654,10 @@ export default function CustomerDashboard() {
 		              })()
               )
             ) : activeSection === 'payments' ? (
-              paymentsSectionLoading ? (
-                <CustomerPaymentsSkeleton />
-	              ) : (
-	              <>
-	                <div className="customer-content-fade-in">
-	                  <CustomerPaymentHistorySection
-	                    bookings={myBookings}
-	                    onViewPaymentProof={setPaymentLightboxUrl}
-	                    onViewReceipt={(orderId) => void openCustomerOrderReceiptPdf(orderId)}
-	                  />
-	                </div>
-
-                {/* Lightbox */}
-                {paymentLightboxUrl && (
-                  <div
-                    className="customer-modal-layer fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-                    onClick={() => setPaymentLightboxUrl(null)}
-                  >
-                    <div className="customer-modal-panel relative max-w-lg w-full mx-4" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => setPaymentLightboxUrl(null)}
-                        className="absolute -top-10 right-0 text-white/80 hover:text-white text-sm font-semibold flex items-center gap-1"
-                      >
-                        <iconify-icon icon="solar:close-circle-linear" width="20"></iconify-icon>
-                        Close
-                      </button>
-                      <img
-                        src={paymentLightboxUrl}
-                        alt="Payment proof"
-                        className="w-full rounded-2xl shadow-2xl border-2 border-white/10"
-                        onError={(e) => { (e.target as HTMLImageElement).src = 'https://placehold.co/400x300?text=Image+not+found'; }}
-                      />
-                      <p className="text-center text-white/60 text-xs mt-3">GCash Payment Proof</p>
-                    </div>
-                  </div>
-                )}
-              </>
-              )
-		            ) : activeSection === 'rewards' ? (
+              <div className="customer-content-fade-in">
+                <CustomerPaymentHistorySection />
+              </div>
+            ) : activeSection === 'rewards' ? (
               rewardsSectionLoading ? (
                 <CustomerRewardsSkeleton />
               ) : (
@@ -5787,8 +4828,8 @@ export default function CustomerDashboard() {
                         </div>
                         <h3 className="text-lg font-semibold text-slate-900 mb-1">No Active Service</h3>
                         <p className="text-sm text-slate-500 mb-4">You don't have a vehicle currently being serviced. Book a service to start tracking.</p>
-                        <button onClick={() => nav('bookings')} className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors">
-                          View My Bookings
+                        <button onClick={() => void openBookingModal()} className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors">
+                          Book a Service
                         </button>
                       </div>
                     ) : (
@@ -6533,17 +5574,10 @@ export default function CustomerDashboard() {
                         <h2 id="rejected-booking-title">Booking not confirmed</h2>
                         <p>
                           {rejectedBooking.rejectionReason || 'Your payment proof could not be verified.'}
-                          {' '}You can review your bookings or start a new request.
+                          {' '}You can start a new service request when you are ready.
                         </p>
                       </div>
                       <div className="customer-booking-alert-actions">
-                        <button
-                          type="button"
-                          onClick={() => nav('bookings')}
-                          className="customer-booking-alert-button customer-booking-alert-button--secondary"
-                        >
-                          View Bookings
-                        </button>
                         <button
                           type="button"
                           onClick={() => void openBookingModal()}
@@ -7016,23 +6050,32 @@ export default function CustomerDashboard() {
                       <p className="text-[11px] font-bold tracking-[0.08em] text-slate-500">Garage</p>
                       <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Your Garage</h2>
                     </div>
-                    <button
+                    <motion.button
+                      whileTap={{ scale: 0.98 }}
                       onClick={() => setAddVehicleOpen(true)}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-blue-50 px-3.5 py-2 text-sm font-semibold text-blue-700 ring-1 ring-blue-100 transition-colors hover:bg-blue-100"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-blue-50 px-3.5 py-2 text-sm font-semibold text-blue-700 ring-1 ring-blue-100 transition-colors hover:bg-blue-100 cursor-pointer"
                     >
                       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>
                       Add Vehicle
-                    </button>
+                    </motion.button>
                   </div>
 
-                  <div className="customer-garage-layout grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,320px)] 2xl:grid-cols-[minmax(0,1fr)_minmax(292px,328px)] xl:items-start">
-                    <div className="customer-garage-grid-column min-w-0">
-                  {vehicles.length === 0 ? (
-	                    <div className="customer-garage-empty-state rounded-3xl overflow-hidden">
-	                      <div className="relative px-6 py-8 flex flex-col items-center text-center overflow-hidden sm:px-8">
-	                        <div className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/45 to-transparent" aria-hidden />
-	                        <div className="relative z-10 mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-200/30 bg-[linear-gradient(135deg,#070A12,#111827_58%,#1f2937)] text-amber-200 shadow-[0_18px_44px_-26px_rgba(15,23,42,0.78),0_0_32px_-22px_rgba(245,158,11,0.9),inset_0_1px_0_rgba(255,255,255,0.10)]">
-	                          <span className="absolute inset-1 rounded-[14px] border border-white/5" aria-hidden />
+                  <div className={`customer-garage-layout grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,320px)] 2xl:grid-cols-[minmax(0,1fr)_minmax(292px,328px)] ${vehicles.length === 0 ? 'customer-garage-layout--empty xl:items-stretch' : 'xl:items-start'}`}>
+                    <div className={`customer-garage-grid-column min-w-0 ${vehicles.length === 0 ? 'customer-garage-grid-column--empty h-full flex flex-col' : ''}`}>
+                  <AnimatePresence mode="wait">
+                    {vehicles.length === 0 ? (
+	                    <motion.div
+                        key="customer-garage-empty-state"
+                        initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -8 }}
+                        transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                        className="customer-garage-empty-state rounded-3xl overflow-hidden flex-1 flex flex-col h-full"
+                      >
+	                      <div className="customer-garage-empty-state-content relative flex flex-1 flex-col items-center justify-center text-center px-6 py-8 sm:px-8 overflow-hidden w-full h-full">
+	                        <div className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-blue-300/45 to-transparent" aria-hidden />
+	                        <div className="relative z-10 mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-blue-200/60 bg-gradient-to-br from-white to-blue-100 text-blue-600 shadow-[0_12px_28px_-22px_rgba(37,99,235,0.35),inset_0_1px_0_rgba(255,255,255,0.9)]">
+	                          <span className="absolute inset-1 rounded-[14px] border border-white/70" aria-hidden />
 	                          <iconify-icon icon="solar:garage-bold" width="27" className="relative"></iconify-icon>
 	                        </div>
 	                        <h3 className="text-slate-950 font-black text-[18px] mb-2">Set Up Your Garage</h3>
@@ -7047,9 +6090,9 @@ export default function CustomerDashboard() {
 	                                className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]"
 	                                style={i === 0
 	                                  ? {
-	                                    background: 'linear-gradient(135deg, rgba(255,237,213,0.96), rgba(254,243,199,0.88))',
-	                                    border: '1px solid rgba(245,158,11,0.42)',
-	                                    boxShadow: '0 12px 28px -24px rgba(245,158,11,0.9), inset 0 1px 0 rgba(255,255,255,0.72)',
+	                                    background: 'linear-gradient(135deg, rgba(239,246,255,0.96), rgba(219,234,254,0.88))',
+	                                    border: '1px solid rgba(37,99,235,0.22)',
+	                                    boxShadow: '0 12px 28px -24px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.72)',
 	                                  }
 	                                  : {
 	                                    background: 'rgba(255,255,255,0.82)',
@@ -7059,50 +6102,70 @@ export default function CustomerDashboard() {
 	                              >
 	                                <span
 	                                  className="flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black"
-	                                  style={i === 0 ? { background: '#111827', color: '#fbbf24' } : { background: '#f1f5f9', color: '#64748b' }}
+	                                  style={i === 0 ? { background: '#2563eb', color: '#ffffff' } : { background: '#f1f5f9', color: '#64748b' }}
 	                                >
 	                                  {i + 1}
 	                                </span>
-	                                <span className="text-[11px] font-semibold" style={{ color: i === 0 ? '#78350f' : '#64748b' }}>{s}</span>
+	                                <span className="text-[11px] font-semibold" style={{ color: i === 0 ? '#1d4ed8' : '#64748b' }}>{s}</span>
 	                              </div>
-	                              {i < 2 && <iconify-icon icon="solar:arrow-right-bold" width="12" style={{ color: '#c2a25f' }}></iconify-icon>}
+	                              {i < 2 && <iconify-icon icon="solar:arrow-right-bold" width="12" style={{ color: '#94a3b8' }}></iconify-icon>}
 	                            </div>
 	                          ))}
 	                        </div>
-	                        <button
+	                        <motion.button
+                            type="button"
+	                          whileTap={{ scale: 0.98 }}
 	                          onClick={() => setAddVehicleOpen(true)}
-	                          className="relative flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-[14px] transition-all hover:-translate-y-0.5"
-	                          style={{
-	                            background: 'linear-gradient(135deg, rgba(255,222,142,0.98), rgba(245,166,35,0.94) 45%, rgba(232,111,30,0.9))',
-	                            color: '#070A12',
-	                            boxShadow: '0 18px 44px -22px rgba(245,158,11,0.95), 0 0 30px -24px rgba(232,111,30,0.9), inset 0 1px 0 rgba(255,255,255,0.42)',
-	                          }}
+	                          className="customer-garage-empty-cta relative flex items-center gap-2 rounded-2xl px-6 py-3 text-[14px] font-bold text-white transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 cursor-pointer"
 	                        >
 	                          <iconify-icon icon="solar:add-circle-bold" width="18"></iconify-icon>
 	                          Set Up My Garage
-	                        </button>
+	                        </motion.button>
 	                      </div>
-	                    </div>
+	                    </motion.div>
                   ) : (
-                    <div className="customer-garage-grid grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    <div className="customer-garage-grid relative grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      <AnimatePresence mode="popLayout">
                       {vehicles.map((v, i) => {
-                        const theme = getCustomerVehicleColorTheme(v.color);
+                        const theme = getVehicleCardTheme(v.color, v.standardColor);
+                        const vehicleKey = String(v._id || v.id || v.plate || i);
+                        const isRecentlyAdded = recentlyAddedId === String(v._id || v.id);
+                        const isRecentlyEdited = recentlyEditedId === String(v._id || v.id);
+                        const isDeleteConfirmOpen = deleteConfirmId === String(v._id || v.id) || deleteConfirmIdx === i;
+                        const isDeleting = deletingVehicleId === String(v._id || v.id);
 
                         return (
-                          <div
-                            key={i}
-                            className="customer-garage-card overflow-hidden flex flex-col group"
+                          <motion.div
+                            key={vehicleKey}
+                            layout
+                            initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: -6 }}
+                            transition={prefersReducedMotion ? { duration: 0.1 } : {
+                              duration: 0.32,
+                              ease: [0.22, 1, 0.36, 1],
+                              layout: { type: 'spring', damping: 28, stiffness: 350 },
+                            }}
+                            className={`customer-garage-card overflow-hidden flex flex-col group ${isRecentlyAdded ? 'customer-garage-card--just-added' : ''} ${isRecentlyEdited ? 'customer-garage-card--just-edited' : ''}`}
                             style={{
                               '--vehicle-accent': theme.from,
                               '--vehicle-accent-strong': theme.to,
                               '--vehicle-accent-glow': theme.glow,
                               '--vehicle-accent-border': theme.border,
+                              '--vehicle-card-tint': theme.tint,
+                              '--vehicle-header-base-from': theme.headerBaseFrom,
+                              '--vehicle-header-base-to': theme.headerBaseTo,
+                              '--vehicle-header-from-strength': `${theme.headerFromStrength}%`,
+                              '--vehicle-header-to-strength': `${theme.headerToStrength}%`,
+                              '--vehicle-glow-layer-opacity': theme.glowLayerOpacity,
+                              '--vehicle-badge-tint-strength': `${theme.badgeTintStrength}%`,
+                              '--vehicle-decoration-opacity': theme.decorationOpacity,
                             } as React.CSSProperties}
                           >
                             <div className="customer-garage-card-frame">
                             {/* ── Card Banner ── */}
                             <div
-                              className="customer-garage-card-banner relative flex h-[6.75rem] items-center justify-center overflow-hidden"
+                              className={`customer-garage-card-banner relative flex items-center justify-center overflow-hidden transition-[height] duration-200 ease-out ${isDeleteConfirmOpen ? 'h-[8.25rem]' : 'h-[6.75rem]'}`}
                               style={{ background: `linear-gradient(135deg, ${theme.from}e6 0%, ${theme.to}d9 100%)` }}
                             >
                               {/* Decorative circles */}
@@ -7110,26 +6173,33 @@ export default function CustomerDashboard() {
                               <div className="absolute -bottom-8 -left-8 w-28 h-28 rounded-full opacity-10" style={{ background: 'rgba(255,255,255,0.4)' }}></div>
 	                              {/* Car silhouette — bundled side-profile SVG per body type */}
 	                              <div className="customer-garage-card-banner-icon customer-garage-vehicle-visual relative z-[3] flex flex-col items-center justify-center">
-	                                <CustomerGarageVehicleSilhouette type={v.type} color={v.color} />
+	                                <CustomerGarageVehicleSilhouette type={v.type} color={v.standardColor || v.color} />
 	                              </div>
                               {/* Edit pencil — top-left */}
-                              <button
+                              <motion.button
+                                type="button"
+                                whileTap={{ scale: 0.92 }}
                                 onClick={() => openEditVehicle(v, i)}
-                                className="absolute top-3 left-3 w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                                className="absolute top-3 left-3 w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer"
                                 style={{ background: 'rgba(255,255,255,0.28)', backdropFilter: 'blur(14px) saturate(170%)', WebkitBackdropFilter: 'blur(14px) saturate(170%)', border: '1px solid rgba(255,255,255,0.42)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.42), 0 10px 28px -20px rgba(15,23,42,0.45)' }}
                                 title="Edit vehicle"
                               >
                                 <iconify-icon icon="solar:pen-bold" width="13" style={{ color: theme.text }}></iconify-icon>
-                              </button>
+                              </motion.button>
                               {/* Delete button — top-right */}
-                              <button
-                                onClick={() => setDeleteConfirmIdx(i)}
-                                className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                              <motion.button
+                                type="button"
+                                whileTap={{ scale: 0.92 }}
+                                onClick={() => {
+                                  setDeleteConfirmIdx(i);
+                                  setDeleteConfirmId(String(v._id || v.id));
+                                }}
+                                className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer"
                                 style={{ background: 'rgba(255,255,255,0.28)', backdropFilter: 'blur(14px) saturate(170%)', WebkitBackdropFilter: 'blur(14px) saturate(170%)', border: '1px solid rgba(255,255,255,0.42)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.42), 0 10px 28px -20px rgba(15,23,42,0.45)' }}
                                 title="Delete vehicle"
                               >
                                 <iconify-icon icon="solar:trash-bin-minimalistic-bold" width="13" style={{ color: theme.text }}></iconify-icon>
-                              </button>
+                              </motion.button>
                               {/* Plate number bottom-left */}
                               <div className="customer-garage-plate-badge absolute bottom-3 left-3 bg-white/78 backdrop-blur-xl border border-white/70 px-2.5 py-1 rounded-xl text-xs font-bold text-slate-800 tracking-widest shadow-[0_12px_28px_-20px_rgba(15,23,42,0.45),inset_0_1px_0_rgba(255,255,255,0.8)]">
                                 {v.plate}
@@ -7143,37 +6213,71 @@ export default function CustomerDashboard() {
                               )}
 
                               {/* ── Delete Confirm Overlay ── */}
-                              <div
-                                className="absolute inset-0 flex flex-col items-center justify-center z-20"
-                                style={{
-                                  background: 'rgba(15,10,10,0.72)',
-                                  backdropFilter: 'blur(10px)',
-                                  WebkitBackdropFilter: 'blur(10px)',
-                                  opacity: deleteConfirmIdx === i ? 1 : 0,
-                                  pointerEvents: deleteConfirmIdx === i ? 'auto' : 'none',
-                                  transition: 'opacity 0.25s cubic-bezier(0.4,0,0.2,1)',
-                                }}
-                              >
-                                <div style={{ transform: deleteConfirmIdx === i ? 'translateY(0)' : 'translateY(10px)', transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1)' }}
-                                  className="flex flex-col items-center gap-3 px-4">
-                                  <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)' }}>
-                                    <iconify-icon icon="solar:trash-bin-minimalistic-bold" width="20" style={{ color: '#f87171' }}></iconify-icon>
-                                  </div>
-                                  <p className="text-white text-[13px] font-semibold text-center leading-snug">Remove <span style={{ color: '#f87171' }}>{v.plate}</span>?</p>
-                                  <div className="flex gap-2">
-                                    <button
-                                      onClick={() => setDeleteConfirmIdx(-1)}
-                                      className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white transition-all"
-                                      style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)' }}
-                                    >Cancel</button>
-                                    <button
-                                      onClick={() => deleteVehicle(i)}
-                                      className="px-4 py-1.5 rounded-lg text-xs font-bold text-white transition-all"
-                                      style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)', boxShadow: '0 2px 12px rgba(239,68,68,0.4)' }}
-                                    >Delete</button>
-                                  </div>
-                                </div>
-                              </div>
+                              <AnimatePresence>
+                                {isDeleteConfirmOpen && (
+                                  <motion.div
+                                    key="delete-overlay"
+                                    initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.98 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.98 }}
+                                    transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                                    className="absolute inset-0 flex flex-col items-center justify-center z-20"
+                                    style={{
+                                      background: 'rgba(15,10,10,0.74)',
+                                      backdropFilter: 'blur(10px)',
+                                      WebkitBackdropFilter: 'blur(10px)',
+                                    }}
+                                  >
+                                    <motion.div
+                                      initial={prefersReducedMotion ? { y: 0 } : { y: 8 }}
+                                      animate={{ y: 0 }}
+                                      exit={prefersReducedMotion ? { y: 0 } : { y: 8 }}
+                                      transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+                                      className="flex w-full flex-col items-center gap-3.5 px-5 py-1"
+                                    >
+                                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)' }}>
+                                        <iconify-icon icon="solar:trash-bin-minimalistic-bold" width="20" style={{ color: '#f87171' }}></iconify-icon>
+                                      </div>
+                                      <p className="text-white text-[13px] font-semibold text-center leading-snug">Remove <span style={{ color: '#f87171' }}>{v.plate}</span>?</p>
+                                      <div className="flex w-full items-center justify-center gap-4">
+                                        <motion.button
+                                          type="button"
+                                          disabled={Boolean(deletingVehicleId)}
+                                          whileTap={{ scale: 0.98 }}
+                                          onClick={() => {
+                                            setDeleteConfirmIdx(-1);
+                                            setDeleteConfirmId(null);
+                                          }}
+                                          className="inline-flex min-h-10 min-w-20 items-center justify-center rounded-lg px-4 py-2 text-xs font-semibold text-white transition-all disabled:opacity-50 cursor-pointer"
+                                          style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)' }}
+                                        >
+                                          Cancel
+                                        </motion.button>
+                                        <motion.button
+                                          type="button"
+                                          disabled={Boolean(deletingVehicleId)}
+                                          whileTap={{ scale: 0.98 }}
+                                          onClick={() => void deleteVehicle(i)}
+                                          className="inline-flex min-h-10 min-w-20 items-center justify-center rounded-lg px-4 py-2 text-xs font-bold text-white transition-all disabled:opacity-75 cursor-pointer"
+                                          style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)', boxShadow: '0 2px 12px rgba(239,68,68,0.4)' }}
+                                        >
+                                          {isDeleting ? (
+                                            <span className="flex items-center justify-center gap-1.5">
+                                              <svg className="animate-spin h-3.5 w-3.5 text-white" viewBox="0 0 24 24" fill="none">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                                              </svg>
+                                              <span>Deleting...</span>
+                                            </span>
+                                          ) : (
+                                            'Delete'
+                                          )}
+                                        </motion.button>
+                                      </div>
+                                    </motion.div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
                             </div>
 
                             {/* ── Card Body ── */}
@@ -7181,35 +6285,44 @@ export default function CustomerDashboard() {
                               <h3 className="font-bold text-[15px] text-slate-900 leading-tight">{v.name}</h3>
                               <div className="flex items-center gap-1.5 mt-1">
                                 <div className="customer-garage-color-dot w-3 h-3 rounded-full border border-slate-200 shadow-sm" style={{ background: theme.border }}></div>
-                                <p className="text-xs text-slate-400">{v.color || 'No color'}</p>
+                                <p className="text-xs text-slate-400">{v.color || 'Not specified'}</p>
                               </div>
 
                               {/* Actions */}
                               <div className="customer-garage-actions mt-3 grid grid-cols-2 gap-2 pt-3">
-	                                <button
+	                                <motion.button
 	                                  type="button"
+	                                  whileTap={{ scale: 0.98 }}
 	                                  onClick={() => openBookingModal(v)}
-                                  className="customer-garage-book-button flex min-h-10 items-center justify-center gap-1.5 px-2 py-2 font-medium text-white transition-all hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-                                >
-                                  <iconify-icon icon="solar:calendar-add-linear" width="16"></iconify-icon>
-                                  <span className="text-[11px] font-semibold text-center leading-tight">Book Service</span>
-                                </button>
-                                <button
-                                  onClick={() => openVehicleHistory(v)}
-                                  className="flex min-h-10 items-center justify-center gap-1.5 px-2 py-2 text-slate-500 transition-colors hover:text-slate-700"
-                                >
-                                  <iconify-icon icon="solar:history-linear" width="16"></iconify-icon>
-                                  <span className="text-[11px] font-semibold text-center leading-tight">History</span>
-                                </button>
+                                    className="customer-garage-book-button flex min-h-10 items-center justify-center gap-1.5 px-2 py-2 font-medium text-white transition-all hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 cursor-pointer"
+                                  >
+                                    <iconify-icon icon="solar:calendar-add-linear" width="16"></iconify-icon>
+                                    <span className="text-[11px] font-semibold text-center leading-tight">Book Service</span>
+                                  </motion.button>
+                                  <motion.button
+                                    type="button"
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => openVehicleHistory(v)}
+                                    className="flex min-h-10 items-center justify-center gap-1.5 px-2 py-2 text-slate-500 transition-colors hover:text-slate-700 cursor-pointer"
+                                  >
+                                    <iconify-icon icon="solar:history-linear" width="16"></iconify-icon>
+                                    <span className="text-[11px] font-semibold text-center leading-tight">History</span>
+                                  </motion.button>
                               </div>
                             </div>
                             </div>
-                          </div>
+                          </motion.div>
                         );
                       })}
                       {vehicles.length < 3 && (
-                        <button
+                        <motion.button
+                          key="customer-garage-add-card-slot"
+                          layout
                           type="button"
+                          whileTap={{ scale: 0.98 }}
+                          transition={prefersReducedMotion ? { duration: 0.1 } : {
+                            layout: { type: 'spring', damping: 28, stiffness: 350 },
+                          }}
                           onClick={() => setAddVehicleOpen(true)}
                           className="customer-garage-add-card flex h-full min-h-0 w-full cursor-pointer flex-col overflow-hidden text-left transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                         >
@@ -7227,13 +6340,15 @@ export default function CustomerDashboard() {
                             </p>
                             <div className="mt-2 min-h-10 w-full" aria-hidden="true" />
                           </div>
-                        </button>
+                        </motion.button>
                       )}
+                      </AnimatePresence>
                     </div>
                   )}
+                  </AnimatePresence>
                     </div>
 
-                    <aside className="customer-garage-rail grid h-fit content-start gap-3 self-start lg:grid-cols-2 xl:grid-cols-1">
+                    <aside className="customer-garage-rail grid h-fit content-start items-start gap-3 self-start lg:grid-cols-2 xl:grid-cols-1">
                       <div className="customer-side-card customer-recommendation-card relative overflow-hidden p-4">
                         <div className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-blue-100/80 blur-3xl" />
                         <AnimatePresence initial={false} mode="wait">
@@ -7252,10 +6367,10 @@ export default function CustomerDashboard() {
                               : { duration: 0.48, ease: [0.22, 1, 0.36, 1] }}
                             style={{ willChange: 'transform, opacity, filter' }}
                           >
-                          <div className="mb-2 flex items-start justify-between gap-3">
-                            <div>
+                          <div className="mb-2.5 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
                               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Recommended for You</p>
-                              <h3 className="mt-1 text-base font-black tracking-tight text-slate-950">
+                              <h3 className="mt-0.5 text-[15px] font-black tracking-tight text-slate-950">
                                 {recommendedPackage?.name || 'SPF protection packages'}
                               </h3>
                             </div>
@@ -7264,7 +6379,7 @@ export default function CustomerDashboard() {
                             </div>
                           </div>
                           <p className="text-xs leading-relaxed text-slate-600">Ready to protect your ride?</p>
-                          <ul className="customer-recommendation-benefits mt-2">
+                          <ul className="customer-recommendation-benefits mt-2.5">
                             {[
                               'Paint-safe prep and inspection',
                               'Premium protection consultation',
@@ -7276,9 +6391,9 @@ export default function CustomerDashboard() {
                               </li>
                             ))}
                           </ul>
-                          <div className="mt-2 rounded-2xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
-                            <div className="flex items-end justify-between gap-3">
-                              <div>
+                          <div className="mt-2.5 rounded-2xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
                                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
                                   From · {recommendationVehicleLabel}
                                 </p>
@@ -7286,7 +6401,7 @@ export default function CustomerDashboard() {
                                   {recommendedPackage ? `₱${recommendedPackage.price.toLocaleString()}` : 'See pricing'}
                                 </p>
                               </div>
-                              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-blue-700 shadow-sm ring-1 ring-blue-100">
+                              <span className="customer-recommendation-badge inline-flex w-auto shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-white px-2 py-0.5 text-[10px] font-bold leading-none text-blue-700 shadow-sm ring-1 ring-blue-100">
                                 {recommendationBadge}
                               </span>
                             </div>
@@ -7297,7 +6412,7 @@ export default function CustomerDashboard() {
                           <button
                             type="button"
                             onClick={() => nav('services')}
-	                            className="customer-recommendation-service-button mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:-translate-y-0.5 hover:bg-blue-700"
+	                            className="customer-recommendation-service-button mt-2.5 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:-translate-y-0.5 hover:bg-blue-700"
                           >
                             View Services
                             <iconify-icon icon="solar:arrow-right-linear" width="17"></iconify-icon>
@@ -7319,7 +6434,6 @@ export default function CustomerDashboard() {
                         <div className="grid gap-2">
                           {[
                             { label: 'Book a Service', icon: 'solar:calendar-add-linear', onClick: () => void openBookingModal() },
-                            { label: 'View My Bookings', icon: 'solar:calendar-linear', onClick: () => nav('bookings') },
                             { label: 'Explore Services', icon: 'solar:tag-price-linear', onClick: () => nav('services') },
                           ].map((action) => (
                             <button
@@ -7455,98 +6569,144 @@ export default function CustomerDashboard() {
 	                I’ll do this later
 	              </button>
 	            </div>
-          </div>
-        </div>
-      )}
+	          </div>
+	        </div>
+	      )}
 
-      {/* Add Vehicle Modal */}
-
-      {addVehicleOpen && (
-        <div className="customer-modal-layer fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-xl sm:p-5" onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}>
-          <div
-            className="customer-modal-panel customer-vehicle-modal customer-vehicle-modal--premium customer-add-vehicle-modal flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
-            onClick={e => e.stopPropagation()}
-            style={{
-              animation: 'customerModalPanelIn .18s cubic-bezier(0.22,1,0.36,1) both',
-              maxHeight: '94vh',
+	      {/* Add Vehicle Modal */}
+      <AnimatePresence>
+        {addVehicleOpen && (
+          <motion.div
+            key="customer-add-vehicle-modal-layer"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="customer-modal-layer fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-xl sm:p-5"
+            onClick={() => {
+              if (addVehiclePending) return;
+              setAddVehicleOpen(false);
+              setVehicleErrors({});
+              setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' });
+              setNewVehicleShowColorInput(false);
             }}
           >
-
-            {/* Header */}
-            <div className="customer-vehicle-header flex shrink-0 items-center justify-between gap-4 border-0 px-5 py-4 sm:px-6">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="customer-vehicle-header-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white">
-                  <iconify-icon icon="solar:garage-bold" width="22"></iconify-icon>
-                </div>
-                <div className="min-w-0">
-                  <p className="customer-vehicle-eyebrow">My garage</p>
-                  <h3 className="text-lg font-bold tracking-tight text-slate-950">{location.pathname === '/customer/book' ? 'Add your vehicle' : 'Add Vehicle'}</h3>
-                  <p className="mt-0.5 text-xs font-medium text-slate-500">
-                    {location.pathname === '/customer/book'
-                      ? 'Tell us what you drive so we can show the correct packages and pricing.'
-                      : 'Create a clean profile for faster booking.'}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border-0 bg-white text-slate-500 shadow-md shadow-slate-900/10 transition-all duration-200 hover:bg-slate-50 hover:text-slate-900 hover:shadow-lg"
-                aria-label="Close"
-              >
-                <iconify-icon icon="solar:close-circle-linear" width="18"></iconify-icon>
-              </button>
-            </div>
-
-            {/* Form */}
-            <form
-              onSubmit={handleAddVehicleSubmit}
-              className="customer-modal-scroll customer-vehicle-form min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-              noValidate
+            <motion.div
+              key="customer-add-vehicle-modal-panel"
+              initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.985, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.985, y: 8 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="customer-modal-panel customer-vehicle-modal customer-vehicle-modal--premium customer-add-vehicle-modal flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
+              onClick={e => e.stopPropagation()}
+              style={{ maxHeight: '94vh' }}
             >
 
-              <VehicleGarageForm
-                variant="customer-rich"
-                values={newVehicle}
-                onChange={setNewVehicle}
-                errors={vehicleErrors}
-                onClearError={(field) => setVehicleErrors((er) => ({ ...er, [field]: '' }))}
-                showCustomColorInput={newVehicleShowColorInput}
-                onShowCustomColorInput={setNewVehicleShowColorInput}
-                apiError={vehicleApiError}
-	                bookingPackages={bookingPackages}
-	                enableVehicleDatabase
-	                experience="customer-add"
-	                footerHint={
-                  <>
-                    {location.pathname === '/customer/book'
-                      ? 'After saving, we will continue to personalized packages for this vehicle.'
-                      : <>After you save, open <span className="font-semibold text-slate-800">Book</span> on your vehicle card to schedule a service with these details pre-filled.</>}
-                  </>
-                }
-              />
-
-              {/* Actions */}
-              <div className="customer-modal-sticky customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-0 bg-white px-5 py-4 sm:-mx-6 sm:flex-row sm:px-6">
+              {/* Header */}
+              <div className="customer-vehicle-header flex shrink-0 items-center justify-between gap-4 border-0 px-5 py-4 sm:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="customer-vehicle-header-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white">
+                    <iconify-icon icon="solar:garage-bold" width="22"></iconify-icon>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="customer-vehicle-eyebrow">My garage</p>
+                    <h3 className="text-lg font-bold tracking-tight text-slate-950">{location.pathname === '/customer/book' ? 'Add your vehicle' : 'Add Vehicle'}</h3>
+                    <p className="mt-0.5 text-xs font-medium text-slate-500">
+                      {location.pathname === '/customer/book'
+                        ? 'Tell us what you drive so we can show the correct packages and pricing.'
+                        : 'Create a clean profile for faster booking.'}
+                    </p>
+                  </div>
+                </div>
                 <button
                   type="button"
-                  onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}
-                  className="customer-vehicle-cancel-button flex-1 rounded-2xl border border-slate-200/75 bg-white py-3 text-sm font-medium text-slate-700 transition-all"
+                  disabled={addVehiclePending}
+                  onClick={() => {
+                    if (addVehiclePending) return;
+                    setAddVehicleOpen(false);
+                    setVehicleErrors({});
+                    setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' });
+                    setNewVehicleShowColorInput(false);
+                  }}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border-0 bg-white text-slate-500 shadow-md shadow-slate-900/10 transition-all duration-200 hover:bg-slate-50 hover:text-slate-900 hover:shadow-lg disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  aria-label="Close"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="customer-vehicle-btn-primary flex flex-1 items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold text-white transition-all duration-200"
-                >
-                  <iconify-icon icon="solar:add-circle-bold" width="17"></iconify-icon>
-                  Add Vehicle
+                  <iconify-icon icon="solar:close-circle-linear" width="18"></iconify-icon>
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+
+              {/* Form */}
+              <form
+                onSubmit={handleAddVehicleSubmit}
+                className="customer-modal-scroll customer-vehicle-form min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                noValidate
+              >
+
+                <VehicleGarageForm
+                  variant="customer-rich"
+                  values={newVehicle}
+                  onChange={setNewVehicle}
+                  errors={vehicleErrors}
+                  onClearError={(field) => setVehicleErrors((er) => ({ ...er, [field]: '' }))}
+                  showCustomColorInput={newVehicleShowColorInput}
+                  onShowCustomColorInput={setNewVehicleShowColorInput}
+                  apiError={vehicleApiError}
+                  bookingPackages={bookingPackages}
+                  enableVehicleDatabase
+                  experience="customer-add"
+                  footerHint={
+                    <>
+                      {location.pathname === '/customer/book'
+                        ? 'After saving, we will continue to personalized packages for this vehicle.'
+                        : <>After you save, open <span className="font-semibold text-slate-800">Book</span> on your vehicle card to schedule a service with these details pre-filled.</>}
+                    </>
+                  }
+                />
+
+                {/* Actions */}
+                <div className="customer-modal-sticky customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-0 bg-white px-5 py-4 sm:-mx-6 sm:flex-row sm:px-6">
+                  <motion.button
+                    type="button"
+                    disabled={addVehiclePending}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      if (addVehiclePending) return;
+                      setAddVehicleOpen(false);
+                      setVehicleErrors({});
+                      setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' });
+                      setNewVehicleShowColorInput(false);
+                    }}
+                    className="customer-vehicle-cancel-button flex-1 rounded-2xl border border-slate-200/75 bg-white py-3 text-sm font-medium text-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Cancel
+                  </motion.button>
+                  <motion.button
+                    type="submit"
+                    disabled={addVehiclePending}
+                    whileTap={{ scale: 0.98 }}
+                    className="customer-vehicle-btn-primary flex flex-1 items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold text-white transition-all duration-200 disabled:opacity-80 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {addVehiclePending ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                        </svg>
+                        <span>Adding Vehicle...</span>
+                      </span>
+                    ) : (
+                      <>
+                        <iconify-icon icon="solar:add-circle-bold" width="17"></iconify-icon>
+                        <span>Add Vehicle</span>
+                      </>
+                    )}
+                  </motion.button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Book Service Modal */}
       {bookingOpen && (
@@ -7558,7 +6718,7 @@ export default function CustomerDashboard() {
                 : !bookingDone && (bookingStep === 4 || bookingStep === 5 || bookingStep === 6)
                   ? 'max-w-4xl'
                   : 'max-w-3xl'
-            } ${!bookingDone && bookingStep === 3 ? 'customer-booking-modal--schedule' : ''} ${!bookingDone && bookingStep === 6 ? 'customer-booking-modal--payment' : ''}`}
+            } ${!bookingDone && bookingStep === 1 ? 'customer-booking-modal--service' : ''} ${!bookingDone && bookingStep === 3 ? 'customer-booking-modal--schedule' : ''} ${!bookingDone && bookingStep === 6 ? 'customer-booking-modal--payment' : ''}`}
             onClick={e => e.stopPropagation()}
             style={{
               animation: 'customerModalPanelIn .18s cubic-bezier(0.22,1,0.36,1) both',
@@ -7809,35 +6969,12 @@ export default function CustomerDashboard() {
                 /* ── Step 1: Service ── */
                 <div className="booking-step1 space-y-4 p-4 pb-12 sm:p-5 sm:pb-14">
                   <section className="booking-service-panel rounded-[22px] border-0 bg-slate-50/60 p-4">
-                    <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-950">Choose your vehicle</p>
-                        <p className="mt-1 text-xs font-medium text-slate-500">Pricing updates automatically based on the selected class.</p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className={`inline-flex items-center gap-2 rounded-full border-0 px-3 py-1.5 text-xs font-bold shadow-sm ${
-                          bookingSelectedVehicleIdx >= 0
-                            ? 'bg-blue-50 text-blue-700 shadow-blue-600/12'
-                            : 'bg-amber-50 text-amber-800 shadow-amber-600/10'
-                        }`}>
-                          <iconify-icon icon={bookingSelectedVehicleIdx >= 0 ? 'solar:tag-price-linear' : 'solar:hand-stars-linear'} width="14"></iconify-icon>
-                          {bookingSelectedVehicleIdx >= 0
-                            ? (VEHICLE_OPTIONS.find(o => o.type === bookingVehicleType)?.label || bookingVehicleType)
-                            : vehiclesLoading ? 'Loading your garage' : 'Tap a vehicle below'}
-                        </div>
-                      </div>
+                    <div className="booking-service-vehicle-intro mb-4 min-w-0">
+                      <p className="text-sm font-bold text-slate-950">Select your vehicle</p>
+                      <p className="mt-1.5 text-xs font-medium leading-relaxed text-slate-500">
+                        Pricing and available packages will adjust automatically based on your selected vehicle.
+                      </p>
                     </div>
-
-                    {vehicles.length > 0 && bookingSelectedVehicleIdx < 0 ? (
-                      <div className="booking-service-hint booking-service-hint--amber mb-3 flex items-start gap-3 rounded-[22px] px-4 py-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/90 text-amber-600 shadow-sm shadow-amber-600/10">
-                          <iconify-icon icon="solar:info-circle-bold" width="18"></iconify-icon>
-                        </div>
-                        <p className="text-xs font-medium leading-relaxed text-amber-900">
-                          <span className="font-bold">Tap your vehicle</span> to lock in pricing and auto-fill details on the next step.
-                        </p>
-                      </div>
-                    ) : null}
 
                     {vehiclesLoading ? (
                       <div className="booking-service-hint booking-service-hint--blue flex items-center gap-3 rounded-[22px] px-4 py-4" role="status">
@@ -7864,12 +7001,13 @@ export default function CustomerDashboard() {
 	                      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
 	                        {vehicles.map((v: any, i: number) => {
 	                          const isActive = bookingSelectedVehicleIdx === i;
-	                          const theme = getCustomerVehicleColorTheme(v.color);
+	                          const theme = getVehicleAccentTheme(v.color, v.standardColor);
 	                          const typeBadgeLabel = (v.type || 'Vehicle').toUpperCase();
 	                          return (
 	                            <button
 	                              key={i}
 	                              type="button"
+	                              aria-pressed={isActive}
 	                              onClick={() => applyBookingGarageSelection(v, i)}
 	                              className={`booking-service-vehicle-card flex min-w-0 items-center gap-3 rounded-2xl border-0 px-3.5 py-3 text-left transition-all ${isActive
 	                                ? 'is-active text-slate-900'
@@ -7897,6 +7035,12 @@ export default function CustomerDashboard() {
 	                                />
 	                              </div>
 	                              <div className="min-w-0 flex-1">
+	                                {isActive ? (
+	                                  <span className="booking-service-selected-badge">
+	                                    <iconify-icon icon="solar:check-circle-bold" width="11" aria-hidden="true"></iconify-icon>
+	                                    Selected
+	                                  </span>
+	                                ) : null}
 	                                <p className="truncate text-sm font-bold">{v.name}</p>
 	                                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
                                       <span
@@ -7910,13 +7054,10 @@ export default function CustomerDashboard() {
                                         {typeBadgeLabel}
                                       </span>
                                       <span className="truncate text-xs font-medium text-slate-400">
-                                        {v.color ? formatTitleCaseDisplay(v.color) : 'No color'}
+                                        {v.color ? formatTitleCaseDisplay(v.color) : 'Not specified'}
                                       </span>
                                     </div>
 	                              </div>
-	                              {isActive ? (
-	                                <iconify-icon icon="solar:check-circle-bold" width="18" className="shrink-0 text-blue-600"></iconify-icon>
-	                              ) : null}
 	                            </button>
 	                          );
 	                        })}
@@ -9257,10 +8398,10 @@ export default function CustomerDashboard() {
                 (bookingStep === 5 && !step5Valid);
 
               // Hint shown below button when blocked
-                const hintText =
-                  bookingStep === 1 ? (
-                    !bookingVehicleChosen ? 'Tap your vehicle above to continue' :
-                    !bookingForm.service ? 'Select a protection package to continue' : ''
+	                const hintText =
+	                  bookingStep === 1 ? (
+	                    !bookingVehicleChosen ? 'Select a vehicle to continue' :
+	                    !bookingForm.service ? 'Select a protection package to continue' : ''
 	                  ) :
 	                    bookingStep === 2 ? (!step2Valid ? 'Complete all required fields above' : '') :
 	                      bookingStep === 3 ? step3FooterHint :
@@ -9725,86 +8866,126 @@ export default function CustomerDashboard() {
     `}</style>
 
       {/* Edit Vehicle Modal — same shell + form as Add Vehicle */}
-      {editVehicleOpen && (
-        <div
-          className="customer-modal-layer fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-xl sm:p-5"
-          onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); setEditVehicleApiError(''); }}
-        >
-          <div
-            className="customer-modal-panel customer-vehicle-modal customer-vehicle-modal--premium flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
-            onClick={e => e.stopPropagation()}
-            style={{
-              animation: 'customerModalPanelIn .18s cubic-bezier(0.22,1,0.36,1) both',
-              maxHeight: '94vh',
+      <AnimatePresence>
+        {editVehicleOpen && (
+          <motion.div
+            key="customer-edit-vehicle-modal-layer"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="customer-modal-layer fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-xl sm:p-5"
+            onClick={() => {
+              if (editVehiclePending) return;
+              setEditVehicleOpen(false);
+              setEditVehicleErrors({});
+              setEditVehicleApiError('');
             }}
           >
-            <div className="customer-vehicle-header flex shrink-0 items-center justify-between gap-4 border-0 px-5 py-4 sm:px-6">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="customer-vehicle-header-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white">
-                  <iconify-icon icon="solar:garage-bold" width="22"></iconify-icon>
-                </div>
-                <div className="min-w-0">
-                  <p className="customer-vehicle-eyebrow">My garage</p>
-                  <h3 className="text-lg font-bold tracking-tight text-slate-950">Edit Vehicle</h3>
-                  <p className="mt-0.5 text-xs font-medium text-slate-500">Update your garage profile for booking.</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); setEditVehicleApiError(''); }}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border-0 bg-white text-slate-500 shadow-md shadow-slate-900/10 transition-all duration-200 hover:bg-slate-50 hover:text-slate-900 hover:shadow-lg"
-                aria-label="Close"
-              >
-                <iconify-icon icon="solar:close-circle-linear" width="18"></iconify-icon>
-              </button>
-            </div>
-
-            <form
-              className="customer-modal-scroll customer-vehicle-form min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-              noValidate
-              onSubmit={(e) => {
-                e.preventDefault();
-                void saveEditVehicle();
-              }}
+            <motion.div
+              key="customer-edit-vehicle-modal-panel"
+              initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.985, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.985, y: 8 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="customer-modal-panel customer-vehicle-modal customer-vehicle-modal--premium flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
+              onClick={e => e.stopPropagation()}
+              style={{ maxHeight: '94vh' }}
             >
-              <VehicleGarageForm
-                variant="customer-rich"
-                values={editVehicleForm}
-                onChange={setEditVehicleForm}
-                errors={editVehicleErrors}
-                onClearError={(field) => setEditVehicleErrors((er) => ({ ...er, [field]: '' }))}
-                showCustomColorInput={editVehicleShowColorInput}
-                onShowCustomColorInput={setEditVehicleShowColorInput}
-                apiError={editVehicleApiError}
-                showPricingPreview
-                bookingPackages={bookingPackages}
-                enableVehicleDatabase
-                footerHint={
-                  <>
-                    Changes apply to future bookings. Open <span className="font-semibold text-slate-800">Book</span> on this vehicle when you are ready to schedule.
-                  </>
-                }
-              />
-
-              <div className="customer-modal-sticky customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-0 bg-white/95 px-5 pt-4 shadow-[0_-12px_32px_-16px_rgba(15,23,42,0.08)] backdrop-blur sm:-mx-6 sm:flex-row sm:px-6">
+              <div className="customer-vehicle-header flex shrink-0 items-center justify-between gap-4 border-0 px-5 py-4 sm:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="customer-vehicle-header-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white">
+                    <iconify-icon icon="solar:garage-bold" width="22"></iconify-icon>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="customer-vehicle-eyebrow">My garage</p>
+                    <h3 className="text-lg font-bold tracking-tight text-slate-950">Edit Vehicle</h3>
+                    <p className="mt-0.5 text-xs font-medium text-slate-500">Update your garage profile for booking.</p>
+                  </div>
+                </div>
                 <button
                   type="button"
-                  onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); setEditVehicleApiError(''); }}
-                  className="flex-1 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-white to-slate-50/90 py-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all hover:border-slate-300/85 hover:shadow-[0_4px_14px_-6px_rgba(15,23,42,0.1)]"
+                  disabled={editVehiclePending}
+                  onClick={() => {
+                    if (editVehiclePending) return;
+                    setEditVehicleOpen(false);
+                    setEditVehicleErrors({});
+                    setEditVehicleApiError('');
+                  }}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border-0 bg-white text-slate-500 shadow-md shadow-slate-900/10 transition-all duration-200 hover:bg-slate-50 hover:text-slate-900 hover:shadow-lg disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  aria-label="Close"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="customer-vehicle-btn-primary flex-1 rounded-2xl py-3.5 text-sm font-semibold text-white transition-all duration-200"
-                >
-                  Save Changes
+                  <iconify-icon icon="solar:close-circle-linear" width="18"></iconify-icon>
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+
+              <form
+                className="customer-modal-scroll customer-vehicle-form min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                noValidate
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void saveEditVehicle();
+                }}
+              >
+                <VehicleGarageForm
+                  variant="customer-rich"
+                  values={editVehicleForm}
+                  experience="customer-edit"
+                  onChange={setEditVehicleForm}
+                  errors={editVehicleErrors}
+                  onClearError={(field) => setEditVehicleErrors((er) => ({ ...er, [field]: '' }))}
+                  showCustomColorInput={editVehicleShowColorInput}
+                  onShowCustomColorInput={setEditVehicleShowColorInput}
+                  apiError={editVehicleApiError}
+                  showPricingPreview
+                  bookingPackages={bookingPackages}
+                  enableVehicleDatabase
+                  footerHint={
+                    <>
+                      Changes apply to future bookings. Open <span className="font-semibold text-slate-800">Book</span> on this vehicle when you are ready to schedule.
+                    </>
+                  }
+                />
+
+                <div className="customer-modal-sticky customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-0 bg-white/95 px-5 pt-4 shadow-[0_-12px_32px_-16px_rgba(15,23,42,0.08)] backdrop-blur sm:-mx-6 sm:flex-row sm:px-6">
+                  <motion.button
+                    type="button"
+                    disabled={editVehiclePending}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      if (editVehiclePending) return;
+                      setEditVehicleOpen(false);
+                      setEditVehicleErrors({});
+                      setEditVehicleApiError('');
+                    }}
+                    className="flex-1 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-white to-slate-50/90 py-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all hover:border-slate-300/85 hover:shadow-[0_4px_14px_-6px_rgba(15,23,42,0.1)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Cancel
+                  </motion.button>
+                  <motion.button
+                    type="submit"
+                    disabled={editVehiclePending}
+                    whileTap={{ scale: 0.98 }}
+                    className="customer-vehicle-btn-primary flex-1 rounded-2xl py-3.5 text-sm font-semibold text-white transition-all duration-200 disabled:opacity-80 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {editVehiclePending ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                        </svg>
+                        <span>Saving...</span>
+                      </span>
+                    ) : (
+                      <span>Save Changes</span>
+                    )}
+                  </motion.button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Vehicle History Modal */}
       {vehicleHistoryOpen && vehicleHistoryVehicle && (

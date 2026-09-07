@@ -350,12 +350,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(16,185,129,0.42)',
   },
   slotImage: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     width: '100%',
     height: '100%',
   },
   slotImageVeil: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.44)',
   },
   removeChip: {

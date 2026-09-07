@@ -513,7 +513,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   progressCenter: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
@@ -742,7 +742,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#070708',
   },
   loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(5,5,6,0.88)',
     alignItems: 'center',
     justifyContent: 'center',

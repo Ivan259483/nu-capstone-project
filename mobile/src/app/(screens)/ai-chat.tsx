@@ -22,7 +22,7 @@ export default function AiChatRoute() {
 
   return (
     <>
-      <StatusBar style="light" backgroundColor="#050506" />
+      <StatusBar style="light" />
       <ChatScreen onClose={handleClose} />
     </>
   );

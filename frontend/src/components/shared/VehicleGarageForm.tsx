@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, ChevronsUpDown } from 'lucide-react';
+import { AlertTriangle, Check, ChevronsUpDown } from 'lucide-react';
 import {
   Command,
   CommandEmpty,
@@ -9,13 +9,18 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { getModelsForBrand, getVehicleTypeForModel, vehicleBrands } from '@/data/vehicleData';
+import { getModelsForBrand, vehicleBrands } from '@/data/vehicleData';
+import { patchVehicleForm } from '../../../../backend/constants/vehicleFormState.js';
+import { useVehicleIntelligence } from '@/hooks/useVehicleIntelligence';
 import { normalizePlateNumber } from '@/lib/plate';
 import {
   ADD_VEHICLE_TYPE_LABELS,
   BOOKING_YEAR_OPTIONS,
   CAR_BRANDS,
   getVehiclePriceKey,
+  getVehiclePricingCategory,
+  getVehiclePricingCategoryLabel,
+  getVehiclePriceKeyForPricingCategory,
   type VehicleGarageFormValues,
 } from './vehicle-garage-constants';
 
@@ -41,8 +46,8 @@ type Props = {
   footerHint?: React.ReactNode;
   /** Customer Add Vehicle only: searchable brand/model database */
   enableVehicleDatabase?: boolean;
-  /** Add-only presentation treatment; leaves edit and sales forms unchanged. */
-  experience?: 'default' | 'customer-add';
+  /** Customer add/edit use system-controlled classification; staff presentation stays separate. */
+  experience?: 'default' | 'customer-add' | 'customer-edit';
 };
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
@@ -58,6 +63,9 @@ type VehicleSearchSelectProps = {
   rich: boolean;
   hasError?: boolean;
   disabled?: boolean;
+  optionLabels?: Record<string, string>;
+  optionLogos?: Record<string, string>;
+  onSearchChange?: (value: string) => void;
 };
 
 function VehicleSearchSelect({
@@ -71,6 +79,9 @@ function VehicleSearchSelect({
   rich,
   hasError = false,
   disabled = false,
+  optionLabels = {},
+  optionLogos = {},
+  onSearchChange,
 }: VehicleSearchSelectProps) {
   const [open, setOpen] = React.useState(false);
   const selectedLabel = displayValue || value;
@@ -100,7 +111,10 @@ function VehicleSearchSelect({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button type="button" className={triggerClass} disabled={disabled} aria-expanded={open}>
-          <span className="min-w-0 truncate">{selectedLabel || placeholder}</span>
+          <span className="flex min-w-0 items-center gap-2 truncate">
+            {value && optionLogos[value] ? <img src={optionLogos[value]} alt="" className="h-5 w-5 rounded-full object-contain" /> : null}
+            <span className="truncate">{selectedLabel || placeholder}</span>
+          </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-slate-400" />
         </button>
       </PopoverTrigger>
@@ -111,6 +125,7 @@ function VehicleSearchSelect({
         <Command className="max-h-none !bg-transparent !text-slate-900 rounded-2xl border-0 shadow-none [&_[cmdk-group-heading]]:!text-slate-500 [&_[cmdk-input-wrapper]]:!border-b [&_[cmdk-input-wrapper]]:!border-white/25 [&_[cmdk-input-wrapper]]:!bg-white/20 [&_[cmdk-list]]:!bg-transparent [&_[cmdk-root]]:!bg-transparent">
           <CommandInput
             placeholder={searchPlaceholder}
+            onValueChange={onSearchChange}
             className="h-11 !border-0 !bg-transparent !text-slate-900 placeholder:!text-slate-400"
           />
           <CommandList className="max-h-[280px] !bg-transparent [scrollbar-color:rgba(148,163,184,0.35)_transparent] [scrollbar-width:thin]">
@@ -127,7 +142,8 @@ function VehicleSearchSelect({
                   className="cursor-pointer rounded-lg px-3 py-2 text-sm !text-slate-800 aria-selected:!bg-white/45 aria-selected:!text-slate-900 data-[selected=true]:!bg-white/45 data-[selected=true]:!text-slate-900 data-[selected='true']:!bg-white/45 data-[selected='true']:!text-slate-900"
                 >
                   <Check className={cx('mr-2 h-4 w-4 shrink-0 text-slate-400', value === option || displayValue === option ? 'opacity-100' : 'opacity-0')} />
-                  <span className="truncate">{option}</span>
+                  {optionLogos[option] ? <img src={optionLogos[option]} alt="" className="mr-2 h-5 w-5 rounded-full object-contain" /> : null}
+                  <span className="truncate">{optionLabels[option] || option}</span>
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -153,17 +169,36 @@ export default function VehicleGarageForm({
   enableVehicleDatabase = false,
   experience = 'default',
 }: Props) {
+  const { generations } = useVehicleIntelligence(v, enableVehicleDatabase, onChange);
   const set = (patch: Partial<VehicleGarageFormValues>) => {
-    onChange((prev) => ({ ...prev, ...patch }));
+    onChange((prev) => enableVehicleDatabase ? patchVehicleForm(prev, patch) : { ...prev, ...patch });
+    onClearError('type');
   };
 
   const rich = variant === 'customer-rich';
   const customerAddExperience = experience === 'customer-add';
+  const automaticClassification = enableVehicleDatabase && (customerAddExperience || experience === 'customer-edit');
+  const detectedType = enableVehicleDatabase && v.classificationStatus === 'classified' ? v.type : '';
+  const hasVehicleIdentity = Boolean(v.brand.trim() && v.model.trim());
+  const needsClassificationReview = hasVehicleIdentity && !detectedType && v.classificationStatus !== 'loading';
+  const pricingCategory = enableVehicleDatabase
+    ? (v.classificationStatus === 'classified' ? v.pricingCategory : null)
+    : getVehiclePricingCategory(v.type) || v.pricingCategory;
+  const pricingCategoryLabel = getVehiclePricingCategoryLabel(pricingCategory);
+  const displayClassification = enableVehicleDatabase
+    ? (detectedType ? (pricingCategory === 'HATCHBACK_SMALL_CAR' ? 'Hatchback' : pricingCategoryLabel || detectedType) : needsClassificationReview ? 'Classification unavailable' : '')
+    : v.type;
+  const priceKey = getVehiclePriceKeyForPricingCategory(pricingCategory);
   const [customBrandMode, setCustomBrandMode] = React.useState(false);
   const [customModelMode, setCustomModelMode] = React.useState(false);
   const knownBrandModels = enableVehicleDatabase && !customBrandMode ? getModelsForBrand(v.brand) : [];
   const showCustomBrandInput = enableVehicleDatabase && customBrandMode;
   const showCustomModelInput = enableVehicleDatabase && (customBrandMode || customModelMode);
+  const availableBookingPackages = React.useMemo(() => {
+    if (!v.type) return [];
+    if (!priceKey) return [];
+    return bookingPackages.filter((pkg) => pkg.prices[priceKey] != null);
+  }, [bookingPackages, v.type, priceKey]);
 
   React.useEffect(() => {
     if (!enableVehicleDatabase || !v.brand) return;
@@ -195,12 +230,12 @@ export default function VehicleGarageForm({
     onClearError('model');
     if (model === 'Other') {
       setCustomModelMode(true);
-      set({ model: '', type: '' });
+      set({ model: '' });
       return;
     }
 
     setCustomModelMode(false);
-    set({ model, type: getVehicleTypeForModel(model) });
+    set({ model });
     onClearError('type');
   };
 
@@ -215,6 +250,12 @@ export default function VehicleGarageForm({
     Yellow: '#eab308',
     Orange: '#f97316',
     Brown: '#92400e',
+    Gold: '#d4a017',
+    Purple: '#7e22ce',
+    Pink: '#ec4899',
+    Beige: '#d6c6a8',
+    Bronze: '#a97142',
+    'Two-Tone': '#64748b',
   };
 
   const previewPlate = v.plate ? normalizePlateNumber(v.plate) : 'Plate';
@@ -287,7 +328,7 @@ export default function VehicleGarageForm({
             {[
               { label: 'Plate', value: previewPlate, icon: 'solar:hashtag-linear' },
               { label: 'Brand', value: v.brand || 'Not selected', icon: 'solar:shield-check-linear' },
-              { label: 'Class', value: v.type || 'Not selected', icon: 'solar:wheel-angle-linear' },
+              { label: 'Class', value: displayClassification || 'Not selected', icon: 'solar:wheel-angle-linear' },
               { label: 'Color', value: v.color || 'Not selected', icon: 'solar:palette-linear', color: v.color ? colorHex[v.color] : undefined },
             ].map((item) => (
               <div key={item.label} className="customer-vehicle-identity-chip">
@@ -342,7 +383,7 @@ export default function VehicleGarageForm({
                     className="rounded-xl bg-white/16 px-2.5 py-1 text-xs font-semibold backdrop-blur-[1px]"
                     style={{ color: previewTextLight ? '#1e293b' : '#f8fafc', opacity: 0.9 }}
                   >
-                    {v.type || 'Vehicle class'}
+                    {displayClassification || 'Vehicle class'}
                   </span>
                 </div>
               </div>
@@ -382,9 +423,9 @@ export default function VehicleGarageForm({
                       {normalizePlateNumber(v.plate)}
                     </span>
                   )}
-                  {v.type && (
+                  {displayClassification && (
                     <span className="rounded-lg bg-white/16 px-2 py-0.5 text-[10px] font-semibold text-white/90">
-                      {v.type}
+                      {displayClassification}
                     </span>
                   )}
                 </div>
@@ -477,7 +518,7 @@ export default function VehicleGarageForm({
                 displayValue={customBrandMode ? v.brand || 'Other brand' : v.brand}
                 placeholder="Select brand"
                 searchPlaceholder="Search brand..."
-                emptyText="No brand found."
+                emptyText="No brand found. Clear your search and choose Other to enter it."
                 options={vehicleBrands}
                 onSelect={handleDatabaseBrandSelect}
                 rich={rich}
@@ -563,12 +604,12 @@ export default function VehicleGarageForm({
                   displayValue={customModelMode ? v.model || 'Other model' : v.model}
                   placeholder={v.brand ? 'Select model' : 'Select brand first'}
                   searchPlaceholder="Search model..."
-                  emptyText="No model found."
-                  options={knownBrandModels}
+                  emptyText="No model found. Clear your search and choose Other to enter it."
+                  options={knownBrandModels.includes('Other') ? knownBrandModels : [...knownBrandModels, 'Other']}
                   onSelect={handleDatabaseModelSelect}
                   rich={rich}
                   hasError={Boolean(errors.model)}
-                  disabled={!v.brand || knownBrandModels.length === 0}
+                  disabled={!v.brand}
                 />
               )}
               {showCustomModelInput && (
@@ -578,7 +619,7 @@ export default function VehicleGarageForm({
                   value={v.model}
                   onChange={(e) => {
                     const model = e.target.value;
-                    set({ model, type: getVehicleTypeForModel(model) });
+                    set({ model });
                     onClearError('model');
                     onClearError('type');
                   }}
@@ -626,7 +667,7 @@ export default function VehicleGarageForm({
         <RichSectionLabel
           className="customer-vehicle-specifications-label"
           icon="solar:tuning-square-2-linear"
-          description="Classify the vehicle and add useful service specifications."
+          description="Automatic classification and optional service specifications."
         >
           Specifications
         </RichSectionLabel>
@@ -672,8 +713,18 @@ export default function VehicleGarageForm({
               </option>
             ))}
           </select>
+          {enableVehicleDatabase && generations.length > 0 && (
+            <label className="mt-2 block text-xs text-slate-500">
+              Generation
+              <select value={v.generation || ''} onChange={(e) => set({ generation: e.target.value })}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
+                <option value="">Select generation if known</option>
+                {generations.map((generation) => <option key={generation} value={generation}>{generation}</option>)}
+              </select>
+            </label>
+          )}
         </div>
-        <div>
+        <div className={automaticClassification ? 'order-first' : undefined}>
           <label
             className={
               rich
@@ -681,18 +732,59 @@ export default function VehicleGarageForm({
                 : 'mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500'
             }
           >
-            {customerAddExperience ? 'Pricing category' : 'Type'} <span className="font-bold text-red-500 normal-case">*</span>
+            {automaticClassification ? 'Vehicle Classification' : 'Type'} <span className="font-bold text-red-500 normal-case">*</span>
           </label>
-          {customerAddExperience ? (
-            <div className={`flex min-h-[42px] items-center gap-2 rounded-2xl border px-3.5 py-2.5 text-sm font-semibold ${
-              errors.type
-                ? 'border-red-100 bg-red-50 text-red-800'
-                : v.type
-                  ? 'border-emerald-100 bg-emerald-50/70 text-emerald-800'
-                  : 'border-slate-100 bg-slate-50 text-slate-400'
-            }`}>
-              <iconify-icon icon={v.type ? 'solar:verified-check-bold' : 'solar:info-circle-linear'} width="16"></iconify-icon>
-              <span>{v.type || 'Select a supported brand and model'}</span>
+          {automaticClassification ? (
+            <div className="space-y-1.5">
+              {detectedType ? (
+                <div role="status" aria-live="polite" aria-atomic="true"
+                  className="rounded-[14px] border border-emerald-100/90 bg-emerald-50/45 px-3.5 py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-600">
+                        <Check className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />
+                      </span>
+                      <span className="truncate text-sm font-semibold text-slate-900">{displayClassification}</span>
+                    </span>
+                    <span className="shrink-0 text-[10px] font-semibold text-emerald-700">Automatically detected</span>
+                  </div>
+                  {(v.bodyType || v.vehicleClass || v.segment || v.recommendedServiceCategory) ? (
+                    <dl className="mt-2 grid grid-cols-1 gap-1 border-t border-emerald-100/80 pt-2 text-[11px] sm:grid-cols-2">
+                      {v.bodyType ? <div><dt className="inline text-slate-500">Body Type: </dt><dd className="inline font-medium text-slate-700">{v.bodyType}</dd></div> : null}
+                      {v.vehicleClass ? <div><dt className="inline text-slate-500">Vehicle Class: </dt><dd className="inline font-medium text-slate-700">{v.vehicleClass}</dd></div> : null}
+                      {v.segment ? <div><dt className="inline text-slate-500">Segment: </dt><dd className="inline font-medium text-slate-700">{v.segment}</dd></div> : null}
+                      {v.recommendedServiceCategory ? <div><dt className="inline text-slate-500">Service Category: </dt><dd className="inline font-medium text-slate-700">{v.recommendedServiceCategory}</dd></div> : null}
+                    </dl>
+                  ) : null}
+                </div>
+              ) : needsClassificationReview ? (
+                <div id="vehicle-classification-status" role="status" aria-live="polite"
+                  className="rounded-[14px] border border-amber-100 bg-amber-50/45 px-3.5 py-2.5 text-[11px]">
+                  <p className="flex items-center gap-1.5 font-medium text-amber-700">
+                    <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                    <span>{v.vehicleClass || 'Classification unavailable'}</span>
+                  </p>
+                  {(v.bodyType || v.vehicleClass || v.segment) ? (
+                    <dl className="mt-2 space-y-1 border-t border-amber-100 pt-2 text-slate-600">
+                      {v.bodyType ? <div><dt className="inline text-slate-500">Body Type: </dt><dd className="inline font-medium">{v.bodyType}</dd></div> : null}
+                      {v.vehicleClass ? <div><dt className="inline text-slate-500">Vehicle Class: </dt><dd className="inline font-medium">{v.vehicleClass}</dd></div> : null}
+                      {v.segment ? <div><dt className="inline text-slate-500">Segment: </dt><dd className="inline font-medium">{v.segment}</dd></div> : null}
+                    </dl>
+                  ) : null}
+                  <p className="mt-1 font-normal text-slate-500">{v.vehicleClass
+                    ? 'Body classification detected. Service pricing requires review.'
+                    : 'Vehicle classification requires review before pricing.'}</p>
+                </div>
+              ) : (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="flex min-h-[39px] items-center rounded-[14px] border border-slate-200/80 bg-slate-50/60 px-3.5 py-2 text-xs text-slate-500"
+                >
+                  {v.classificationStatus === 'loading' && hasVehicleIdentity ? 'Checking vehicle classification…' : 'Select a brand and model to auto-detect'}
+                </div>
+              )}
+
             </div>
           ) : (
             <select
@@ -720,6 +812,7 @@ export default function VehicleGarageForm({
               }
             >
               <option value="" disabled>Select...</option>
+              {v.type && !ADD_VEHICLE_TYPE_LABELS.some((type) => type === v.type) && <option value={v.type}>{v.type}</option>}
               {ADD_VEHICLE_TYPE_LABELS.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           )}
@@ -727,20 +820,20 @@ export default function VehicleGarageForm({
         </div>
       </div>
 
-      {showPricingPreview && v.type && bookingPackages.length > 0 && (
+      {showPricingPreview && v.type && availableBookingPackages.length > 0 && (
         <>
           {rich ? (
             <div className="customer-vehicle-pricing-panel overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 p-4">
               <div className="mb-2.5 flex items-center gap-2">
                 <iconify-icon icon="solar:tag-price-bold" width="14" style={{ color: '#f97316' }} />
                 <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400/95">
-                  {customerAddExperience ? `Pricing will follow ${v.type} rates` : `${v.type} pricing (linked to this vehicle)`}
+                  {customerAddExperience ? `Available packages · ${pricingCategoryLabel} pricing` : `${v.type} pricing (linked to this vehicle)`}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {bookingPackages.map((pkg) => {
-                  const priceKey = getVehiclePriceKey(v.type) as keyof typeof pkg.prices;
-                  const price = pkg.prices[String(priceKey)] ?? null;
+                {(customerAddExperience ? availableBookingPackages : bookingPackages).map((pkg) => {
+                  const packagePriceKey = priceKey || getVehiclePriceKey(v.type);
+                  const price = pkg.prices[String(packagePriceKey)] ?? null;
                   return (
                     <div key={pkg.id} className="customer-vehicle-price-tile rounded-xl border border-white/[0.07] bg-white/[0.05] px-2.5 py-2">
                       <p className="mb-0.5 text-[10px] font-semibold leading-snug text-slate-400">{pkg.name.split('—')[0].trim()}</p>
@@ -763,8 +856,8 @@ export default function VehicleGarageForm({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {bookingPackages.map((pkg) => {
-                  const priceKey = getVehiclePriceKey(v.type) as keyof typeof pkg.prices;
-                  const price = pkg.prices[String(priceKey)] ?? null;
+                  const packagePriceKey = priceKey || getVehiclePriceKey(v.type);
+                  const price = pkg.prices[String(packagePriceKey)] ?? null;
                   return (
                     <div
                       key={pkg.id}
@@ -817,6 +910,12 @@ export default function VehicleGarageForm({
             { name: 'Yellow', hex: '#eab308' },
             { name: 'Orange', hex: '#f97316' },
             { name: 'Brown', hex: '#92400e' },
+            { name: 'Gold', hex: '#d4a017' },
+            { name: 'Purple', hex: '#7e22ce' },
+            { name: 'Pink', hex: '#ec4899' },
+            { name: 'Beige', hex: '#d6c6a8' },
+            { name: 'Bronze', hex: '#a97142' },
+            { name: 'Two-Tone', hex: '#64748b' },
           ].map((c) => {
             const sel = v.color === c.name && !showCustomColorInput;
             return rich ? (
@@ -846,6 +945,8 @@ export default function VehicleGarageForm({
                 key={c.name}
                 type="button"
                 title={c.name}
+                aria-label={c.name}
+                aria-pressed={sel}
                 onClick={() => {
                   set({ color: c.name });
                   onShowCustomColorInput(false);
@@ -988,6 +1089,11 @@ export default function VehicleGarageForm({
             <option value="Diesel">Diesel</option>
             <option value="Electric">Electric</option>
             <option value="Hybrid">Hybrid</option>
+            <option value="PHEV">Plug-in Hybrid (PHEV)</option>
+            <option value="HEV">Hybrid (HEV)</option>
+            <option value="MHEV">Mild Hybrid (MHEV)</option>
+            <option value="BEV">Battery Electric (BEV)</option>
+            <option value="FCEV">Fuel Cell Electric (FCEV)</option>
           </select>
         </div>
       </div>

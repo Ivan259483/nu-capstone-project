@@ -1,3 +1,5 @@
+import { QCPaymentHandoff } from './QCPaymentHandoff';
+import { serviceHandoffState } from '@/lib/service-handoff';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { LucideIcon } from 'lucide-react';
@@ -290,7 +292,7 @@ function displayNameForPipelineStage(stage: ServiceStage): string {
   return toTitleCase(stage.replace(/_/g, ' '));
 }
 
-const TRACKED_ORDER_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
+const TRACKED_ORDER_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'paid', 'completed', 'released'];
 const CUSTOMER_UPDATE_STALE_MS = 24 * 60 * 60 * 1000;
 const QC_LIVE_MODAL_PERSIST_KEY = 'autospf:qc-live-modal:v1';
 
@@ -710,7 +712,8 @@ function getLiveEvidenceSummary(job: QCJob, viewerIsQualityChecker: boolean): Li
   const missing = Math.max(0, required - completed);
   const nextMissing = slots.find((slot) => !slot.complete)?.label || null;
   const lastUpdateMs = mostRecentOrderUpdateMs(job);
-  const stale = Boolean(lastUpdateMs && Date.now() - lastUpdateMs > CUSTOMER_UPDATE_STALE_MS);
+  const handoff = serviceHandoffState(job);
+  const stale = !handoff && Boolean(lastUpdateMs && Date.now() - lastUpdateMs > CUSTOMER_UPDATE_STALE_MS);
   const qcPassed = qcChecklistPassedCount((job as any).qcChecklist);
   const qcChecklistMissing = stage === 'quality_check' && qcPassed < QC_CHECKLIST_ITEMS.length;
 
@@ -723,6 +726,10 @@ function getLiveEvidenceSummary(job: QCJob, viewerIsQualityChecker: boolean): Li
   } else if (qcChecklistMissing) {
     const remaining = Math.max(0, QC_CHECKLIST_ITEMS.length - qcPassed);
     reason = `${remaining} QC check${remaining === 1 ? '' : 's'} incomplete`;
+  } else if (handoff === 'payment') {
+    reason = 'Awaiting POS Payment · Transferred to Sales/POS · Collect Remaining Balance';
+  } else if (handoff === 'handover') {
+    reason = 'Payment Confirmed · Ready for Customer Handover';
   } else if (stale) {
     reason = `No update for ${formatDistanceToNow(new Date(lastUpdateMs))}`;
   }
@@ -1997,6 +2004,7 @@ function CurrentGateCard({
 }
 
 function GateActionBar({
+  onOpenPosQueue,
   job,
   viewerIsQualityChecker,
   qcValidation,
@@ -2006,6 +2014,7 @@ function GateActionBar({
   job: QCJob;
   viewerIsQualityChecker: boolean;
   qcValidation: QCGateValidation;
+  onOpenPosQueue?: () => void;
   onAdvance: (id: string, stage: ServiceStage) => Promise<boolean>;
   onLocalStageUpdate: (id: string, stage: ServiceStage) => void;
 }) {
@@ -2070,11 +2079,12 @@ function GateActionBar({
 
   return (
     <div className="sticky bottom-0 z-20 shrink-0 bg-white/90 px-6 py-4 shadow-[0_-18px_42px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+      {tracker.isComplete && !tracker.isReleased ? <div className="mb-3"><QCPaymentHandoff job={job} /></div> : null}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-black uppercase tracking-[0.12em] text-slate-400">Gate action</p>
           <p className="truncate text-sm font-black text-slate-950">
-            {tracker.isComplete ? 'Ready for handoff' : tracker.currentGate.label}
+            {tracker.isReleased ? 'Customer Handover Completed' : tracker.isComplete ? posPaymentDone ? 'Ready for Customer Handover' : 'Ready for Pickup' : tracker.currentGate.label}
           </p>
           {isQcGate ? (
             <p className={`mt-1 text-xs font-bold leading-snug ${qcValidation.ready ? 'text-emerald-600' : 'text-rose-600'}`}>
@@ -2086,7 +2096,9 @@ function GateActionBar({
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row">
-          {tracker.isComplete ? (
+          {tracker.isComplete && !tracker.isReleased && !posPaymentDone && readyPickupComplete && onOpenPosQueue ? (
+            <button type="button" onClick={onOpenPosQueue} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700 focus:outline-none focus:ring-4 focus:ring-slate-200">Open POS Payment Queue <ArrowUpRight className="h-4 w-4" /></button>
+          ) : tracker.isComplete ? (
             <button
               type="button"
               onClick={() => advanceGate()}
@@ -2102,8 +2114,8 @@ function GateActionBar({
               {advancing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               {canRelease
                 ? posPaymentDone
-                  ? 'Mark vehicle as released'
-                  : 'Awaiting POS payment'
+                  ? 'Complete Customer Handover'
+                  : readyPickupComplete ? 'Awaiting POS Payment' : 'Complete final pickup evidence'
                 : 'Vehicle released'}
             </button>
           ) : (
@@ -2220,6 +2232,7 @@ type SelectedOrderPanelProps = {
   job: QCJob;
   detailsLoading?: boolean;
   viewerIsQualityChecker: boolean;
+  onOpenPosQueue?: () => void;
   onAdvance: (id: string, stage: ServiceStage) => Promise<boolean>;
   onUploadStagePhoto: (
     orderId: string,
@@ -2248,6 +2261,7 @@ type SelectedOrderPanelProps = {
 };
 
 function SelectedOrderPanel({
+  onOpenPosQueue,
   job,
   detailsLoading,
   viewerIsQualityChecker,
@@ -2503,6 +2517,7 @@ function SelectedOrderPanel({
       </div>
 
       <GateActionBar
+        onOpenPosQueue={onOpenPosQueue}
         job={job}
         viewerIsQualityChecker={viewerIsQualityChecker}
         qcValidation={qcValidation}
@@ -2569,6 +2584,7 @@ function LiveTrackerOrderModal({ onClose, isUploadInteractionActive = false, ...
 }
 
 export default function QCLiveTrackerView({
+  onOpenPosQueue,
   jobs,
   searchQuery = '',
   loading,
@@ -2582,6 +2598,7 @@ export default function QCLiveTrackerView({
   jobs: QCJob[];
   searchQuery?: string;
   loading: boolean;
+  onOpenPosQueue?: () => void;
   onAdvance: (id: string, stage: ServiceStage) => Promise<boolean>;
   onUploadStagePhoto: (
     orderId: string,
@@ -2935,6 +2952,9 @@ export default function QCLiveTrackerView({
             orderStatus: ((detail as any).status || (detail as any).orderStatus || (job as any).orderStatus) as any,
             serviceTrackingStage: ((detail as any).serviceTrackingStage || (job as any).serviceTrackingStage) as any,
             paymentStatus: ((detail as any).paymentStatus ?? (job as any).paymentStatus) as any,
+            posQueueStatus: (detail as any).posQueueStatus ?? null,
+            readyForPaymentAt: (detail as any).readyForPaymentAt ?? job.readyForPaymentAt,
+            readyForPickupEvidenceComplete: (detail as any).readyForPickupEvidenceComplete ?? job.readyForPickupEvidenceComplete,
             invoiceId: ((detail as any).invoiceId ?? (job as any).invoiceId) as any,
             serviceTrackingUpdatedAt:
               ((detail as any).serviceTrackingUpdatedAt || (detail as any).updatedAt || (job as any).serviceTrackingUpdatedAt) as any,
@@ -3181,7 +3201,7 @@ export default function QCLiveTrackerView({
         </button>
         <button type="button" onClick={() => setActiveFilter('ready_pickup')} className="qc-live-kpi group flex min-h-24 items-center gap-4 rounded-2xl border border-emerald-200/70 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><PackageCheck className="h-5 w-5" /></span>
-          <span className="min-w-0"><strong className="block text-2xl font-black tabular-nums text-emerald-600">{filterCounts.ready_pickup}</strong><span className="block text-xs font-black text-slate-900">Ready for Pickup</span><span className="block text-[11px] font-medium text-slate-400">Waiting for release</span></span>
+          <span className="min-w-0"><strong className="block text-2xl font-black tabular-nums text-emerald-600">{filterCounts.ready_pickup}</strong><span className="block text-xs font-black text-slate-900">Ready for Pickup</span><span className="block text-[11px] font-medium text-slate-400">Payment &amp; customer handover</span></span>
         </button>
         <button type="button" onClick={() => setShowCompletedToday(true)} className="qc-live-kpi group flex min-h-24 items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-slate-100">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600"><CheckCircle2 className="h-5 w-5" /></span>
@@ -3296,6 +3316,7 @@ export default function QCLiveTrackerView({
       {isOrderModalOpen && modalJob
         ? createPortal(
             <LiveTrackerOrderModal
+              onOpenPosQueue={onOpenPosQueue}
               job={modalJob}
               detailsLoading={selectedOrderDetailsLoading}
               viewerIsQualityChecker={viewerIsQualityChecker}

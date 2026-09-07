@@ -6,7 +6,7 @@ import {
     type CustomerSidebarIconName,
 } from '@/components/customer/CustomerSidebarAnimatedIcon';
 
-type TabType = 'dashboard' | 'ai-estimator' | 'bookings' | 'tracking' | 'payments' | 'notifications' | 'settings' | 'book' | 'documents' | 'scan-book';
+type TabType = 'dashboard' | 'ai-estimator' | 'tracking' | 'payments' | 'notifications' | 'settings' | 'book' | 'documents' | 'scan-book';
 
 interface SidebarProps {
     activeTab: TabType;
@@ -22,7 +22,6 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
     const navItems: { id: TabType; label: string; icon: CustomerSidebarIconName }[] = [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'ai-estimator', label: 'AI Damage Scan', icon: 'sparkles' },
-        { id: 'bookings', label: 'My Bookings', icon: 'bookings' },
         { id: 'tracking', label: 'Live Tracking', icon: 'tracker' },
         { id: 'payments', label: 'Payments', icon: 'payments' },
         { id: 'documents', label: 'Documents & Waivers', icon: 'documents' },

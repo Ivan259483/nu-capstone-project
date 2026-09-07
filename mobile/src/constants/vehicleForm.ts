@@ -61,8 +61,8 @@ export const CAR_BRANDS = [
 ] as const;
 
 const currentYear = new Date().getFullYear();
-export const VEHICLE_YEAR_OPTIONS: string[] = Array.from({ length: 36 }, (_, i) =>
-  String(currentYear - i)
+export const VEHICLE_YEAR_OPTIONS: string[] = Array.from({ length: currentYear + 2 - 1886 + 1 }, (_, i) =>
+  String(currentYear + 2 - i)
 );
 
 export const VEHICLE_COLOR_SWATCHES = [
@@ -76,6 +76,12 @@ export const VEHICLE_COLOR_SWATCHES = [
   { name: 'Yellow', hex: '#eab308' },
   { name: 'Orange', hex: '#f97316' },
   { name: 'Brown', hex: '#92400e' },
+  { name: 'Gold', hex: '#d4a017' },
+  { name: 'Purple', hex: '#7e22ce' },
+  { name: 'Pink', hex: '#ec4899' },
+  { name: 'Beige', hex: '#d6c6a8' },
+  { name: 'Bronze', hex: '#a97142' },
+  { name: 'Two-Tone', hex: '#64748b' },
 ] as const;
 
 export const TRANSMISSION_OPTIONS = ['Automatic', 'Manual', 'CVT'] as const;

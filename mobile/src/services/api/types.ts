@@ -104,16 +104,26 @@ export interface ServiceCatalog {
 }
 
 export interface Vehicle {
+  generation?: string;
+  facelift?: string;
+  drivetrain?: string;
   id: string;
   _id?: string;
   year: number | string;
   make: string;
   model: string;
   color?: string;
+  standardColor?: 'Black' | 'White' | 'Gray' | 'Silver' | 'Red' | 'Blue' | 'Green' | 'Yellow' | 'Orange' | 'Brown' | 'Gold' | 'Purple' | 'Pink' | 'Beige' | 'Bronze' | 'Two-Tone' | 'Custom';
+  factoryColorName?: string;
+  paintCode?: string;
+  finishType?: string;
+  colorHex?: string;
+  colorRgb?: { r: number; g: number; b: number };
+  colorSource?: 'oem_database' | 'user_selected' | 'not_specified' | 'legacy';
   plateNumber: string;
   vehicleType?: string;
   pricingCategory?: VehiclePricingCategory | null;
-  pricingCategorySource?: 'customer_selected' | 'admin_assigned' | 'legacy_migration' | null;
+  pricingCategorySource?: 'vehicle_database' | 'customer_selected' | 'admin_assigned' | 'legacy_migration' | null;
   pricingCategoryNeedsReview?: boolean;
   transmission?: string;
   fuelType?: string;

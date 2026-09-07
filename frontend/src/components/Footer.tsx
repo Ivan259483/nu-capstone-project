@@ -42,7 +42,6 @@ const footerColumns: Array<{ title: string; links: FooterLink[] }> = [
             { label: "Book a Service", to: "/booking" },
             { label: "Login", to: "/login" },
             { label: "Register", to: "/login" },
-            { label: "My Bookings", to: "/customer/dashboard" },
             { label: "Payment History", to: "/customer/dashboard" },
         ],
     },

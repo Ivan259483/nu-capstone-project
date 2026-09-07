@@ -58,11 +58,11 @@ export default function WelcomeScreen() {
   return (
     <View style={styles.container}>
       {/* ── Background Cinematic Image with Slow Zoom ── */}
-      <View style={StyleSheet.absoluteFillObject}>
-        <Animated.View style={[StyleSheet.absoluteFillObject, bgAnimatedStyle]}>
+      <View style={StyleSheet.absoluteFill}>
+        <Animated.View style={[StyleSheet.absoluteFill, bgAnimatedStyle]}>
           <Image 
             source={{ uri: 'file:///Users/ivan/.gemini/antigravity/brain/5b01b4a1-0e1b-416a-9e4c-b5f5c5235ae0/ultra_premium_sports_car_bg_1775840444238.png' }} 
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             contentFit="cover"
             transition={1000} // Smooth image load fade
           />
@@ -72,7 +72,7 @@ export default function WelcomeScreen() {
         <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.4)', '#000000', '#000000']}
           locations={[0, 0.45, 0.8, 1]}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
       </View>
 

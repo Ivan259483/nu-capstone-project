@@ -484,7 +484,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,107,53,0.12)',
   },
   gridVeil: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderColor: 'rgba(255,255,255,0.025)',
     borderWidth: 1,
   },
@@ -526,7 +526,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   headerCenterWithoutBack: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     paddingHorizontal: 64,
   },
@@ -630,7 +630,7 @@ const styles = StyleSheet.create({
     height: 230,
   },
   scanZoneGrid: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderWidth: 1,
     borderColor: 'rgba(255,107,53,0.08)',
   },
@@ -821,7 +821,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 0,
   },
   bottomBarVeil: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(4,4,5,0.76)',
   },
   secondaryAction: {

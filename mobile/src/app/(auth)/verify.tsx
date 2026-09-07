@@ -647,7 +647,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   otpNativeInput: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     color: 'transparent',
     backgroundColor: 'transparent',
   },

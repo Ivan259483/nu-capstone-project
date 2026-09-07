@@ -9,6 +9,7 @@ import Notification from '../models/notification.model.js';
 import User from '../models/user.model.js';
 import ActivityLog from '../models/activityLog.model.js';
 import { getIO } from '../utils/socket.utils.js';
+import { invalidateResponseCache } from '../utils/responseCache.utils.js';
 import { isCustomerRole } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
@@ -56,6 +57,7 @@ import { parseReportingRange } from '../utils/reportingRange.utils.js';
 import PaymentReconciliationEvent from '../models/paymentReconciliationEvent.model.js';
 import { getSystemState } from '../services/systemState.service.js';
 import { beginTrackedSystemMutation } from '../middleware/systemLifecycle.middleware.js';
+import { findCustomerPaymentInvoices, reservationReceiptNumber } from './customerReceipt.controller.js';
 
 const LOW_STOCK_THRESHOLD = 10;
 const LOCAL_PAYMENTS_PROVIDER = (process.env.LOCAL_PAYMENTS_PROVIDER || 'paymongo').toLowerCase();
@@ -1088,7 +1090,8 @@ export const getMyPayments = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Authentication required' });
     }
 
-    const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 50));
+    const limit = Math.min(100, Math.max(1, Math.floor(Number(req.query?.limit) || 50)));
+    const page = Math.max(1, Math.floor(Number(req.query?.page) || 1));
     const allPayments = await Payment.find({ customer: userId })
       .sort({ effectiveAt: -1, submittedAt: -1, createdAt: -1 })
       .populate(
@@ -1105,8 +1108,14 @@ export const getMyPayments = async (req, res, next) => {
       if (!byOrder.has(orderId)) byOrder.set(orderId, []);
       byOrder.get(orderId).push(payment);
     });
-    const payments = allPayments.slice(0, limit).map((payment) => buildLedgerTransaction(payment, {
-      orderPayments: byOrder.get(String(payment.order?._id || payment.order || '')) || [],
+    const pagePayments = allPayments.slice((page - 1) * limit, page * limit);
+    const invoices = await findCustomerPaymentInvoices(pagePayments);
+    const payments = pagePayments.map((payment) => ({
+      ...buildLedgerTransaction(payment, {
+        orderPayments: byOrder.get(String(payment.order?._id || payment.order || '')) || [],
+      }),
+      receiptAvailable: Boolean(reservationReceiptNumber(payment)) || invoices.has(String(payment._id)),
+      receiptNumber: reservationReceiptNumber(payment) || invoices.get(String(payment._id))?.invoiceNumber || null,
     }));
     const totalSpent = roundMoney(allPayments.reduce((sum, payment) => sum + getSignedAmount(payment), 0));
     const totalCount = allPayments.filter(isPostedPayment).length;
@@ -1116,6 +1125,7 @@ export const getMyPayments = async (req, res, next) => {
       data: payments,
       totalSpent,
       totalCount,
+      pagination: { page, limit, total: allPayments.length, pages: Math.ceil(allPayments.length / limit) },
       currency: 'PHP',
     });
   } catch (error) {
@@ -1669,14 +1679,15 @@ export const runPosCheckoutCore = async ({
   const prevPosStatus = order.status;
   const prevTrackingStage = order.serviceTrackingStage;
   const readyPickupPhotosComplete = countGatePhotos(order, 'ready_pickup') >= REQUIRED_GATE_PHOTOS;
-  // Full balance collected at POS can mark the order paid, but release still waits
-  // for ready-pickup final output photos.
+  // Payment makes release available; only an explicit customer handover releases the vehicle.
   const fullySettled = balanceRemaining <= 0;
   const prevStatusKey = String(prevPosStatus || '').toLowerCase().replace(/-/g, '_');
   const prevStageKey = String(prevTrackingStage || '').toLowerCase().replace(/-/g, '_');
-  if (fullySettled && readyPickupPhotosComplete) {
-    order.status = 'released';
-    order.serviceTrackingStage = 'released';
+  if (fullySettled && readyPickupPhotosComplete && (prevStageKey === 'ready_pickup' || prevStatusKey === 'ready_for_payment')) {
+    // Preserve the pickup service status for existing customer trackers.
+    // paymentStatus=paid owns settlement; released owns physical handover.
+    order.status = 'ready_for_payment';
+    order.serviceTrackingStage = 'ready_pickup';
   } else if (fullySettled) {
     if (['pending_confirmation', 'pending', 'approved', 'confirmed', 'assigned', 'queued'].includes(prevStatusKey)) {
       order.status = ['approved', 'assigned'].includes(prevStatusKey) ? prevPosStatus : 'confirmed';
@@ -1685,24 +1696,16 @@ export const runPosCheckoutCore = async ({
       order.status = prevStatusKey === 'received' ? 'received' : 'in_progress';
       order.serviceTrackingStage = order.serviceTrackingStage || (prevStatusKey === 'received' ? 'received' : 'in_progress');
     } else if (prevStatusKey === 'ready_for_payment' || prevStatusKey === 'completed' || prevStageKey === 'ready_pickup') {
-      order.status = 'paid';
+      order.status = 'ready_for_payment';
       order.serviceTrackingStage = order.serviceTrackingStage || 'ready_pickup';
     } else {
       order.status = 'paid';
     }
   } else {
-    if (
-      ['pending', 'confirmed', 'assigned', 'processing', 'in-progress', 'in_progress', 'ready_for_payment'].includes(
-        order.status
-      )
-    ) {
-      order.status = 'completed';
-    }
-    if (prevPosStatus === 'ready_for_payment' || prevTrackingStage === 'ready_pickup') {
-      order.serviceTrackingStage = 'released';
-    }
+    order.status = prevPosStatus;
+    order.serviceTrackingStage = prevTrackingStage;
   }
-  order.posQueueStatus = null;
+  if (fullySettled) order.posQueueStatus = null;
   order.readyForPickupEvidenceComplete = readyPickupPhotosComplete;
   const nextStatusKey = String(order.status || '').toLowerCase().replace(/-/g, '_');
   const nextStageKey = String(order.serviceTrackingStage || '').toLowerCase().replace(/-/g, '_');
@@ -1799,6 +1802,7 @@ export const runPosCheckoutCore = async ({
     console.error('Failed to create POS notification:', notificationError.message);
   }
 
+  invalidateResponseCache('qc:');
   try {
     const io = getIO();
     const customerId = order.customer?._id || order.customer;
@@ -1815,6 +1819,18 @@ export const runPosCheckoutCore = async ({
       });
     }
 
+    io.to('realtime:staff').emit('orderUpdated', {
+      orderId: order._id.toString(),
+      status: order.status,
+      serviceTrackingStage: order.serviceTrackingStage || null,
+      paymentStatus: order.paymentStatus,
+      invoiceId: order.invoiceId,
+      posQueueStatus: order.posQueueStatus || null,
+      readyForPickupEvidenceComplete: order.readyForPickupEvidenceComplete,
+      readyForPaymentAt: order.readyForPaymentAt || null,
+      trackerStageMedia: order.trackerStageMedia || [],
+      updatedAt: new Date().toISOString(),
+    });
     io.to('booking:approvals').emit('pos:transaction_completed', {
       paymentId: payment._id,
       amount: amountCollected,

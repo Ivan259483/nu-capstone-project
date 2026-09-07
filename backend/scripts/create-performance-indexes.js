@@ -21,6 +21,7 @@ async function createPerformanceIndexes() {
     { default: NotificationUserState },
     { default: ActivityLog },
     { default: InvoiceRecord },
+    { default: VehicleColor },
   ] = await Promise.all([
     import('../models/order.model.js'),
     import('../models/aiScan.model.js'),
@@ -30,6 +31,7 @@ async function createPerformanceIndexes() {
     import('../models/notificationUserState.model.js'),
     import('../models/activityLog.model.js'),
     import('../models/invoiceRecord.model.js'),
+    import('../models/vehicleColor.model.js'),
   ]);
 
   await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10_000 });
@@ -43,6 +45,7 @@ async function createPerformanceIndexes() {
       NotificationUserState,
       ActivityLog,
       InvoiceRecord,
+      VehicleColor,
     ];
     await Promise.all(models.map((model) => model.createIndexes()));
     const indexesByModel = await Promise.all(models.map(async (model) => ({

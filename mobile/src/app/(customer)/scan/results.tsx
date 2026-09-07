@@ -440,13 +440,13 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   heroImage: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
   },
   heroGradient: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.12)',
   },
   heroTop: {
@@ -460,11 +460,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   overlayLayer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 2,
   },
   maskLayer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   overlayControlWrap: {
     position: 'absolute',

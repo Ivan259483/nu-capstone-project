@@ -59,6 +59,7 @@ import orderRoutes from './routes/orders.routes.js';
 import servicesRoutes from './routes/services.routes.js';
 import storeRoutes from './routes/stores.routes.js';
 import customerRoutes from './routes/customers.routes.js';
+import vehicleIntelligenceRoutes from './routes/vehicleIntelligence.routes.js';
 import activityRoutes from './routes/activity.routes.js';
 import notificationRoutes from './routes/notifications.routes.js';
 import chatRoutes from './routes/chatbot.routes.js';
@@ -287,6 +288,7 @@ app.use('/api/bookings', orderRoutes); // Alias for booking-related operations
 app.use('/api/services', servicesRoutes);
 app.use('/api/stores', storeRoutes);
 app.use('/api/customers', customerRoutes);
+app.use('/api/vehicle-intelligence', vehicleIntelligenceRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/chat', chatRoutes);

@@ -1293,7 +1293,7 @@ const s = StyleSheet.create({
     position: 'relative',
   },
   viewerWrapper: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'transparent',
   },
   webview: {
@@ -1303,7 +1303,7 @@ const s = StyleSheet.create({
 
   /* ── Loading ── */
   loaderOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(10,10,12,0.85)',

@@ -7,7 +7,8 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 process.env.NODE_ENV = 'test';
 process.env.ENCRYPTION_KEY ||= '12345678901234567890123456789012';
 
-const { getVehicles } = await import('../controllers/customer.controller.js');
+const { publishDefinition } = await import('../services/vehicleIntelligence.service.js');
+const { addVehicle, getVehicles } = await import('../controllers/customer.controller.js');
 const { getBookingOptions } = await import('../controllers/service.controller.js');
 const { default: Service } = await import('../models/service.model.js');
 const { default: Vehicle } = await import('../models/vehicle.model.js');
@@ -70,6 +71,11 @@ before(async () => {
 
 beforeEach(async () => {
   await mongoose.connection.db.dropDatabase();
+  for (const [brand, model, category] of [['Aston Martin', 'Vantage', 'HIGH_END_SEDAN'], ['Toyota', 'Fortuner', 'SUV']]) {
+    await publishDefinition({ brand, model, bodyType: 'Test body', vehicleCategory: category, pricingCategory: category,
+      yearFrom: null, yearTo: 2026, confidenceLevel: 'high', status: 'approved', sources: ['Test fixture'],
+      reason: 'Test approved mapping', reviewExpiresAt: '2099-01-01' }, new mongoose.Types.ObjectId());
+  }
 });
 
 after(async () => {
@@ -121,8 +127,8 @@ test('Garage and booking options reuse one legacy Vantage record and resolve thr
   );
 
   const migratedVehicle = await Vehicle.findById(vehicle._id).lean();
-  assert.equal(migratedVehicle.pricingCategory, 'HIGH_END_SEDAN');
-  assert.equal(migratedVehicle.pricingCategorySource, 'legacy_migration');
+  assert.equal(migratedVehicle.pricingCategory, undefined);
+  assert.equal(migratedVehicle.pricingCategorySource, undefined);
   assert.equal(migratedVehicle.pricingCategoryNeedsReview, true);
   assert.equal(await Vehicle.countDocuments({ customer: customerId }), 1);
 });
@@ -145,4 +151,96 @@ test('booking options reject a saved vehicle owned by another customer', async (
   assert.equal(response.statusCode, 403);
   assert.equal(response.body.success, false);
   assert.equal(await Vehicle.countDocuments({ customer: ownerId }), 1);
+});
+
+test('customer Add Vehicle ignores a tampered category and uses database classification', async () => {
+  const customerId = new mongoose.Types.ObjectId();
+  const baseRequest = {
+    user: { id: String(customerId), role: 'customer' },
+    body: {
+      make: 'Bentley',
+      model: 'Bentayga',
+      color: 'Black',
+      plateNumber: 'BNTG456',
+      vehicleType: 'SUV',
+      pricingCategory: 'HATCHBACK_SMALL_CAR',
+    },
+  };
+
+  const savedResponse = await invokeController(addVehicle, baseRequest);
+  assert.equal(savedResponse.statusCode, 201);
+  assert.equal(savedResponse.body.data.vehicleType, 'SUV');
+  assert.equal(savedResponse.body.data.pricingCategory, 'SUV');
+  assert.equal(savedResponse.body.data.pricingCategorySource, 'vehicle_database');
+  assert.equal(savedResponse.body.data.pricingCategoryNeedsReview, false);
+  assert.equal(await Vehicle.countDocuments({ customer: customerId }), 1);
+});
+
+test('unknown vehicles discard manual classification and require review before package prices', async () => {
+  const customerId = new mongoose.Types.ObjectId();
+  await seedPublishedSpfServices();
+  for (const [index, [vehicleType, category]] of [
+    ['SUV', 'SUV'], ['Sedan', 'SEDAN'], ['Hatchback', 'HATCHBACK_SMALL_CAR'],
+    ['Pickup', 'PICKUP'], ['Van', 'LARGE_SUV_VAN'],
+  ].entries()) {
+    const response = await invokeController(addVehicle, {
+      user: { id: String(customerId), role: 'customer' },
+      body: { make: 'Unlisted Brand', model: 'Unlisted Model', color: 'Black', plateNumber: `FBK100${index}`, vehicleType },
+    });
+    assert.equal(response.statusCode, 201);
+    assert.equal(response.body.data.vehicleType, 'Other');
+    assert.equal(response.body.data.pricingCategory, undefined);
+    assert.equal(response.body.data.pricingCategorySource, 'customer_selected');
+    const booking = await invokeController(getBookingOptions, {
+      query: { vehicleId: response.body.data._id },
+      user: { id: String(customerId), role: 'customer' },
+    });
+    assert.equal(booking.statusCode, 422);
+    assert.equal(booking.body.errorCode, 'PRICE_CATEGORY_REQUIRED');
+  }
+});
+
+test('the full catalog takes precedence over manual input and persists the automatic source', async () => {
+  const response = await invokeController(addVehicle, {
+    user: { id: String(new mongoose.Types.ObjectId()), role: 'customer' },
+    body: { make: 'Toyota', model: 'Fortuner', color: 'White', plateNumber: 'AUTO123', vehicleType: 'Hatchback', pricingCategory: 'HATCHBACK_SMALL_CAR' },
+  });
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.body.data.vehicleType, 'SUV');
+  assert.equal(response.body.data.pricingCategory, 'SUV');
+  assert.equal(response.body.data.pricingCategorySource, 'vehicle_database');
+});
+
+test('unknown identities can register without inventing a price', async () => {
+  for (const vehicleType of ['', 'Unsupported']) {
+    const response = await invokeController(addVehicle, {
+      user: { id: String(new mongoose.Types.ObjectId()), role: 'customer' },
+      body: { make: 'Unlisted Brand', model: 'Unknown', color: 'White', plateNumber: vehicleType ? 'UNKN124' : 'UNKN123', vehicleType },
+    });
+    assert.equal(response.statusCode, 201);
+    assert.equal(response.body.data.pricingCategory, undefined);
+  }
+  assert.equal(await Vehicle.countDocuments(), 2);
+});
+
+
+test('unsupported classifications cannot set a customer-selected price tier', async () => {
+  const customerId = new mongoose.Types.ObjectId();
+  await seedPublishedSpfServices();
+  for (const [index, vehicleType] of ['Coupe', 'Other'].entries()) {
+    const response = await invokeController(addVehicle, {
+      user: { id: String(customerId), role: 'customer' },
+      body: { make: 'Unlisted Brand', model: 'Unknown', color: 'White', plateNumber: `SPEC12${index}`, vehicleType, pricingCategory: 'HIGH_END_SEDAN' },
+    });
+    assert.equal(response.statusCode, 201);
+    assert.equal(response.body.data.vehicleType, 'Other');
+    assert.equal(response.body.data.pricingCategory, undefined);
+    assert.equal(response.body.data.pricingCategorySource, 'customer_selected');
+    const booking = await invokeController(getBookingOptions, {
+      query: { vehicleId: response.body.data._id },
+      user: { id: String(customerId), role: 'customer' },
+    });
+    assert.equal(booking.statusCode, 422);
+    assert.equal(booking.body.errorCode, 'PRICE_CATEGORY_REQUIRED');
+  }
 });

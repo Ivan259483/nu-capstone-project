@@ -47,7 +47,7 @@ import {
   syncOrderFinancialSnapshot,
 } from '../services/financialLedger.service.js';
 
-const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
+const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'paid', 'completed', 'released'];
 const QC_APPROVED_ORDER_STATUSES = ['completed', 'released'];
 const QC_APPROVED_TRACKER_STAGES = ['ready_pickup', 'completed', 'released'];
 const QC_JOBS_DEFAULT_LIMIT = 20;
@@ -130,6 +130,9 @@ const QC_JOBS_PROJECTION = [
   'trackerStageMedia.uploadedBy',
   'paymentStatus',
   'invoiceId',
+  'posQueueStatus',
+  'readyForPickupEvidenceComplete',
+  'readyForPaymentAt',
   'bookingDate',
   'bookingTime',
   'qcHandoffSheet',
@@ -384,6 +387,10 @@ export const getQCJobs = async (req, res, next) => {
         trackerStageMedia: buildSlimTrackerStageMedia(o.trackerStageMedia),
         paymentStatus: o.paymentStatus || 'unpaid',
         invoiceId: o.invoiceId || null,
+        qcCompletedAt: o.qcCompletedAt || null,
+        posQueueStatus: o.posQueueStatus || null,
+        readyForPickupEvidenceComplete: Boolean(o.readyForPickupEvidenceComplete),
+        readyForPaymentAt: o.readyForPaymentAt || null,
         aiFlag,
         priority: elapsedMinutes > 120 ? 'high' : elapsedMinutes > 60 ? 'medium' : 'normal',
         // Raw order data for detail view
@@ -461,7 +468,7 @@ export const getQCStats = async (req, res, next) => {
     const scopeMatch = resolveQcScopeFilter(req);
 
     // All statuses that represent active or completed service work
-    const ACTIVE_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
+    const ACTIVE_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'paid', 'completed', 'released'];
     const QUEUE_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment'];
 
     const [
@@ -865,16 +872,12 @@ export const approveJob = async (req, res, next) => {
     order.serviceTrackingUpdatedAt = new Date();
     order.serviceTrackingUpdatedBy = req.user?.name || 'QC Checker';
     order.qcCompletedAt = new Date();
-    if (String(order.paymentStatus || '').toLowerCase() === 'paid') {
-      order.status = 'completed';
-    } else {
-      order.status = 'ready_for_payment';
-      await evaluateReadyForPickupQueueEligibility(order, {
-        persist: false,
-        emit: true,
-        notify: true,
-      });
-    }
+    order.status = 'ready_for_payment';
+    await evaluateReadyForPickupQueueEligibility(order, {
+      persist: false,
+      emit: true,
+      notify: true,
+    });
     await saveOrderWithSlotTransition(order, occupancyBefore);
     invalidateQcReadCaches();
 
@@ -894,6 +897,9 @@ export const approveJob = async (req, res, next) => {
         serviceTrackingStage: 'ready_pickup',
         serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || new Date(),
         paymentStatus: order.paymentStatus || null,
+        posQueueStatus: order.posQueueStatus || null,
+        readyForPickupEvidenceComplete: Boolean(order.readyForPickupEvidenceComplete),
+        readyForPaymentAt: order.readyForPaymentAt || null,
         serviceStaffAssignments: order.serviceStaffAssignments || [],
         trackerStageMedia: order.trackerStageMedia || [],
         updatedAt: new Date().toISOString(),
@@ -909,6 +915,9 @@ export const approveJob = async (req, res, next) => {
           serviceTrackingStage: 'ready_pickup',
           serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || new Date(),
           paymentStatus: order.paymentStatus || null,
+          posQueueStatus: order.posQueueStatus || null,
+          readyForPickupEvidenceComplete: Boolean(order.readyForPickupEvidenceComplete),
+          readyForPaymentAt: order.readyForPaymentAt || null,
           serviceStaffAssignments: order.serviceStaffAssignments || [],
           trackerStageMedia: order.trackerStageMedia || [],
           updatedAt: new Date().toISOString(),
@@ -1114,7 +1123,8 @@ export const updateServiceStatus = async (req, res, next) => {
       }
     }
 
-    if (stage === 'released') {
+    // Both terminal aliases represent an explicit customer handover.
+    if (stage === 'released' || stage === 'completed') {
       const ledgerRows = await getOrderLedger(order._id);
       const ledger = summarizeLedgerRows(ledgerRows, getOrderServiceTotal(order));
       await syncOrderFinancialSnapshot(order, ledgerRows);
@@ -1142,16 +1152,13 @@ export const updateServiceStatus = async (req, res, next) => {
     order.serviceTrackingUpdatedBy = req.user?.name || 'QC Checker';
 
     // Map stage to top-level order status.
-    // IMPORTANT: ready_pickup does NOT set status=completed — the vehicle is still
-    // in the shop. Only approveJob (QC explicit approval) sets status=completed.
-    // Setting completed here would hide the live tracker and show the rejected-booking
-    // card if the customer has any old rejected order.
+    // Keep pickup and paid work visible until an explicit customer handover.
     const stageToStatus = {
       confirmed:      'confirmed',
       received:       'received',
       in_progress:    'in_progress',
       quality_check:  'in_progress',   // still actively in service
-      completed:      'completed',     // set by approveJob
+      completed:      'completed',     // explicit handover, guarded above
       released:       'released',      // vehicle handed back — hides customer tracker
     };
     if (stage === 'ready_pickup') {
@@ -1183,6 +1190,9 @@ export const updateServiceStatus = async (req, res, next) => {
         serviceTrackingStage: stage,
         serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || new Date(),
         paymentStatus: order.paymentStatus || null,
+        posQueueStatus: order.posQueueStatus || null,
+        readyForPickupEvidenceComplete: Boolean(order.readyForPickupEvidenceComplete),
+        readyForPaymentAt: order.readyForPaymentAt || null,
         invoiceId: order.invoiceId || null,
         serviceStaffAssignments: order.serviceStaffAssignments || [],
         trackerStageMedia: order.trackerStageMedia || [],
@@ -1199,6 +1209,9 @@ export const updateServiceStatus = async (req, res, next) => {
           serviceTrackingStage: stage,
           serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || new Date(),
           paymentStatus: order.paymentStatus || null,
+          posQueueStatus: order.posQueueStatus || null,
+          readyForPickupEvidenceComplete: Boolean(order.readyForPickupEvidenceComplete),
+          readyForPaymentAt: order.readyForPaymentAt || null,
           invoiceId: order.invoiceId || null,
           serviceStaffAssignments: order.serviceStaffAssignments || [],
           trackerStageMedia: order.trackerStageMedia || [],

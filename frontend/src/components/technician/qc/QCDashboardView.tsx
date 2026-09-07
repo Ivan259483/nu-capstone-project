@@ -19,7 +19,10 @@ import {
 import type { QCActivityItem, QCJob, QCStats, QCTrackerStageMedia } from '@/hooks/useQCData';
 import { normalizeStaffGateSlot, requiredSlotsCountForGate } from '@/lib/tracker-gate-photo-slots';
 
-type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker';
+import { QCPaymentHandoff } from './QCPaymentHandoff';
+import { serviceHandoffState } from '@/lib/service-handoff';
+
+type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker' | 'pos-queue';
 type DashboardStage = 'received' | 'in_progress' | 'quality_check' | 'ready_pickup' | 'completed';
 type ActiveStage = Exclude<DashboardStage, 'completed'>;
 
@@ -263,7 +266,9 @@ export default function QCDashboardView({ onNavigate, onSelectJob, statsLoading,
   const readyForPickupJobs = useMemo(() => activeJobs.filter((job) => currentDashboardStage(job) === 'ready_pickup'), [activeJobs]);
   const completedToday = useMemo(() => jobs.filter(happenedToday), [jobs]);
 
-  const priorityQueue = useMemo(() => activeJobs.map((job) => {
+  const handoffJobs = activeJobs.filter((job) => ['payment', 'handover'].includes(serviceHandoffState(job) || ''));
+
+  const priorityQueue = useMemo(() => activeJobs.filter((job) => !serviceHandoffState(job)).map((job) => {
     const evidence = summaries.get(job.id)!;
     const lastUpdate = latestUpdateMs(job);
     const stale = !lastUpdate || Date.now() - lastUpdate > STALE_AFTER_MS;
@@ -323,8 +328,16 @@ export default function QCDashboardView({ onNavigate, onSelectJob, statsLoading,
         <MetricCard label="Need Evidence" value={needEvidenceJobs.length} detail="Missing or incomplete" icon={Camera} tone="blue" loading={statsLoading && jobs.length === 0} onClick={() => openJob(needEvidenceJobs[0])} />
         <MetricCard label="Ready for QC" value={readyForQcJobs.length} detail="Awaiting quality check" icon={CheckCircle2} tone="green" loading={statsLoading && jobs.length === 0} onClick={() => openJob(readyForQcJobs[0])} />
         <MetricCard label="QC Issues" value={qcIssueJobs.length} detail="Requires attention" icon={AlertTriangle} tone="amber" loading={statsLoading && jobs.length === 0} onClick={() => openJob(qcIssueJobs[0])} />
-        <MetricCard label="Ready for Pickup" value={readyForPickupJobs.length} detail="Waiting for release" icon={Car} tone="blue" loading={statsLoading && jobs.length === 0} onClick={() => openJob(readyForPickupJobs[0])} />
+        <MetricCard label="Ready for Pickup" value={readyForPickupJobs.length} detail="Payment & customer handover" icon={Car} tone="blue" loading={statsLoading && jobs.length === 0} onClick={() => openJob(readyForPickupJobs[0])} />
         <MetricCard label="Completed Today" value={completedCount} detail="Officially released" icon={Trophy} tone="green" loading={statsLoading && jobs.length === 0} onClick={() => onNavigate('jobs')} />
+      </section>
+
+      <section className="qc-command-panel rounded-2xl bg-white p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="text-base font-semibold text-slate-950">Pickup &amp; Sales Handoff</h2><p className="mt-1 text-sm text-slate-500">{handoffJobs.filter((job) => serviceHandoffState(job) === 'payment').length} with Sales/POS · {handoffJobs.filter((job) => serviceHandoffState(job) === 'handover').length} ready for customer handover</p></div>
+          <button type="button" onClick={() => onNavigate('pos-queue')} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700 focus:outline-none focus:ring-4 focus:ring-slate-200">Open POS Payment Queue <ArrowRight size={16} /></button>
+        </div>
+        {handoffJobs.length > 0 ? <div className="mt-4 grid gap-4 xl:grid-cols-2">{handoffJobs.slice(0, 2).map((job) => <article key={job.id}><button type="button" onClick={() => openJob(job)} className="mb-3 text-left text-sm font-semibold text-slate-900 hover:text-blue-700">{job.customerName || job.customer}<span className="mt-1 block font-normal text-slate-500">{vehicleLabel(job)} · {job.plate}</span></button><QCPaymentHandoff job={job} /></article>)}</div> : <p className="mt-4 text-sm text-slate-500">Payment tasks appear automatically after the final QC gate is complete.</p>}
       </section>
 
       <section className="grid grid-cols-1 gap-4 min-[1400px]:grid-cols-[1.12fr_0.88fr]">

@@ -12,6 +12,7 @@ import {
   VEHICLE_PRICING_CATEGORIES,
   VEHICLE_PRICING_CATEGORY,
   normalizeVehiclePricingCategory,
+  resolveVehicleDatabasePricingCategory,
   resolveVehiclePricingCategory,
 } from '../constants/pricingCategories.js';
 import {
@@ -150,6 +151,10 @@ test('Aston Martin Vantage booking options expose exactly three High-End Sedan p
 });
 
 test('legacy saved vehicles classify centrally without requiring duplicate registration', () => {
+  assert.equal(
+    resolveVehicleDatabasePricingCategory({ make: 'Alfa Romeo', model: 'Giulietta' }),
+    VEHICLE_PRICING_CATEGORY.HATCHBACK_SMALL_CAR,
+  );
   assert.equal(
     resolveVehiclePricingCategory({ make: 'Aston Martin', model: 'Vantage' }),
     VEHICLE_PRICING_CATEGORY.HIGH_END_SEDAN,

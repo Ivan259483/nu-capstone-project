@@ -1,3 +1,4 @@
+import { requireVehiclePricing } from '../services/vehicleIntelligence.service.js';
 import mongoose from 'mongoose';
 import { randomUUID } from 'node:crypto';
 import Order from '../models/order.model.js';
@@ -1064,6 +1065,7 @@ function buildBalancePickupQueueDto(order, evaluation, financial) {
     posQueueStatus: order.posQueueStatus || null,
     readyForPickupEvidenceComplete: Boolean(order.readyForPickupEvidenceComplete),
     readyForPaymentAt,
+    qcCompletedAt: order.qcCompletedAt || null,
     queueReason: buildQueueReason(evaluation),
     eligibilitySummary: evaluation.eligibilitySummary || {
       readyForFinalPayment: true,
@@ -1712,14 +1714,18 @@ export const createOrder = async (req, res, next) => {
 
         let servicePrice;
         if (isSPFService(service)) {
+          const classifiedVehicle = await requireVehiclePricing(resolvedVehicle);
           const quote = resolveBookingQuote({
-            vehiclePricingCategory: resolvedVehicle?.pricingCategory,
+            vehiclePricingCategory: classifiedVehicle.pricingCategory,
             packageCode: service.packageCode || service.name,
             service,
             selectedAddOns,
           });
           servicePrice = quote.quotedPrice;
-          pricingSnapshot = buildPricingSnapshot(quote);
+          pricingSnapshot = { ...buildPricingSnapshot(quote), vehicleClassification: {
+            ...classifiedVehicle.classification, source: classifiedVehicle.pricingCategorySource,
+            reviewedBy: classifiedVehicle.pricingCategoryReviewedBy, pricingCategory: classifiedVehicle.pricingCategory,
+          } };
         } else {
           servicePrice = normalizeCurrency(service.basePrice);
           if (!Number.isFinite(servicePrice) || servicePrice <= 0) {
@@ -1773,14 +1779,18 @@ export const createOrder = async (req, res, next) => {
         }
         let servicePrice;
         if (isSPFService(service)) {
+          const classifiedVehicle = await requireVehiclePricing(resolvedVehicle || { make: vehicleMake, model: vehicleModel, year: vehicleYear });
           const quote = resolveBookingQuote({
-            vehiclePricingCategory: resolvedVehicle?.pricingCategory || vehiclePricingCategoryInput,
+            vehiclePricingCategory: classifiedVehicle.pricingCategory,
             packageCode: service.packageCode || service.name,
             service,
             selectedAddOns,
           });
           servicePrice = quote.quotedPrice;
-          pricingSnapshot = buildPricingSnapshot(quote);
+          pricingSnapshot = { ...buildPricingSnapshot(quote), vehicleClassification: {
+            ...classifiedVehicle.classification, source: classifiedVehicle.pricingCategorySource,
+            reviewedBy: classifiedVehicle.pricingCategoryReviewedBy, pricingCategory: classifiedVehicle.pricingCategory,
+          } };
         } else {
           servicePrice = normalizeCurrency(service.basePrice);
         }
@@ -1839,13 +1849,17 @@ export const createOrder = async (req, res, next) => {
                 message: 'The selected SPF package is not published in the backend catalog.',
               });
             }
+            const classifiedVehicle = await requireVehiclePricing(resolvedVehicle);
             const quote = resolveBookingQuote({
-              vehiclePricingCategory: resolvedVehicle.pricingCategory,
+              vehiclePricingCategory: classifiedVehicle.pricingCategory,
               packageCode: publishedService.packageCode || publishedService.name,
               service: publishedService,
               selectedAddOns,
             });
-            pricingSnapshot = buildPricingSnapshot(quote);
+            pricingSnapshot = { ...buildPricingSnapshot(quote), vehicleClassification: {
+            ...classifiedVehicle.classification, source: classifiedVehicle.pricingCategorySource,
+            reviewedBy: classifiedVehicle.pricingCategoryReviewedBy, pricingCategory: classifiedVehicle.pricingCategory,
+          } };
             finalServiceType = publishedService.name;
             resolvedServiceId = publishedService._id;
             finalTotalPrice = quote.quotedPrice;

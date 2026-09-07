@@ -420,7 +420,7 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
                 vehicleYear: '2020', // Defaulting for simple quick book
                 vehicleMake: model.split(' ')[0] || 'Unknown',
                 vehicleModel: model,
-                vehicleColor: 'Unknown',
+                vehicleColor: 'Not specified',
                 serviceType: selectedService?.name || service,
                 price: selectedService?.basePrice || 0,
                 bookingDate: date,

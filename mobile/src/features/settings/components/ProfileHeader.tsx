@@ -186,7 +186,7 @@ const s = StyleSheet.create({
     letterSpacing: 1,
   },
   avatarLoading: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderRadius: 40,
     justifyContent: 'center',

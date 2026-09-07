@@ -837,7 +837,7 @@ const s = StyleSheet.create({
   packageCard: { padding: 17, borderRadius: 20, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
   packageCardRecommended: { borderColor: 'rgba(255,140,0,0.36)' },
   packageCardFlagship: { borderColor: 'rgba(255,183,125,0.26)' },
-  cardSurfaceGradient: { ...StyleSheet.absoluteFillObject },
+  cardSurfaceGradient: { ...StyleSheet.absoluteFill },
   cardAccent: { position: 'absolute', top: 0, left: 17, right: 17, height: 1, backgroundColor: 'rgba(255,183,125,0.32)' },
   cardAccentRecommended: { backgroundColor: C.orange },
   cardTopRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },

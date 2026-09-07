@@ -6,6 +6,10 @@ export type NormalizedQueuedPickupOrder = {
   bookingId: string;
   bookingReference: string;
   customerName: string;
+  vehicleLabel: string;
+  servicePackage: string;
+  qcComplete: boolean;
+  paymentStatusLabel: string;
   plateNumber: string;
   remainingBalance: number;
   readyForPaymentAt: string | null;
@@ -98,6 +102,10 @@ export function normalizeQueuedPickupOrder(row: any): NormalizedQueuedPickupOrde
     bookingId,
     bookingReference: String(row?.bookingReference || row?.orderNumber || orderId || ''),
     customerName: String(row?.customerName || row?.customer?.name || ''),
+    vehicleLabel: [row?.vehicleYear || row?.vehicle?.year, row?.vehicleMake || row?.vehicle?.make, row?.vehicleModel || row?.vehicle?.model].filter(Boolean).join(' ') || 'Vehicle details unavailable',
+    servicePackage: String(row?.serviceType || row?.serviceName || 'Service details unavailable'),
+    qcComplete: Boolean(row?.qcCompletedAt || row?.eligibilitySummary?.readyForFinalPayment),
+    paymentStatusLabel: row?.paymentStatus === 'paid' ? 'Payment Completed' : row?.posQueueStatus === 'balance_pickup_queue' || row?.eligibilitySummary?.readyForFinalPayment ? 'Awaiting POS Payment' : row?.paymentStatus === 'partially_paid' ? 'Partially Paid' : 'Unpaid',
     plateNumber: String(row?.vehiclePlate || row?.plateNumber || row?.vehicle?.plateNumber || row?.vehicle?.plate || ''),
     remainingBalance: normalizeMoney(row?.remainingBalance),
     readyForPaymentAt: row?.readyForPaymentAt ? String(row.readyForPaymentAt) : null,

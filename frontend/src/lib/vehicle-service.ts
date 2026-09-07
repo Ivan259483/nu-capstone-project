@@ -5,6 +5,13 @@ import {
 } from '@/components/shared/vehicle-garage-constants';
 import type { Vehicle } from '@/lib/salesData';
 
+const ABSENT_VEHICLE_COLORS = new Set(['', 'unknown', 'unknown color', 'n/a', 'na', 'none', 'not set']);
+
+export function normalizeVehicleColorDisplay(value: unknown): string {
+    const color = String(value ?? '').trim().replace(/\s+/g, ' ');
+    return ABSENT_VEHICLE_COLORS.has(color.toLowerCase()) ? 'Not specified' : color;
+}
+
 function mapVehicleId<T extends { _id?: string; id?: string }>(data: T | null | undefined) {
   if (!data) return data;
   return {
@@ -72,22 +79,28 @@ export function mapApiVehicleToPosVehicle(v: any): Vehicle {
         make: v.make || '',
         model: v.model || '',
         year: Number.isFinite(yearNum) ? yearNum : 0,
-        color: v.color || '',
+        color: normalizeVehicleColorDisplay(v.color),
         type: v.vehicleType || '',
         pricingCategory: v.pricingCategory ?? null,
     };
 }
 
 export function mapApiVehicleToGarageForm(v: any): VehicleGarageFormValues {
+    const displayColor = normalizeVehicleColorDisplay(v.color);
     return {
+        vehicleId: v._id || v.id,
         plate: v.plateNumber ?? '',
         year: v.year != null && v.year !== '' ? String(v.year) : '',
         brand: v.make ?? '',
         model: v.model ?? '',
-        color: v.color ?? '',
+        color: displayColor === 'Not specified' ? '' : displayColor,
         type: v.vehicleType ?? '',
+        pricingCategory: v.pricingCategory ?? null,
         transmission: v.transmission ?? '',
         fuelType: v.fuelType ?? '',
+        generation: v.generation ?? '',
+        facelift: v.facelift ?? '',
+        drivetrain: v.drivetrain ?? '',
     };
 }
 
@@ -97,10 +110,13 @@ export function garageFormToApiPayload(form: VehicleGarageFormValues, plateNorm:
         year: form.year || '',
         make: form.brand.trim(),
         model: form.model.trim(),
-        color: form.color.trim() || 'Unknown',
+        color: form.color.trim(),
         vehicleType: form.type.trim(),
-        pricingCategory: getVehiclePricingCategory(form.type.trim()),
+        pricingCategory: form.classificationStatus ? (form.classificationStatus === 'classified' ? form.pricingCategory : null) : (getVehiclePricingCategory(form.type.trim()) || form.pricingCategory),
         transmission: form.transmission || '',
         fuelType: form.fuelType || '',
+        generation: form.generation || '',
+        facelift: form.facelift || '',
+        drivetrain: form.drivetrain || '',
     };
 }

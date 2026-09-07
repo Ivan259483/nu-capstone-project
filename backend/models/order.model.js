@@ -25,6 +25,7 @@ const addOnPriceSnapshotSchema = new mongoose.Schema(
 const pricingSnapshotSchema = new mongoose.Schema(
   {
     catalogVersion: { type: String, required: true },
+    vehicleClassification: { type: mongoose.Schema.Types.Mixed, default: undefined },
     packageCode: {
       type: String,
       enum: ['SPF80', 'SPF89', 'SPF99', 'SPF101'],

@@ -1,7 +1,6 @@
 import React from 'react';
 import {
     Calendar,
-    Clock,
     CreditCard,
     ArrowRight,
     Navigation,
@@ -135,7 +134,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
                             <Button
                                 variant="link"
                                 className="px-0 text-violet-400 h-auto mt-2 text-xs"
-                                onClick={() => onNavigate('bookings')}
+                                onClick={() => onNavigate('tracking')}
                             >
                                 View Details <ArrowRight className="w-3 h-3 ml-1" />
                             </Button>
@@ -183,16 +182,6 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
                 </div>
 
                 <div
-                    onClick={() => onNavigate('bookings')}
-                    className="cursor-pointer group relative flex flex-col items-center justify-center p-6 glass border border-white/5 rounded-xl hover:bg-white/5 transition-all duration-300 hover:border-violet-400/30"
-                >
-                    <div className="w-12 h-12 rounded-full bg-black/50 border border-white/5 shadow-inner flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300 group-hover:bg-violet-500/10">
-                        <Clock className="w-6 h-6 text-violet-300" />
-                    </div>
-                    <span className="text-sm font-medium text-[var(--text-secondary)] group-hover:text-white">My Bookings</span>
-                </div>
-
-                <div
                     onClick={() => onNavigate('tracking')}
                     className="cursor-pointer group relative flex flex-col items-center justify-center p-6 glass border border-white/5 rounded-xl hover:bg-white/5 transition-all duration-300 hover:border-fuchsia-500/30"
                 >
@@ -231,8 +220,8 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
                                     <p className="text-xs text-[var(--text-secondary)]">{new Date(booking.date).toLocaleDateString()} • {booking.status}</p>
                                 </div>
                             </div>
-                            <Button variant="ghost" size="sm" onClick={() => onNavigate('bookings')} className="text-violet-400 opacity-80 hover:opacity-100 hover:bg-white/5">
-                                View
+                            <Button variant="ghost" size="sm" onClick={() => onNavigate('tracking')} className="text-violet-400 opacity-80 hover:opacity-100 hover:bg-white/5">
+                                Track
                             </Button>
                         </div>
                     ))}

@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { operationalClassificationPlugin } from '../plugins/operationalClassification.plugin.js';
 import { VEHICLE_PRICING_CATEGORY_CODES } from '../constants/pricingCategories.js';
+import { STANDARD_VEHICLE_COLORS, VEHICLE_COLOR_FINISHES } from './vehicleColor.model.js';
 
 const vehicleSchema = new mongoose.Schema(
   {
@@ -21,9 +22,48 @@ const vehicleSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    generation: { type: String, default: '' },
+    facelift: { type: String, default: '' },
+    drivetrain: { type: String, default: '' },
+    classification: { type: mongoose.Schema.Types.Mixed, default: null },
+    classificationOverrides: { type: [mongoose.Schema.Types.Mixed], default: [] },
     color: {
       type: String,
       required: true,
+    },
+    standardColor: {
+      type: String,
+      enum: STANDARD_VEHICLE_COLORS,
+      default: undefined,
+    },
+    factoryColorName: { type: String, default: '', trim: true },
+    paintCode: { type: String, default: '', trim: true },
+    finishType: { type: String, enum: ['', ...VEHICLE_COLOR_FINISHES], default: '' },
+    colorHex: { type: String, default: '', trim: true },
+    colorRgb: {
+      type: new mongoose.Schema({
+        r: { type: Number, min: 0, max: 255 },
+        g: { type: Number, min: 0, max: 255 },
+        b: { type: Number, min: 0, max: 255 },
+      }, { _id: false }),
+      default: undefined,
+    },
+    colorSource: {
+      type: String,
+      enum: ['oem_database', 'user_selected', 'not_specified', 'legacy'],
+      default: 'legacy',
+    },
+    colorDatabaseId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'VehicleColor',
+      default: null,
+    },
+    colorResolution: {
+      type: new mongoose.Schema({
+        reason: { type: String, default: '' },
+        resolvedAt: { type: Date, default: null },
+      }, { _id: false }),
+      default: undefined,
     },
     plateNumber: {
       type: String,
@@ -46,7 +86,7 @@ const vehicleSchema = new mongoose.Schema(
     },
     pricingCategorySource: {
       type: String,
-      enum: ['customer_selected', 'admin_assigned', 'legacy_migration'],
+      enum: ['vehicle_database', 'customer_selected', 'admin_assigned', 'legacy_migration'],
       default: undefined,
     },
     pricingCategoryNeedsReview: {
@@ -69,11 +109,11 @@ const vehicleSchema = new mongoose.Schema(
     },
     fuelType: {
       type: String,
-      enum: ['', 'Gasoline', 'Diesel', 'Electric', 'Hybrid'],
+      enum: ['', 'Gasoline', 'Diesel', 'Electric', 'Hybrid', 'PHEV', 'HEV', 'MHEV', 'BEV', 'FCEV'],
       default: '',
     },
   },
-  { timestamps: true }
+  { timestamps: true, optimisticConcurrency: true }
 );
 
 // ── Indexes ────────────────────────────────────────────────────────────────

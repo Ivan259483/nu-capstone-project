@@ -30,6 +30,13 @@ import type { Vehicle } from '@/services/api/types';
 
 const SURFACE = '#111114';
 const BORDER = '#2A2A30';
+const STANDARD_COLOR_HEX: Record<string, string> = {
+  black: '#1E293B', white: '#F1F5F9', gray: '#64748B', silver: '#94A3B8',
+  red: '#EF4444', blue: '#3B82F6', green: '#22C55E', yellow: '#EAB308',
+  orange: '#F97316', brown: '#92400E', gold: '#D4A017', purple: '#7E22CE',
+  pink: '#EC4899', beige: '#D6C6A8', bronze: '#A97142', 'two-tone': '#64748B',
+  custom: '#64748B',
+};
 
 // ── Vehicle Card ──
 function VehicleCard({
@@ -56,6 +63,10 @@ function VehicleCard({
       ]
     );
   };
+  const displayedColor = vehicle.color || 'Not specified';
+  const swatchColor = vehicle.colorHex
+    || STANDARD_COLOR_HEX[(vehicle.standardColor || vehicle.color || 'custom').toLowerCase()]
+    || STANDARD_COLOR_HEX.custom;
 
   return (
     <Animated.View
@@ -82,32 +93,10 @@ function VehicleCard({
           <View style={s.plateBadge}>
             <Text style={s.plateText}>{vehicle.plateNumber}</Text>
           </View>
-          {vehicle.color && (
-            <View style={s.colorBadge}>
-              <View
-                style={[
-                  s.colorDot,
-                  {
-                    backgroundColor:
-                      vehicle.color.toLowerCase() === 'white'
-                        ? '#E5E7EB'
-                        : vehicle.color.toLowerCase() === 'black'
-                        ? '#374151'
-                        : vehicle.color.toLowerCase() === 'red'
-                        ? '#EF4444'
-                        : vehicle.color.toLowerCase() === 'blue'
-                        ? '#3B82F6'
-                        : vehicle.color.toLowerCase() === 'silver' ||
-                          vehicle.color.toLowerCase() === 'gray' ||
-                          vehicle.color.toLowerCase() === 'grey'
-                        ? '#9CA3AF'
-                        : Palette.accent,
-                  },
-                ]}
-              />
-              <Text style={s.colorText}>{vehicle.color}</Text>
-            </View>
-          )}
+          <View style={s.colorBadge}>
+            <View style={[s.colorDot, { backgroundColor: swatchColor }]} />
+            <Text style={s.colorText}>{displayedColor}</Text>
+          </View>
         </View>
       </View>
 

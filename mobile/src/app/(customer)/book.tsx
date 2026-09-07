@@ -615,9 +615,8 @@ function VehicleCard({
     blue: '#1E40AF', green: '#166534', yellow: '#CA8A04',
     orange: '#EA580C', brown: '#92400E',
   };
-  const swatchColor = vehicle.color
-    ? CAR_COLORS[vehicle.color.toLowerCase()] ?? '#888'
-    : '#888';
+  const swatchKey = (vehicle.standardColor || vehicle.color || '').toLowerCase();
+  const swatchColor = vehicle.colorHex || CAR_COLORS[swatchKey] || '#888';
 
   return (
     <Animated.View style={animStyle}>
@@ -656,7 +655,7 @@ function VehicleCard({
           <View style={vc.meta}>
             <View style={[vc.swatch, { backgroundColor: swatchColor }]} />
             <Text style={vc.metaText}>
-              {vehicle.color ? vehicle.color.charAt(0).toUpperCase() + vehicle.color.slice(1).toLowerCase() : 'Unknown color'}
+              {vehicle.color || 'Not specified'}
             </Text>
             <View style={vc.dot} />
             <Text style={vc.plate}>{vehicle.plateNumber}</Text>
@@ -5553,7 +5552,7 @@ const pay = StyleSheet.create({
   uploadIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: SURFACE_TOP, alignItems: 'center', justifyContent: 'center' },
   uploadPrompt:    { fontSize: 13, fontWeight: '600', color: SECONDARY },
   uploadPromptSub: { fontSize: 11, color: MUTED },
-  proofThumb: { ...StyleSheet.absoluteFillObject, backgroundColor: '#050507', opacity: 0.62 },
+  proofThumb: { ...StyleSheet.absoluteFill, backgroundColor: '#050507', opacity: 0.62 },
   proofOverlay: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(13,13,18,0.82)', paddingHorizontal: 16, paddingVertical: 8,
@@ -5865,7 +5864,7 @@ const s4 = StyleSheet.create({
     position: 'relative',
   },
   heroBg: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderBottomLeftRadius: 40,
     borderBottomRightRadius: 40,
   },

@@ -15,6 +15,7 @@ import {
   USER_PHONE_SELECT_FIELDS,
 } from '../utils/phone-client.utils.js';
 import { hydrateReceiptSnapshot } from '../utils/receiptSnapshot.utils.js';
+import { resolveCustomerReceiptCoverage } from '../utils/customerReceiptDetails.utils.js';
 import { normalizePosPaymentMethod } from '../utils/paymentMethod.utils.js';
 import {
   getOrderLedger,
@@ -158,6 +159,7 @@ function buildInvoiceSnapshot({ invoiceNumber, order, billing, computed }) {
     bookingReference: order.bookingReference,
     customerName: order.customerName,
     customerPhone: resolveReceiptPhoneForClient(order),
+    coverage: resolveCustomerReceiptCoverage({}, order.pricingSnapshot),
     vehicle: {
       year: order.vehicleYear || linkedVehicle.year,
       make: order.vehicleMake || linkedVehicle.make,
@@ -484,6 +486,7 @@ export const checkoutBilling = async (req, res, next) => {
         paymentId: payment._id,
         posInvoiceId: invoiceId,
         receipt: receiptData,
+        vehicleReleaseAvailable: order.paymentStatus === 'paid' && order.serviceTrackingStage === 'ready_pickup' && Boolean(order.readyForPickupEvidenceComplete),
         inventoryWarnings,
         pdfUrl: `/api/invoices/${encodeURIComponent(invoiceNumber)}/pdf`,
         snapshot: invoiceRecord.snapshot,

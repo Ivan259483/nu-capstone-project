@@ -9,6 +9,7 @@ import {
 import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
 import { COMPANY_BRANDING } from '@/lib/company-branding';
 import { resolveReceiptPhone } from '@/lib/receipt-phone';
+import { receiptPresentation } from './receipt-presentation';
 
 export type DetailedReceiptLine = {
   name: string;
@@ -17,6 +18,9 @@ export type DetailedReceiptLine = {
 };
 
 export type DetailedReceipt = {
+  receiptKind?: 'reservation_payment' | 'official_service';
+  reservationFee?: number | null;
+  totalReceived?: number;
   receiptNumber: string;
   invoiceNumber?: string;
   orderNumber?: string;
@@ -487,15 +491,11 @@ export const receiptFromBooking = (booking: Booking): DetailedReceipt => {
 };
 
 export const buildDetailedReceiptHtml = (receipt: DetailedReceipt) => {
+  const presentation = receiptPresentation(receipt);
   const issued = formatDateTime(receipt.issuedAt);
   const paid = receipt.paidAt ? formatDateTime(receipt.paidAt) : null;
   const paymentStatus = formatReceiptPaymentStatus(receipt.paymentStatus);
   const paidStatus = isPaidReceiptStatus(receipt.paymentStatus);
-  const serviceTotal = Math.max(
-    0,
-    receipt.serviceTotal ??
-      (receipt.subtotal - receipt.discount + receipt.tax + receipt.additionalFees)
-  );
   const bookingReference = receipt.bookingReference || receipt.orderNumber || '—';
   const lineRows = receipt.lineItems.map((item) => {
     const lineTotal = item.unitPrice * item.qty;
@@ -599,8 +599,8 @@ export const buildDetailedReceiptHtml = (receipt: DetailedReceipt) => {
           </div>
         </div>
         <div class="receipt-heading">
-          <p class="eyebrow">Payment Record</p>
-          <h2>Official Receipt</h2>
+          <p class="eyebrow">${escapeHtml(presentation.eyebrow)}</p>
+          <h2>${escapeHtml(presentation.title)}</h2>
           <p class="digital-copy">Digital Copy</p>
           <div class="receipt-meta">
             <span>Receipt Number</span><strong>${escapeHtml(receipt.receiptNumber)}</strong>
@@ -661,13 +661,8 @@ export const buildDetailedReceiptHtml = (receipt: DetailedReceipt) => {
         </div>
         <section class="summary">
           <p class="section-title">Billing Summary</p>
-          ${summaryRow('Subtotal', receipt.subtotal)}
-          ${summaryRow('Discount', receipt.discount, true)}
-          ${summaryRow('VAT / Tax', receipt.tax)}
-          ${receipt.additionalFees ? summaryRow('Additional Fees', receipt.additionalFees) : ''}
-          ${summaryRow('Service Total', serviceTotal, false, 'service-total')}
-          ${receipt.downpayment ? summaryRow('Less Reservation Fee / Downpayment', receipt.downpayment, true) : ''}
-          ${summaryRow('Amount Collected Today', receipt.total, false, 'collected')}
+          ${presentation.rows.map(([label, value, negative]) => summaryRow(label, value, negative, label === 'Service Total' ? 'service-total' : '')).join('')}
+          ${summaryRow(presentation.collectedLabel, presentation.collectedAmount, false, 'collected')}
           ${receipt.balanceDue > 0 ? summaryRow('Remaining Balance', receipt.balanceDue) : ''}
         </section>
       </section>
@@ -705,6 +700,7 @@ export const printDetailedReceipt = (receipt: DetailedReceipt) => {
 };
 
 export const createDetailedReceiptPdfBlob = async (receipt: DetailedReceipt): Promise<Blob> => {
+  const presentation = receiptPresentation(receipt);
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -716,11 +712,6 @@ export const createDetailedReceiptPdfBlob = async (receipt: DetailedReceipt): Pr
   const paid = receipt.paidAt ? formatDateTime(receipt.paidAt) : null;
   const paymentStatus = formatReceiptPaymentStatus(receipt.paymentStatus);
   const paidStatus = isPaidReceiptStatus(receipt.paymentStatus);
-  const serviceTotal = Math.max(
-    0,
-    receipt.serviceTotal ??
-      (receipt.subtotal - receipt.discount + receipt.tax + receipt.additionalFees)
-  );
   const bookingReference = receipt.bookingReference || receipt.orderNumber || '-';
   const moneyValue = (value: number, negative = false) =>
     `${negative && value ? '-' : ''}${formatPdfMoney(value)}`;
@@ -773,31 +764,35 @@ export const createDetailedReceiptPdfBlob = async (receipt: DetailedReceipt): Pr
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.8);
   doc.setTextColor(53, 105, 184);
-  rightText('PAYMENT RECORD', metaRight, y + 12);
-  doc.setFontSize(18);
+  doc.setFontSize(presentation.eyebrow.length > 20 ? 6.5 : 7.8);
+  rightText(presentation.eyebrow.toUpperCase(), metaRight, y + 12);
+  doc.setFontSize(receipt.receiptKind ? 11 : 18);
   doc.setTextColor(19, 36, 61);
-  rightText('Official Receipt', metaRight, y + 30);
+  const titleLines = doc.splitTextToSize(presentation.title, 126);
+  doc.text(titleLines, metaRight, y + (titleLines.length > 1 ? 25 : 30), { align: 'right' });
+  const metaOffset = titleLines.length > 1 ? 7 : 0;
   doc.setFontSize(6.8);
   doc.setTextColor(123, 135, 151);
-  rightText('DIGITAL COPY', metaRight, y + 42);
-  rightText('RECEIPT NUMBER', metaRight, y + 55);
+  rightText('DIGITAL COPY', metaRight, y + 42 + metaOffset);
+  rightText('RECEIPT NUMBER', metaRight, y + 55 + metaOffset);
   doc.setFontSize(8.5);
+  doc.setFontSize(Math.min(8.5, 8.5 * 126 / Math.max(1, doc.getTextWidth(receipt.receiptNumber))));
   doc.setTextColor(37, 51, 74);
-  rightText(doc.splitTextToSize(receipt.receiptNumber, 126)[0] || '-', metaRight, y + 65);
+  rightText(receipt.receiptNumber || '-', metaRight, y + 65 + metaOffset);
   doc.setFontSize(6.8);
   doc.setTextColor(123, 135, 151);
-  rightText('BOOKING REFERENCE', metaRight, y + 77);
+  rightText('BOOKING REFERENCE', metaRight, y + 77 + metaOffset);
   doc.setFontSize(8.5);
   doc.setTextColor(37, 51, 74);
-  rightText(doc.splitTextToSize(bookingReference, 126)[0] || '-', metaRight, y + 87);
+  rightText(doc.splitTextToSize(bookingReference, 126)[0] || '-', metaRight, y + 87 + metaOffset);
   doc.setFontSize(6.8);
   doc.setTextColor(123, 135, 151);
-  rightText('DATE ISSUED', metaRight, y + 99);
+  rightText('DATE ISSUED', metaRight, y + 99 + metaOffset);
   doc.setFontSize(8.5);
   doc.setTextColor(37, 51, 74);
-  rightText(issued.date || '-', metaRight, y + 109);
+  rightText(issued.date || '-', metaRight, y + 109 + metaOffset);
 
-  y += 122;
+  y += 122 + metaOffset;
   divider();
   y += 18;
 
@@ -890,18 +885,7 @@ export const createDetailedReceiptPdfBlob = async (receipt: DetailedReceipt): Pr
     y += 10;
   });
 
-  const summaryRows: Array<[string, number, boolean?]> = [
-    ['Subtotal', receipt.subtotal],
-    ['Discount', receipt.discount, true],
-    ['VAT / Tax', receipt.tax],
-    ...(receipt.additionalFees
-      ? [['Additional Fees', receipt.additionalFees] as [string, number, boolean?]]
-      : []),
-    ['Service Total', serviceTotal],
-    ...(receipt.downpayment > 0
-      ? [['Less Reservation Fee / Downpayment', receipt.downpayment, true] as [string, number, boolean?]]
-      : []),
-  ];
+  const summaryRows = presentation.rows;
   const summaryW = 284;
   const summaryX = pageW - margin - summaryW;
   const paymentW = contentW - summaryW - 18;
@@ -977,8 +961,8 @@ export const createDetailedReceiptPdfBlob = async (receipt: DetailedReceipt): Pr
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(33, 79, 143);
-  doc.text('Amount Collected Today', summaryX + 17, summaryY + 16);
-  rightText(formatPdfMoney(receipt.total), summaryX + summaryW - 15, summaryY + 16);
+  doc.text(presentation.collectedLabel, summaryX + 17, summaryY + 16);
+  rightText(formatPdfMoney(presentation.collectedAmount), summaryX + summaryW - 15, summaryY + 16);
   summaryY += 40;
   if (receipt.balanceDue > 0) {
     doc.setFontSize(8);

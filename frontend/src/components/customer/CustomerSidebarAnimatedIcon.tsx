@@ -12,14 +12,12 @@ import { CustomerSidebarPaymentsIcon } from '@/components/customer/CustomerSideb
 import { CustomerSidebarServicesIcon } from '@/components/customer/CustomerSidebarServicesIcon';
 import { CustomerSidebarTrackerIcon } from '@/components/customer/CustomerSidebarTrackerIcon';
 import { CustomerSidebarRewardsIcon } from '@/components/customer/CustomerSidebarRewardsIcon';
-import { CustomerSidebarBookingsIcon } from '@/components/customer/CustomerSidebarBookingsIcon';
 import { CustomerSidebarDocumentsIcon } from '@/components/customer/CustomerSidebarDocumentsIcon';
 import { useCustomerSidebarItemHover } from '@/components/customer/useCustomerSidebarItemHover';
 
 export type CustomerSidebarIconName =
     | 'dashboard'
     | 'scan'
-    | 'bookings'
     | 'services'
     | 'tracker'
     | 'documents'
@@ -31,7 +29,7 @@ export type CustomerSidebarIconName =
     | 'notifications'
     | 'settings';
 
-const ICONS: Record<Exclude<CustomerSidebarIconName, 'dashboard' | 'tracker' | 'payments' | 'services' | 'rewards' | 'bookings' | 'documents'>, LucideIcon> = {
+const ICONS: Record<Exclude<CustomerSidebarIconName, 'dashboard' | 'tracker' | 'payments' | 'services' | 'rewards' | 'documents'>, LucideIcon> = {
     scan: ScanLine,
     logout: LogOut,
     collapse: ChevronLeft,
@@ -93,9 +91,6 @@ export function CustomerSidebarAnimatedIcon({ name, className, size = 18 }: Prop
     }
     if (name === 'services') {
         return <CustomerSidebarServicesIcon className={className} size={size} />;
-    }
-    if (name === 'bookings') {
-        return <CustomerSidebarBookingsIcon className={className} size={size} />;
     }
     if (name === 'rewards') {
         return <CustomerSidebarRewardsIcon className={className} size={size} />;

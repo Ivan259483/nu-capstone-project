@@ -11,6 +11,7 @@ const ACTIVE_STATUSES = [
   'received',
   'in_progress',
   'ready_for_payment',
+  'paid',
   'completed',
   'released',
 ];
@@ -21,6 +22,7 @@ const QUEUE_STATUSES = [
   'received',
   'in_progress',
   'ready_for_payment',
+  'paid',
 ];
 const RETURN_NOTE_PATTERN = /^\[QC_RETURN\]/i;
 const QC_STATS_CACHE_TTL_MS = 30_000;

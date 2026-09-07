@@ -1,3 +1,5 @@
+import { resolveVehicleClassification } from './vehicleDatabase.js';
+
 export const VEHICLE_PRICING_CATEGORY = Object.freeze({
   HATCHBACK_SMALL_CAR: 'HATCHBACK_SMALL_CAR',
   SEDAN: 'SEDAN',
@@ -65,19 +67,6 @@ export const VEHICLE_PRICING_CATEGORY_CODES = Object.freeze(
 );
 
 const normalizeAlias = (value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
-const normalizeVehicleIdentity = (value) => String(value || '')
-  .trim()
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, ' ')
-  .replace(/\s+/g, ' ');
-
-// Exact legacy make/model classifications only. Broad brand-based inference is
-// intentionally avoided because it could silently quote the wrong category.
-const LEGACY_MODEL_PRICING_CATEGORIES = Object.freeze({
-  'aston martin|vantage': VEHICLE_PRICING_CATEGORY.HIGH_END_SEDAN,
-  'bentley|bentayga': VEHICLE_PRICING_CATEGORY.SUV,
-});
-
 export const getVehiclePricingCategory = (value) => {
   const normalized = normalizeAlias(value);
   if (!normalized) return null;
@@ -93,6 +82,11 @@ export const getVehiclePricingCategory = (value) => {
 export const normalizeVehiclePricingCategory = (value) =>
   getVehiclePricingCategory(value)?.code || null;
 
+export const resolveVehicleDatabasePricingCategory = (vehicle) => {
+  if (!vehicle || typeof vehicle !== 'object') return null;
+  return resolveVehicleClassification(vehicle.make || vehicle.brand, vehicle.model);
+};
+
 export const resolveVehiclePricingCategory = (vehicle) => {
   if (!vehicle || typeof vehicle !== 'object') return null;
 
@@ -102,8 +96,20 @@ export const resolveVehiclePricingCategory = (vehicle) => {
   const legacyVehicleType = normalizeVehiclePricingCategory(vehicle.vehicleType || vehicle.type);
   if (legacyVehicleType) return legacyVehicleType;
 
-  const makeModelKey = `${normalizeVehicleIdentity(vehicle.make || vehicle.brand)}|${normalizeVehicleIdentity(vehicle.model)}`;
-  return LEGACY_MODEL_PRICING_CATEGORIES[makeModelKey] || null;
+  return resolveVehicleDatabasePricingCategory(vehicle);
+};
+
+export const getVehicleTypeLabelForPricingCategory = (value) => {
+  const category = normalizeVehiclePricingCategory(value);
+  return {
+    [VEHICLE_PRICING_CATEGORY.HATCHBACK_SMALL_CAR]: 'Hatchback',
+    [VEHICLE_PRICING_CATEGORY.SEDAN]: 'Sedan',
+    [VEHICLE_PRICING_CATEGORY.MIDSIZED]: 'Midsized',
+    [VEHICLE_PRICING_CATEGORY.SUV]: 'SUV',
+    [VEHICLE_PRICING_CATEGORY.PICKUP]: 'Pick UP',
+    [VEHICLE_PRICING_CATEGORY.LARGE_SUV_VAN]: 'Large SUV / Van',
+    [VEHICLE_PRICING_CATEGORY.HIGH_END_SEDAN]: 'Highend Sedan',
+  }[category] || null;
 };
 
 export const getVehiclePricingApiKey = (value) =>

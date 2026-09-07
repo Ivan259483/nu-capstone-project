@@ -369,7 +369,7 @@ function CheckInQueuePanel({
           </span>
           {first && !loading && (
             <span className="ml-1 min-w-0 truncate rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
-              {(first.customerName || 'Customer').split(' ')[0]} · {first.bookingTime || 'Ready'} · {formatPeso(money(first.remainingBalance ?? first.totalAmount ?? first.totalPrice))}
+              {(first.customerName || 'Customer').split(' ')[0]} · Sales/POS · {formatPeso(money(first.remainingBalance))}
             </span>
           )}
         </button>
@@ -434,6 +434,7 @@ export default function POSWorkspace({
   const [gcashAmountReceived, setGcashAmountReceived] = useState('');
   const [gcashReference, setGcashReference] = useState('');
   const [paymentValidationAttempted, setPaymentValidationAttempted] = useState(false);
+  const [pickupPaymentResult, setPickupPaymentResult] = useState<{ receiptId: string; customer: string; vehicleReleaseAvailable: boolean } | null>(null);
   const [completedTxnId, setCompletedTxnId] = useState<string>('');
   /** Snapshot for receipt after payment (cart is cleared in same flow). */
   const [receiptData, setReceiptData] = useState<{
@@ -1279,7 +1280,8 @@ export default function POSWorkspace({
           setCompletedTxnId(txnId);
           setShowReceipt(true);
           const invNum = chkData.invoiceNumber || '';
-          toast.success(invNum ? `Invoice ${invNum} generated` : 'Payment recorded');
+          setPickupPaymentResult({ receiptId: invNum || txnId, customer: selectedCustomer?.name || 'Customer', vehicleReleaseAvailable: chkData.vehicleReleaseAvailable === true });
+          toast.success('Receipt Generated', { description: chkData.vehicleReleaseAvailable ? 'Payment Completed · Vehicle Release Available. Complete customer handover to close the service.' : 'Payment Completed. Service and release requirements remain visible in Quality Control.' });
           if (invNum) {
             const snapFromCheckout =
               chkData.snapshot && typeof chkData.snapshot === 'object'
@@ -1487,6 +1489,11 @@ export default function POSWorkspace({
           onOpenSearch={() => customerPanelRef.current?.focusQueueSearch()}
           onRefresh={() => void loadUnpaidOrders()}
         />
+
+        {pickupPaymentResult ? <div role="status" className="flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <div><p className="text-sm font-semibold text-emerald-900">Receipt Generated · {pickupPaymentResult.receiptId}</p><p className="mt-1 text-sm text-emerald-800">{pickupPaymentResult.customer} · {pickupPaymentResult.vehicleReleaseAvailable ? 'Vehicle Release Available' : 'Payment Completed'}</p><p className="mt-1 text-xs text-emerald-800">{pickupPaymentResult.vehicleReleaseAvailable ? 'Quality Control can now complete customer handover.' : 'Quality Control must finish the service requirements before customer handover.'}</p></div>
+          <button type="button" onClick={() => setPickupPaymentResult(null)} className="rounded-lg border border-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-900 hover:bg-emerald-100">Dismiss</button>
+        </div> : null}
 
         {/* POS 3-column area — fills remaining space */}
         <div className="grid grid-cols-1 items-stretch gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-12">

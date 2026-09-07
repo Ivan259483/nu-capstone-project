@@ -5,12 +5,22 @@
 import { normalizePlateNumber } from '@/lib/plate';
 
 export type VehicleGarageFormValues = {
+  vehicleId?: string;
   plate: string;
   year: string;
   brand: string;
   model: string;
   color: string;
   type: string;
+  pricingCategory?: string | null;
+  classificationStatus?: 'loading' | 'classified' | 'review_required' | 'unavailable';
+  generation?: string;
+  facelift?: string;
+  drivetrain?: string;
+  bodyType?: string;
+  vehicleClass?: string;
+  segment?: string;
+  recommendedServiceCategory?: string;
   transmission: string;
   fuelType: string;
 };
@@ -42,10 +52,10 @@ export function validateVehicleGarageForm(v: VehicleGarageFormValues): Record<st
   if (!brand) errors.brand = 'Select a brand.';
   if (!model) {
     errors.model = 'Model is required (e.g. Vios, Civic).';
-  } else if (model.length < 2) {
-    errors.model = 'Too short — enter the model name.';
+  } else if (model.length > 200) {
+    errors.model = 'Model name must be at most 200 characters.';
   }
-  if (!type) errors.type = 'Please select a vehicle type.';
+  if (v.classificationStatus === 'loading' || !v.classificationStatus) errors.type = 'Checking vehicle classification. Please wait.';
 
   return errors;
 }

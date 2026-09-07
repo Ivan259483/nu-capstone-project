@@ -26,7 +26,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle } from 'react-native-svg';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { PageSkeleton as LoadingPageSkeleton, PremiumLoader } from '@/components/ui/loading';
 import { MotionModal } from '@/components/ui/MotionOverlay';
@@ -52,7 +52,6 @@ import { getApiErrorMessage } from '@/services/api/client';
 import AnimatedHeader from '@/components/ui/AnimatedHeader';
 import type { BookingRecord } from '@/services/api/types';
 import { useQuery } from '@tanstack/react-query';
-import { useFocusEffect } from '@react-navigation/native';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useCustomerBookings } from '@/hooks/useCustomerBookings';
 import { isDefaultTrackBookingRow } from '@/utils/customerBookingLifecycle';
@@ -388,7 +387,7 @@ function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string
             colors={sweepColors}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
         </Animated.View>
       </View>
@@ -540,7 +539,7 @@ function LiveBadge() {
           colors={['rgba(34,197,94,0)', 'rgba(187,247,208,0.34)', 'rgba(34,197,94,0)']}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
       </Animated.View>
       <View style={lb.signal}>
@@ -782,7 +781,7 @@ function TimelineStep({
               colors={premiumSweepColors}
               start={{ x: 0, y: 0.5 }}
               end={{ x: 1, y: 0.5 }}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
           </Animated.View>
         ) : null}
@@ -1908,7 +1907,7 @@ export default function TrackScreen() {
                   colors={stageSweepColors}
                   start={{ x: 0, y: 0.5 }}
                   end={{ x: 1, y: 0.5 }}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                 />
               </Animated.View>
               <View style={s.stageTopRow}>

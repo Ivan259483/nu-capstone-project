@@ -131,7 +131,12 @@ test('Book Service and /customer/book open the existing modal instead of the Ser
   assert.doesNotMatch(dashboard, /function startBookingFunnel[\s\S]{0,900}navigate\('\/customer\/book'\)/);
   assert.match(dashboard, /if \(!draft\.wizardStarted \|\| !draft\.selectedPackageId\) \{[\s\S]*startBookingFunnel\(\)/);
   assert.match(dashboard, /garageLoadState === 'loaded_one' \? vehicles\[0\] : null/);
-  assert.match(dashboard, /vehiclesLoading \? 'Loading your garage' : 'Tap a vehicle below'/);
+  assert.match(dashboard, /Select your vehicle/);
+  assert.match(
+    dashboard,
+    /Pricing and available packages will adjust automatically based on your selected vehicle\./,
+  );
+  assert.doesNotMatch(dashboard, /Tap a vehicle below|Tap your vehicle/);
   assert.match(dashboard, /Book Service/);
   assert.match(dashboard, /Book Service Modal/);
 });
@@ -141,9 +146,10 @@ test('new customer vehicle creation sends a canonical pricing category and resum
   const vehicleForm = readFrontendSource('components/shared/VehicleGarageForm.tsx');
   const vehicleService = readFrontendSource('lib/vehicle-service.ts');
 
-  assert.match(vehicleService, /pricingCategory:\s*getVehiclePricingCategory\(form\.type\.trim\(\)\)/);
-  assert.match(vehicleForm, /type:\s*getVehicleTypeForModel\(model\)/);
-  assert.match(vehicleForm, /customerAddExperience \? 'Pricing category' : 'Type'/);
+  assert.match(vehicleService, /form\.classificationStatus === 'classified' \? form\.pricingCategory : null/);
+  // Classification authority is exercised against MongoDB in vehicleIntelligence.test.js.
+  assert.match(vehicleForm, /automaticClassification \? 'Vehicle Classification' : 'Type'/);
+  assert.doesNotMatch(vehicleForm, /fallback-vehicle-type|fallback-pricing-category/);
   assert.match(dashboard, /setServicesVehicleId\(savedVehicleId\)/);
   assert.match(dashboard, /updateCustomerBookingFunnelDraft\(window\.sessionStorage, \{\s*selectedVehicleId: savedVehicleId/);
 });
@@ -160,4 +166,24 @@ test('package handoff preselects the same vehicle and package in the existing wi
   assert.match(dashboard, /wizardStarted:\s*true/);
   assert.match(dashboard, /service:\s*presetPkg\.id/);
   assert.match(dashboard, /servicePrice:\s*presetPrice/);
+});
+
+test('customer navigation no longer exposes a My Bookings destination', () => {
+  const customerSurfaces = [
+    readFrontendSource('pages/CustomerDashboard.tsx'),
+    readFrontendSource('pages/CustomerLiveTrackerPage.tsx'),
+    readFrontendSource('components/customer/CustomerMobileNav.tsx'),
+    readFrontendSource('components/customer/CustomerSidebar.tsx'),
+    readFrontendSource('components/customer/DashboardHome.tsx'),
+    readFrontendSource('components/Footer.tsx'),
+  ];
+
+  for (const source of customerSurfaces) {
+    assert.doesNotMatch(source, /My Bookings|View Bookings|nav\('bookings'\)|onNavigate\('bookings'\)|section=bookings/);
+  }
+
+  assert.match(
+    customerSurfaces[0],
+    /s === 'bookings'[\s\S]{0,180}navigate\('\/customer\/dashboard', \{ replace: true \}\)/,
+  );
 });

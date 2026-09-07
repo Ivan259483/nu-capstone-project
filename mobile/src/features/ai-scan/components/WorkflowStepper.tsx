@@ -630,7 +630,7 @@ function SparkCluster({
   }
 
   return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       {Array.from({ length: 4 }, (_, index) => (
         <SparkDot key={index} index={index} reducedMotion={reducedMotion} />
       ))}
@@ -732,7 +732,7 @@ function ConnectorRail({
           colors={['#FF7A59', TOKENS.accent, '#FFC1B0']}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
       </Animated.View>
       <Animated.View style={[styles.railShimmer, shimmerStyle]}>
@@ -740,7 +740,7 @@ function ConnectorRail({
           colors={['transparent', 'rgba(255,255,255,0.95)', 'transparent']}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
       </Animated.View>
       <View style={[styles.railEndCap, index % 2 === 0 && styles.railEndCapDim]} />
@@ -1150,9 +1150,9 @@ export default function WorkflowStepper({
         <BlurView
           intensity={Platform.OS === 'ios' ? 42 : 86}
           tint="dark"
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
-        <View style={[StyleSheet.absoluteFillObject, styles.cardOverlay]} pointerEvents="none" />
+        <View style={[StyleSheet.absoluteFill, styles.cardOverlay]} pointerEvents="none" />
         <LinearGradient
           colors={['rgba(255,255,255,0.05)', 'rgba(255,255,255,0.01)', 'transparent']}
           start={{ x: 0.1, y: 0 }}
@@ -1245,7 +1245,7 @@ const styles = StyleSheet.create({
   },
 
   cardHighlight: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
 
   header: {
@@ -1361,7 +1361,7 @@ const styles = StyleSheet.create({
   },
 
   railFillMask: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: 999,
   },
 

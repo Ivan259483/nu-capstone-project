@@ -1,7 +1,6 @@
 import React from 'react';
 import {
     LayoutDashboard,
-    Calendar,
     Navigation,
     CreditCard,
     Bell,
@@ -17,7 +16,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/co
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 
-type TabType = 'dashboard' | 'ai-estimator' | 'bookings' | 'tracking' | 'payments' | 'notifications' | 'settings' | 'book' | 'documents' | 'scan-book';
+type TabType = 'dashboard' | 'ai-estimator' | 'tracking' | 'payments' | 'notifications' | 'settings' | 'book' | 'documents' | 'scan-book';
 
 interface MobileNavProps {
     activeTab: TabType;
@@ -37,7 +36,6 @@ export const CustomerMobileNav: React.FC<MobileNavProps> = ({
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { id: 'ai-estimator', label: 'AI Damage Scan', icon: Sparkles },
-        { id: 'bookings', label: 'My Bookings', icon: Calendar },
         { id: 'tracking', label: 'Live Tracking', icon: Navigation },
         { id: 'payments', label: 'Payments', icon: CreditCard },
         { id: 'documents', label: 'Documents & Waivers', icon: FileText },

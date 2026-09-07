@@ -71,17 +71,6 @@ export const brandModels: Record<string, string[]> = {
   Other: ['Other'],
 };
 
-export const modelTypeMap: Record<string, string> = {
-  Vios: 'Sedan', City: 'Sedan', Civic: 'Sedan', Almera: 'Sedan', Accent: 'Sedan', Reina: 'Sedan', Soluto: 'Sedan', 'Mirage G4': 'Sedan', Corolla: 'Sedan', 'Corolla Altis': 'Sedan', Sentra: 'Sedan', Sylphy: 'Sedan', Elantra: 'Sedan', Forte: 'Sedan', Jetta: 'Sedan', '3 Series': 'Sedan', '5 Series': 'Sedan', 'C-Class': 'Sedan', 'E-Class': 'Sedan', A4: 'Sedan', A6: 'Sedan', Giulia: 'Sedan', Emgrand: 'Sedan', MG5: 'Sedan', GA4: 'Sedan', Empow: 'Sedan',
-  Camry: 'Highend Sedan', Accord: 'Highend Sedan', Sonata: 'Highend Sedan', Altima: 'Highend Sedan', Maxima: 'Highend Sedan', Avalon: 'Highend Sedan', '7 Series': 'Highend Sedan', '8 Series': 'Highend Sedan', 'S-Class': 'Highend Sedan', A8: 'Highend Sedan', Panamera: 'Highend Sedan', Taycan: 'Highend Sedan', 'Model S': 'Highend Sedan', G70: 'Highend Sedan', G80: 'Highend Sedan', G90: 'Highend Sedan', Ghost: 'Highend Sedan', Phantom: 'Highend Sedan', 'Flying Spur': 'Highend Sedan', Quattroporte: 'Highend Sedan', Ghibli: 'Highend Sedan',
-  Wigo: 'Hatchback', Brio: 'Hatchback', Jazz: 'Hatchback', Fit: 'Hatchback', Mirage: 'Hatchback', Swift: 'Hatchback', Celerio: 'Hatchback', Mazda2: 'Hatchback', Picanto: 'Hatchback', Polo: 'Hatchback', Golf: 'Hatchback', Yaris: 'Hatchback', Alto: 'Hatchback', Baleno: 'Hatchback', 'S-Presso': 'Hatchback', MG3: 'Hatchback', 'Air EV': 'Hatchback', Dolphin: 'Hatchback', Seagull: 'Hatchback', Astra: 'Hatchback', Corsa: 'Hatchback', Fabia: 'Hatchback', Ibiza: 'Hatchback', Leon: 'Hatchback', Clio: 'Hatchback', Megane: 'Hatchback', Panda: 'Hatchback', Punto: 'Hatchback', Ypsilon: 'Hatchback', 'Model 3': 'Sedan',
-  Innova: 'Midsized', Avanza: 'Midsized', Veloz: 'Midsized', Ertiga: 'Midsized', XL7: 'Midsized', Xpander: 'Midsized', 'Xpander Cross': 'Midsized', Stargazer: 'Midsized', Carnival: 'Midsized', Odyssey: 'Midsized', Freed: 'Midsized', APV: 'Midsized', G10: 'Midsized', G50: 'Midsized', 'Mifa 9': 'Midsized', Cortez: 'Midsized', Confero: 'Midsized', Alhambra: 'Midsized', Zafira: 'Midsized',
-  Fortuner: 'SUV', 'Montero Sport': 'SUV', Tucson: 'SUV', 'Santa Fe': 'SUV', Creta: 'SUV', 'CX-5': 'SUV', 'CR-V': 'SUV', 'HR-V': 'SUV', 'BR-V': 'SUV', Sportage: 'SUV', Seltos: 'SUV', Stonic: 'SUV', Terra: 'SUV', Kicks: 'SUV', Rush: 'SUV', Raize: 'SUV', Vitara: 'SUV', 'Grand Vitara': 'SUV', Jimny: 'SUV', Forester: 'SUV', Outback: 'SUV', XV: 'SUV', Crosstrek: 'SUV', Tiguan: 'SUV', 'T-Cross': 'SUV', 'T-Roc': 'SUV', Cayenne: 'SUV', Macan: 'SUV', RAV4: 'SUV', 'C-HR': 'SUV', 'bZ4X': 'SUV', 'CX-3': 'SUV', 'CX-30': 'SUV', 'CX-50': 'SUV', 'CX-60': 'SUV', 'X-Trail': 'SUV', Juke: 'SUV', 'MG ZS': 'SUV', 'MG HS': 'SUV', 'MG RX5': 'SUV', Coolray: 'SUV', Azkarra: 'SUV', Okavango: 'SUV', 'Tiggo 5x': 'SUV', 'Tiggo 7 Pro': 'SUV', 'Tiggo 8 Pro': 'SUV', 'Omoda 5': 'SUV', Jolion: 'SUV', H6: 'SUV', GS3: 'SUV', GS4: 'SUV', 'Atto 3': 'SUV', Tang: 'SUV', 'Song Plus': 'SUV', 'Model Y': 'SUV', 'Model X': 'SUV', Compass: 'SUV', Renegade: 'SUV', Cherokee: 'SUV', 'Grand Cherokee': 'SUV', Wrangler: 'SUV', Bronco: 'SUV', Explorer: 'SUV', Territory: 'SUV', EcoSport: 'SUV', Trax: 'SUV', Tracker: 'SUV', Trailblazer: 'SUV', Equinox: 'SUV', X1: 'SUV', X2: 'SUV', X3: 'SUV', X4: 'SUV', X5: 'SUV', X6: 'SUV', X7: 'SUV', GLA: 'SUV', GLB: 'SUV', GLC: 'SUV', GLE: 'SUV', GLS: 'SUV', Q2: 'SUV', Q3: 'SUV', Q5: 'SUV', Q7: 'SUV', Q8: 'SUV', Levante: 'SUV', Grecale: 'SUV', Urus: 'SUV', Bentayga: 'SUV', Cullinan: 'SUV', DBX: 'SUV', Eletre: 'SUV', XC40: 'SUV', XC60: 'SUV', XC90: 'SUV', EX30: 'SUV', EX90: 'SUV',
-  Ranger: 'Pick UP', 'Ranger Raptor': 'Pick UP', Hilux: 'Pick UP', 'D-Max': 'Pick UP', Navara: 'Pick UP', Strada: 'Pick UP', Triton: 'Pick UP', 'BT-50': 'Pick UP', Colorado: 'Pick UP', T60: 'Pick UP', T90: 'Pick UP', Gladiator: 'Pick UP', 'F-150': 'Pick UP', Maverick: 'Pick UP', 'Sierra 1500': 'Pick UP', 'Sierra HD': 'Pick UP', Canyon: 'Pick UP', Silverado: 'Pick UP', Cybertruck: 'Pick UP', R1T: 'Pick UP', Musso: 'Pick UP',
-  'Land Cruiser': 'Large SUV / Van', Prado: 'Large SUV / Van', Patrol: 'Large SUV / Van', Palisade: 'Large SUV / Van', Alphard: 'Large SUV / Van', Hiace: 'Large SUV / Van', Coaster: 'Large SUV / Van', Escalade: 'Large SUV / Van', Tahoe: 'Large SUV / Van', Suburban: 'Large SUV / Van', Expedition: 'Large SUV / Van', Navigator: 'Large SUV / Van', Yukon: 'Large SUV / Van', 'Yukon XL': 'Large SUV / Van', Defender: 'Large SUV / Van', 'Defender 90': 'Large SUV / Van', 'Defender 110': 'Large SUV / Van', 'Defender 130': 'Large SUV / Van', Discovery: 'Large SUV / Van', 'Discovery Sport': 'SUV', 'Range Rover': 'Large SUV / Van', 'Range Rover Sport': 'Large SUV / Van', 'Range Rover Evoque': 'SUV', 'Range Rover Velar': 'SUV', Touareg: 'Large SUV / Van', Teramont: 'Large SUV / Van', Atlas: 'Large SUV / Van', V80: 'Large SUV / Van', D90: 'Large SUV / Van', Staria: 'Large SUV / Van', Starex: 'Large SUV / Van', Transit: 'Large SUV / Van', ProMaster: 'Large SUV / Van', 'ProMaster City': 'Large SUV / Van', Savana: 'Large SUV / Van', Ducato: 'Large SUV / Van', Traveller: 'Large SUV / Van', SpaceTourer: 'Large SUV / Van',
-  GR86: 'Highend Sedan', Supra: 'Highend Sedan', Mustang: 'Highend Sedan', Camaro: 'Highend Sedan', Corvette: 'Highend Sedan', Challenger: 'Highend Sedan', Charger: 'Highend Sedan', Viper: 'Highend Sedan', '911': 'Highend Sedan', '718': 'Highend Sedan', Boxster: 'Highend Sedan', Cayman: 'Highend Sedan', 'MX-5': 'Highend Sedan', BRZ: 'Highend Sedan', WRX: 'Highend Sedan', 'GT-R': 'Highend Sedan', Z: 'Highend Sedan', 'AMG GT': 'Highend Sedan', R8: 'Highend Sedan', RS6: 'Highend Sedan', RS7: 'Highend Sedan', Huracan: 'Highend Sedan', Revuelto: 'Highend Sedan', Aventador: 'Highend Sedan', Gallardo: 'Highend Sedan', '296 GTB': 'Highend Sedan', '296 GTS': 'Highend Sedan', Roma: 'Highend Sedan', Portofino: 'Highend Sedan', SF90: 'Highend Sedan', 'F8 Tributo': 'Highend Sedan', '812': 'Highend Sedan', Vantage: 'Highend Sedan', DB11: 'Highend Sedan', DB12: 'Highend Sedan', Artura: 'Highend Sedan', '720S': 'Highend Sedan', '750S': 'Highend Sedan', Emira: 'Highend Sedan', Evija: 'Highend Sedan', 'Continental GT': 'Highend Sedan', Spectre: 'Highend Sedan', MC20: 'Highend Sedan', GranTurismo: 'Highend Sedan', GranCabrio: 'Highend Sedan',
-};
-
 const brandCollator = new Intl.Collator('en', { sensitivity: 'base' });
 
 export const vehicleBrands = Object.keys(brandModels)
@@ -93,35 +82,11 @@ export function getModelsForBrand(brand: string): string[] {
   return brandModels[brand] || [];
 }
 
-export function getVehicleTypeForModel(model: string): string {
-  const cleanModel = model.trim();
-  const normalized = cleanModel.toLowerCase();
-  if (!cleanModel) return '';
-  if (modelTypeMap[cleanModel]) return modelTypeMap[cleanModel];
-
-  if (/\b(1500|2500|3500|r1t|ranger|hilux|d-max|navara|strada|triton|bt-50|colorado|gladiator|maverick|silverado|sierra|canyon|musso|t60|t90)\b/.test(normalized)) {
-    return 'Pick UP';
-  }
-
-  if (/\b(hiace|alphard|staria|starex|carnival|odyssey|transit|promaster|savana|ducato|traveller|spacetourer|v-class|gran max|l300|coaster|mifa|g10|g50|v80|d90)\b/.test(normalized)) {
-    return 'Large SUV / Van';
-  }
-
-  if (/\b(corvette|camaro|mustang|supra|gr86|911|718|taycan|boxster|cayman|brz|wrx|gt-r|huracan|revuelto|aventador|roma|portofino|sf90|vantage|db11|db12|artura|emira|evija|continental gt|spectre|mc20|granturismo|grancabrio)\b/.test(normalized)) {
-    return 'Highend Sedan';
-  }
-
-  if (/\b(xpander|innova|avanza|veloz|ertiga|stargazer|apv|confero|cortez|zafira|alhambra|freed)\b/.test(normalized)) {
-    return 'Midsized';
-  }
-
-  if (/^(x[1-7]|xm|q[2-8]|gl[abceks]|xc[469]0|ex[39]0)$/.test(normalized) || /\b(suv|cross|crossover|sportage|seltos|stonic|fortuner|montero|tucson|santa fe|creta|cr-v|hr-v|br-v|terra|kicks|rush|raize|vitara|jimny|forester|outback|crosstrek|tiguan|touareg|cayenne|macan|rav4|trailblazer|tracker|trax|equinox|wrangler|cherokee|compass|renegade|bronco|explorer|territory|coolray|azkarra|okavango|tiggo|omoda|jolion|h6|defender|discovery|range rover|evoque|velar|urus|bentayga|cullinan|dbx|eletre|levante|grecale|mokka|crossland|grandland)\b/.test(normalized)) {
-    return 'SUV';
-  }
-
-  if (/\b(hatch|wigo|brio|jazz|fit|mirage|swift|celerio|picanto|polo|golf|yaris|alto|baleno|air ev|dolphin|seagull|astra|corsa|fabia|ibiza|leon|clio|megane|panda|punto|ypsilon)\b/.test(normalized)) {
-    return 'Hatchback';
-  }
-
-  return '';
-}
+// Classification stays server-authoritative; these compatibility helpers are
+// retained for existing non-form callers and focused classification tests.
+export {
+  modelTypeMap,
+  getVehicleTypeForModel,
+  getDetectedVehicleType,
+  FALLBACK_VEHICLE_TYPES,
+} from '../../../backend/constants/vehicleDatabase.js';

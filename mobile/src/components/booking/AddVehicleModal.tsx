@@ -33,10 +33,8 @@ import { MotionModal } from '@/components/ui/MotionOverlay';
 import {
   FUEL_TYPE_OPTIONS,
   TRANSMISSION_OPTIONS,
-  VEHICLE_BODY_TYPES,
   VEHICLE_COLOR_SWATCHES,
   VEHICLE_YEAR_OPTIONS,
-  getVehiclePricingCategory,
 } from '@/constants/vehicleForm';
 import type { Vehicle } from '@/services/api/types';
 import { getApiErrorMessage } from '@/services/api/client';
@@ -47,7 +45,9 @@ import {
   type VehicleGarageFormValues,
 } from '@/lib/vehicleGarageForm';
 import { normalizePlateNumber } from '@/lib/plate';
-import { vehicleBrands, getModelsForBrand } from '@/data/vehicleData';
+import { getModelsForBrand, vehicleBrands } from '@/data/vehicleData';
+import { useVehicleIntelligence } from '@/hooks/useVehicleIntelligence';
+import { patchVehicleForm } from '@/lib/vehicleFormState';
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const BG        = '#040405';
@@ -69,6 +69,8 @@ const COLOR_HEX: Record<string, string> = {
   White: '#e2e8f0', Black: '#1e293b', Silver: '#94a3b8', Gray: '#64748b',
   Blue: '#3b82f6', Red: '#ef4444', Green: '#22c55e', Yellow: '#eab308',
   Orange: '#f97316', Brown: '#78350f',
+  Gold: '#d4a017', Purple: '#7e22ce', Pink: '#ec4899', Beige: '#d6c6a8',
+  Bronze: '#a97142', 'Two-Tone': '#64748b',
 };
 
 // ── Shared field label ────────────────────────────────────────────────────────
@@ -196,7 +198,7 @@ export type AddVehicleModalProps = {
   onClosed?: () => void;
 };
 
-type PickerKind = 'type' | 'brand' | 'model' | 'year' | 'transmission' | 'fuel' | null;
+type PickerKind = 'generation' | 'brand' | 'model' | 'year' | 'transmission' | 'fuel' | null;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function AddVehicleModal({
@@ -226,6 +228,8 @@ export default function AddVehicleModal({
   const [errType, setErrType] = useState('');
   const [errBrand, setErrBrand] = useState('');
   const [errModel, setErrModel] = useState('');
+
+  const { generations } = useVehicleIntelligence(form, visible, setForm);
 
   const knownBrandModels = useMemo(
     () => (!customBrandMode && form.brand ? getModelsForBrand(form.brand) : []),
@@ -264,7 +268,7 @@ export default function AddVehicleModal({
 
   const pickerOptions = useMemo<string[]>(() => {
     switch (picker) {
-      case 'type':         return [...VEHICLE_BODY_TYPES];
+      case 'generation':   return generations;
       case 'brand':        return [...vehicleBrands];
       case 'model':        return knownBrandModels.length ? [...knownBrandModels] : [];
       case 'year':         return [...VEHICLE_YEAR_OPTIONS];
@@ -272,7 +276,7 @@ export default function AddVehicleModal({
       case 'fuel':         return [...FUEL_TYPE_OPTIONS];
       default: return [];
     }
-  }, [picker, knownBrandModels]);
+  }, [picker, knownBrandModels, generations]);
 
   const filteredPickerOptions = useMemo(() => {
     const q = pickerSearch.trim().toLowerCase();
@@ -282,7 +286,7 @@ export default function AddVehicleModal({
 
   const pickerTitle = useMemo(() => {
     switch (picker) {
-      case 'type':         return 'Vehicle type';
+      case 'generation':   return 'Generation';
       case 'brand':        return 'Brand';
       case 'model':        return 'Model';
       case 'year':         return 'Year';
@@ -294,7 +298,7 @@ export default function AddVehicleModal({
 
   const currentPickerValue = useMemo(() => {
     switch (picker) {
-      case 'type':         return form.type;
+      case 'generation':   return form.generation || '';
       case 'brand':        return form.brand;
       case 'model':        return form.model;
       case 'year':         return form.year;
@@ -306,8 +310,8 @@ export default function AddVehicleModal({
 
   const applyPick = useCallback((v: string) => {
     switch (picker) {
-      case 'type':
-        setForm((prev) => ({ ...prev, type: v }));
+      case 'generation':
+        setForm((prev) => patchVehicleForm(prev, { generation: v }));
         setErrType('');
         break;
       case 'brand':
@@ -316,31 +320,31 @@ export default function AddVehicleModal({
         if (v === 'Other') {
           setCustomBrandMode(true);
           setCustomModelMode(false);
-          setForm((prev) => ({ ...prev, brand: '', model: '', type: '' }));
+          setForm((prev) => patchVehicleForm(prev, { brand: '', model: '', type: '' }));
         } else {
           setCustomBrandMode(false);
           setCustomModelMode(false);
-          setForm((prev) => ({ ...prev, brand: v, model: '', type: '' }));
+          setForm((prev) => patchVehicleForm(prev, { brand: v, model: '', type: '' }));
         }
         break;
       case 'model':
         setErrModel('');
         if (v === 'Other') {
           setCustomModelMode(true);
-          setForm((prev) => ({ ...prev, model: '' }));
+          setForm((prev) => patchVehicleForm(prev, { model: '' }));
         } else {
           setCustomModelMode(false);
-          setForm((prev) => ({ ...prev, model: v }));
+          setForm((prev) => patchVehicleForm(prev, { model: v }));
         }
         break;
       case 'year':
-        setForm((prev) => ({ ...prev, year: v }));
+        setForm((prev) => patchVehicleForm(prev, { year: v }));
         break;
       case 'transmission':
-        setForm((prev) => ({ ...prev, transmission: v }));
+        setForm((prev) => patchVehicleForm(prev, { transmission: v }));
         break;
       case 'fuel':
-        setForm((prev) => ({ ...prev, fuelType: v }));
+        setForm((prev) => patchVehicleForm(prev, { fuelType: v }));
         break;
       default:
         break;
@@ -383,11 +387,16 @@ export default function AddVehicleModal({
 
     const brand = vehicle.make || '';
     const model = vehicle.model || '';
-    const color = vehicle.color || '';
+    const color = vehicle.color === 'Not specified' ? '' : vehicle.color || '';
     const knownBrand = vehicleBrands.includes(brand);
     const knownModels = knownBrand ? getModelsForBrand(brand) : [];
 
     setForm({
+      vehicleId: vehicle._id || vehicle.id,
+      generation: vehicle.generation || '',
+      facelift: vehicle.facelift || '',
+      drivetrain: vehicle.drivetrain || '',
+      classificationStatus: 'loading',
       plate: vehicle.plateNumber || '',
       year: vehicle.year ? String(vehicle.year) : '',
       brand,
@@ -436,12 +445,7 @@ export default function AddVehicleModal({
     const plateNorm = normalizePlateNumber(form.plate.trim());
     const brandTrim = form.brand.trim();
     const modelTrim = form.model.trim();
-    const pricingCategory = getVehiclePricingCategory(form.type);
-    if (!pricingCategory) {
-      setErrType('Select a supported vehicle pricing category.');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      return;
-    }
+    const pricingCategory = form.pricingCategory || null;
 
     setSaving(true);
     try {
@@ -450,11 +454,14 @@ export default function AddVehicleModal({
         year: form.year || '',
         make: brandTrim,
         model: modelTrim,
-        color: form.color.trim() || 'Unknown',
+        color: form.color.trim(),
         vehicleType: form.type,
         pricingCategory,
-        transmission: form.transmission || undefined,
-        fuelType: form.fuelType || undefined,
+        transmission: form.transmission || '',
+        fuelType: form.fuelType || '',
+        generation: form.generation || '',
+        facelift: form.facelift || '',
+        drivetrain: form.drivetrain || '',
       };
 
       if (vehicle) {
@@ -557,7 +564,7 @@ export default function AddVehicleModal({
                         </Text>
                       </View>
                     ) : null}
-                    {form.type ? (
+                    {form.classificationStatus === 'classified' && form.type ? (
                       <Text style={[s.previewType, { color: previewFg }]}>{form.type}</Text>
                     ) : null}
                   </View>
@@ -576,7 +583,7 @@ export default function AddVehicleModal({
                 autoCapitalize="characters"
                 wrapStyle={{ flex: 0, alignSelf: 'stretch', width: '100%' }}
                 onChangeText={(t) => {
-                  setForm((prev) => ({ ...prev, plate: t.toUpperCase() }));
+                  setForm((prev) => patchVehicleForm(prev, { plate: t.toUpperCase() }));
                   setErrPlate('');
                 }}
                 error={errPlate}
@@ -602,7 +609,7 @@ export default function AddVehicleModal({
                   placeholder="Enter brand name"
                   value={form.brand}
                   onChangeText={(t) => {
-                    setForm((prev) => ({ ...prev, brand: t, model: '' }));
+                    setForm((prev) => patchVehicleForm(prev, { brand: t, model: '' }));
                     setErrBrand('');
                     setErrModel('');
                   }}
@@ -616,7 +623,7 @@ export default function AddVehicleModal({
                   placeholder={customBrandMode ? 'e.g. Vios, Civic, Ranger' : 'Enter model name'}
                   value={form.model}
                   onChangeText={(t) => {
-                    setForm((prev) => ({ ...prev, model: t }));
+                    setForm((prev) => patchVehicleForm(prev, { model: t }));
                     setErrModel('');
                   }}
                   error={errModel}
@@ -638,6 +645,28 @@ export default function AddVehicleModal({
             </View>
 
             <View style={[s.row, s.rowGap]}>
+              <View style={sf.wrap} accessibilityLiveRegion="polite">
+                <FieldLabel required>Vehicle Classification</FieldLabel>
+                <View style={[sf.box, { borderColor: BORDER, backgroundColor: SURFACE }]}>
+                  <Text style={sf.val}>{form.classificationStatus === 'classified' ? form.type :
+                    !form.brand || !form.model ? 'Select brand and model' :
+                    form.classificationStatus === 'loading' ? 'Checking classification…' : form.vehicleClass || 'Classification unavailable'}</Text>
+                </View>
+                <Text style={form.classificationStatus === 'classified' ? df.hintOk : df.hintWarn}>
+                  {form.classificationStatus === 'classified' ? '✓ Automatically detected' :
+                    ['review_required', 'unavailable'].includes(form.classificationStatus || '')
+                      ? form.vehicleClass ? 'Body classification detected. Service pricing requires review.' : 'Vehicle classification requires review before pricing.' : ''}
+                </Text>
+                {(form.bodyType || form.vehicleClass || form.segment || form.recommendedServiceCategory) ? (
+                  <View style={s.classificationDetails}>
+                    {form.bodyType ? <Text style={s.classificationDetail}><Text style={s.classificationKey}>Body Type: </Text>{form.bodyType}</Text> : null}
+                    {form.vehicleClass ? <Text style={s.classificationDetail}><Text style={s.classificationKey}>Vehicle Class: </Text>{form.vehicleClass}</Text> : null}
+                    {form.segment ? <Text style={s.classificationDetail}><Text style={s.classificationKey}>Segment: </Text>{form.segment}</Text> : null}
+                    {form.recommendedServiceCategory ? <Text style={s.classificationDetail}><Text style={s.classificationKey}>Service Category: </Text>{form.recommendedServiceCategory}</Text> : null}
+                  </View>
+                ) : null}
+                {errType ? <Text style={sf.err}>{errType}</Text> : null}
+              </View>
               <SelectField
                 label="Year"
                 optional
@@ -645,16 +674,12 @@ export default function AddVehicleModal({
                 placeholder="Year"
                 onPress={() => openPicker('year')}
               />
-              <SelectField
-                label="Type"
-                required
-                value={form.type}
-                placeholder="Select…"
-                error={errType}
-                onPress={() => openPicker('type')}
-              />
             </View>
 
+            {generations.length > 0 && (
+              <View style={s.rowGap}><SelectField label="Generation" optional value={form.generation || ''}
+                placeholder="Select if known" onPress={() => openPicker('generation')} /></View>
+            )}
             <View style={s.rowGap}>
               <Text style={lbl.text}>
                 COLOR <Text style={lbl.opt}>(optional)</Text>
@@ -665,10 +690,12 @@ export default function AddVehicleModal({
                   return (
                     <TouchableOpacity
                       key={c.name}
+                      accessibilityRole="button"
                       accessibilityLabel={c.name}
+                      accessibilityState={{ selected: sel }}
                       onPress={() => {
                         setColorOther(false);
-                        setForm((prev) => ({ ...prev, color: c.name }));
+                        setForm((prev) => patchVehicleForm(prev, { color: c.name }));
                         Haptics.selectionAsync();
                       }}
                       style={[s.swatch, { backgroundColor: c.hex }, sel && s.swatchSel]}
@@ -676,9 +703,12 @@ export default function AddVehicleModal({
                   );
                 })}
                 <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Custom color"
+                  accessibilityState={{ selected: colorOther }}
                   onPress={() => {
                     setColorOther(true);
-                    setForm((prev) => ({ ...prev, color: '' }));
+                    setForm((prev) => patchVehicleForm(prev, { color: '' }));
                     Haptics.selectionAsync();
                   }}
                   style={[s.otherPill, colorOther && s.otherPillSel]}
@@ -737,7 +767,7 @@ export default function AddVehicleModal({
               <TouchableOpacity
                 style={[s.btnPrimary, saving && { opacity: 0.6 }]}
                 onPress={submit}
-                disabled={saving}
+                disabled={saving || form.classificationStatus === 'loading'}
                 activeOpacity={0.88}
               >
                 {saving
@@ -792,9 +822,7 @@ export default function AddVehicleModal({
                     onPress={() => applyPick(opt)}
                     activeOpacity={0.7}
                   >
-                    <Text style={[s.pickerRowText, opt === currentPickerValue && s.pickerRowTextSel]}>
-                      {opt}
-                    </Text>
+                    <Text style={[s.pickerRowText, opt === currentPickerValue && s.pickerRowTextSel]}>{opt}</Text>
                     {opt === currentPickerValue ? (
                       <Ionicons name="checkmark" size={16} color={AMBER} />
                     ) : null}
@@ -864,6 +892,9 @@ const s = StyleSheet.create({
     fontSize: 14, color: TEXT, backgroundColor: SURFACE,
   },
   colorHint: { marginTop: 8, fontSize: 11, color: MUTED },
+  classificationDetails: { marginTop: 8, paddingTop: 7, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: BORDER, gap: 3 },
+  classificationDetail: { color: '#cbd5e1', fontSize: 11, lineHeight: 16 },
+  classificationKey: { color: MUTED },
 
   hintBox: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
@@ -893,7 +924,7 @@ const s = StyleSheet.create({
   btnPrimaryText: { fontSize: 14, fontWeight: '700', color: TEXT },
 
   pickerScrim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
   pickerSheet: {

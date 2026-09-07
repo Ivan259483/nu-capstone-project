@@ -28,6 +28,11 @@ export interface QCJob {
   id: string;
   jobId: string;
   orderStatus?: string;
+  serviceTrackingStage?: string | null;
+  posQueueStatus?: string | null;
+  readyForPickupEvidenceComplete?: boolean;
+  readyForPaymentAt?: string | null;
+  qcCompletedAt?: string | null;
   paymentStatus?: string;
   invoiceId?: string | null;
   customer: string;
@@ -514,6 +519,9 @@ export function useQCData({
         serviceTrackingStage?: string | null;
         paymentStatus?: string | null;
         invoiceId?: string | null;
+        posQueueStatus?: string | null;
+        readyForPickupEvidenceComplete?: boolean;
+        readyForPaymentAt?: string | null;
         updatedAt?: string;
       }
     ) => {
@@ -533,6 +541,9 @@ export function useQCData({
               : {}),
             ...(payload?.paymentStatus !== undefined ? { paymentStatus: payload.paymentStatus || undefined } : {}),
             ...(payload?.invoiceId !== undefined ? { invoiceId: payload.invoiceId } : {}),
+            ...(payload?.posQueueStatus !== undefined ? { posQueueStatus: payload.posQueueStatus } : {}),
+            ...(payload?.readyForPickupEvidenceComplete !== undefined ? { readyForPickupEvidenceComplete: payload.readyForPickupEvidenceComplete } : {}),
+            ...(payload?.readyForPaymentAt !== undefined ? { readyForPaymentAt: payload.readyForPaymentAt } : {}),
             ...(payload?.updatedAt ? { serviceTrackingUpdatedAt: payload.updatedAt } : {}),
           } as QCJob;
         });

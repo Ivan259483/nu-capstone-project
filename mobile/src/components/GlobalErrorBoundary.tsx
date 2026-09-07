@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   ambientBackground: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(239, 68, 68, 0.05)',
   },
   content: {

@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BookingRecord } from '@/services/api/types';
 import { bookingService } from '@/services/api/bookingService';

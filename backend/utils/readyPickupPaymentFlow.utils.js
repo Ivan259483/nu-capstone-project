@@ -292,7 +292,11 @@ export async function evaluateReadyForPickupQueueEligibility(orderOrId, options 
       queueStateChanged: changed,
     });
   } else if (financial.checkedOutBilling) {
-    const changed = clearQueueFields(order);
+    let changed = clearQueueFields(order);
+    if (paymentStatus === 'paid' && slotProgress.complete) {
+      order.readyForPickupEvidenceComplete = true;
+      changed = true;
+    }
     result = buildResult({
       reason: 'already_checked_out',
       readyPickupSlotCount: slotProgress.readyPickupSlotCount,

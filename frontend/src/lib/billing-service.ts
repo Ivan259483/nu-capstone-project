@@ -125,6 +125,7 @@ export const BillingService = {
           paymentId: string;
           posInvoiceId: string;
           receipt: Record<string, unknown>;
+          vehicleReleaseAvailable?: boolean;
           inventoryWarnings: unknown[];
           pdfUrl: string;
           snapshot?: InvoiceA4Snapshot;

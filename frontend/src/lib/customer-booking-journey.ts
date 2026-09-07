@@ -132,7 +132,7 @@ function journeyProgressIndex(booking: CustomerBookingJourneyInput, bookingStatu
 }
 
 /**
- * Customer-facing booking truth for My Bookings.
+ * Customer-facing booking truth shared across customer service status surfaces.
  *
  * A booking awaiting Sales review never enters the service journey. Booking
  * status is intentionally checked before tracker-stage fallbacks so uploaded
