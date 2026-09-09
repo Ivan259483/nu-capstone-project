@@ -17,6 +17,7 @@ import {
   TextInput,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   StyleSheet,
   Keyboard,
   type KeyboardEvent,
@@ -27,6 +28,7 @@ import {
   AppState,
   BackHandler,
   type LayoutChangeEvent,
+  useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -36,6 +38,7 @@ import Animated, {
   FadeInDown,
   FadeInRight,
   FadeOutDown,
+  interpolateColor,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -65,6 +68,7 @@ import {
 import {
   BOOKING_TERMS_DOCUMENT_TITLE,
   BOOKING_TERMS_INTRO,
+  BOOKING_TERMS_LAST_UPDATED,
   BOOKING_TERMS_SECTIONS,
 } from '@/constants/bookingTerms';
 import {
@@ -75,16 +79,16 @@ import {
 // ─── Kinetic Gallery Design Tokens ───────────────────────────────────────────
 
 // Surface tiers aligned exactly with global theme.ts colors for UI consistency
-const SURFACE_LOW    = '#040405';   // surface_container_lowest
-const SURFACE        = '#0D0D12';   // base surface (theme.dark.card)
-const SURFACE_MID    = '#0D0D12';   // surface_container
-const SURFACE_HIGH   = '#16161D';   // surface_container_high (theme.dark.cardAlt)
-const SURFACE_TOP    = '#27272A';   // surface_container_highest (theme.dark.border)
+const SURFACE_LOW = '#040405';   // surface_container_lowest
+const SURFACE = '#0D0D12';   // base surface (theme.dark.card)
+const SURFACE_MID = '#0D0D12';   // surface_container
+const SURFACE_HIGH = '#16161D';   // surface_container_high (theme.dark.cardAlt)
+const SURFACE_TOP = '#27272A';   // surface_container_highest (theme.dark.border)
 
 // Brand accents (warm amber — used sparingly)
-const PRIMARY        = '#FFB77D';   // primary
-const PRIMARY_CTR    = '#FF8C00';   // primary_container
-const ON_PRIMARY     = '#4D2600';   // on_primary (dark text on accent)
+const PRIMARY = '#FFB77D';   // primary
+const PRIMARY_CTR = '#FF8C00';   // primary_container
+const ON_PRIMARY = '#4D2600';   // on_primary (dark text on accent)
 
 // Step 1 uses one crisp premium-orange accent. Transparency is reserved for
 // surfaces and subtle outlines so branded copy and icons stay solid and clear.
@@ -103,19 +107,19 @@ const STEP_ONE_TONES = {
 } as const;
 
 // Functional tones
-const SECONDARY      = '#C6C6C7';   // secondary text
-const MUTED          = '#555555';   // muted elements
-const DIM_TEXT       = '#777777';   // dim body text
-const GHOST          = 'rgba(255,255,255,0.08)'; // ghost border
+const SECONDARY = '#C6C6C7';   // secondary text
+const MUTED = '#555555';   // muted elements
+const DIM_TEXT = '#777777';   // dim body text
+const GHOST = 'rgba(255,255,255,0.08)'; // ghost border
 
 const VEHICLE_OPTIONS: { key: VehicleTypeKey; label: string; icon: string }[] = [
-  { key: 'hatchback', label: 'Hatchback',       icon: 'car-outline' },
-  { key: 'sedan',     label: 'Sedan',            icon: 'car-sport-outline' },
-  { key: 'midsized',  label: 'Midsized',         icon: 'car-sport-outline' },
-  { key: 'suv',       label: 'SUV',              icon: 'car-outline' },
-  { key: 'pickup',    label: 'Pick Up',          icon: 'car-outline' },
-  { key: 'largesuv',  label: 'Large SUV / Van',  icon: 'bus-outline' },
-  { key: 'highend',   label: 'High-end Sedan',   icon: 'diamond-outline' },
+  { key: 'hatchback', label: 'Hatchback', icon: 'car-outline' },
+  { key: 'sedan', label: 'Sedan', icon: 'car-sport-outline' },
+  { key: 'midsized', label: 'Midsized', icon: 'car-sport-outline' },
+  { key: 'suv', label: 'SUV', icon: 'car-outline' },
+  { key: 'pickup', label: 'Pick Up', icon: 'car-outline' },
+  { key: 'largesuv', label: 'Large SUV / Van', icon: 'bus-outline' },
+  { key: 'highend', label: 'High-end Sedan', icon: 'diamond-outline' },
 ];
 
 const STEP_LABELS = ['Service', 'Details', 'Schedule', 'Review', 'Terms', 'Payment'];
@@ -458,6 +462,158 @@ function BookingContinueButton({
         )}
       </TouchableOpacity>
     </Animated.View>
+  );
+}
+
+function TermsAgreementControl({
+  unlocked,
+  checked,
+  onToggle,
+}: {
+  unlocked: boolean;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  const reduceMotion = useReducedMotion();
+  const unlockProgress = useSharedValue(unlocked ? 1 : 0);
+  const checkProgress = useSharedValue(checked ? 1 : 0);
+
+  useEffect(() => {
+    unlockProgress.value = withTiming(unlocked ? 1 : 0, { duration: reduceMotion ? 0 : 220 });
+  }, [reduceMotion, unlockProgress, unlocked]);
+
+  useEffect(() => {
+    checkProgress.value = withTiming(checked ? 1 : 0, { duration: reduceMotion ? 0 : 200 });
+  }, [checkProgress, checked, reduceMotion]);
+
+  const cardStateStyle = useAnimatedStyle(() => ({
+    opacity: 0.62 + (unlockProgress.value * 0.38),
+    backgroundColor: interpolateColor(
+      unlockProgress.value,
+      [0, 1],
+      ['#0D0D10', '#111113'],
+    ),
+    borderColor: interpolateColor(
+      unlockProgress.value,
+      [0, 1],
+      ['rgba(255,255,255,0.045)', 'rgba(255,183,125,0.18)'],
+    ),
+  }));
+  const checkboxStateStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      checkProgress.value,
+      [0, 1],
+      ['#18181D', STEP_ONE_TONES.accentPrimary],
+    ),
+    borderColor: interpolateColor(
+      checkProgress.value,
+      [0, 1],
+      ['rgba(255,255,255,0.16)', STEP_ONE_TONES.accentPrimary],
+    ),
+  }));
+  const checkmarkStyle = useAnimatedStyle(() => ({
+    opacity: checkProgress.value,
+    transform: [{ scale: 0.72 + (checkProgress.value * 0.28) }],
+  }));
+
+  return (
+    <Animated.View style={[tc.agreementCard, cardStateStyle]}>
+      <Pressable
+        disabled={!unlocked}
+        accessibilityRole="checkbox"
+        accessibilityLabel="I have read and agree to the Terms and Conditions"
+        accessibilityHint={unlocked ? 'Double tap to change your agreement' : 'Review all terms to enable this agreement'}
+        accessibilityState={{ checked, disabled: !unlocked }}
+        onPress={onToggle}
+        style={({ pressed }) => [
+          tc.agreementTouch,
+          pressed && unlocked && !reduceMotion && tc.controlPressed,
+        ]}
+      >
+        <Animated.View style={[tc.checkbox, checkboxStateStyle]}>
+          <Animated.View style={checkmarkStyle}>
+            <Ionicons name="checkmark" size={15} color={ON_PRIMARY} />
+          </Animated.View>
+        </Animated.View>
+        <Text style={[tc.checkText, unlocked && tc.checkTextUnlocked]}>
+          I have read and agree to the{' '}
+          <Text style={tc.checkLink}>Terms and Conditions</Text>.
+        </Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+function TermsActionDock({
+  enabled,
+  bottomInset,
+  onBack,
+  onContinue,
+  onHeightChange,
+}: {
+  enabled: boolean;
+  bottomInset: number;
+  onBack: () => void;
+  onContinue: () => void;
+  onHeightChange: (height: number) => void;
+}) {
+  const reduceMotion = useReducedMotion();
+  const enabledProgress = useSharedValue(enabled ? 1 : 0);
+
+  useEffect(() => {
+    enabledProgress.value = withTiming(enabled ? 1 : 0, { duration: reduceMotion ? 0 : 240 });
+  }, [enabled, enabledProgress, reduceMotion]);
+
+  const continueStateStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      enabledProgress.value,
+      [0, 1],
+      ['#17171B', STEP_ONE_TONES.accentPrimary],
+    ),
+    borderColor: interpolateColor(
+      enabledProgress.value,
+      [0, 1],
+      ['rgba(255,255,255,0.07)', STEP_ONE_TONES.accentPrimary],
+    ),
+  }));
+
+  return (
+    <View
+      style={[tc.actionDock, { paddingBottom: Math.max(bottomInset, 10) }]}
+      onLayout={(event: LayoutChangeEvent) => onHeightChange(Math.ceil(event.nativeEvent.layout.height))}
+    >
+      <Animated.View style={tc.backButton}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to booking review"
+          onPress={onBack}
+          style={({ pressed }) => [
+            tc.actionTouch,
+            pressed && !reduceMotion && tc.controlPressed,
+          ]}
+        >
+          <Ionicons name="chevron-back" size={17} color="#A1A1AA" />
+          <Text style={tc.backButtonText}>Back</Text>
+        </Pressable>
+      </Animated.View>
+
+      <Animated.View style={[tc.continueButton, continueStateStyle]}>
+        <Pressable
+          disabled={!enabled}
+          accessibilityRole="button"
+          accessibilityLabel={enabled ? 'Continue to payment' : 'Review and agree to the terms to continue'}
+          accessibilityState={{ disabled: !enabled }}
+          onPress={onContinue}
+          style={({ pressed }) => [
+            tc.actionTouch,
+            pressed && enabled && !reduceMotion && tc.controlPressed,
+          ]}
+        >
+          <Text style={[tc.continueButtonText, !enabled && tc.continueButtonTextDisabled]}>Continue</Text>
+          <Ionicons name="arrow-forward" size={17} color={enabled ? ON_PRIMARY : '#71717A'} />
+        </Pressable>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -849,11 +1005,11 @@ const getDayAvailabilityFromSlots = (
     reason: normalized.emergencyClosed
       ? EMERGENCY_CLOSURE_MESSAGE
       : normalized.message
-        || (status === 'full'
-          ? 'All appointment times for this date are booked.'
-          : status === 'closed'
-            ? 'This date is unavailable for booking.'
-            : ''),
+      || (status === 'full'
+        ? 'All appointment times for this date are booked.'
+        : status === 'closed'
+          ? 'This date is unavailable for booking.'
+          : ''),
     errorCode: errorCode || (status === 'full'
       ? 'DATE_FULL'
       : status === 'closed'
@@ -1076,12 +1232,12 @@ function CalendarDay({
   const statusLabel = isEmergencyClosed
     ? 'Emergency'
     : dayInfo?.status === 'full'
-    ? 'Full'
-    : dayInfo?.status === 'closed'
-      ? 'Closed'
-      : loading && !dayInfo
-        ? 'Checking'
-        : '';
+      ? 'Full'
+      : dayInfo?.status === 'closed'
+        ? 'Closed'
+        : loading && !dayInfo
+          ? 'Checking'
+          : '';
 
   return (
     <Animated.View style={[cal.dayCell, animatedStyle]}>
@@ -1312,7 +1468,7 @@ function MonthCalendar({
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const appliedBusinessDateRef = useRef<string | null>(null);
 
-  const year  = currentMonth.getFullYear();
+  const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
   const todayKey = isIsoDate(businessDate) ? businessDate : getLocalIsoDate(new Date());
   const earliestMonthKey = todayKey.slice(0, 7);
@@ -1354,9 +1510,9 @@ function MonthCalendar({
     onMonthChange?.(d.getFullYear(), d.getMonth());
   };
 
-  const daysInMonth    = new Date(year, month + 1, 0).getDate();
-  const firstDay       = new Date(year, month, 1).getDay(); // 0 = Sunday
-  const blanks         = firstDay;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDay = new Date(year, month, 1).getDay(); // 0 = Sunday
+  const blanks = firstDay;
   const daysInPrevMonth = new Date(year, month, 0).getDate();
 
   const grid: CalendarGridItem[] = [];
@@ -1589,6 +1745,8 @@ export default function BookScreen() {
   const { profile, backendUser } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { height: viewportHeight, width: viewportWidth } = useWindowDimensions();
+  const reduceMotion = useReducedMotion();
   const prefillParams = useLocalSearchParams<{
     vehicleId?: string;
     serviceId?: string;
@@ -1621,7 +1779,7 @@ export default function BookScreen() {
   // Step 1 — Schedule & Details
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
-  const [phone, setPhone] = useState('' );
+  const [phone, setPhone] = useState('');
 
   const [notes, setNotes] = useState('');
   const [isNotesEditing, setIsNotesEditing] = useState(false);
@@ -1667,14 +1825,52 @@ export default function BookScreen() {
   // Step 4 (UI: step 5 of 6) — Terms & Conditions
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [tcScrolledToBottom, setTcScrolledToBottom] = useState(false);
+  const [tcScrollProgress, setTcScrollProgress] = useState(0);
+  const [termsDockHeight, setTermsDockHeight] = useState(0);
   const tcViewportHRef = useRef(0);
+  const tcContentHRef = useRef(0);
+  const tcOffsetYRef = useRef(0);
+  const tcScrolledToBottomRef = useRef(false);
   const prevStepForTermsRef = useRef(step);
+
+  const markTermsReviewed = useCallback(() => {
+    if (tcScrolledToBottomRef.current) return;
+    tcScrolledToBottomRef.current = true;
+    setTcScrollProgress(1);
+    setTcScrolledToBottom(true);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+  }, []);
+
+  const updateTermsReviewProgress = useCallback((
+    viewportHeightValue: number,
+    contentHeightValue: number,
+    offsetY: number,
+  ) => {
+    if (viewportHeightValue <= 0 || contentHeightValue <= 0) return;
+    const scrollableDistance = Math.max(0, contentHeightValue - viewportHeightValue);
+    if (scrollableDistance <= 12) {
+      markTermsReviewed();
+      return;
+    }
+    const nextProgress = Math.max(0, Math.min(1, offsetY / scrollableDistance));
+    setTcScrollProgress((current) => (
+      Math.abs(current - nextProgress) >= 0.005 ? nextProgress : current
+    ));
+    if (viewportHeightValue + offsetY >= contentHeightValue - 20) {
+      markTermsReviewed();
+    }
+  }, [markTermsReviewed]);
 
   useEffect(() => {
     const prev = prevStepForTermsRef.current;
     prevStepForTermsRef.current = step;
     if (step === 4 && prev !== 4) {
+      tcScrolledToBottomRef.current = false;
+      tcViewportHRef.current = 0;
+      tcContentHRef.current = 0;
+      tcOffsetYRef.current = 0;
       setTcScrolledToBottom(false);
+      setTcScrollProgress(0);
       setAgreedToTerms(false);
     }
   }, [step]);
@@ -1762,7 +1958,7 @@ export default function BookScreen() {
     const result: DayAvailabilityMap = {};
 
     for (let d = 1; d <= daysInM; d++) {
-      const iso  = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const iso = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const isPast = iso < fallbackBusinessDate;
       result[iso] = {
         status: 'closed',
@@ -1841,9 +2037,9 @@ export default function BookScreen() {
         const closedReason = emergencyClosed
           ? EMERGENCY_CLOSURE_MESSAGE
           : row.closureReason || row.closureLabel
-            || (closureType === 'recurring'
-              ? 'The shop is closed on this day.'
-              : 'This date is unavailable for booking.');
+          || (closureType === 'recurring'
+            ? 'The shop is closed on this day.'
+            : 'This date is unavailable for booking.');
 
         result[iso] = {
           status,
@@ -2808,9 +3004,9 @@ export default function BookScreen() {
         ? EMERGENCY_CLOSURE_MESSAGE
         : status === 409 && dailyCapacityReached && selectedDate
           ? `${formatIsoDateForDisplay(selectedDate)} is now fully booked. Choose another available date.`
-        : status === 409 && conflictedTime
-          ? `${conflictedTime} was just booked. Choose another available time to continue.`
-        : getApiErrorMessage(error, 'Something went wrong. Please try again.');
+          : status === 409 && conflictedTime
+            ? `${conflictedTime} was just booked. Choose another available time to continue.`
+            : getApiErrorMessage(error, 'Something went wrong. Please try again.');
       if (emergencyClosed || status === 409) {
         const affectedDate = selectedDate;
         selectedTimeRef.current = null;
@@ -2884,6 +3080,8 @@ export default function BookScreen() {
   const canProceedStep3 = scheduleIsKnownAvailable;                                // Review remains guarded during live refresh
   const canProceedStep4 = agreedToTerms && tcScrolledToBottom && scheduleIsKnownAvailable;
   const canConfirmBooking = canProceedStep4 && scheduleIsKnownAvailable;
+  const termsDocumentHeight = Math.round(Math.max(238, Math.min(348, viewportHeight * 0.36)));
+  const termsTitleFontSize = viewportWidth < 370 ? 32 : 35;
   const packageDetails = packageDetailsKey
     ? bookingPackages.find((pkg) => pkg.key === packageDetailsKey) ?? null
     : null;
@@ -3384,9 +3582,11 @@ export default function BookScreen() {
                   ? stepOneContentInset
                   : step === 1
                     ? Math.max(stepTwoDockHeight, 76) + 12
-                  : step === 2
-                    ? Math.max(scheduleDockHeight, 92) + 12
-                    : insets.bottom + 32,
+                    : step === 2
+                      ? Math.max(scheduleDockHeight, 92) + 12
+                      : step === 4
+                        ? Math.max(termsDockHeight, 82) + 22
+                        : insets.bottom + 32,
             },
           ]}
           showsVerticalScrollIndicator={false}
@@ -3544,86 +3744,86 @@ export default function BookScreen() {
                 contentStyle={vehiclePicker.sheet}
                 accessibilityLabel="Choose a vehicle"
               >
-                    <View style={vehiclePicker.handle} />
-                    <View style={vehiclePicker.header}>
-                      <View>
-                        <Text style={vehiclePicker.eyebrow}>YOUR GARAGE</Text>
-                        <Text style={vehiclePicker.title}>Choose a vehicle</Text>
-                      </View>
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel="Close vehicle selector"
-                        onPress={() => setShowVehiclePicker(false)}
-                        style={vehiclePicker.closeButton}
+                <View style={vehiclePicker.handle} />
+                <View style={vehiclePicker.header}>
+                  <View>
+                    <Text style={vehiclePicker.eyebrow}>YOUR GARAGE</Text>
+                    <Text style={vehiclePicker.title}>Choose a vehicle</Text>
+                  </View>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Close vehicle selector"
+                    onPress={() => setShowVehiclePicker(false)}
+                    style={vehiclePicker.closeButton}
+                  >
+                    <Ionicons name="close" size={19} color="#E4E4E7" />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView contentContainerStyle={vehiclePicker.list} showsVerticalScrollIndicator={false}>
+                  {vehicles.map((vehicle) => {
+                    const active = selectedVehicle?.id === vehicle.id || selectedVehicle?._id === vehicle._id;
+                    const typeLabel = VEHICLE_OPTIONS.find((option) =>
+                      option.key === getVehiclePriceKey(vehicle.pricingCategory)
+                    )?.label || vehicle.vehicleType || 'Vehicle';
+                    return (
+                      <View
+                        key={vehicle.id || vehicle._id}
+                        style={[vehiclePicker.row, active && vehiclePicker.rowActive]}
                       >
-                        <Ionicons name="close" size={19} color="#E4E4E7" />
-                      </TouchableOpacity>
-                    </View>
-                    <ScrollView contentContainerStyle={vehiclePicker.list} showsVerticalScrollIndicator={false}>
-                      {vehicles.map((vehicle) => {
-                        const active = selectedVehicle?.id === vehicle.id || selectedVehicle?._id === vehicle._id;
-                        const typeLabel = VEHICLE_OPTIONS.find((option) =>
-                          option.key === getVehiclePriceKey(vehicle.pricingCategory)
-                        )?.label || vehicle.vehicleType || 'Vehicle';
-                        return (
-                          <View
-                            key={vehicle.id || vehicle._id}
-                            style={[vehiclePicker.row, active && vehiclePicker.rowActive]}
-                          >
-                            <TouchableOpacity
-                              activeOpacity={0.84}
-                              accessibilityRole="radio"
-                              accessibilityState={{ checked: active }}
-                              accessibilityLabel={`${vehicle.make} ${vehicle.model}, ${typeLabel}`}
-                              onPress={() => selectVehicle(vehicle)}
-                              style={vehiclePicker.selectArea}
-                            >
-                              <Ionicons name="car-sport-outline" size={19} color={active ? STEP_ONE_TONES.accentText : '#A1A1AA'} />
-                              <View style={{ flex: 1 }}>
-                                <Text style={vehiclePicker.rowTitle}>{`${vehicle.make} ${vehicle.model}`.trim()}</Text>
-                                <Text style={vehiclePicker.rowSubtitle}>{typeLabel}</Text>
-                              </View>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              activeOpacity={0.72}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Edit ${vehicle.make} ${vehicle.model}`}
-                              onPress={() => openVehicleEditor(vehicle)}
-                              style={vehiclePicker.editAction}
-                              hitSlop={{ top: 6, bottom: 6 }}
-                            >
-                              <Ionicons name="pencil-outline" size={13} color={STEP_ONE_TONES.accentText} />
-                              <Text style={vehiclePicker.editText}>Edit</Text>
-                              <Ionicons name="chevron-forward" size={12} color={STEP_ONE_TONES.accentText} />
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              activeOpacity={0.75}
-                              accessibilityRole="radio"
-                              accessibilityState={{ checked: active }}
-                              accessibilityLabel={`${active ? 'Selected' : 'Select'} ${vehicle.make} ${vehicle.model}`}
-                              onPress={() => selectVehicle(vehicle)}
-                              style={vehiclePicker.radioAction}
-                            >
-                              <View style={[svc.radioOuter, active && svc.radioOuterActive]}>
-                                {active ? <View style={svc.radioInner} /> : null}
-                              </View>
-                            </TouchableOpacity>
+                        <TouchableOpacity
+                          activeOpacity={0.84}
+                          accessibilityRole="radio"
+                          accessibilityState={{ checked: active }}
+                          accessibilityLabel={`${vehicle.make} ${vehicle.model}, ${typeLabel}`}
+                          onPress={() => selectVehicle(vehicle)}
+                          style={vehiclePicker.selectArea}
+                        >
+                          <Ionicons name="car-sport-outline" size={19} color={active ? STEP_ONE_TONES.accentText : '#A1A1AA'} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={vehiclePicker.rowTitle}>{`${vehicle.make} ${vehicle.model}`.trim()}</Text>
+                            <Text style={vehiclePicker.rowSubtitle}>{typeLabel}</Text>
                           </View>
-                        );
-                      })}
-                    </ScrollView>
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      accessibilityRole="button"
-                      onPress={() => {
-                        addVehicleAfterPickerRef.current = true;
-                        setShowVehiclePicker(false);
-                      }}
-                      style={vehiclePicker.addButton}
-                    >
-                      <Ionicons name="add" size={18} color={ON_PRIMARY} />
-                      <Text style={vehiclePicker.addButtonText}>Add another vehicle</Text>
-                    </TouchableOpacity>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          activeOpacity={0.72}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Edit ${vehicle.make} ${vehicle.model}`}
+                          onPress={() => openVehicleEditor(vehicle)}
+                          style={vehiclePicker.editAction}
+                          hitSlop={{ top: 6, bottom: 6 }}
+                        >
+                          <Ionicons name="pencil-outline" size={13} color={STEP_ONE_TONES.accentText} />
+                          <Text style={vehiclePicker.editText}>Edit</Text>
+                          <Ionicons name="chevron-forward" size={12} color={STEP_ONE_TONES.accentText} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          activeOpacity={0.75}
+                          accessibilityRole="radio"
+                          accessibilityState={{ checked: active }}
+                          accessibilityLabel={`${active ? 'Selected' : 'Select'} ${vehicle.make} ${vehicle.model}`}
+                          onPress={() => selectVehicle(vehicle)}
+                          style={vehiclePicker.radioAction}
+                        >
+                          <View style={[svc.radioOuter, active && svc.radioOuterActive]}>
+                            {active ? <View style={svc.radioInner} /> : null}
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    addVehicleAfterPickerRef.current = true;
+                    setShowVehiclePicker(false);
+                  }}
+                  style={vehiclePicker.addButton}
+                >
+                  <Ionicons name="add" size={18} color={ON_PRIMARY} />
+                  <Text style={vehiclePicker.addButtonText}>Add another vehicle</Text>
+                </TouchableOpacity>
               </MotionSheet>
 
               {/* ══ SECTION 2: CHOOSE PACKAGE ══ */}
@@ -4189,7 +4389,7 @@ export default function BookScreen() {
           ═══════════════════════════════════════════════════ */}
           {step === 3 && (() => {
             const effectivePrice: number = selectedService?.price ?? 0;
-            const effectiveName  = selectedService?.name || '—';
+            const effectiveName = selectedService?.name || '—';
             const RESERVATION_FEE = 500;
             const balance = Math.max(0, effectivePrice - RESERVATION_FEE);
 
@@ -4375,81 +4575,126 @@ export default function BookScreen() {
               STEP 4 — TERMS & CONDITIONS  (web Step 5 of 6)
           ═══════════════════════════════════════════════════ */}
           {step === 4 && (
-            <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
-              <View style={ss.editorialHeader}>
-                <Text style={ss.editorialTitle}>Terms &amp;{'\n'}Conditions</Text>
-                <Text style={ss.editorialSub}>Read and agree to proceed to payment.</Text>
-              </View>
-
-              <View>
-                <Text style={tc.docTitle}>{BOOKING_TERMS_DOCUMENT_TITLE}</Text>
-                <Text style={tc.intro}>{BOOKING_TERMS_INTRO}</Text>
-                <Text style={tc.heading}>Full text (scroll to the end)</Text>
-                <ScrollView
-                  style={tc.scrollBox}
-                  showsVerticalScrollIndicator
-                  nestedScrollEnabled
-                  onLayout={(e) => {
-                    tcViewportHRef.current = e.nativeEvent.layout.height;
-                  }}
-                  onContentSizeChange={(_, contentHeight) => {
-                    if (contentHeight <= tcViewportHRef.current + 12) setTcScrolledToBottom(true);
-                  }}
-                  onScroll={({ nativeEvent }) => {
-                    const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
-                    if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 20) setTcScrolledToBottom(true);
-                  }}
-                  scrollEventThrottle={32}
+            <Animated.View entering={FadeInDown.duration(200)} style={[ss.stepWrap, tc.stepWrap]}>
+              <View style={tc.pageHeader}>
+                <Text
+                  style={[tc.pageTitle, { fontSize: termsTitleFontSize, lineHeight: termsTitleFontSize + 5 }]}
+                  maxFontSizeMultiplier={1.15}
                 >
-                  {BOOKING_TERMS_SECTIONS.map((sec) => (
-                    <View key={sec.id} style={{ marginBottom: 14 }}>
-                      <Text style={tc.sectionHeading}>{sec.title}</Text>
-                      <Text style={tc.body}>{sec.body}</Text>
-                    </View>
-                  ))}
-                  <View style={{ height: 8 }} />
-                </ScrollView>
-                {!tcScrolledToBottom && (
-                  <Text style={tc.scrollHint}>Scroll to the bottom to enable the agreement checkbox.</Text>
-                )}
-              </View>
-
-              <TouchableOpacity
-                activeOpacity={0.85}
-                disabled={!tcScrolledToBottom}
-                onPress={() => {
-                  if (!tcScrolledToBottom) return;
-                  setAgreedToTerms(!agreedToTerms);
-                  Haptics.selectionAsync();
-                }}
-                style={[tc.checkRow, !tcScrolledToBottom && { opacity: 0.45 }, agreedToTerms && tc.checkRowActive]}
-              >
-                <View style={[tc.checkbox, agreedToTerms && tc.checkboxActive]}>
-                  {agreedToTerms && <Ionicons name="checkmark" size={14} color={ON_PRIMARY} />}
-                </View>
-                <Text style={[tc.checkText, agreedToTerms && { color: '#fff' }]}>
-                  I have read and agree to the{' '}
-                  <Text style={{ color: PRIMARY, fontWeight: '600' }}>Terms and Conditions</Text>
-                  <Text style={{ color: '#ef4444', fontWeight: '700' }}> *</Text>
+                  Terms &amp; Conditions
                 </Text>
-              </TouchableOpacity>
-
-              <View style={ss.btnRow}>
-                <TouchableOpacity activeOpacity={0.85} onPress={goBack} style={[ss.outlineBtn, { flex: 1 }]}>
-                  <Text style={ss.outlineBtnText}>Back</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.88}
-                  disabled={!canProceedStep4}
-                  onPress={goNext}
-                  style={{ flex: 2, opacity: canProceedStep4 ? 1 : 0.4 }}
-                >
-                  <LinearGradient colors={[PRIMARY_CTR, PRIMARY]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={ss.gradientBtn}>
-                    <Text style={ss.gradientBtnText}>Continue</Text>
-                    <Ionicons name="arrow-forward" size={18} color={ON_PRIMARY} />
-                  </LinearGradient>
-                </TouchableOpacity>
+                <Text style={tc.pageSubtitle} maxFontSizeMultiplier={1.25}>
+                  Please review the service terms before continuing to payment.
+                </Text>
               </View>
+
+              <View style={tc.documentIntroCard}>
+                <View style={tc.documentIcon}>
+                  <Ionicons name="document-text-outline" size={20} color={PRIMARY} />
+                </View>
+                <View style={tc.documentIntroContent}>
+                  <Text style={tc.docTitle}>{BOOKING_TERMS_DOCUMENT_TITLE}</Text>
+                  <Text style={tc.documentMeta}>Booking Agreement · Last updated {BOOKING_TERMS_LAST_UPDATED}</Text>
+                  <Text style={tc.intro}>{BOOKING_TERMS_INTRO}</Text>
+                </View>
+              </View>
+
+              <View style={tc.documentSection}>
+                <View style={tc.documentLabelRow}>
+                  <Text style={tc.heading}>Agreement details</Text>
+                  <Text style={tc.documentLabelHint}>Scroll to review</Text>
+                </View>
+                <View style={[tc.scrollShell, { height: termsDocumentHeight }]}>
+                  <ScrollView
+                    style={tc.scrollBox}
+                    contentContainerStyle={tc.scrollContent}
+                    showsVerticalScrollIndicator={false}
+                    nestedScrollEnabled
+                    onLayout={(e) => {
+                      const nextViewportHeight = e.nativeEvent.layout.height;
+                      tcViewportHRef.current = nextViewportHeight;
+                      updateTermsReviewProgress(nextViewportHeight, tcContentHRef.current, tcOffsetYRef.current);
+                    }}
+                    onContentSizeChange={(_, contentHeight) => {
+                      tcContentHRef.current = contentHeight;
+                      updateTermsReviewProgress(tcViewportHRef.current, contentHeight, tcOffsetYRef.current);
+                    }}
+                    onScroll={({ nativeEvent }) => {
+                      const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+                      tcOffsetYRef.current = contentOffset.y;
+                      updateTermsReviewProgress(
+                        layoutMeasurement.height,
+                        contentSize.height,
+                        contentOffset.y,
+                      );
+                    }}
+                    scrollEventThrottle={16}
+                  >
+                    {BOOKING_TERMS_SECTIONS.map((sec, index) => {
+                      const headingMatch = sec.title.match(/^(\d+)\.\s*(.*)$/);
+                      const sectionNumber = headingMatch?.[1] || String(index + 1);
+                      const sectionTitle = headingMatch?.[2] || sec.title;
+                      return (
+                        <View key={sec.id} style={tc.termsSection}>
+                          <View style={tc.sectionHeaderRow}>
+                            <Text style={tc.sectionNumber}>{sectionNumber.padStart(2, '0')}</Text>
+                            <Text style={tc.sectionHeading}>{sectionTitle}</Text>
+                          </View>
+                          <Text style={tc.body}>{sec.body}</Text>
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+                  {!tcScrolledToBottom ? (
+                    <LinearGradient
+                      pointerEvents="none"
+                      colors={['rgba(17,18,20,0)', 'rgba(17,18,20,0.94)']}
+                      locations={[0, 1]}
+                      style={tc.scrollFade}
+                    />
+                  ) : null}
+                </View>
+
+                <View style={tc.reviewStatus} accessibilityLiveRegion="polite">
+                  {tcScrolledToBottom ? (
+                    <Animated.View
+                      key="terms-reviewed"
+                      entering={FadeInDown.duration(reduceMotion ? 1 : 220)}
+                      style={tc.statusRow}
+                    >
+                      <View style={tc.reviewedIcon}>
+                        <Ionicons name="checkmark" size={12} color="#0A2415" />
+                      </View>
+                      <Text style={tc.reviewedText}>Terms reviewed</Text>
+                    </Animated.View>
+                  ) : (
+                    <Animated.View
+                      key="terms-review-pending"
+                      entering={FadeInDown.duration(reduceMotion ? 1 : 200)}
+                      style={tc.statusPending}
+                    >
+                      <View style={tc.statusRow}>
+                        <Ionicons name="reader-outline" size={14} color={PRIMARY} />
+                        <Text style={tc.statusText}>Review the terms to continue</Text>
+                        <Text style={tc.statusPercent}>{Math.round(tcScrollProgress * 100)}%</Text>
+                      </View>
+                      <View style={tc.progressTrack}>
+                        <View style={[tc.progressFill, { width: `${Math.round(tcScrollProgress * 100)}%` }]} />
+                      </View>
+                    </Animated.View>
+                  )}
+                </View>
+              </View>
+
+              <TermsAgreementControl
+                unlocked={tcScrolledToBottom}
+                checked={agreedToTerms}
+                onToggle={() => {
+                  if (!tcScrolledToBottom) return;
+                  setAgreedToTerms((current) => !current);
+                  void Haptics.selectionAsync();
+                }}
+              />
             </Animated.View>
           )}
 
@@ -4726,231 +4971,245 @@ export default function BookScreen() {
         </View>
       ) : null}
 
+      {step === 4 ? (
+        <TermsActionDock
+          enabled={canProceedStep4}
+          bottomInset={insets.bottom}
+          onBack={goBack}
+          onContinue={goNext}
+          onHeightChange={(height) => {
+            setTermsDockHeight((currentHeight) => (
+              currentHeight === height ? currentHeight : height
+            ));
+          }}
+        />
+      ) : null}
+
       <MotionSheet
         visible={packageDetails !== null}
         onClose={closePackageDetails}
         contentStyle={packageDetailsStyles.sheet}
         accessibilityLabel="Package details"
       >
-          {packageDetails ? (
-            <>
-              <View style={packageDetailsStyles.handleTouchArea}>
-                <View style={packageDetailsStyles.handle} />
-              </View>
-              <View style={packageDetailsStyles.header}>
-                <View style={{ flex: 1 }}>
-                  <View style={packageDetailsStyles.headerMetaRow}>
-                    <Text style={packageDetailsStyles.eyebrow}>{packageDetails.tier}</Text>
-                    {packageDetailsBadge ? (
-                      <View
-                        style={[
-                          packageDetailsStyles.headerBadge,
-                          {
-                            borderColor: STEP_ONE_TONES.accentBorder,
-                            backgroundColor: STEP_ONE_TONES.accentSoft,
-                          },
-                        ]}
-                      >
-                        <Text style={[packageDetailsStyles.headerBadgeText, { color: packageDetails.badgeColor }]}>
-                          {packageDetailsBadge}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text style={packageDetailsStyles.title}>{getPackageCode(packageDetails.name)}</Text>
-                </View>
-                <TouchableOpacity
-                  activeOpacity={0.75}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close package details"
-                  onPress={closePackageDetails}
-                  style={packageDetailsStyles.closeButton}
-                >
-                  <Ionicons name="close" size={20} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView
-                style={packageDetailsStyles.scroll}
-                contentContainerStyle={packageDetailsStyles.content}
-                showsVerticalScrollIndicator={false}
-              >
-                {packageDetails.price.status === 'available' ? (
-                  <View
-                    accessible
-                    accessibilityRole="text"
-                    accessibilityLabel={`₱${packageDetails.price.value.toLocaleString()}`}
-                    style={packageDetailsStyles.priceBlock}
-                  >
-                    <Text style={packageDetailsStyles.priceSymbol} maxFontSizeMultiplier={1.15}>₱</Text>
-                    <Text
-                      style={packageDetailsStyles.priceDigits}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.92}
-                      maxFontSizeMultiplier={1.15}
+        {packageDetails ? (
+          <>
+            <View style={packageDetailsStyles.handleTouchArea}>
+              <View style={packageDetailsStyles.handle} />
+            </View>
+            <View style={packageDetailsStyles.header}>
+              <View style={{ flex: 1 }}>
+                <View style={packageDetailsStyles.headerMetaRow}>
+                  <Text style={packageDetailsStyles.eyebrow}>{packageDetails.tier}</Text>
+                  {packageDetailsBadge ? (
+                    <View
+                      style={[
+                        packageDetailsStyles.headerBadge,
+                        {
+                          borderColor: STEP_ONE_TONES.accentBorder,
+                          backgroundColor: STEP_ONE_TONES.accentSoft,
+                        },
+                      ]}
                     >
-                      {packageDetails.price.value.toLocaleString()}
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={packageDetailsStyles.priceUnavailable}>Unable to load price</Text>
-                )}
-                {packageDetails.price.status === 'available'
-                  && packageDetails.originalPrice !== null ? (
-                  <View style={packageDetailsStyles.promotionRow}>
-                    <Text style={packageDetailsStyles.originalPrice}>
-                      Was ₱{packageDetails.originalPrice.toLocaleString()}
-                    </Text>
-                    <Text style={packageDetailsStyles.promotionSavingsText}>
-                      Save ₱{(packageDetails.originalPrice - packageDetails.price.value).toLocaleString()}
-                    </Text>
-                  </View>
-                ) : null}
-                {packageDetails.tagline ? (
-                  <Text style={packageDetailsStyles.tagline}>{packageDetails.tagline}</Text>
-                ) : null}
-
-                {packageDetails.protection || packageDetails.estimatedDuration ? (
-                  <View style={packageDetailsStyles.specifications}>
-                    {packageDetails.protection ? (
-                      <View style={packageDetailsStyles.specificationColumn}>
-                        <View style={packageDetailsStyles.specificationIcon}>
-                          <Ionicons name="shield-checkmark-outline" size={17} color={PRIMARY} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={packageDetailsStyles.specificationLabel}>Protection</Text>
-                          <Text style={packageDetailsStyles.specificationValue}>{packageDetails.protection}</Text>
-                        </View>
-                      </View>
-                    ) : null}
-                    {packageDetails.estimatedDuration ? (
-                      <View style={packageDetailsStyles.specificationColumn}>
-                        <View style={[packageDetailsStyles.specificationIcon, packageDetailsStyles.durationIcon]}>
-                          <Ionicons name="time-outline" size={17} color="#A1A1AA" />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={packageDetailsStyles.specificationLabel}>Estimated Service Time</Text>
-                          <Text style={packageDetailsStyles.specificationValue}>{packageDetails.estimatedDuration}</Text>
-                        </View>
-                      </View>
-                    ) : null}
-                  </View>
-                ) : null}
-
-                {packageDetailGroups.length ? (
-                  <View style={packageDetailsStyles.section}>
-                    <Text style={packageDetailsStyles.sectionTitle}>What&apos;s included</Text>
-                    <View style={packageDetailsStyles.detailGroups}>
-                      {packageDetailGroups.map((group) => (
-                        <View key={group.title} style={packageDetailsStyles.detailGroup}>
-                          <Text style={packageDetailsStyles.groupTitle}>{group.title}</Text>
-                          <View style={packageDetailsStyles.inclusionList}>
-                            {group.inclusions.map((inclusion, inclusionIndex) => (
-                              <View
-                                key={`${group.title}-${inclusion.title}-${inclusionIndex}`}
-                                style={packageDetailsStyles.inclusionRow}
-                              >
-                                <PackageCheck size={22} checkSize={12} treatment="inclusion" />
-                                <View style={{ flex: 1 }}>
-                                  <Text style={packageDetailsStyles.inclusionTitle}>{inclusion.title}</Text>
-                                  {inclusion.detail ? (
-                                    <Text style={packageDetailsStyles.inclusionDetail}>{inclusion.detail}</Text>
-                                  ) : null}
-                                  {inclusion.savingsLabel ? (
-                                    <Text style={packageDetailsStyles.savings}>{inclusion.savingsLabel}</Text>
-                                  ) : null}
-                                </View>
-                              </View>
-                            ))}
-                          </View>
-                          {group.title === 'Paint Protection Film' && packageDetails.ppfCoverage.length ? (
-                            <View style={packageDetailsStyles.coverageBlock}>
-                              <Text style={packageDetailsStyles.coverageTitle}>PPF Coverage</Text>
-                              <View style={packageDetailsStyles.coverageGrid}>
-                                {packageDetails.ppfCoverage.map((area) => (
-                                  <View key={area} style={packageDetailsStyles.coverageItem}>
-                                    <View style={packageDetailsStyles.coverageDot} />
-                                    <Text style={packageDetailsStyles.coverageText}>{area}</Text>
-                                  </View>
-                                ))}
-                              </View>
-                            </View>
-                          ) : null}
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                ) : null}
-
-                {packageDetails.description ? (
-                  <View style={packageDetailsStyles.section}>
-                    <Text style={packageDetailsStyles.sectionTitle}>Package notes</Text>
-                    <Text style={packageDetailsStyles.description}>{packageDetails.description}</Text>
-                  </View>
-                ) : null}
-
-                {packageDetails.bundleLabel && packageDetails.bundlePrice !== null ? (
-                  <View style={packageDetailsStyles.section}>
-                    <Text style={packageDetailsStyles.sectionTitle}>Related package</Text>
-                    <View style={packageDetailsStyles.bundleRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={packageDetailsStyles.bundleName}>{packageDetails.bundleLabel}</Text>
-                        <Text style={packageDetailsStyles.bundleNote}>Separate bundle · Not included in this package</Text>
-                      </View>
-                      <Text style={packageDetailsStyles.bundlePrice}>
-                        ₱{packageDetails.bundlePrice.toLocaleString()}
+                      <Text style={[packageDetailsStyles.headerBadgeText, { color: packageDetails.badgeColor }]}>
+                        {packageDetailsBadge}
                       </Text>
                     </View>
-                  </View>
-                ) : null}
-              </ScrollView>
-
-              {selectedPkg === packageDetails.key ? (
-                <View
-                  accessibilityRole="text"
-                  accessibilityLabel={`${packageDetails.name} is selected`}
-                  style={packageDetailsStyles.selectedAction}
-                >
-                  <PackageCheck size={19} checkSize={12} treatment="selected" />
-                  <Text style={packageDetailsStyles.selectedActionText}>Selected package</Text>
+                  ) : null}
                 </View>
-              ) : packageDetails.price.status === 'available' ? (
-                <TouchableOpacity
-                  activeOpacity={0.86}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Select ${packageDetails.name}`}
-                  onPress={() => {
-                    selectPackage(packageDetails);
-                    closePackageDetails();
-                  }}
+                <Text style={packageDetailsStyles.title}>{getPackageCode(packageDetails.name)}</Text>
+              </View>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel="Close package details"
+                onPress={closePackageDetails}
+                style={packageDetailsStyles.closeButton}
+              >
+                <Ionicons name="close" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={packageDetailsStyles.scroll}
+              contentContainerStyle={packageDetailsStyles.content}
+              showsVerticalScrollIndicator={false}
+            >
+              {packageDetails.price.status === 'available' ? (
+                <View
+                  accessible
+                  accessibilityRole="text"
+                  accessibilityLabel={`₱${packageDetails.price.value.toLocaleString()}`}
+                  style={packageDetailsStyles.priceBlock}
                 >
-                  <LinearGradient
-                    colors={[PRIMARY_CTR, PRIMARY]}
-                    start={{ x: 0, y: 0.5 }}
-                    end={{ x: 1, y: 0.5 }}
-                    style={packageDetailsStyles.selectButton}
+                  <Text style={packageDetailsStyles.priceSymbol} maxFontSizeMultiplier={1.15}>₱</Text>
+                  <Text
+                    style={packageDetailsStyles.priceDigits}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.92}
+                    maxFontSizeMultiplier={1.15}
                   >
-                    <Text style={packageDetailsStyles.selectButtonText}>
-                      Select package
-                    </Text>
-                    <Ionicons name="checkmark" size={18} color={ON_PRIMARY} />
-                  </LinearGradient>
-                </TouchableOpacity>
+                    {packageDetails.price.value.toLocaleString()}
+                  </Text>
+                </View>
               ) : (
-                <TouchableOpacity
-                  activeOpacity={0.82}
-                  accessibilityRole="button"
-                  accessibilityLabel="Retry package pricing"
-                  onPress={() => void retryServices()}
-                  style={packageDetailsStyles.retryAction}
-                >
-                  <Ionicons name="refresh" size={17} color={PRIMARY} />
-                  <Text style={packageDetailsStyles.retryActionText}>Retry pricing</Text>
-                </TouchableOpacity>
+                <Text style={packageDetailsStyles.priceUnavailable}>Unable to load price</Text>
               )}
-            </>
-          ) : null}
+              {packageDetails.price.status === 'available'
+                && packageDetails.originalPrice !== null ? (
+                <View style={packageDetailsStyles.promotionRow}>
+                  <Text style={packageDetailsStyles.originalPrice}>
+                    Was ₱{packageDetails.originalPrice.toLocaleString()}
+                  </Text>
+                  <Text style={packageDetailsStyles.promotionSavingsText}>
+                    Save ₱{(packageDetails.originalPrice - packageDetails.price.value).toLocaleString()}
+                  </Text>
+                </View>
+              ) : null}
+              {packageDetails.tagline ? (
+                <Text style={packageDetailsStyles.tagline}>{packageDetails.tagline}</Text>
+              ) : null}
+
+              {packageDetails.protection || packageDetails.estimatedDuration ? (
+                <View style={packageDetailsStyles.specifications}>
+                  {packageDetails.protection ? (
+                    <View style={packageDetailsStyles.specificationColumn}>
+                      <View style={packageDetailsStyles.specificationIcon}>
+                        <Ionicons name="shield-checkmark-outline" size={17} color={PRIMARY} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={packageDetailsStyles.specificationLabel}>Protection</Text>
+                        <Text style={packageDetailsStyles.specificationValue}>{packageDetails.protection}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {packageDetails.estimatedDuration ? (
+                    <View style={packageDetailsStyles.specificationColumn}>
+                      <View style={[packageDetailsStyles.specificationIcon, packageDetailsStyles.durationIcon]}>
+                        <Ionicons name="time-outline" size={17} color="#A1A1AA" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={packageDetailsStyles.specificationLabel}>Estimated Service Time</Text>
+                        <Text style={packageDetailsStyles.specificationValue}>{packageDetails.estimatedDuration}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {packageDetailGroups.length ? (
+                <View style={packageDetailsStyles.section}>
+                  <Text style={packageDetailsStyles.sectionTitle}>What&apos;s included</Text>
+                  <View style={packageDetailsStyles.detailGroups}>
+                    {packageDetailGroups.map((group) => (
+                      <View key={group.title} style={packageDetailsStyles.detailGroup}>
+                        <Text style={packageDetailsStyles.groupTitle}>{group.title}</Text>
+                        <View style={packageDetailsStyles.inclusionList}>
+                          {group.inclusions.map((inclusion, inclusionIndex) => (
+                            <View
+                              key={`${group.title}-${inclusion.title}-${inclusionIndex}`}
+                              style={packageDetailsStyles.inclusionRow}
+                            >
+                              <PackageCheck size={22} checkSize={12} treatment="inclusion" />
+                              <View style={{ flex: 1 }}>
+                                <Text style={packageDetailsStyles.inclusionTitle}>{inclusion.title}</Text>
+                                {inclusion.detail ? (
+                                  <Text style={packageDetailsStyles.inclusionDetail}>{inclusion.detail}</Text>
+                                ) : null}
+                                {inclusion.savingsLabel ? (
+                                  <Text style={packageDetailsStyles.savings}>{inclusion.savingsLabel}</Text>
+                                ) : null}
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                        {group.title === 'Paint Protection Film' && packageDetails.ppfCoverage.length ? (
+                          <View style={packageDetailsStyles.coverageBlock}>
+                            <Text style={packageDetailsStyles.coverageTitle}>PPF Coverage</Text>
+                            <View style={packageDetailsStyles.coverageGrid}>
+                              {packageDetails.ppfCoverage.map((area) => (
+                                <View key={area} style={packageDetailsStyles.coverageItem}>
+                                  <View style={packageDetailsStyles.coverageDot} />
+                                  <Text style={packageDetailsStyles.coverageText}>{area}</Text>
+                                </View>
+                              ))}
+                            </View>
+                          </View>
+                        ) : null}
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
+              {packageDetails.description ? (
+                <View style={packageDetailsStyles.section}>
+                  <Text style={packageDetailsStyles.sectionTitle}>Package notes</Text>
+                  <Text style={packageDetailsStyles.description}>{packageDetails.description}</Text>
+                </View>
+              ) : null}
+
+              {packageDetails.bundleLabel && packageDetails.bundlePrice !== null ? (
+                <View style={packageDetailsStyles.section}>
+                  <Text style={packageDetailsStyles.sectionTitle}>Related package</Text>
+                  <View style={packageDetailsStyles.bundleRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={packageDetailsStyles.bundleName}>{packageDetails.bundleLabel}</Text>
+                      <Text style={packageDetailsStyles.bundleNote}>Separate bundle · Not included in this package</Text>
+                    </View>
+                    <Text style={packageDetailsStyles.bundlePrice}>
+                      ₱{packageDetails.bundlePrice.toLocaleString()}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </ScrollView>
+
+            {selectedPkg === packageDetails.key ? (
+              <View
+                accessibilityRole="text"
+                accessibilityLabel={`${packageDetails.name} is selected`}
+                style={packageDetailsStyles.selectedAction}
+              >
+                <PackageCheck size={19} checkSize={12} treatment="selected" />
+                <Text style={packageDetailsStyles.selectedActionText}>Selected package</Text>
+              </View>
+            ) : packageDetails.price.status === 'available' ? (
+              <TouchableOpacity
+                activeOpacity={0.86}
+                accessibilityRole="button"
+                accessibilityLabel={`Select ${packageDetails.name}`}
+                onPress={() => {
+                  selectPackage(packageDetails);
+                  closePackageDetails();
+                }}
+              >
+                <LinearGradient
+                  colors={[PRIMARY_CTR, PRIMARY]}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={packageDetailsStyles.selectButton}
+                >
+                  <Text style={packageDetailsStyles.selectButtonText}>
+                    Select package
+                  </Text>
+                  <Ionicons name="checkmark" size={18} color={ON_PRIMARY} />
+                </LinearGradient>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                activeOpacity={0.82}
+                accessibilityRole="button"
+                accessibilityLabel="Retry package pricing"
+                onPress={() => void retryServices()}
+                style={packageDetailsStyles.retryAction}
+              >
+                <Ionicons name="refresh" size={17} color={PRIMARY} />
+                <Text style={packageDetailsStyles.retryActionText}>Retry pricing</Text>
+              </TouchableOpacity>
+            )}
+          </>
+        ) : null}
       </MotionSheet>
     </View>
   );
@@ -5485,27 +5744,310 @@ const s2 = StyleSheet.create({
 /** Step 2 — Review & Payment Kinetic Gallery styles */
 /** Terms & Conditions step */
 const tc = StyleSheet.create({
-  docTitle: { fontSize: 17, fontWeight: '700', color: SECONDARY, marginBottom: 8, letterSpacing: -0.2 },
-  intro: { fontSize: 13, color: DIM_TEXT, lineHeight: 20, marginBottom: 12 },
-  heading: { fontSize: 10, fontWeight: '700', color: DIM_TEXT, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
-  scrollBox: { maxHeight: 240, borderWidth: 1, borderColor: GHOST, borderRadius: 10, padding: 14, backgroundColor: SURFACE_HIGH },
-  body:        { fontSize: 12, color: SECONDARY, lineHeight: 20, marginBottom: 0 },
-  sectionHeading: { fontSize: 12, fontWeight: '700', color: SECONDARY, marginBottom: 6 },
-  sectionTitle: { fontSize: 10, fontWeight: '700', color: PRIMARY, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4, marginBottom: 4 },
-  scrollHint: { fontSize: 11, fontWeight: '600', color: '#ea580c', marginTop: 6, textAlign: 'center' },
-  checkRow: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-    backgroundColor: SURFACE_MID, borderRadius: 14, padding: 14,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+  stepWrap: {
+    gap: 20,
+    paddingBottom: 4,
   },
-  checkRowActive: { backgroundColor: 'rgba(255,183,125,0.06)', borderColor: 'rgba(255,183,125,0.3)' },
+  pageHeader: {
+    paddingTop: 10,
+    paddingBottom: 2,
+  },
+  pageTitle: {
+    color: '#F7F7F8',
+    fontWeight: '700',
+    letterSpacing: -0.85,
+  },
+  pageSubtitle: {
+    maxWidth: 390,
+    marginTop: 8,
+    color: '#8B8B94',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  documentIntroCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 15,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#101014',
+  },
+  documentIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    backgroundColor: 'rgba(255,183,125,0.08)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,183,125,0.18)',
+  },
+  documentIntroContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  docTitle: {
+    color: '#F4F4F5',
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '700',
+    letterSpacing: -0.25,
+  },
+  documentMeta: {
+    marginTop: 3,
+    color: '#71717A',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  intro: {
+    marginTop: 10,
+    color: '#A1A1AA',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  documentSection: {
+    gap: 8,
+  },
+  documentLabelRow: {
+    minHeight: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 2,
+  },
+  heading: {
+    color: '#8B8B94',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1.1,
+  },
+  documentLabelHint: {
+    color: '#626269',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '600',
+  },
+  scrollShell: {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.095)',
+    backgroundColor: '#111214',
+  },
+  scrollBox: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 32,
+  },
+  termsSection: {
+    marginBottom: 23,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 10,
+    marginBottom: 8,
+  },
+  sectionNumber: {
+    width: 24,
+    color: PRIMARY,
+    fontSize: 11,
+    lineHeight: 18,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+    fontVariant: ['tabular-nums'],
+  },
+  sectionHeading: {
+    flex: 1,
+    color: '#E4E4E7',
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '600',
+    letterSpacing: -0.15,
+  },
+  body: {
+    paddingLeft: 34,
+    color: '#B8B8BF',
+    fontSize: 14,
+    lineHeight: 23,
+    fontWeight: '400',
+  },
+  scrollFade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 54,
+  },
+  reviewStatus: {
+    minHeight: 35,
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  statusPending: {
+    gap: 8,
+  },
+  statusRow: {
+    minHeight: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  statusText: {
+    flex: 1,
+    color: '#8B8B94',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  statusPercent: {
+    color: '#A1A1AA',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  progressTrack: {
+    height: 2,
+    overflow: 'hidden',
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+  },
+  progressFill: {
+    height: 2,
+    borderRadius: 2,
+    backgroundColor: PRIMARY,
+  },
+  reviewedIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#86E1A7',
+  },
+  reviewedText: {
+    color: '#A7E7BD',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
+  agreementCard: {
+    overflow: 'hidden',
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  agreementTouch: {
+    minHeight: 76,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
   checkbox: {
-    width: 22, height: 22, borderRadius: 6,
-    backgroundColor: SURFACE_HIGH, alignItems: 'center', justifyContent: 'center',
-    marginTop: 1, flexShrink: 0,
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
-  checkboxActive: { backgroundColor: PRIMARY },
-  checkText: { flex: 1, color: DIM_TEXT, fontSize: 13, lineHeight: 20 },
+  checkText: {
+    flex: 1,
+    color: '#77777F',
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '500',
+  },
+  checkTextUnlocked: {
+    color: '#D4D4D8',
+  },
+  checkLink: {
+    color: PRIMARY,
+    fontWeight: '600',
+  },
+  actionDock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 30,
+    minHeight: 82,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    backgroundColor: 'rgba(4,4,5,0.985)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.065)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -3 },
+        shadowOpacity: 0.12,
+        shadowRadius: 8,
+      },
+      android: { elevation: 6 },
+    }),
+  },
+  backButton: {
+    flex: 0.72,
+    minWidth: 104,
+    height: 52,
+    overflow: 'hidden',
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#111114',
+  },
+  continueButton: {
+    flex: 1,
+    height: 52,
+    overflow: 'hidden',
+    borderRadius: 15,
+    borderWidth: 1,
+  },
+  actionTouch: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+  },
+  controlPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.98 }],
+  },
+  backButtonText: {
+    color: '#C6C6C7',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  continueButtonText: {
+    color: ON_PRIMARY,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  continueButtonTextDisabled: {
+    color: '#71717A',
+  },
 });
 
 /** GCash Payment step */
@@ -5517,30 +6059,30 @@ const pay = StyleSheet.create({
     backgroundColor: PRIMARY_CTR,
   },
   bannerTitle: { fontSize: 12, color: ON_PRIMARY, fontWeight: '700', opacity: 0.9 },
-  bannerSub:   { fontSize: 10, color: ON_PRIMARY, marginTop: 2, opacity: 0.7 },
-  bannerAmt:   { fontSize: 28, fontWeight: '900', color: ON_PRIMARY, letterSpacing: -0.5 },
+  bannerSub: { fontSize: 10, color: ON_PRIMARY, marginTop: 2, opacity: 0.7 },
+  bannerAmt: { fontSize: 28, fontWeight: '900', color: ON_PRIMARY, letterSpacing: -0.5 },
   bannerBalance: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 10,
     backgroundColor: SURFACE_HIGH,
   },
   bannerBalLabel: { fontSize: 12, color: DIM_TEXT, fontWeight: '600' },
-  bannerBalAmt:   { fontSize: 14, fontWeight: '700', color: PRIMARY },
+  bannerBalAmt: { fontSize: 14, fontWeight: '700', color: PRIMARY },
 
   qrSection: { alignItems: 'center' },
-  qrLabel:   { fontSize: 10, fontWeight: '700', color: DIM_TEXT, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 12 },
+  qrLabel: { fontSize: 10, fontWeight: '700', color: DIM_TEXT, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 12 },
   qrFrame: {
     padding: 12, backgroundColor: '#fff', borderRadius: 16,
     shadowColor: PRIMARY, shadowOpacity: 0.25, shadowRadius: 20, shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
   qrImage: { width: 180, height: 180 },
-  qrHint:  { fontSize: 11, color: MUTED, marginTop: 10, textAlign: 'center' },
+  qrHint: { fontSize: 11, color: MUTED, marginTop: 10, textAlign: 'center' },
 
   uploadHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  uploadTitle:    { fontSize: 11, fontWeight: '700', color: SECONDARY, textTransform: 'uppercase', letterSpacing: 0.5 },
+  uploadTitle: { fontSize: 11, fontWeight: '700', color: SECONDARY, textTransform: 'uppercase', letterSpacing: 0.5 },
   uploadRequired: { fontSize: 10, fontWeight: '600', color: '#ef4444' },
-  uploadDone:     { fontSize: 10, fontWeight: '600', color: '#4ade80' },
+  uploadDone: { fontSize: 10, fontWeight: '600', color: '#4ade80' },
   uploadBox: {
     borderWidth: 2, borderStyle: 'dashed', borderColor: GHOST,
     borderRadius: 14, minHeight: 120,
@@ -5550,7 +6092,7 @@ const pay = StyleSheet.create({
   uploadBoxDone: { borderColor: 'rgba(74,222,128,0.45)', backgroundColor: 'rgba(74,222,128,0.06)' },
   uploadInner: { alignItems: 'center', gap: 6 },
   uploadIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: SURFACE_TOP, alignItems: 'center', justifyContent: 'center' },
-  uploadPrompt:    { fontSize: 13, fontWeight: '600', color: SECONDARY },
+  uploadPrompt: { fontSize: 13, fontWeight: '600', color: SECONDARY },
   uploadPromptSub: { fontSize: 11, color: MUTED },
   proofThumb: { ...StyleSheet.absoluteFill, backgroundColor: '#050507', opacity: 0.62 },
   proofOverlay: {
@@ -5580,7 +6122,7 @@ const rv = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   headingTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF', lineHeight: 22 },
-  headingSub:   { fontSize: 12, color: DIM_TEXT, marginTop: 2, lineHeight: 17 },
+  headingSub: { fontSize: 12, color: DIM_TEXT, marginTop: 2, lineHeight: 17 },
 
   section: { marginBottom: 16 },
   sectionLabel: {
@@ -5600,8 +6142,8 @@ const rv = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 14,
   },
   rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  rowKey:  { fontSize: 13, color: DIM_TEXT, fontWeight: '500' },
-  rowVal:  { fontSize: 13, color: SECONDARY, fontWeight: '600', maxWidth: '55%', textAlign: 'right' },
+  rowKey: { fontSize: 13, color: DIM_TEXT, fontWeight: '500' },
+  rowVal: { fontSize: 13, color: SECONDARY, fontWeight: '600', maxWidth: '55%', textAlign: 'right' },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: GHOST, marginHorizontal: 14 },
 
   /* Price breakdown card */
@@ -5624,8 +6166,8 @@ const rv = StyleSheet.create({
   },
   priceRowLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, flex: 1 },
   priceRowTitle: { fontSize: 13, fontWeight: '700', lineHeight: 18 },
-  priceRowSub:   { fontSize: 11, color: '#64748b', marginTop: 2 },
-  priceRowAmt:   { fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
+  priceRowSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
+  priceRowAmt: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
 });
 
 const s3 = StyleSheet.create({

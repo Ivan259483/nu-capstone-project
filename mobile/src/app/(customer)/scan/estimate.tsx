@@ -26,6 +26,10 @@ import {
   scannerColors,
 } from '@/features/ai-scan/components/PremiumScanner';
 import { aiScanStore, useAiScanStore } from '@/features/ai-scan/scanStore';
+import {
+  isZeroDetectionResult,
+  ZERO_DETECTION_MESSAGE,
+} from '@/features/ai-scan/scanResultState';
 import { recomputeAiScanEstimate } from '@/services/api/aiService';
 
 export default function EstimateScreen() {
@@ -36,6 +40,7 @@ export default function EstimateScreen() {
   const selectedIds = useAiScanStore((state) => state.selectedLineItemIds);
   const [busy, setBusy] = useState(false);
   const [whyOpen, setWhyOpen] = useState(false);
+  const noDamageDetected = scan ? isZeroDetectionResult(scan) : false;
 
   const lineItems = useMemo(() => estimate?.lineItems ?? [], [estimate?.lineItems]);
   const selectedLines = useMemo(
@@ -61,7 +66,7 @@ export default function EstimateScreen() {
   }, [selectedMax]);
 
   const recompute = useCallback(async () => {
-    if (!scan) return;
+    if (!scan || noDamageDetected) return;
     setBusy(true);
     try {
       const selectedDamageIds = new Set(selectedLines.map((line) => line.damageId));
@@ -75,7 +80,7 @@ export default function EstimateScreen() {
     } finally {
       setBusy(false);
     }
-  }, [scan, selectedLines]);
+  }, [noDamageDetected, scan, selectedLines]);
 
   const continueToApproval = useCallback(() => {
     if (selectedIds.length === 0) return;
@@ -109,7 +114,7 @@ export default function EstimateScreen() {
         title="Pricing Engine"
         onBack={() => router.back()}
         right={
-          <Pressable onPress={recompute} disabled={busy} hitSlop={10}>
+          <Pressable onPress={recompute} disabled={busy || noDamageDetected} hitSlop={10}>
             <Ionicons
               name={busy ? 'hourglass-outline' : 'refresh-outline'}
               size={20}
@@ -127,17 +132,36 @@ export default function EstimateScreen() {
       >
         <Animated.View entering={FadeInDown.duration(420)}>
           <GlassPanel style={styles.heroCard} intense>
-            <AiPill label="Insurance-ready estimate" icon="document-text-outline" />
+            <AiPill
+              label={noDamageDetected ? '0 AI-confirmed damage regions' : 'Insurance-ready estimate'}
+              icon={noDamageDetected ? 'alert-circle-outline' : 'document-text-outline'}
+            />
             <Text style={styles.heroTitle}>{formatPhp(recommendedTotal)}</Text>
             <Text style={styles.heroSubtitle}>
-              AI recommended total for selected repairs and package protection.
+              {noDamageDetected
+                ? 'Optional package pricing only; no AI-confirmed repair region is included.'
+                : 'AI recommended total for selected repairs and package protection.'}
             </Text>
             <CostRangeBar min={selectedMin} max={selectedMax || recommendedTotal} recommended={recommendedTotal} />
-            <View style={styles.confidenceWrap}>
-              <ConfidenceMeter value={confidence} label="Estimate accuracy" />
-            </View>
+            {!noDamageDetected ? (
+              <View style={styles.confidenceWrap}>
+                <ConfidenceMeter value={confidence} label="Estimate accuracy" />
+              </View>
+            ) : null}
           </GlassPanel>
         </Animated.View>
+
+        {noDamageDetected ? (
+          <GlassPanel style={styles.zeroDetectionCard}>
+            <View style={styles.zeroDetectionRow}>
+              <Ionicons name="alert-circle-outline" size={22} color={scannerColors.orange} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.zeroDetectionTitle}>No AI repair region in this estimate</Text>
+                <Text style={styles.zeroDetectionText}>{ZERO_DETECTION_MESSAGE}</Text>
+              </View>
+            </View>
+          </GlassPanel>
+        ) : null}
 
         {estimate.recommendedPackage ? (
           <GlassPanel style={styles.packageCard}>
@@ -167,10 +191,12 @@ export default function EstimateScreen() {
               {selectedLines.length} of {lineItems.length} items selected
             </Text>
           </View>
-          <Pressable style={styles.recalcBtn} onPress={recompute} disabled={busy}>
-            <Ionicons name="sparkles" size={14} color={scannerColors.orange} />
-            <Text style={styles.recalcText}>{busy ? 'Updating' : 'Reprice'}</Text>
-          </Pressable>
+          {!noDamageDetected ? (
+            <Pressable style={styles.recalcBtn} onPress={recompute} disabled={busy}>
+              <Ionicons name="sparkles" size={14} color={scannerColors.orange} />
+              <Text style={styles.recalcText}>{busy ? 'Updating' : 'Reprice'}</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={styles.repairList}>
@@ -227,7 +253,9 @@ export default function EstimateScreen() {
           {whyOpen ? (
             <View style={styles.whyBody}>
               <Text style={styles.whyText}>
-                Pricing is based on AI-detected severity, affected panel area, confidence, recommended service level, and package warranty coverage. A technician can adjust the final quote after in-shop validation.
+                {noDamageDetected
+                  ? 'No AI-detected repair severity, component, or damage subtype is included. Any package pricing shown is separate and requires technician review.'
+                  : 'Pricing is based on AI-detected severity, affected panel area, confidence, recommended service level, and package warranty coverage. A technician can adjust the final quote after in-shop validation.'}
               </Text>
               {estimate.assumptions.map((item) => (
                 <View key={item} style={styles.assumptionRow}>
@@ -255,7 +283,7 @@ export default function EstimateScreen() {
         primaryIcon="send"
         disabled={selectedIds.length === 0}
         onPrimaryPress={continueToApproval}
-        secondaryLabel="Review 3D Simulation"
+        secondaryLabel={noDamageDetected ? 'Review Vehicle-only 3D' : 'Review 3D Simulation'}
         onSecondaryPress={() => router.push('/(customer)/scan/ar-view' as never)}
       />
     </ScannerBackground>
@@ -289,6 +317,26 @@ const styles = StyleSheet.create({
   },
   confidenceWrap: {
     marginTop: 18,
+  },
+  zeroDetectionCard: {
+    borderColor: 'rgba(255,107,53,0.32)',
+  },
+  zeroDetectionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  zeroDetectionTitle: {
+    color: scannerColors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  zeroDetectionText: {
+    color: scannerColors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+    marginTop: 3,
   },
   packageCard: {
     borderColor: 'rgba(255,107,53,0.18)',

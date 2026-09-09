@@ -47,7 +47,7 @@ import {
 import { normalizePlateNumber } from '@/lib/plate';
 import { getModelsForBrand, vehicleBrands } from '@/data/vehicleData';
 import { useVehicleIntelligence } from '@/hooks/useVehicleIntelligence';
-import { patchVehicleForm } from '@/lib/vehicleFormState';
+import { getVehicleClassificationCorrection, patchVehicleForm } from '@/lib/vehicleFormState';
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const BG        = '#040405';
@@ -198,7 +198,7 @@ export type AddVehicleModalProps = {
   onClosed?: () => void;
 };
 
-type PickerKind = 'generation' | 'brand' | 'model' | 'year' | 'transmission' | 'fuel' | null;
+type PickerKind = 'generation' | 'brand' | 'model' | 'year' | 'classification' | 'transmission' | 'fuel' | null;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function AddVehicleModal({
@@ -272,11 +272,12 @@ export default function AddVehicleModal({
       case 'brand':        return [...vehicleBrands];
       case 'model':        return knownBrandModels.length ? [...knownBrandModels] : [];
       case 'year':         return [...VEHICLE_YEAR_OPTIONS];
+      case 'classification': return (form.classificationOptions || []).map((option) => option.label);
       case 'transmission': return [...TRANSMISSION_OPTIONS];
       case 'fuel':         return [...FUEL_TYPE_OPTIONS];
       default: return [];
     }
-  }, [picker, knownBrandModels, generations]);
+  }, [picker, knownBrandModels, generations, form.classificationOptions]);
 
   const filteredPickerOptions = useMemo(() => {
     const q = pickerSearch.trim().toLowerCase();
@@ -290,6 +291,7 @@ export default function AddVehicleModal({
       case 'brand':        return 'Brand';
       case 'model':        return 'Model';
       case 'year':         return 'Year';
+      case 'classification': return 'Vehicle Classification';
       case 'transmission': return 'Transmission';
       case 'fuel':         return 'Fuel type';
       default: return '';
@@ -302,6 +304,7 @@ export default function AddVehicleModal({
       case 'brand':        return form.brand;
       case 'model':        return form.model;
       case 'year':         return form.year;
+      case 'classification': return form.type;
       case 'transmission': return form.transmission;
       case 'fuel':         return form.fuelType;
       default: return '';
@@ -340,6 +343,22 @@ export default function AddVehicleModal({
       case 'year':
         setForm((prev) => patchVehicleForm(prev, { year: v }));
         break;
+      case 'classification': {
+        const option = form.classificationOptions?.find((item) => item.label === v);
+        if (option) {
+          setForm((prev) => ({
+            ...prev,
+            type: option.label,
+            pricingCategory: option.code,
+            classificationStatus: 'classified',
+            classificationVerified: false,
+            requiresClassificationSelection: false,
+            classificationRequiresReview: false,
+          }));
+          setErrType('');
+        }
+        break;
+      }
       case 'transmission':
         setForm((prev) => patchVehicleForm(prev, { transmission: v }));
         break;
@@ -351,7 +370,7 @@ export default function AddVehicleModal({
     }
     closePicker();
     Haptics.selectionAsync();
-  }, [picker, closePicker]);
+  }, [picker, closePicker, form.classificationOptions]);
 
   const plateHint = useMemo<{ text: string; tone: 'ok' | 'warn' } | undefined>(() => {
     const raw = form.plate.trim();
@@ -403,6 +422,7 @@ export default function AddVehicleModal({
       model,
       color,
       type: vehicle.vehicleType || '',
+      pricingCategory: vehicle.pricingCategory || null,
       transmission: vehicle.transmission || '',
       fuelType: vehicle.fuelType || '',
     });
@@ -480,6 +500,8 @@ export default function AddVehicleModal({
       reset();
       onVehicleAdded(newV);
     } catch (e: unknown) {
+      const correction = getVehicleClassificationCorrection(e);
+      if (correction) setForm((previous) => ({ ...previous, ...correction }));
       const msg = getApiErrorMessage(
         e,
         isEditing ? 'Unable to update vehicle. Please try again.' : 'Failed to add vehicle. Please try again.',
@@ -645,28 +667,6 @@ export default function AddVehicleModal({
             </View>
 
             <View style={[s.row, s.rowGap]}>
-              <View style={sf.wrap} accessibilityLiveRegion="polite">
-                <FieldLabel required>Vehicle Classification</FieldLabel>
-                <View style={[sf.box, { borderColor: BORDER, backgroundColor: SURFACE }]}>
-                  <Text style={sf.val}>{form.classificationStatus === 'classified' ? form.type :
-                    !form.brand || !form.model ? 'Select brand and model' :
-                    form.classificationStatus === 'loading' ? 'Checking classification…' : form.vehicleClass || 'Classification unavailable'}</Text>
-                </View>
-                <Text style={form.classificationStatus === 'classified' ? df.hintOk : df.hintWarn}>
-                  {form.classificationStatus === 'classified' ? '✓ Automatically detected' :
-                    ['review_required', 'unavailable'].includes(form.classificationStatus || '')
-                      ? form.vehicleClass ? 'Body classification detected. Service pricing requires review.' : 'Vehicle classification requires review before pricing.' : ''}
-                </Text>
-                {(form.bodyType || form.vehicleClass || form.segment || form.recommendedServiceCategory) ? (
-                  <View style={s.classificationDetails}>
-                    {form.bodyType ? <Text style={s.classificationDetail}><Text style={s.classificationKey}>Body Type: </Text>{form.bodyType}</Text> : null}
-                    {form.vehicleClass ? <Text style={s.classificationDetail}><Text style={s.classificationKey}>Vehicle Class: </Text>{form.vehicleClass}</Text> : null}
-                    {form.segment ? <Text style={s.classificationDetail}><Text style={s.classificationKey}>Segment: </Text>{form.segment}</Text> : null}
-                    {form.recommendedServiceCategory ? <Text style={s.classificationDetail}><Text style={s.classificationKey}>Service Category: </Text>{form.recommendedServiceCategory}</Text> : null}
-                  </View>
-                ) : null}
-                {errType ? <Text style={sf.err}>{errType}</Text> : null}
-              </View>
               <SelectField
                 label="Year"
                 optional
@@ -674,7 +674,45 @@ export default function AddVehicleModal({
                 placeholder="Year"
                 onPress={() => openPicker('year')}
               />
+              <View style={sf.wrap} accessibilityLiveRegion="polite">
+                <SelectField
+                  label="Vehicle Classification"
+                  required
+                  value={form.type}
+                  placeholder={!form.brand || !form.model
+                    ? 'Select brand/model'
+                    : form.classificationStatus === 'loading'
+                      ? 'Checking…'
+                      : form.requiresClassificationSelection
+                        ? 'Select supported class'
+                        : 'Unavailable'}
+                  error={errType}
+                  disabled={form.classificationStatus === 'loading'
+                    || (form.classificationOptions || []).length <= 1}
+                  onPress={() => openPicker('classification')}
+                />
+                <Text style={form.classificationStatus === 'classified' ? df.hintOk : df.hintWarn}>
+                  {form.classificationVerified && form.type
+                    ? '✓ Verified classification'
+                    : form.classificationStatus === 'classified' && form.type
+                      ? '✓ Classification selected manually'
+                      : form.requiresClassificationSelection
+                        ? 'Automatic verification was unavailable. Select a supported classification.'
+                        : ['review_required', 'unavailable'].includes(form.classificationStatus || '')
+                          ? 'Classification is temporarily unavailable. Please try again.'
+                          : 'Select Brand, Model, and Year.'}
+                </Text>
+              </View>
             </View>
+
+            {(form.bodyType || form.vehicleClass || form.segment || form.recommendedServiceCategory) ? (
+              <View style={s.classificationDetails}>
+                {form.bodyType ? <Text style={s.classificationDetail}><Text style={s.classificationKey}>Body Type: </Text>{form.bodyType}</Text> : null}
+                {form.vehicleClass ? <Text style={s.classificationDetail}><Text style={s.classificationKey}>Vehicle Class: </Text>{form.vehicleClass}</Text> : null}
+                {form.segment ? <Text style={s.classificationDetail}><Text style={s.classificationKey}>Segment: </Text>{form.segment}</Text> : null}
+                {form.recommendedServiceCategory ? <Text style={s.classificationDetail}><Text style={s.classificationKey}>Service Category: </Text>{form.recommendedServiceCategory}</Text> : null}
+              </View>
+            ) : null}
 
             {generations.length > 0 && (
               <View style={s.rowGap}><SelectField label="Generation" optional value={form.generation || ''}

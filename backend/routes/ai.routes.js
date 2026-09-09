@@ -87,7 +87,7 @@ router.post('/confirm', authenticate, confirmServiceRequest);
 router.post('/repair-preview', generateRepairPreview);
 router.post('/upload-image', upload.single('image'), uploadImage);
 
-/* ── AI Scan Module — Roboflow YOLO11 segmentation, Meshy 3D, Estimator ── */
+/* ── AI Scan Module — Roboflow RF-DETR segmentation, Meshy 3D, Estimator ── */
 router.post(
   '/scan',
   optionalAuthenticate,

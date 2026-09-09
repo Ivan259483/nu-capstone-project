@@ -106,9 +106,9 @@ export const getVehicleTypeLabelForPricingCategory = (value) => {
     [VEHICLE_PRICING_CATEGORY.SEDAN]: 'Sedan',
     [VEHICLE_PRICING_CATEGORY.MIDSIZED]: 'Midsized',
     [VEHICLE_PRICING_CATEGORY.SUV]: 'SUV',
-    [VEHICLE_PRICING_CATEGORY.PICKUP]: 'Pick UP',
+    [VEHICLE_PRICING_CATEGORY.PICKUP]: 'Pickup',
     [VEHICLE_PRICING_CATEGORY.LARGE_SUV_VAN]: 'Large SUV / Van',
-    [VEHICLE_PRICING_CATEGORY.HIGH_END_SEDAN]: 'Highend Sedan',
+    [VEHICLE_PRICING_CATEGORY.HIGH_END_SEDAN]: 'High-End Sedan',
   }[category] || null;
 };
 

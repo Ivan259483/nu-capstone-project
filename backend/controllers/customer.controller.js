@@ -3,7 +3,7 @@ import Vehicle from '../models/vehicle.model.js';
 import User from '../models/user.model.js';
 import mongoose from 'mongoose';
 import { normalizePlateNumber, findVehicleByNormalizedPlate } from '../utils/plate.utils.js';
-import { vehicleClassificationFields, latestDefinitions } from '../services/vehicleIntelligence.service.js';
+import { vehicleClassificationFields, latestDefinitions, submittedVehicleClassification } from '../services/vehicleIntelligence.service.js';
 import { vehicleColorFields } from '../services/vehicleColorIntelligence.service.js';
 
 import {
@@ -133,6 +133,20 @@ export const getMe = async (req, res, next) => {
       await customer.save();
     }
 
+    // Customer records created before this flag may already own Garage data.
+    // Backfill from the authoritative vehicle collection so an established
+    // account is never mistaken for a brand-new empty account.
+    if (customer.garageOnboardingSeen !== true) {
+      const hasRegisteredVehicle = await Vehicle.exists({ customer: req.user.id });
+      if (hasRegisteredVehicle) {
+        await Customer.updateOne(
+          { _id: customer._id, garageOnboardingSeen: { $ne: true } },
+          { $set: { garageOnboardingSeen: true } }
+        );
+        customer.garageOnboardingSeen = true;
+      }
+    }
+
     res.json({
       success: true,
       data: customer,
@@ -242,6 +256,32 @@ export const updateMe = async (req, res, next) => {
       success: true,
       message: 'Profile updated successfully',
       data: customer,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Permanently mark the current customer's Garage welcome as seen/dismissed.
+ * This is intentionally monotonic: clients cannot reset the one-time flag.
+ */
+export const markMyGarageOnboardingSeen = async (req, res, next) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const customer = await Customer.findOneAndUpdate(
+      { user: req.user.id },
+      { $set: { garageOnboardingSeen: true } },
+      { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true }
+    ).select('garageOnboardingSeen');
+
+    return res.json({
+      success: true,
+      message: 'Garage onboarding marked as seen.',
+      data: { garageOnboardingSeen: customer.garageOnboardingSeen === true },
     });
   } catch (error) {
     next(error);
@@ -463,8 +503,10 @@ export const addVehicle = async (req, res, next) => {
     const fuelAllowed = ['', 'Gasoline', 'Diesel', 'Electric', 'Hybrid', 'PHEV', 'HEV', 'MHEV', 'BEV', 'FCEV'];
     const tx = txAllowed.includes(transmission) ? transmission : '';
     const fuel = fuelAllowed.includes(fuelType) ? fuelType : '';
+    const submittedClassification = submittedVehicleClassification(req.body);
     const classificationFields = await vehicleClassificationFields({ make, model, year, fuelType: fuel,
-      generation: req.body.generation || '', facelift: req.body.facelift || '', drivetrain: req.body.drivetrain || '', vehicleType });
+      generation: req.body.generation || '', facelift: req.body.facelift || '', drivetrain: req.body.drivetrain || '', vehicleType },
+    null, undefined, submittedClassification);
     const resolvedColorFields = await vehicleColorFields({
       make, model, year, color,
       factoryColorName: req.body.factoryColorName,
@@ -475,6 +517,14 @@ export const addVehicle = async (req, res, next) => {
     const existingVehicle = await findVehicleByNormalizedPlate(normalizedPlate);
     if (existingVehicle) {
       if (existingVehicle.customer.toString() === customerId) {
+        await Customer.findOneAndUpdate(
+          { user: customerId },
+          {
+            $addToSet: { vehicles: existingVehicle._id },
+            $set: { garageOnboardingSeen: true },
+          },
+          { upsert: true, setDefaultsOnInsert: true }
+        );
         // Same customer — return the existing record instead of an error.
         // This makes the endpoint idempotent: adding a plate you already own
         // just hands you back the vehicle rather than failing.
@@ -516,7 +566,11 @@ export const addVehicle = async (req, res, next) => {
     // Also link to customer profile if needed (though we can just query by customer id)
     await Customer.findOneAndUpdate(
       { user: customerId },
-      { $push: { vehicles: vehicle._id } }
+      {
+        $addToSet: { vehicles: vehicle._id },
+        $set: { garageOnboardingSeen: true },
+      },
+      { upsert: true, setDefaultsOnInsert: true }
     );
 
     res.status(201).json({
@@ -677,6 +731,7 @@ export const updateVehicle = async (req, res, next) => {
 
     const submittedColorData = [color, req.body.factoryColorName, req.body.paintCode].some((value) => value !== undefined);
     const currentVehicle = vehicle.toObject();
+    const submittedClassification = submittedVehicleClassification(req.body);
     const colorInput = submittedColorData
       ? {
           ...currentVehicle,
@@ -687,7 +742,7 @@ export const updateVehicle = async (req, res, next) => {
       : currentVehicle;
     Object.assign(
       vehicle,
-      await vehicleClassificationFields(currentVehicle, previousIdentity),
+      await vehicleClassificationFields(currentVehicle, previousIdentity, undefined, submittedClassification),
       await vehicleColorFields(colorInput),
     );
 

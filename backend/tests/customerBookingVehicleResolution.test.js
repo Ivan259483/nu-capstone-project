@@ -153,7 +153,7 @@ test('booking options reject a saved vehicle owned by another customer', async (
   assert.equal(await Vehicle.countDocuments({ customer: ownerId }), 1);
 });
 
-test('customer Add Vehicle ignores a tampered category and uses database classification', async () => {
+test('customer Add Vehicle rejects conflicting classification fields', async () => {
   const customerId = new mongoose.Types.ObjectId();
   const baseRequest = {
     user: { id: String(customerId), role: 'customer' },
@@ -167,80 +167,71 @@ test('customer Add Vehicle ignores a tampered category and uses database classif
     },
   };
 
-  const savedResponse = await invokeController(addVehicle, baseRequest);
-  assert.equal(savedResponse.statusCode, 201);
-  assert.equal(savedResponse.body.data.vehicleType, 'SUV');
-  assert.equal(savedResponse.body.data.pricingCategory, 'SUV');
-  assert.equal(savedResponse.body.data.pricingCategorySource, 'vehicle_database');
-  assert.equal(savedResponse.body.data.pricingCategoryNeedsReview, false);
-  assert.equal(await Vehicle.countDocuments({ customer: customerId }), 1);
+  await assert.rejects(invokeController(addVehicle, baseRequest), {
+    code: 'VEHICLE_CLASSIFICATION_MISMATCH',
+    statusCode: 422,
+  });
+  assert.equal(await Vehicle.countDocuments({ customer: customerId }), 0);
 });
 
-test('unknown vehicles discard manual classification and require review before package prices', async () => {
+test('unknown vehicles accept supported manual classifications and continue to package prices', async () => {
   const customerId = new mongoose.Types.ObjectId();
   await seedPublishedSpfServices();
   for (const [index, [vehicleType, category]] of [
-    ['SUV', 'SUV'], ['Sedan', 'SEDAN'], ['Hatchback', 'HATCHBACK_SMALL_CAR'],
-    ['Pickup', 'PICKUP'], ['Van', 'LARGE_SUV_VAN'],
+    ['Hatchback', 'HATCHBACK_SMALL_CAR'], ['Sedan', 'SEDAN'], ['Midsized', 'MIDSIZED'],
+    ['SUV', 'SUV'], ['Pickup', 'PICKUP'], ['Large SUV / Van', 'LARGE_SUV_VAN'],
+    ['High-End Sedan', 'HIGH_END_SEDAN'],
   ].entries()) {
     const response = await invokeController(addVehicle, {
       user: { id: String(customerId), role: 'customer' },
-      body: { make: 'Unlisted Brand', model: 'Unlisted Model', color: 'Black', plateNumber: `FBK100${index}`, vehicleType },
+      body: { make: 'Unlisted Brand', model: 'Unlisted Model', color: 'Black', plateNumber: `FBK100${index}`, vehicleType, pricingCategory: category },
     });
     assert.equal(response.statusCode, 201);
-    assert.equal(response.body.data.vehicleType, 'Other');
-    assert.equal(response.body.data.pricingCategory, undefined);
+    assert.equal(response.body.data.pricingCategory, category);
     assert.equal(response.body.data.pricingCategorySource, 'customer_selected');
+    assert.equal(response.body.data.pricingCategoryNeedsReview, false);
     const booking = await invokeController(getBookingOptions, {
       query: { vehicleId: response.body.data._id },
       user: { id: String(customerId), role: 'customer' },
     });
-    assert.equal(booking.statusCode, 422);
-    assert.equal(booking.body.errorCode, 'PRICE_CATEGORY_REQUIRED');
+    assert.equal(booking.statusCode, 200);
+    assert.equal(booking.body.data.vehicle.pricingCategory, category);
   }
 });
 
-test('the full catalog takes precedence over manual input and persists the automatic source', async () => {
-  const response = await invokeController(addVehicle, {
+test('the full catalog rejects a mismatched manual input with its canonical class', async () => {
+  await assert.rejects(invokeController(addVehicle, {
     user: { id: String(new mongoose.Types.ObjectId()), role: 'customer' },
     body: { make: 'Toyota', model: 'Fortuner', color: 'White', plateNumber: 'AUTO123', vehicleType: 'Hatchback', pricingCategory: 'HATCHBACK_SMALL_CAR' },
-  });
-  assert.equal(response.statusCode, 201);
-  assert.equal(response.body.data.vehicleType, 'SUV');
-  assert.equal(response.body.data.pricingCategory, 'SUV');
-  assert.equal(response.body.data.pricingCategorySource, 'vehicle_database');
+  }), (error) => error.code === 'VEHICLE_CLASSIFICATION_MISMATCH'
+    && error.statusCode === 422
+    && error.details.expectedClassification === 'SUV');
+  assert.equal(await Vehicle.countDocuments(), 0);
 });
 
-test('unknown identities can register without inventing a price', async () => {
-  for (const vehicleType of ['', 'Unsupported']) {
-    const response = await invokeController(addVehicle, {
-      user: { id: String(new mongoose.Types.ObjectId()), role: 'customer' },
-      body: { make: 'Unlisted Brand', model: 'Unknown', color: 'White', plateNumber: vehicleType ? 'UNKN124' : 'UNKN123', vehicleType },
-    });
-    assert.equal(response.statusCode, 201);
-    assert.equal(response.body.data.pricingCategory, undefined);
-  }
-  assert.equal(await Vehicle.countDocuments(), 2);
+test('unknown identities can register without a selection, but arbitrary classification strings are rejected', async () => {
+  const response = await invokeController(addVehicle, {
+    user: { id: String(new mongoose.Types.ObjectId()), role: 'customer' },
+    body: { make: 'Unlisted Brand', model: 'Unknown', color: 'White', plateNumber: 'UNKN123', vehicleType: '' },
+  });
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.body.data.pricingCategory, undefined);
+
+  await assert.rejects(invokeController(addVehicle, {
+    user: { id: String(new mongoose.Types.ObjectId()), role: 'customer' },
+    body: { make: 'Unlisted Brand', model: 'Unknown', color: 'White', plateNumber: 'UNKN124', vehicleType: 'Unsupported' },
+  }), { code: 'VEHICLE_CLASSIFICATION_MISMATCH', statusCode: 422 });
+  assert.equal(await Vehicle.countDocuments(), 1);
 });
 
 
 test('unsupported classifications cannot set a customer-selected price tier', async () => {
   const customerId = new mongoose.Types.ObjectId();
-  await seedPublishedSpfServices();
   for (const [index, vehicleType] of ['Coupe', 'Other'].entries()) {
-    const response = await invokeController(addVehicle, {
+    await assert.rejects(invokeController(addVehicle, {
       user: { id: String(customerId), role: 'customer' },
       body: { make: 'Unlisted Brand', model: 'Unknown', color: 'White', plateNumber: `SPEC12${index}`, vehicleType, pricingCategory: 'HIGH_END_SEDAN' },
-    });
-    assert.equal(response.statusCode, 201);
-    assert.equal(response.body.data.vehicleType, 'Other');
-    assert.equal(response.body.data.pricingCategory, undefined);
-    assert.equal(response.body.data.pricingCategorySource, 'customer_selected');
-    const booking = await invokeController(getBookingOptions, {
-      query: { vehicleId: response.body.data._id },
-      user: { id: String(customerId), role: 'customer' },
-    });
-    assert.equal(booking.statusCode, 422);
-    assert.equal(booking.body.errorCode, 'PRICE_CATEGORY_REQUIRED');
+    }), { code: 'VEHICLE_CLASSIFICATION_MISMATCH', statusCode: 422 });
   }
+  assert.equal(await Vehicle.countDocuments(), 0);
 });

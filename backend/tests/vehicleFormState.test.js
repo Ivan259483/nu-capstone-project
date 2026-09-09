@@ -4,7 +4,14 @@ import { patchVehicleForm, requestVehicleClassification } from '../constants/veh
 import { resolveVehicleClassification } from '../constants/vehicleDatabase.js';
 
 const state = () => ({ brand: 'Toyota', model: 'Fortuner', type: 'SUV', pricingCategory: 'SUV', classificationStatus: 'classified', generation: 'old', facelift: 'old' });
-const result = (category) => ({ status: category ? 'classified' : 'review_required', pricingCategory: category, vehicleType: category === 'SUV' ? 'SUV' : 'Sedan' });
+const result = (category) => ({
+  status: category ? 'classified' : 'review_required', pricingCategory: category,
+  vehicleType: category === 'SUV' ? 'SUV' : category === 'SEDAN' ? 'Sedan' : null,
+  classificationOptions: category
+    ? [{ code: category, label: category === 'SUV' ? 'SUV' : 'Sedan' }]
+    : [{ code: 'SUV', label: 'SUV' }, { code: 'SEDAN', label: 'Sedan' }],
+  verified: Boolean(category), requiresSelection: !category, requiresReview: false,
+});
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 
 test('brand change clears model, variant selectors and classification in the same transition', () => {
@@ -21,13 +28,18 @@ test('model change immediately clears the old tier and recalculates without save
   assert.equal(value.pricingCategory, 'SEDAN'); assert.equal(value.type, 'Sedan');
 });
 
-test('unknown selection and API failure clear pricing but leave registration possible', async () => {
-  for (const fetch of [async () => result(null), async () => { throw new Error('offline'); }]) {
-    let value = patchVehicleForm(state(), { model: 'Prototype' });
-    await requestVehicleClassification(value, update => { value = update(value); }, fetch).done;
-    assert.equal(value.pricingCategory, null); assert.equal(value.type, 'Other');
-    assert.ok(['review_required', 'unavailable'].includes(value.classificationStatus));
-  }
+test('unknown vehicles expose supported manual options while API failures remain unavailable', async () => {
+  let value = patchVehicleForm(state(), { model: 'Prototype' });
+  await requestVehicleClassification(value, update => { value = update(value); }, async () => result(null)).done;
+  assert.equal(value.pricingCategory, null); assert.equal(value.type, '');
+  assert.equal(value.classificationStatus, 'review_required');
+  assert.equal(value.requiresClassificationSelection, true);
+  assert.deepEqual(value.classificationOptions, [{ code: 'SUV', label: 'SUV' }, { code: 'SEDAN', label: 'Sedan' }]);
+
+  value = patchVehicleForm(state(), { model: 'Offline Prototype' });
+  await requestVehicleClassification(value, update => { value = update(value); }, async () => { throw new Error('offline'); }).done;
+  assert.equal(value.classificationStatus, 'unavailable');
+  assert.deepEqual(value.classificationOptions, []);
 });
 
 test('out-of-order requests cannot restore the previous model pricing', async () => {

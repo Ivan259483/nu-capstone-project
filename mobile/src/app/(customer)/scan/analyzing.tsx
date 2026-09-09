@@ -35,7 +35,7 @@ import { runAiScan } from '@/services/api/aiService';
 const STAGES = [
   { threshold: 8, label: 'Secure upload', detail: 'Encrypting and sending vehicle image set.', icon: 'cloud-upload-outline' },
   { threshold: 28, label: 'Vehicle lock', detail: 'Finding body edges, glass, paint, and panel geometry.', icon: 'scan-outline' },
-  { threshold: 52, label: 'Damage detection', detail: 'Classifying scratches, dents, paint defects, and severity.', icon: 'analytics-outline' },
+  { threshold: 52, label: 'Damage detection', detail: 'Segmenting visible damage regions and measuring model confidence.', icon: 'analytics-outline' },
   { threshold: 76, label: 'Repair intelligence', detail: 'Building technician-level recommendations and priority order.', icon: 'construct-outline' },
   { threshold: 94, label: 'Cost engine', detail: 'Estimating labor, materials, paint work, and protection package.', icon: 'cash-outline' },
 ] as const;
@@ -154,7 +154,9 @@ export default function AnalyzingScreen() {
   }, [capturedImages, params.vehicleId, router]);
 
   useEffect(() => {
-    if (!failed) setStatus(currentStage.detail);
+    if (failed) return undefined;
+    const frame = requestAnimationFrame(() => setStatus(currentStage.detail));
+    return () => cancelAnimationFrame(frame);
   }, [currentStage.detail, failed]);
 
   const retry = () => {

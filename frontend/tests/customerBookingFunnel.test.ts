@@ -13,6 +13,7 @@ import {
   resetCustomerBookingPackageIntent,
   resolveFunnelVehicleId,
   shouldPromptForVehicleRegistration,
+  shouldShowGarageOnboarding,
   updateCustomerBookingFunnelDraft,
 } from '../src/lib/customer-booking-funnel.ts';
 
@@ -58,6 +59,16 @@ test('Garage load states distinguish not loaded, confirmed empty, one, many, and
   assert.equal(getCatalogBookingVehicleAction('error'), 'garage_error');
 });
 
+test('Garage onboarding shows only for a confirmed empty Garage with an unseen backend flag', () => {
+  assert.equal(shouldShowGarageOnboarding('loaded_empty', false), true);
+  assert.equal(shouldShowGarageOnboarding('loaded_empty', true), false);
+  assert.equal(shouldShowGarageOnboarding('loaded_empty', null), false);
+  assert.equal(shouldShowGarageOnboarding('loaded_one', false), false);
+  assert.equal(shouldShowGarageOnboarding('loaded_many', false), false);
+  assert.equal(shouldShowGarageOnboarding('loading', false), false);
+  assert.equal(shouldShowGarageOnboarding('error', false), false);
+});
+
 test('known vehicle models classify while unknown models fail closed', () => {
   assert.equal(getVehicleTypeForModel('Bentayga'), 'SUV');
   assert.equal(getVehicleTypeForModel('Vantage'), 'Highend Sedan');
@@ -99,6 +110,9 @@ test('customer Services stays browseable and vehicle validation begins only from
   const vehicleService = readFrontendSource('lib/vehicle-service.ts');
 
   assert.match(vehicleService, /api\.get\('\/customers\/vehicles'/);
+  assert.match(dashboard, /api\.get\('\/customers\/me'\)/);
+  assert.match(dashboard, /api\.patch\('\/customers\/me\/garage-onboarding'\)/);
+  assert.doesNotMatch(dashboard, /setShowOnboarding\(true\)/);
   assert.match(dashboard, /VehicleService\.getVehicles\(\)/);
   assert.match(dashboard, /resolveCatalogBookingPackage/);
   assert.match(dashboard, /api\.get\('\/services\/booking-options'/);

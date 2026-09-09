@@ -99,18 +99,26 @@ export const buildDamageIssue = (prediction, context = {}) => {
   const areaPercentage = Number(((areaPixels / (imageWidth * imageHeight)) * 100).toFixed(2));
   const severity = resolveSeverity(damageKey, areaPercentage);
   const inferredArea = detectVehiclePart(normalizedBox, context.angleHint || 'close_up');
-  const affectedArea = context.damageAreaHint
+  const affectedArea = context.component || (context.damageAreaHint
     ? normalizeSelectedDamageArea(context.damageAreaHint, context.angleHint)
-    : inferredArea;
+    : inferredArea);
   const type = DAMAGE_NAMES[damageKey] || titleCase(damageKey);
+  const damageSubtype = String(context.damageSubtype || type);
+  const component = String(context.component || affectedArea);
+  const description = context.component
+    ? `${damageSubtype} identified in a localized vehicle damage region; exact panel requires technician confirmation.`
+    : `${type} detected on the ${affectedArea.toLowerCase()}.`;
 
   return {
     id: String(prediction.detection_id || prediction.id || `dmg_${context.imageIndex || 0}_${context.index || 0}`),
     type,
     damageClass: String(prediction.class || prediction.class_name || prediction.label || damageKey),
+    damageSubtype,
+    component,
+    subtypeAnalysis: context.subtypeAnalysis,
     severity,
     severityLabel: severity === 'high' ? 'Severe' : severity === 'medium' ? 'Moderate' : 'Minor',
-    description: `${type} detected on the ${affectedArea.toLowerCase()}.`,
+    description,
     confidence: Number(confidence.toFixed(4)),
     affectedArea,
     imageIndex: Number(context.imageIndex) || 0,
@@ -128,6 +136,7 @@ export const buildDamageIssue = (prediction, context = {}) => {
       imageWidth,
       imageHeight,
     },
+    affectedAreaPercent: areaPercentage,
     recommendation: REPAIR_RECOMMENDATIONS[damageKey]
       || `Inspect and repair the ${type.toLowerCase()} using the appropriate panel refinishing process.`,
   };

@@ -44,11 +44,27 @@ const detectedAreaSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const subtypeAnalysisSchema = new mongoose.Schema(
+  {
+    accepted: { type: Boolean, default: false },
+    rawClass: { type: String, default: null },
+    top1Confidence: { type: Number, min: 0, max: 1, default: null },
+    top2Class: { type: String, default: null },
+    top2Confidence: { type: Number, min: 0, max: 1, default: null },
+    margin: { type: Number, min: 0, max: 1, default: null },
+    reason: { type: String, trim: true, default: '' },
+  },
+  { _id: false }
+);
+
 const damageSchema = new mongoose.Schema(
   {
     id: { type: String, trim: true, required: true },
     type: { type: String, trim: true, required: true },
     damageClass: { type: String, trim: true, default: '' },
+    damageSubtype: { type: String, trim: true, default: 'Unknown Damage' },
+    component: { type: String, trim: true, default: 'Unknown Vehicle Panel' },
+    subtypeAnalysis: { type: subtypeAnalysisSchema, default: () => ({}) },
     severity: {
       type: String,
       enum: ['high', 'medium', 'low'],
@@ -64,6 +80,7 @@ const damageSchema = new mongoose.Schema(
     angleHint: { type: String, trim: true, default: 'close_up' },
     segmentation: { type: segmentationSchema, default: () => ({}) },
     detectedArea: { type: detectedAreaSchema, default: () => ({}) },
+    affectedAreaPercent: { type: Number, min: 0, max: 100, default: 0 },
     recommendation: { type: String, trim: true, default: '' },
     urgency: {
       type: String,

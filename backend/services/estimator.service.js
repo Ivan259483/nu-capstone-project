@@ -121,7 +121,7 @@ const computeLineItem = (damage, index) => {
     serviceName: pkg.name,
     description: pkg.description,
     affectedArea: damage?.affectedArea || damage?.location || 'Vehicle Body',
-    damageType: damage?.type || damage?.damage_type || 'Damage',
+    damageType: damage?.damageSubtype || damage?.type || damage?.damage_type || 'Damage',
     severity,
     urgency: damage?.urgency || URGENCY_BY_SEVERITY[severity],
     confidence: Math.max(0, Math.min(1, Number(damage?.confidence) || 0.85)),

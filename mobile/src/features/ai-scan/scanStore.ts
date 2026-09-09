@@ -17,6 +17,7 @@ import type {
   AiScan3DProgress,
   AiScanEstimate,
 } from '@/services/api/aiService';
+import { normalizeAiScanResult } from './scanResultState';
 
 export type Screen3DStatus = 'idle' | 'processing' | 'ready' | 'failed' | 'unavailable';
 
@@ -25,7 +26,7 @@ export interface AiScanStoreState {
   capturedImages: AiScanInputImage[];
   vehicleId: string | null;
 
-  // Roboflow YOLO11 segmentation result
+  // Roboflow RF-DETR binary damage segmentation result
   scan: AiScanResult | null;
   scanError: string | null;
 
@@ -110,12 +111,20 @@ export const aiScanStore = {
   },
 
   setScan: (scan: AiScanResult) => {
+    const normalizedScan = normalizeAiScanResult(scan);
     update({
-      scan,
+      scan: normalizedScan,
       scanError: null,
-      estimate: scan.estimate,
-      selectedLineItemIds: scan.estimate.lineItems.map((line) => line.id),
-      vehicleId: scan.vehicleId || state.vehicleId,
+      estimate: normalizedScan.estimate,
+      selectedLineItemIds: normalizedScan.estimate.lineItems.map((line) => line.id),
+      vehicleId: normalizedScan.vehicleId || state.vehicleId,
+      modelStatus: 'idle',
+      modelTaskId: null,
+      modelUrl: null,
+      repairedModelUrl: null,
+      modelUsdzUrl: null,
+      modelProgress: 0,
+      modelMessage: '',
     });
   },
 

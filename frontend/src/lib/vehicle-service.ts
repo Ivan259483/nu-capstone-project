@@ -120,3 +120,21 @@ export function garageFormToApiPayload(form: VehicleGarageFormValues, plateNorm:
         drivetrain: form.drivetrain || '',
     };
 }
+
+export function getVehicleClassificationCorrection(error: any): Partial<VehicleGarageFormValues> | null {
+    const data = error?.response?.data;
+    const code = data?.details?.expectedPricingCategory;
+    const label = data?.details?.expectedClassification;
+    if (data?.code !== 'VEHICLE_CLASSIFICATION_MISMATCH' || !code || !label) return null;
+    return {
+        pricingCategory: code,
+        type: label,
+        classificationStatus: 'classified',
+        classificationVerified: true,
+        requiresClassificationSelection: false,
+        classificationRequiresReview: false,
+        classificationOptions: [{ code, label }],
+        validPricingCategories: [code],
+        validClassifications: [label],
+    } as Partial<VehicleGarageFormValues>;
+}

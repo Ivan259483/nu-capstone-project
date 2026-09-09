@@ -29,10 +29,14 @@ import {
   severityMeta,
 } from '@/features/ai-scan/components/PremiumScanner';
 import { useAiScanStore } from '@/features/ai-scan/scanStore';
+import {
+  getAiScanResultPresentation,
+  ZERO_DETECTION_MESSAGE,
+} from '@/features/ai-scan/scanResultState';
 import type { AiScanDamage } from '@/services/api/aiService';
 
 const causeForDamage = (damage: AiScanDamage) => {
-  const text = `${damage.type} ${damage.description}`.toLowerCase();
+  const text = `${damage.damageSubtype} ${damage.description}`.toLowerCase();
   if (text.includes('scratch')) return 'Likely caused by surface contact, wash marring, or road debris.';
   if (text.includes('dent')) return 'Likely caused by low-speed impact or pressure on the affected panel.';
   if (text.includes('paint')) return 'Likely clear-coat or paint-layer degradation under direct lighting.';
@@ -90,12 +94,20 @@ export default function ResultsScreen() {
   const scan = useAiScanStore((state) => state.scan);
   const scanError = useAiScanStore((state) => state.scanError);
   const capturedImages = useAiScanStore((state) => state.capturedImages);
-  const [showOverlay, setShowOverlay] = useState(false);
+  const [showOverlay, setShowOverlay] = useState(true);
   const [activeDamageId, setActiveDamageId] = useState<string | null>(
     scan?.damages[0]?.id ?? null
   );
 
-  const damages = useMemo(() => scan?.damages ?? [], [scan?.damages]);
+  const presentation = useMemo(
+    () => scan ? getAiScanResultPresentation(scan) : null,
+    [scan]
+  );
+  const noDamageDetected = presentation?.noDamageDetected ?? false;
+  const damages = useMemo(
+    () => noDamageDetected ? [] : scan?.damages ?? [],
+    [noDamageDetected, scan?.damages]
+  );
   const rankedDamages = useMemo(
     () =>
       [...damages].sort(
@@ -108,7 +120,7 @@ export default function ResultsScreen() {
   );
   const activeDamage = rankedDamages.find((damage) => damage.id === activeDamageId)
     ?? rankedDamages[0];
-  const overallSeverity = rankedDamages[0]?.severity ?? 'low';
+  const overallSeverity = rankedDamages[0]?.severity ?? null;
   const activeImageIndex = activeDamage?.imageIndex ?? 0;
   const heroImage =
     scan?.imageUrls[activeImageIndex] ||
@@ -117,18 +129,12 @@ export default function ResultsScreen() {
     capturedImages[0]?.uri ||
     null;
   const displayImageCount = Math.max(scan?.imageUrls.length ?? 0, capturedImages.length);
-  const avgConfidence = damages.length
-    ? damages.reduce((sum, damage) => sum + damage.confidence, 0) / damages.length
-    : 0;
-  const severeCount = damages.filter((damage) => damage.severity === 'high').length;
+  const avgConfidence = presentation?.detectionConfidence ?? 0;
+  const severeCount = presentation?.severeFindings ?? 0;
 
-  const repairLines = useMemo(
-    () =>
-      [...(scan?.estimate.lineItems ?? [])].sort((a, b) => {
-        return severityRank[b.severity] - severityRank[a.severity] || b.confidence - a.confidence;
-      }),
-    [scan?.estimate.lineItems]
-  );
+  const repairLines = [...(noDamageDetected ? [] : scan?.estimate.lineItems ?? [])].sort((a, b) => {
+    return severityRank[b.severity] - severityRank[a.severity] || b.confidence - a.confidence;
+  });
 
   if (!scan) {
     return (
@@ -181,45 +187,69 @@ export default function ResultsScreen() {
             <View style={styles.heroGradient} />
             <View style={styles.heroTop}>
               <AiPill
-                label={showOverlay ? 'AI segmentation' : 'Original scan'}
-                icon={showOverlay ? 'layers-outline' : 'image-outline'}
+                label={noDamageDetected ? 'No confident detection' : showOverlay ? 'AI segmentation' : 'Original scan'}
+                icon={noDamageDetected ? 'alert-circle-outline' : showOverlay ? 'layers-outline' : 'image-outline'}
               />
-              <SeverityBadge severity={overallSeverity} />
+              {overallSeverity ? <SeverityBadge severity={overallSeverity} /> : null}
             </View>
             {showOverlay && activeDamage ? (
               <View style={styles.overlayLayer}>
                 <DamageMaskLayer damage={activeDamage} />
               </View>
             ) : null}
-            <View style={styles.overlayControlWrap}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.overlayControlTitle}>AI damage overlay</Text>
-                <Text style={styles.overlayControlSub} numberOfLines={1}>
-                  {showOverlay && activeDamage
-                    ? `Showing #${rankedDamages.findIndex((item) => item.id === activeDamage.id) + 1} · ${activeDamage.type}`
-                    : 'Off · viewing the clean source image'}
-                </Text>
+            {noDamageDetected ? (
+              <View style={styles.overlayControlWrap}>
+                <Ionicons name="layers-outline" size={18} color={scannerColors.textMuted} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.overlayControlTitle}>No AI damage overlay</Text>
+                  <Text style={styles.overlayControlSub} numberOfLines={1}>
+                    No confidence-qualified region is available for this scan.
+                  </Text>
+                </View>
               </View>
-              <Pressable
-                accessibilityRole="switch"
-                accessibilityLabel="AI damage overlay"
-                accessibilityState={{ checked: showOverlay }}
-                hitSlop={8}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setShowOverlay((visible) => !visible);
-                }}
-                style={[styles.overlaySwitch, showOverlay && styles.overlaySwitchOn]}
-              >
-                <View style={[styles.overlaySwitchKnob, showOverlay && styles.overlaySwitchKnobOn]} />
-              </Pressable>
-            </View>
+            ) : (
+              <View style={styles.overlayControlWrap}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.overlayControlTitle}>AI damage overlay</Text>
+                  <Text style={styles.overlayControlSub} numberOfLines={1}>
+                    {showOverlay && activeDamage
+                      ? `Showing #${rankedDamages.findIndex((item) => item.id === activeDamage.id) + 1} · ${activeDamage.damageSubtype}`
+                      : 'Off · viewing the clean source image'}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="switch"
+                  accessibilityLabel="AI damage overlay"
+                  accessibilityState={{ checked: showOverlay }}
+                  hitSlop={8}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setShowOverlay((visible) => !visible);
+                  }}
+                  style={[styles.overlaySwitch, showOverlay && styles.overlaySwitchOn]}
+                >
+                  <View style={[styles.overlaySwitchKnob, showOverlay && styles.overlaySwitchKnobOn]} />
+                </Pressable>
+              </View>
+            )}
           </GlassPanel>
         </Animated.View>
 
+        {!noDamageDetected && rankedDamages.length ? (
+          <GlassPanel style={styles.damageDetectedCard}>
+            <Ionicons name="alert-circle" size={24} color={scannerColors.orange} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.damageDetectedTitle}>Damage Detected</Text>
+              <Text style={styles.damageDetectedText}>
+                {rankedDamages.length} confidence-qualified damage {rankedDamages.length === 1 ? 'region' : 'regions'} highlighted by RF-DETR.
+              </Text>
+            </View>
+          </GlassPanel>
+        ) : null}
+
         <View style={styles.metricRow}>
           <GlassPanel style={styles.metricCard}>
-            <Text style={styles.metricValue}>{damages.length}</Text>
+            <Text style={styles.metricValue}>{presentation?.detectedIssues ?? 0}</Text>
             <Text style={styles.metricLabel}>Detected issues</Text>
           </GlassPanel>
           <GlassPanel style={styles.metricCard}>
@@ -228,28 +258,28 @@ export default function ResultsScreen() {
           </GlassPanel>
           <GlassPanel style={styles.metricCard}>
             <Text style={styles.metricValue}>{Math.round(avgConfidence * 100)}%</Text>
-            <Text style={styles.metricLabel}>Confidence</Text>
+            <Text style={styles.metricLabel}>Detection confidence</Text>
           </GlassPanel>
         </View>
 
-        {scan.noDamageDetected ? (
+        {noDamageDetected ? (
           <GlassPanel style={styles.clearReportCard}>
-            <Ionicons name="checkmark-circle-outline" size={24} color={scannerColors.green} />
+            <Ionicons name="alert-circle-outline" size={24} color={scannerColors.orange} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.clearReportTitle}>No damage prediction found</Text>
+              <Text style={styles.clearReportTitle}>Scan needs a closer view</Text>
               <Text style={styles.clearReportText}>
-                No YOLO11 instance met the configured confidence threshold. A technician can still perform a manual inspection.
+                {ZERO_DETECTION_MESSAGE}
               </Text>
             </View>
           </GlassPanel>
         ) : null}
 
-        {!scan.noDamageDetected && rankedDamages.length ? (
+        {!noDamageDetected && rankedDamages.length ? (
           <View>
             <View style={styles.sectionHead}>
               <View>
                 <Text style={styles.sectionTitle}>Detected damage ranking</Text>
-                <Text style={styles.sectionText}>Ranked by severity, confidence, and affected area.</Text>
+                <Text style={styles.sectionText}>Ranked by severity, detection confidence, and affected image area.</Text>
               </View>
             </View>
             <View style={styles.damageRankingList}>
@@ -276,14 +306,14 @@ export default function ResultsScreen() {
                     </View>
                     <View style={styles.damageRankBody}>
                       <View style={styles.damageRankTop}>
-                        <Text style={styles.damageRankTitle} numberOfLines={1}>{damage.type}</Text>
+                        <Text style={styles.damageRankTitle} numberOfLines={1}>{damage.damageSubtype}</Text>
                         <SeverityBadge severity={damage.severity} />
                       </View>
                       <Text style={styles.damageRankComponent} numberOfLines={1}>
-                        {damage.affectedArea}
+                        {damage.component}
                       </Text>
                       <Text style={styles.damageRankMeta}>
-                        {Math.round(damage.confidence * 100)}% confidence · {damage.detectedArea.percentage.toFixed(2)}% area
+                        {Math.round(damage.confidence * 100)}% detection confidence · {damage.affectedAreaPercent.toFixed(2)}% image area
                       </Text>
                     </View>
                     <Ionicons
@@ -304,16 +334,16 @@ export default function ResultsScreen() {
               <View style={styles.insightHead}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.insightEyebrow}>AI Damage Assessment</Text>
-                  <Text style={styles.insightTitle}>{activeDamage.type}</Text>
+                  <Text style={styles.insightTitle}>{activeDamage.damageSubtype}</Text>
                 </View>
                 <SeverityBadge severity={activeDamage.severity} />
               </View>
 
               <View style={styles.assessmentGrid}>
-                <AssessmentField label="Damage type" value={activeDamage.type} />
-                <AssessmentField label="Affected component" value={activeDamage.affectedArea} />
+                <AssessmentField label="Damage type" value={activeDamage.damageSubtype} />
+                <AssessmentField label="Component" value={activeDamage.component} />
                 <AssessmentField
-                  label="Confidence score"
+                  label="Detection confidence"
                   value={`${Math.round(activeDamage.confidence * 100)}%`}
                   accent={scannerColors.orange}
                 />
@@ -323,12 +353,12 @@ export default function ResultsScreen() {
                   accent={severityMeta[activeDamage.severity].color}
                 />
                 <AssessmentField
-                  label="Detection area"
-                  value={`${activeDamage.detectedArea.percentage.toFixed(2)}%`}
+                  label="Affected image area"
+                  value={`${activeDamage.affectedAreaPercent.toFixed(2)}%`}
                   accent={scannerColors.orangeSoft}
                 />
               </View>
-              <ConfidenceMeter value={activeDamage.confidence} />
+              <ConfidenceMeter value={activeDamage.confidence} label="Detection confidence" />
               <View style={styles.insightDivider} />
               <View style={styles.insightBlock}>
                 <Text style={styles.insightBlockTitle}>Possible cause analysis</Text>
@@ -337,55 +367,72 @@ export default function ResultsScreen() {
               <View style={styles.insightBlock}>
                 <Text style={styles.insightBlockTitle}>Recommended action</Text>
                 <Text style={styles.insightBlockText}>
-                  {activeDamage.recommendation || `Prioritize ${activeDamage.type.toLowerCase()} correction on ${activeDamage.affectedArea} before final coating or protection work.`}
+                  {activeDamage.recommendation || `Have a technician inspect the localized ${activeDamage.damageSubtype.toLowerCase()} region before final coating or protection work.`}
                 </Text>
               </View>
             </GlassPanel>
           </Animated.View>
         ) : null}
 
-        <View style={styles.sectionHead}>
-          <View>
-            <Text style={styles.sectionTitle}>Smart repair intelligence</Text>
-            <Text style={styles.sectionText}>AI-ranked repair plan for technician review.</Text>
-          </View>
-          <Pressable
-            style={styles.optimizeBtn}
-            onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
-          >
-            <Ionicons name="sparkles" size={14} color={scannerColors.orange} />
-            <Text style={styles.optimizeText}>Optimize</Text>
-          </Pressable>
-        </View>
+        {!noDamageDetected ? (
+          <>
+            <View style={styles.sectionHead}>
+              <View>
+                <Text style={styles.sectionTitle}>Smart repair intelligence</Text>
+                <Text style={styles.sectionText}>AI-ranked repair plan for technician review.</Text>
+              </View>
+              <Pressable
+                style={styles.optimizeBtn}
+                onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
+              >
+                <Ionicons name="sparkles" size={14} color={scannerColors.orange} />
+                <Text style={styles.optimizeText}>Optimize</Text>
+              </Pressable>
+            </View>
 
-        <View style={styles.repairList}>
-          {repairLines.map((line, index) => (
-            <RepairIntelligenceCard key={line.id} line={line} index={index} />
-          ))}
-        </View>
+            <View style={styles.repairList}>
+              {repairLines.map((line, index) => (
+                <RepairIntelligenceCard key={line.id} line={line} index={index} />
+              ))}
+            </View>
+          </>
+        ) : null}
 
         <GlassPanel>
           <View style={styles.summaryHead}>
             <Ionicons name="document-text-outline" size={20} color={scannerColors.orange} />
             <Text style={styles.summaryTitle}>Detected issues summary</Text>
           </View>
-          <Text style={styles.summaryText}>{scan.summary}</Text>
+          <Text style={styles.summaryText}>{noDamageDetected ? ZERO_DETECTION_MESSAGE : scan.summary}</Text>
           <Text style={styles.summaryMeta}>
             Source: {scan.source} - Model: {scan.model} - Images: {displayImageCount}
           </Text>
           <View style={styles.handoffDivider} />
-          <Text style={styles.handoffTitle}>Diagnosis data ready for</Text>
+          <Text style={styles.handoffTitle}>
+            {noDamageDetected ? 'Zero-detection handoff status' : 'Diagnosis data ready for'}
+          </Text>
           <View style={styles.handoffGrid}>
-            {[
-              { label: 'Repair advice', icon: 'sparkles-outline' as const },
-              { label: 'Cost estimate', icon: 'cash-outline' as const },
-              { label: 'Meshy 3D', icon: 'cube-outline' as const },
-              { label: 'AR overlay', icon: 'aperture-outline' as const },
-            ].map((item) => (
+            {(noDamageDetected
+              ? [
+                  { label: '0 AI repair issues', icon: 'sparkles-outline' as const },
+                  { label: 'Optional cost view', icon: 'cash-outline' as const },
+                  { label: 'Vehicle-only 3D', icon: 'cube-outline' as const },
+                  { label: 'No damage overlay', icon: 'aperture-outline' as const },
+                ]
+              : [
+                  { label: 'Repair advice', icon: 'sparkles-outline' as const },
+                  { label: 'Cost estimate', icon: 'cash-outline' as const },
+                  { label: 'Meshy 3D', icon: 'cube-outline' as const },
+                  { label: 'AR overlay', icon: 'aperture-outline' as const },
+                ]).map((item) => (
               <View key={item.label} style={styles.handoffItem}>
                 <Ionicons name={item.icon} size={15} color={scannerColors.orange} />
                 <Text style={styles.handoffItemText}>{item.label}</Text>
-                <Ionicons name="checkmark-circle" size={14} color={scannerColors.green} />
+                <Ionicons
+                  name={noDamageDetected ? 'remove-circle-outline' : 'checkmark-circle'}
+                  size={14}
+                  color={noDamageDetected ? scannerColors.textMuted : scannerColors.green}
+                />
               </View>
             ))}
           </View>
@@ -406,9 +453,13 @@ export default function ResultsScreen() {
           />
           <Ionicons name="cube-outline" size={20} color="#93C5FD" />
           <View style={{ flex: 1 }}>
-            <Text style={styles.webArRowTitle}>Next: Browser WebAR preview</Text>
+            <Text style={styles.webArRowTitle}>
+              {noDamageDetected ? 'Optional: vehicle-only 3D preview' : 'Next: Browser WebAR preview'}
+            </Text>
             <Text style={styles.webArRowSub}>
-              Generate the GLB, then open the MindAR repair simulation in the browser.
+              {noDamageDetected
+                ? 'No AI-confirmed damage region will be included in the overlay.'
+                : 'Generate the GLB, then open the MindAR repair simulation in the browser.'}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={scannerColors.textMuted} />
@@ -416,10 +467,10 @@ export default function ResultsScreen() {
       </ScrollView>
 
       <BottomActionBar
-        primaryLabel="Generate 3D Model"
+        primaryLabel={noDamageDetected ? 'Generate Vehicle 3D Model' : 'Generate 3D Model'}
         primaryIcon="cube-outline"
         onPrimaryPress={() => router.push('/(customer)/scan/ar-view' as never)}
-        secondaryLabel="Skip to Cost Estimate"
+        secondaryLabel={noDamageDetected ? 'Continue with 0 AI Issues' : 'Skip to Cost Estimate'}
         onSecondaryPress={() => router.push('/(customer)/scan/estimate' as never)}
       />
     </ScannerBackground>
@@ -531,11 +582,29 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 3,
   },
+  damageDetectedCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    borderColor: 'rgba(255,107,53,0.38)',
+  },
+  damageDetectedTitle: {
+    color: scannerColors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  damageDetectedText: {
+    color: scannerColors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+    marginTop: 3,
+  },
   clearReportCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    borderColor: 'rgba(16,185,129,0.32)',
+    borderColor: 'rgba(255,107,53,0.32)',
   },
   clearReportTitle: {
     color: scannerColors.text,

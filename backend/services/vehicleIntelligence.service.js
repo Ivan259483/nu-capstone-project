@@ -1,15 +1,61 @@
 import { randomUUID } from 'node:crypto';
 import VehicleDefinition from '../models/vehicleDefinition.model.js';
 import {
-  normalizeVehiclePricingCategory, getVehicleTypeLabelForPricingCategory,
+  VEHICLE_PRICING_CATEGORY_CODES, normalizeVehiclePricingCategory, getVehicleTypeLabelForPricingCategory,
 } from '../constants/pricingCategories.js';
 import { brandModels, vehicleClassificationMap, canonicalVehicleIdentity, normalizeVehicleIdentity } from '../constants/vehicleDatabase.js';
 import { ServicePricingError } from './servicePricing.service.js';
 import { findGlobalVehicleClassification } from './globalVehicleCatalog.service.js';
 
 export const identityKey = (value) => String(value || '').normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ');
-const fault = (message, code = 'VEHICLE_DEFINITION_INVALID', statusCode = 422) =>
-  new ServicePricingError(code, message, statusCode);
+const fault = (message, code = 'VEHICLE_DEFINITION_INVALID', statusCode = 422, details = {}) =>
+  new ServicePricingError(code, message, statusCode, details);
+
+const classificationOptions = (categories) => [...new Set(categories.map(normalizeVehiclePricingCategory).filter(Boolean))]
+  .map((code) => ({ code, label: getVehicleTypeLabelForPricingCategory(code) }));
+
+const withClassificationContract = (result, categories = [], overrides = {}) => {
+  const options = classificationOptions(categories);
+  return {
+    ...result,
+    classification: result.status === 'classified' ? getVehicleTypeLabelForPricingCategory(result.pricingCategory) : null,
+    validClassifications: options.map((option) => option.label),
+    validPricingCategories: options.map((option) => option.code),
+    classificationOptions: options,
+    verified: result.status === 'classified' && !result.selectionValidated,
+    requiresSelection: false,
+    requiresReview: result.status !== 'classified',
+    ...overrides,
+  };
+};
+
+export function submittedVehicleClassification(body = {}) {
+  const supplied = ['vehicleClassification', 'pricingCategory', 'vehicleType']
+    .filter((field) => body[field] !== undefined && body[field] !== null && String(body[field]).trim())
+    .map((field) => ({ field, value: String(body[field]).trim(), category: normalizeVehiclePricingCategory(body[field]) }));
+  if (!supplied.length) return null;
+  const invalid = supplied.find((entry) => !entry.category);
+  const categories = [...new Set(supplied.map((entry) => entry.category).filter(Boolean))];
+  return {
+    category: !invalid && categories.length === 1 ? categories[0] : null,
+    value: invalid?.value || supplied[0].value,
+    invalid: Boolean(invalid) || categories.length > 1,
+  };
+}
+
+const classificationMismatch = (identity, expected, valid = []) => {
+  const { brand, model } = canonicalVehicleIdentity(identity.brand || identity.make, identity.model);
+  const suffix = expected
+    ? `${brand} ${model} is classified as ${getVehicleTypeLabelForPricingCategory(expected)}.`
+    : `Valid classifications are ${valid.map(getVehicleTypeLabelForPricingCategory).join(' or ')}.`;
+  return fault(`The selected vehicle classification does not match this vehicle. ${suffix}`,
+    'VEHICLE_CLASSIFICATION_MISMATCH', 422, {
+      expectedPricingCategory: expected || null,
+      expectedClassification: expected ? getVehicleTypeLabelForPricingCategory(expected) : null,
+      validPricingCategories: valid,
+      validClassifications: valid.map(getVehicleTypeLabelForPricingCategory),
+    });
+};
 
 // Business mappings explicitly supplied by AutoSPF+. Unknown technical facts stay blank.
 // These are bounded bootstrap records, not an assertion about future generations.
@@ -106,10 +152,13 @@ export async function latestDefinitions(match = {}) {
 }
 
 export function classifyDefinitions(identity, records, now = new Date()) {
-  const unknown = (reason, candidates = []) => ({
-    status: 'review_required', reason, confidenceLevel: 'low', bodyType: 'Other',
-    vehicleCategory: 'Other', pricingCategory: null, vehicleType: 'Other',
+  const unknown = (reason, candidates = []) => withClassificationContract({
+    status: 'review_required', reason, confidenceLevel: 'low', bodyType: '',
+    vehicleCategory: null, pricingCategory: null, vehicleType: null,
     candidates: candidates.map((r) => ({ definitionKey: r.definitionKey, revision: r.revision, generation: r.generation, yearFrom: r.yearFrom, yearTo: r.yearTo })),
+  }, VEHICLE_PRICING_CATEGORY_CODES, {
+    requiresSelection: true,
+    requiresReview: false,
   });
   const { brand, model } = canonicalVehicleIdentity(identity.brand || identity.make, identity.model);
   if (!brand || !identity.model) return unknown('IDENTITY_REQUIRED');
@@ -125,21 +174,21 @@ export function classifyDefinitions(identity, records, now = new Date()) {
     || !r.reviewExpiresAt || new Date(r.reviewExpiresAt) <= now || r.yearTo === null)) {
     return unknown('REVIEW_REQUIRED', candidates);
   }
-  const signatures = new Set(candidates.map((r) => JSON.stringify([r.bodyType, r.vehicleCategory, r.pricingCategory])));
-  if (signatures.size !== 1) return unknown('AMBIGUOUS_VEHICLE', candidates);
+  const validCategories = [...new Set(candidates.map((r) => normalizeVehiclePricingCategory(r.pricingCategory)).filter(Boolean))];
+  if (validCategories.length > 1) return unknown('AMBIGUOUS_VEHICLE', candidates);
   const record = candidates[0];
   if (!normalizeVehiclePricingCategory(record.pricingCategory)) return unknown('PRICING_REVIEW_REQUIRED', candidates);
   const unanimous = (key) => candidates.every((r) => r[key] === record[key]) ? record[key] : '';
-  return {
+  return withClassificationContract({
     status: 'classified', reason: null, confidenceLevel: 'high',
     brand: record.brand, model: record.model, year,
-    bodyType: record.bodyType, vehicleCategory: getVehicleTypeLabelForPricingCategory(record.pricingCategory), pricingCategory: normalizeVehiclePricingCategory(record.pricingCategory),
+    bodyType: unanimous('bodyType'), vehicleCategory: getVehicleTypeLabelForPricingCategory(record.pricingCategory), pricingCategory: normalizeVehiclePricingCategory(record.pricingCategory),
     vehicleType: getVehicleTypeLabelForPricingCategory(record.pricingCategory),
     generation: unanimous('generation'), facelift: unanimous('facelift'), fuelType: unanimous('fuelType'),
     drivetrain: unanimous('drivetrain'), sizeSegment: unanimous('sizeSegment'),
     definitions: candidates.map((r) => ({ definitionKey: r.definitionKey, revision: r.revision })),
     reviewedUntil: new Date(Math.min(...candidates.map((r) => new Date(r.reviewExpiresAt).getTime()))),
-  };
+  }, validCategories);
 }
 
 export async function classifyVehicle(identity, loadedDefinitions) {
@@ -152,9 +201,11 @@ export async function classifyVehicle(identity, loadedDefinitions) {
   const definitions = records.length ? records : BOOTSTRAP_DEFINITIONS.filter((r) => r.brand === brand && r.model === model);
   const pricing = classifyDefinitions(identity, definitions);
   const physical = await findGlobalVehicleClassification(identity);
+  const physicalBodyType = identityKey(physical?.bodyType) === 'other' ? '' : physical?.bodyType || '';
+  const physicalVehicleClass = identityKey(physical?.vehicleClass) === 'other' ? '' : physical?.vehicleClass || '';
   return { ...pricing,
-    bodyType: physical?.bodyType || pricing.bodyType,
-    vehicleClass: physical?.vehicleClass || '',
+    bodyType: physicalBodyType || pricing.bodyType,
+    vehicleClass: physicalVehicleClass,
     segment: physical?.segment || pricing.sizeSegment || '',
     physicalClassificationStatus: physical?.catalogStatus || 'unavailable',
     catalogSources: physical?.catalogSources || [],
@@ -180,18 +231,57 @@ export async function vehicleCatalog() {
   return catalog;
 }
 
-export async function vehicleClassificationFields(identity, existing = null, loadedDefinitions) {
+export async function vehicleClassificationFields(identity, existing = null, loadedDefinitions, submittedClassification = null) {
   const sameIdentity = existing && ['make', 'model', 'year', 'generation', 'facelift', 'fuelType', 'drivetrain'].every((key) =>
     identityKey(identity[key]) === identityKey(existing[key]));
   if (sameIdentity && normalizeVehiclePricingCategory(existing.pricingCategory) && existing.pricingCategorySource === 'admin_assigned' && existing.pricingCategoryReviewedBy && !existing.pricingCategoryNeedsReview) {
+    if (submittedClassification && submittedClassification.category !== normalizeVehiclePricingCategory(existing.pricingCategory)) {
+      throw classificationMismatch(identity, existing.pricingCategory);
+    }
     return { pricingCategory: normalizeVehiclePricingCategory(existing.pricingCategory), vehicleType: getVehicleTypeLabelForPricingCategory(existing.pricingCategory), classification: existing.classification };
   }
   // User-provided fuel metadata is retained but only matching catalog metadata can narrow variants.
-  const classification = await classifyVehicle(identity, loadedDefinitions);
+  let classification = await classifyVehicle(identity, loadedDefinitions);
+  if (classification.status === 'classified' && submittedClassification
+    && submittedClassification.category !== classification.pricingCategory) {
+    throw classificationMismatch(identity, classification.pricingCategory);
+  }
+  const persistedManualClassification = sameIdentity
+    && existing?.pricingCategorySource === 'customer_selected'
+    && existing?.pricingCategoryNeedsReview === false
+    && normalizeVehiclePricingCategory(existing.pricingCategory)
+      ? {
+          category: normalizeVehiclePricingCategory(existing.pricingCategory),
+          value: existing.pricingCategory,
+          invalid: false,
+        }
+      : null;
+  const manualClassification = submittedClassification || persistedManualClassification;
+  if (classification.status !== 'classified' && manualClassification) {
+    if (manualClassification.invalid || !manualClassification.category
+      || !VEHICLE_PRICING_CATEGORY_CODES.includes(manualClassification.category)) {
+      throw classificationMismatch(identity, null, VEHICLE_PRICING_CATEGORY_CODES);
+    }
+    const selectedCategory = manualClassification.category;
+    classification = withClassificationContract({
+      ...classification, status: 'classified', reason: 'MANUAL_CLASSIFICATION_SELECTED', confidenceLevel: 'low',
+      pricingCategory: selectedCategory,
+      vehicleType: getVehicleTypeLabelForPricingCategory(selectedCategory),
+      vehicleCategory: getVehicleTypeLabelForPricingCategory(selectedCategory),
+      selectionValidated: true,
+    }, VEHICLE_PRICING_CATEGORY_CODES, {
+      classification: getVehicleTypeLabelForPricingCategory(selectedCategory),
+      verified: false,
+      requiresSelection: false,
+      requiresReview: false,
+    });
+  }
   return {
     classification, vehicleType: classification.status === 'classified' ? classification.vehicleType : 'Other',
     pricingCategory: classification.pricingCategory || undefined,
-    pricingCategorySource: classification.status === 'classified' ? 'vehicle_database' : 'customer_selected',
+    pricingCategorySource: classification.status === 'classified'
+      ? (classification.selectionValidated ? 'customer_selected' : 'vehicle_database')
+      : 'customer_selected',
     pricingCategoryNeedsReview: classification.status !== 'classified',
     pricingCategoryReviewedAt: classification.status === 'classified' ? new Date() : null,
     pricingCategoryReviewedBy: null,
@@ -201,6 +291,6 @@ export async function vehicleClassificationFields(identity, existing = null, loa
 export async function requireVehiclePricing(vehicle) {
   if (!vehicle) throw fault('Select a saved vehicle before requesting pricing.', 'VEHICLE_REQUIRED');
   const fields = await vehicleClassificationFields(vehicle, vehicle);
-  if (!fields.pricingCategory) throw new ServicePricingError('PRICE_CATEGORY_REQUIRED', 'This vehicle needs an administrator classification review before booking.', 422);
+  if (!fields.pricingCategory) throw new ServicePricingError('PRICE_CATEGORY_REQUIRED', 'Select a supported vehicle classification before booking.', 422);
   return { ...vehicle, ...fields };
 }

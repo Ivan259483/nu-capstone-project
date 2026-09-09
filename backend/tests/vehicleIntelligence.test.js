@@ -10,7 +10,7 @@ const { default: Definition } = await import('../models/vehicleDefinition.model.
 const { default: Vehicle } = await import('../models/vehicle.model.js');
 const { default: VehicleColor } = await import('../models/vehicleColor.model.js');
 const { default: Service } = await import('../models/service.model.js');
-const { classifyVehicle, classifyDefinitions, publishDefinition, validateDefinition, requireVehiclePricing, vehicleCatalog, BOOTSTRAP_DEFINITIONS } = await import('../services/vehicleIntelligence.service.js');
+const { classifyVehicle, classifyDefinitions, publishDefinition, validateDefinition, requireVehiclePricing, vehicleCatalog, vehicleClassificationFields, submittedVehicleClassification, BOOTSTRAP_DEFINITIONS } = await import('../services/vehicleIntelligence.service.js');
 const {
   detectVehicleColorFinish,
   normalizeStandardVehicleColor,
@@ -45,6 +45,10 @@ test('owner-supplied examples resolve by exact brand + model, including pricing 
   for (const [brand, model, category] of [['Bentley', 'Bentayga', 'SUV'], ['Alfa Romeo', 'Giulietta', 'HATCHBACK_SMALL_CAR'], ['BMW', '7 Series', 'HIGH_END_SEDAN']]) {
     const value = await classifyVehicle({ brand, model });
     assert.equal(value.status, 'classified'); assert.equal(value.pricingCategory, category);
+    assert.equal(value.classification, value.vehicleType);
+    assert.deepEqual(value.validPricingCategories, [category]);
+    assert.deepEqual(value.validClassifications, [value.vehicleType]);
+    assert.equal(value.verified, true); assert.equal(value.requiresSelection, false);
   }
   assert.equal((await classifyVehicle({ brand: 'BMW', model: 'Bentayga' })).pricingCategory, null);
   assert.equal((await classifyVehicle({ brand: 'Bentley', model: 'Bentayga Future' })).pricingCategory, null);
@@ -63,13 +67,16 @@ test('new releases, PHEV metadata and generations are added at runtime without c
   assert.ok((await vehicleCatalog())['Test Motors'].includes('Future One'));
 });
 
-test('ambiguous body styles, drafts, expired reviews, retired definitions and Other never quote', async () => {
+test('one pricing class can span body styles, while untrusted definitions and Other never quote', async () => {
   const identity = { brand: 'Bentley', model: 'Bentayga' };
   const base = BOOTSTRAP_DEFINITIONS[0];
   for (const patch of [{ status: 'draft' }, { status: 'retired' }, { confidenceLevel: 'medium' }, { reviewExpiresAt: '2000-01-01' }, { pricingCategory: 'OTHER' }]) {
     assert.equal(classifyDefinitions(identity, [{ ...base, ...patch }]).pricingCategory, null);
   }
-  assert.equal(classifyDefinitions(identity, [base, { ...base, bodyType: 'Coupe' }]).reason, 'AMBIGUOUS_VEHICLE');
+  const samePricingClass = classifyDefinitions(identity, [base, { ...base, bodyType: 'Coupe' }]);
+  assert.equal(samePricingClass.status, 'classified');
+  assert.equal(samePricingClass.bodyType, '');
+  assert.deepEqual(samePricingClass.validClassifications, ['SUV']);
   assert.equal(classifyDefinitions({ ...identity, year: 'bad' }, [base]).reason, 'INVALID_YEAR');
   assert.equal(classifyDefinitions(identity, [base], new Date('2028-01-01')).pricingCategory, null);
 });
@@ -179,23 +186,41 @@ test('vehicle color API imports, pages and resolves indexed OEM records', async 
   assert.equal(resolved.body.data.standardColor, 'Black');
 });
 
-test('add and edit ignore customer category tampering; an identity change clears stale pricing', async () => {
-  const saved = await invoke(addVehicle, vehicleRequest({ pricingCategory: 'HATCHBACK_SMALL_CAR', vehicleType: 'Hatchback' }));
-  assert.equal(saved.statusCode, 201); assert.equal(saved.body.data.pricingCategory, 'SUV');
+test('add and edit reject category tampering with a useful canonical correction', async () => {
+  await assert.rejects(
+    invoke(addVehicle, vehicleRequest({ pricingCategory: 'HATCHBACK_SMALL_CAR', vehicleType: 'Hatchback' })),
+    (error) => error.code === 'VEHICLE_CLASSIFICATION_MISMATCH'
+      && error.statusCode === 422
+      && error.message === 'The selected vehicle classification does not match this vehicle. Bentley Bentayga is classified as SUV.'
+      && error.details.expectedPricingCategory === 'SUV',
+  );
+  const saved = await invoke(addVehicle, vehicleRequest({ pricingCategory: 'SUV', vehicleType: 'SUV' }));
   const req = vehicleRequest({ pricingCategory: 'HATCHBACK_SMALL_CAR', vehicleType: 'Hatchback' }); req.params = { id: saved.body.data._id };
-  const edited = await invoke(updateVehicle, req);
-  assert.equal(edited.body.data.pricingCategory, 'SUV');
+  await assert.rejects(invoke(updateVehicle, req), { code: 'VEHICLE_CLASSIFICATION_MISMATCH', statusCode: 422 });
   const changed = await invoke(updateVehicle, { ...req, body: { make: 'Unknown Brand', model: 'Future Model' } });
   assert.equal(changed.body.data.pricingCategory, undefined); assert.equal(changed.body.data.pricingCategoryNeedsReview, true);
   const record = await Vehicle.findById(saved.body.data._id).lean();
   await assert.rejects(requireVehiclePricing(record), { code: 'PRICE_CATEGORY_REQUIRED' });
 });
 
-test('unknown fallback saves Garage data but blocks booking even with forged pricing', async () => {
+test('unknown fallback saves and edits a supported manual category for reload and booking', async () => {
   const saved = await invoke(addVehicle, vehicleRequest({ make: 'Unknown', model: 'Prototype', vehicleType: 'SUV', pricingCategory: 'SUV' }));
-  assert.equal(saved.statusCode, 201); assert.equal(saved.body.data.pricingCategory, undefined);
+  assert.equal(saved.statusCode, 201); assert.equal(saved.body.data.pricingCategory, 'SUV');
+  assert.equal(saved.body.data.pricingCategorySource, 'customer_selected');
+  assert.equal(saved.body.data.pricingCategoryNeedsReview, false);
+  const edited = await invoke(updateVehicle, {
+    user: { id: String(customer), role: 'customer' }, params: { id: saved.body.data._id },
+    body: { vehicleType: 'Sedan', pricingCategory: 'SEDAN' },
+  });
+  assert.equal(edited.body.data.pricingCategory, 'SEDAN');
+  assert.equal(edited.body.data.pricingCategorySource, 'customer_selected');
+  const persisted = await Vehicle.findById(saved.body.data._id).lean();
+  const reloaded = await vehicleClassificationFields(persisted, persisted);
+  assert.equal(reloaded.pricingCategory, 'SEDAN');
+  assert.equal(reloaded.classification.verified, false);
+  assert.equal(reloaded.classification.reason, 'MANUAL_CLASSIFICATION_SELECTED');
   const options = await invoke(getBookingOptions, { user: { id: String(customer), role: 'customer' }, query: { vehicleId: saved.body.data._id } });
-  assert.equal(options.statusCode, 422); assert.equal(options.body.errorCode, 'PRICE_CATEGORY_REQUIRED');
+  assert.equal(options.statusCode, 200); assert.equal(options.body.data.vehicle.pricingCategory, 'SEDAN');
 });
 
 test('booking options recheck a changed definition and retain package availability rules', async () => {
@@ -250,7 +275,7 @@ test('SPF order submission rejects an unreviewed saved vehicle before creating a
   const pkg = Object.values(SPF_PACKAGE_PRICING)[0];
   const service = await Service.create({ name: pkg.name, category: pkg.category, billingGroup: 'ceramic_spf',
     packageCode: pkg.packageCode, pricing: buildRichPricing(pkg), prices: buildLegacyPrices(pkg), status: 'Active', isPublished: true });
-  const saved = await invoke(addVehicle, vehicleRequest({ make: 'Unknown', model: 'Prototype', pricingCategory: 'HATCHBACK_SMALL_CAR' }));
+  const saved = await invoke(addVehicle, vehicleRequest({ make: 'Unknown', model: 'Prototype' }));
   const result = await invoke(createOrder, { user: { id: String(customer), role: 'customer', name: 'Test Customer' },
     systemState: { mode: 'active', bookingsEnabled: true }, body: { vehicle: saved.body.data._id,
       service: String(service._id), vehiclePricingCategory: 'HATCHBACK_SMALL_CAR', price: 1 } });
@@ -270,15 +295,52 @@ test('canonical aliases resolve punctuation, spaces and case without brand-only 
   }
 });
 
+test('classification contract auto-verifies one class and offers supported manual choices when ambiguous', async () => {
+  const records = [
+    fixture({ definitionKey: 'future-one-sedan', generation: 'G1', yearFrom: 2027, yearTo: 2030, bodyType: 'Sedan', vehicleCategory: 'Sedan', pricingCategory: 'SEDAN' }),
+    fixture({ definitionKey: 'future-one-hatch', generation: 'G2', yearFrom: 2027, yearTo: 2030, bodyType: 'Hatchback', vehicleCategory: 'Hatchback', pricingCategory: 'HATCHBACK_SMALL_CAR' }),
+  ];
+  const ambiguous = classifyDefinitions({ brand: 'Test Motors', model: 'Future One', year: 2028 }, records);
+  assert.equal(ambiguous.classification, null);
+  assert.equal(ambiguous.verified, false);
+  assert.equal(ambiguous.requiresSelection, true);
+  assert.deepEqual(ambiguous.validPricingCategories, [
+    'HATCHBACK_SMALL_CAR', 'SEDAN', 'MIDSIZED', 'SUV', 'PICKUP', 'LARGE_SUV_VAN', 'HIGH_END_SEDAN',
+  ]);
+
+  const fields = await vehicleClassificationFields(
+    { make: 'Test Motors', model: 'Future One', year: 2028 },
+    null,
+    records,
+    submittedVehicleClassification({ pricingCategory: 'SEDAN' }),
+  );
+  assert.equal(fields.pricingCategory, 'SEDAN');
+  assert.equal(fields.pricingCategorySource, 'customer_selected');
+  assert.equal(fields.pricingCategoryNeedsReview, false);
+  assert.equal(fields.classification.selectionValidated, true);
+
+  const supportedFallback = await vehicleClassificationFields(
+    { make: 'Test Motors', model: 'Future One', year: 2028 }, null, records,
+    submittedVehicleClassification({ vehicleClassification: 'SUV' }),
+  );
+  assert.equal(supportedFallback.pricingCategory, 'SUV');
+  assert.equal(supportedFallback.classification.verified, false);
+
+  await assert.rejects(vehicleClassificationFields(
+    { make: 'Test Motors', model: 'Future One', year: 2028 }, null, records,
+    submittedVehicleClassification({ vehicleClassification: 'Coupe' }),
+  ), { code: 'VEHICLE_CLASSIFICATION_MISMATCH', statusCode: 422 });
+});
+
 test('saved add/edit/reload categories use every established price tier in Services', async () => {
   const { getVehicles } = await import('../controllers/customer.controller.js');
   const { getVehiclePricingApiKey } = await import('../constants/pricingCategories.js');
   await Service.insertMany(Object.values(SPF_PACKAGE_PRICING).map(pkg => ({ name: pkg.name, category: pkg.category,
     billingGroup: 'ceramic_spf', packageCode: pkg.packageCode, pricing: buildRichPricing(pkg), prices: buildLegacyPrices(pkg), status: 'Active', isPublished: true })));
-  const saved = await invoke(addVehicle, vehicleRequest({ make: 'Toyota', model: 'Fortuner', vehicleType: 'Sedan', pricingCategory: 'SEDAN' }));
+  const saved = await invoke(addVehicle, vehicleRequest({ make: 'Toyota', model: 'Fortuner', vehicleType: 'SUV', pricingCategory: 'SUV' }));
   assert.equal(saved.statusCode, 201);
   for (const [model, category] of [['Wigo', 'HATCHBACK_SMALL_CAR'], ['Vios', 'SEDAN'], ['Innova', 'MIDSIZED'], ['Fortuner', 'SUV'], ['Hilux', 'PICKUP'], ['Hiace', 'LARGE_SUV_VAN'], ['Camry', 'HIGH_END_SEDAN']]) {
-    const edited = await invoke(updateVehicle, { user: { id: String(customer), role: 'customer' }, params: { id: saved.body.data._id }, body: { model, pricingCategory: 'SEDAN' } });
+    const edited = await invoke(updateVehicle, { user: { id: String(customer), role: 'customer' }, params: { id: saved.body.data._id }, body: { model, pricingCategory: category } });
     assert.equal(edited.body.data.pricingCategory, category);
     const stored = await Vehicle.findById(saved.body.data._id).lean();
     assert.equal(stored.pricingCategory, category); assert.equal(stored.classification.pricingCategory, category);

@@ -21,6 +21,12 @@ export type VehicleGarageFormValues = {
   vehicleClass?: string;
   segment?: string;
   recommendedServiceCategory?: string;
+  classificationOptions?: Array<{ code: string; label: string }>;
+  validClassifications?: string[];
+  validPricingCategories?: string[];
+  classificationVerified?: boolean;
+  requiresClassificationSelection?: boolean;
+  classificationRequiresReview?: boolean;
   transmission: string;
   fuelType: string;
 };
@@ -56,6 +62,11 @@ export function validateVehicleGarageForm(v: VehicleGarageFormValues): Record<st
     errors.model = 'Model name must be at most 200 characters.';
   }
   if (v.classificationStatus === 'loading' || !v.classificationStatus) errors.type = 'Checking vehicle classification. Please wait.';
+  else if (v.requiresClassificationSelection && !v.pricingCategory) {
+    errors.type = 'Select a supported vehicle classification.';
+  } else if (v.classificationStatus === 'review_required' || v.classificationStatus === 'unavailable') {
+    errors.type = 'Select a supported vehicle classification.';
+  }
 
   return errors;
 }

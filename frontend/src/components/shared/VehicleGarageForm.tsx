@@ -180,13 +180,14 @@ export default function VehicleGarageForm({
   const automaticClassification = enableVehicleDatabase && (customerAddExperience || experience === 'customer-edit');
   const detectedType = enableVehicleDatabase && v.classificationStatus === 'classified' ? v.type : '';
   const hasVehicleIdentity = Boolean(v.brand.trim() && v.model.trim());
-  const needsClassificationReview = hasVehicleIdentity && !detectedType && v.classificationStatus !== 'loading';
+  const needsManualClassification = hasVehicleIdentity && !detectedType && v.classificationStatus !== 'loading';
+  const classificationOptions = v.classificationOptions || [];
   const pricingCategory = enableVehicleDatabase
     ? (v.classificationStatus === 'classified' ? v.pricingCategory : null)
     : getVehiclePricingCategory(v.type) || v.pricingCategory;
   const pricingCategoryLabel = getVehiclePricingCategoryLabel(pricingCategory);
   const displayClassification = enableVehicleDatabase
-    ? (detectedType ? (pricingCategory === 'HATCHBACK_SMALL_CAR' ? 'Hatchback' : pricingCategoryLabel || detectedType) : needsClassificationReview ? 'Classification unavailable' : '')
+    ? (detectedType ? (pricingCategory === 'HATCHBACK_SMALL_CAR' ? 'Hatchback' : pricingCategoryLabel || detectedType) : needsManualClassification ? 'Select classification' : '')
     : v.type;
   const priceKey = getVehiclePriceKeyForPricingCategory(pricingCategory);
   const [customBrandMode, setCustomBrandMode] = React.useState(false);
@@ -724,7 +725,7 @@ export default function VehicleGarageForm({
             </label>
           )}
         </div>
-        <div className={automaticClassification ? 'order-first' : undefined}>
+        <div>
           <label
             className={
               rich
@@ -736,55 +737,74 @@ export default function VehicleGarageForm({
           </label>
           {automaticClassification ? (
             <div className="space-y-1.5">
-              {detectedType ? (
-                <div role="status" aria-live="polite" aria-atomic="true"
-                  className="rounded-[14px] border border-emerald-100/90 bg-emerald-50/45 px-3.5 py-2.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-600">
-                        <Check className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />
-                      </span>
-                      <span className="truncate text-sm font-semibold text-slate-900">{displayClassification}</span>
-                    </span>
-                    <span className="shrink-0 text-[10px] font-semibold text-emerald-700">Automatically detected</span>
-                  </div>
-                  {(v.bodyType || v.vehicleClass || v.segment || v.recommendedServiceCategory) ? (
-                    <dl className="mt-2 grid grid-cols-1 gap-1 border-t border-emerald-100/80 pt-2 text-[11px] sm:grid-cols-2">
-                      {v.bodyType ? <div><dt className="inline text-slate-500">Body Type: </dt><dd className="inline font-medium text-slate-700">{v.bodyType}</dd></div> : null}
-                      {v.vehicleClass ? <div><dt className="inline text-slate-500">Vehicle Class: </dt><dd className="inline font-medium text-slate-700">{v.vehicleClass}</dd></div> : null}
-                      {v.segment ? <div><dt className="inline text-slate-500">Segment: </dt><dd className="inline font-medium text-slate-700">{v.segment}</dd></div> : null}
-                      {v.recommendedServiceCategory ? <div><dt className="inline text-slate-500">Service Category: </dt><dd className="inline font-medium text-slate-700">{v.recommendedServiceCategory}</dd></div> : null}
-                    </dl>
-                  ) : null}
-                </div>
-              ) : needsClassificationReview ? (
-                <div id="vehicle-classification-status" role="status" aria-live="polite"
-                  className="rounded-[14px] border border-amber-100 bg-amber-50/45 px-3.5 py-2.5 text-[11px]">
-                  <p className="flex items-center gap-1.5 font-medium text-amber-700">
-                    <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
-                    <span>{v.vehicleClass || 'Classification unavailable'}</span>
+              <select
+                aria-label="Vehicle Classification"
+                aria-describedby="vehicle-classification-status"
+                value={v.pricingCategory || ''}
+                disabled={v.classificationStatus === 'loading' || classificationOptions.length <= 1}
+                onChange={(event) => {
+                  const option = classificationOptions.find((item) => item.code === event.target.value);
+                  if (!option) return;
+                  set({
+                    pricingCategory: option.code,
+                    type: option.label,
+                    classificationStatus: 'classified',
+                    classificationVerified: false,
+                    requiresClassificationSelection: false,
+                    classificationRequiresReview: false,
+                  });
+                  onClearError('type');
+                }}
+                className={cx(
+                  'w-full rounded-[14px] border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow,background-color] duration-200',
+                  customerAddExperience && 'appearance-none',
+                  'bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)]',
+                  errors.type ? 'border-red-200 bg-red-50/60 text-red-800' : detectedType ? 'border-emerald-100 text-slate-900' : 'border-slate-200 text-slate-500',
+                  classificationOptions.length <= 1 && 'disabled:cursor-default disabled:opacity-100',
+                )}
+              >
+                <option value="">
+                  {!hasVehicleIdentity
+                    ? 'Select brand and model'
+                    : v.classificationStatus === 'loading'
+                      ? 'Checking classification…'
+                      : v.requiresClassificationSelection
+                        ? 'Select a supported classification'
+                        : 'Classification unavailable'}
+                </option>
+                {classificationOptions.map((option) => (
+                  <option key={option.code} value={option.code}>{option.label}</option>
+                ))}
+              </select>
+              <div id="vehicle-classification-status" role="status" aria-live="polite" className="text-[11px]">
+                {v.classificationVerified && detectedType ? (
+                  <p className="flex items-center gap-1.5 font-medium text-emerald-700">
+                    <Check className="h-3 w-3" aria-hidden /> Verified classification
                   </p>
-                  {(v.bodyType || v.vehicleClass || v.segment) ? (
-                    <dl className="mt-2 space-y-1 border-t border-amber-100 pt-2 text-slate-600">
-                      {v.bodyType ? <div><dt className="inline text-slate-500">Body Type: </dt><dd className="inline font-medium">{v.bodyType}</dd></div> : null}
-                      {v.vehicleClass ? <div><dt className="inline text-slate-500">Vehicle Class: </dt><dd className="inline font-medium">{v.vehicleClass}</dd></div> : null}
-                      {v.segment ? <div><dt className="inline text-slate-500">Segment: </dt><dd className="inline font-medium">{v.segment}</dd></div> : null}
-                    </dl>
-                  ) : null}
-                  <p className="mt-1 font-normal text-slate-500">{v.vehicleClass
-                    ? 'Body classification detected. Service pricing requires review.'
-                    : 'Vehicle classification requires review before pricing.'}</p>
-                </div>
-              ) : (
-                <div
-                  role="status"
-                  aria-live="polite"
-                  className="flex min-h-[39px] items-center rounded-[14px] border border-slate-200/80 bg-slate-50/60 px-3.5 py-2 text-xs text-slate-500"
-                >
-                  {v.classificationStatus === 'loading' && hasVehicleIdentity ? 'Checking vehicle classification…' : 'Select a brand and model to auto-detect'}
-                </div>
-              )}
-
+                ) : detectedType ? (
+                  <p className="flex items-center gap-1.5 font-medium text-emerald-700">
+                    <Check className="h-3 w-3" aria-hidden /> Classification selected manually
+                  </p>
+                ) : v.requiresClassificationSelection ? (
+                  <p className="flex items-center gap-1.5 font-medium text-amber-700">
+                    <AlertTriangle className="h-3 w-3" aria-hidden /> Automatic verification was unavailable. Select a supported classification.
+                  </p>
+                ) : needsManualClassification ? (
+                  <p className="flex items-center gap-1.5 font-medium text-amber-700">
+                    <AlertTriangle className="h-3 w-3" aria-hidden /> Classification is temporarily unavailable. Please try again.
+                  </p>
+                ) : (
+                  <p className="text-slate-500">Select Brand, Model, and Year to verify the classification.</p>
+                )}
+              </div>
+              {(v.bodyType || v.vehicleClass || v.segment || v.recommendedServiceCategory) ? (
+                <dl className="grid grid-cols-1 gap-1 border-t border-slate-100 pt-2 text-[11px] sm:grid-cols-2">
+                  {v.bodyType ? <div><dt className="inline text-slate-500">Body Type: </dt><dd className="inline font-medium text-slate-700">{v.bodyType}</dd></div> : null}
+                  {v.vehicleClass ? <div><dt className="inline text-slate-500">Vehicle Class: </dt><dd className="inline font-medium text-slate-700">{v.vehicleClass}</dd></div> : null}
+                  {v.segment ? <div><dt className="inline text-slate-500">Segment: </dt><dd className="inline font-medium text-slate-700">{v.segment}</dd></div> : null}
+                  {v.recommendedServiceCategory ? <div><dt className="inline text-slate-500">Service Category: </dt><dd className="inline font-medium text-slate-700">{v.recommendedServiceCategory}</dd></div> : null}
+                </dl>
+              ) : null}
             </div>
           ) : (
             <select

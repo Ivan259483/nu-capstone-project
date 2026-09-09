@@ -142,14 +142,12 @@
     inset: -35% -10%;
     width: 55%;
     max-width: 220px;
-    background: linear-gradient(
-        90deg,
-        transparent 0%,
-        rgba(255, 255, 255, 0.04) 38%,
-        rgba(253, 186, 116, 0.1) 50%,
-        rgba(255, 255, 255, 0.04) 62%,
-        transparent 100%
-    );
+    background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.04) 38%,
+            rgba(253, 186, 116, 0.1) 50%,
+            rgba(255, 255, 255, 0.04) 62%,
+            transparent 100%);
     opacity: 0.65;
     pointer-events: none;
     transform: translateX(-140%) skewX(-16deg);
@@ -465,12 +463,13 @@
     animation: hero-rating-glass-shine 7.2s ease-in-out infinite;
 }
 
-.hero-rating-pill > * {
+.hero-rating-pill>* {
     position: relative;
     z-index: 1;
 }
 
 @keyframes hero-rating-glass-shine {
+
     0%,
     42% {
         transform: translateX(0) skewX(-18deg);
@@ -984,38 +983,46 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-tile-pop {
+
     0%,
     100% {
         transform: scale(1) translateY(0);
     }
+
     45% {
         transform: scale(1.15) translateY(-2px);
     }
+
     70% {
         transform: scale(0.96) translateY(1px);
     }
 }
 
 @keyframes customer-sidebar-dashboard-grid-float {
+
     0%,
     100% {
         transform: rotate(-2deg) translateY(0) scale(1);
     }
+
     50% {
         transform: rotate(2.25deg) translateY(-1.6px) scale(1.035);
     }
 }
 
 @keyframes customer-sidebar-dashboard-tile-orchestrate {
+
     0%,
     100% {
         transform: translate(0, 0) scale(1);
         stroke-opacity: 1;
     }
+
     34% {
         transform: translate(var(--dashboard-tile-shift, 0, 0)) scale(1.2);
         stroke-opacity: 0.76;
     }
+
     62% {
         transform: translate(0, 0) scale(0.92);
         stroke-opacity: 1;
@@ -1023,11 +1030,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-dashboard-fill-breathe {
+
     0%,
     100% {
         transform: scale(0.62);
         opacity: 0.08;
     }
+
     50% {
         transform: scale(1.12);
         opacity: 0.42;
@@ -1039,13 +1048,16 @@ html.dark * {
         stroke-dashoffset: 100;
         opacity: 0;
     }
+
     18% {
         opacity: 0.92;
     }
+
     54% {
         stroke-dashoffset: 0;
         opacity: 0.92;
     }
+
     100% {
         stroke-dashoffset: -100;
         opacity: 0;
@@ -1053,11 +1065,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-dashboard-pulse {
+
     0%,
     100% {
         transform: scale(0.65);
         opacity: 0.12;
     }
+
     48% {
         transform: scale(1.85);
         opacity: 0.72;
@@ -1069,13 +1083,16 @@ html.dark * {
         transform: translateX(-9px) skewX(-12deg);
         opacity: 0;
     }
+
     20% {
         opacity: 0.28;
     }
+
     56% {
         transform: translateX(27px) skewX(-12deg);
         opacity: 0.16;
     }
+
     100% {
         transform: translateX(35px) skewX(-12deg);
         opacity: 0;
@@ -1083,11 +1100,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-dashboard-outline-dash {
+
     0%,
     100% {
         stroke-dashoffset: 100;
         opacity: 0;
     }
+
     28%,
     70% {
         stroke-dashoffset: 0;
@@ -1100,13 +1119,16 @@ html.dark * {
         transform: translateY(-7px);
         opacity: 0;
     }
+
     16% {
         opacity: 0.22;
     }
+
     58% {
         transform: translateY(25px);
         opacity: 0.18;
     }
+
     100% {
         transform: translateY(31px);
         opacity: 0;
@@ -1114,19 +1136,23 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-dashboard-runner-route {
+
     0%,
     100% {
         transform: translate(0, 0) scale(0.75);
         opacity: 0.2;
     }
+
     24% {
         transform: translate(11px, 0) scale(1.3);
         opacity: 0.86;
     }
+
     50% {
         transform: translate(11px, 11px) scale(1.05);
         opacity: 0.58;
     }
+
     76% {
         transform: translate(0, 11px) scale(1.3);
         opacity: 0.86;
@@ -1134,31 +1160,37 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-scan-bracket-out {
+
     0%,
     100% {
         transform: translateX(0);
     }
+
     50% {
         transform: translateX(var(--scan-shift, 2px));
     }
 }
 
 @keyframes customer-sidebar-cal-top-bounce {
+
     0%,
     100% {
         transform: translateY(0);
     }
+
     45% {
         transform: translateY(-3px);
     }
 }
 
 @keyframes customer-sidebar-cal-dots-wave {
+
     0%,
     100% {
         transform: translateY(0);
         opacity: 1;
     }
+
     50% {
         transform: translateY(2px);
         opacity: 0.65;
@@ -1166,21 +1198,25 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-bookings-calendar-float {
+
     0%,
     100% {
         transform: rotate(-1deg) translateY(0) scale(1);
     }
+
     50% {
         transform: rotate(1.25deg) translateY(-1.25px) scale(1.015);
     }
 }
 
 @keyframes customer-sidebar-bookings-header-glide {
+
     0%,
     100% {
         transform: translateX(0);
         opacity: 1;
     }
+
     45% {
         transform: translateX(1.5px);
         opacity: 0.72;
@@ -1188,13 +1224,16 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-bookings-ring-spring {
+
     0%,
     100% {
         transform: translateY(0) scaleY(1);
     }
+
     38% {
         transform: translateY(-2.2px) scaleY(1.08);
     }
+
     70% {
         transform: translateY(0.7px) scaleY(0.96);
     }
@@ -1205,6 +1244,7 @@ html.dark * {
         transform: scaleX(0);
         opacity: 0;
     }
+
     100% {
         transform: scaleX(1);
         opacity: 0.72;
@@ -1212,11 +1252,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-bookings-dot-pop {
+
     0%,
     100% {
         transform: scale(0.72);
         opacity: 0.18;
     }
+
     45% {
         transform: scale(1.24);
         opacity: 0.72;
@@ -1228,13 +1270,16 @@ html.dark * {
         transform: translateX(-9px) skewX(-13deg);
         opacity: 0;
     }
+
     18% {
         opacity: 0.2;
     }
+
     54% {
         transform: translateX(25px) skewX(-13deg);
         opacity: 0.12;
     }
+
     100% {
         transform: translateX(33px) skewX(-13deg);
         opacity: 0;
@@ -1242,11 +1287,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-bookings-corner-lift {
+
     0%,
     100% {
         transform: translate(0, 0) scale(0.92);
         opacity: 0.12;
     }
+
     50% {
         transform: translate(-0.45px, -0.45px) scale(1);
         opacity: 0.38;
@@ -1254,23 +1301,28 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-tag-swing {
+
     0%,
     100% {
         transform: rotate(0deg);
     }
+
     35% {
         transform: rotate(-14deg);
     }
+
     70% {
         transform: rotate(8deg);
     }
 }
 
 @keyframes customer-sidebar-services-sway {
+
     0%,
     100% {
         transform: rotate(-7deg) translate(-0.3px, 0) scale(1);
     }
+
     50% {
         transform: rotate(7deg) translate(0.6px, -2px) scale(1.045);
     }
@@ -1281,13 +1333,16 @@ html.dark * {
         transform: translateX(-12px) skewX(-17deg);
         opacity: 0;
     }
+
     20% {
         opacity: 0.32;
     }
+
     55% {
         transform: translateX(28px) skewX(-17deg);
         opacity: 0.2;
     }
+
     100% {
         transform: translateX(37px) skewX(-17deg);
         opacity: 0;
@@ -1295,11 +1350,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-services-ring-pulse {
+
     0%,
     100% {
         transform: scale(1);
         stroke-opacity: 0.42;
     }
+
     50% {
         transform: scale(1.34);
         stroke-opacity: 0.9;
@@ -1307,11 +1364,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-services-hole-glow {
+
     0%,
     100% {
         transform: scale(1);
         opacity: 0.52;
     }
+
     50% {
         transform: scale(1.34);
         opacity: 1;
@@ -1319,11 +1378,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-services-sparkle-twinkle {
+
     0%,
     100% {
         transform: scale(0.58) rotate(0deg);
         opacity: 0.16;
     }
+
     50% {
         transform: scale(1.35) rotate(22deg);
         opacity: 0.9;
@@ -1335,6 +1396,7 @@ html.dark * {
         transform: scaleX(0);
         opacity: 0;
     }
+
     100% {
         transform: scaleX(1);
         opacity: 0.86;
@@ -1342,11 +1404,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-services-shadow-bloom {
+
     0%,
     100% {
         transform: scale(0.94);
         opacity: 0.02;
     }
+
     50% {
         transform: scale(1.12);
         opacity: 0.14;
@@ -1354,11 +1418,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-services-trail-slide {
+
     0%,
     100% {
         transform: translateX(-1.5px) scaleX(0.72);
         opacity: 0;
     }
+
     45% {
         transform: translateX(1px) scaleX(1);
         opacity: 0.42;
@@ -1366,11 +1432,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-services-dot-pop {
+
     0%,
     100% {
         transform: scale(0.66);
         opacity: 0.1;
     }
+
     50% {
         transform: scale(1.25);
         opacity: 0.72;
@@ -1378,10 +1446,12 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-route-pin-bounce {
+
     0%,
     100% {
         transform: translateY(0) scale(1);
     }
+
     50% {
         transform: translateY(-3px) scale(1.12);
     }
@@ -1392,6 +1462,7 @@ html.dark * {
     0% {
         stroke-dashoffset: 100;
     }
+
     100% {
         stroke-dashoffset: 0;
     }
@@ -1405,21 +1476,25 @@ html.dark * {
 
 
 @keyframes customer-sidebar-documents-stack-lift {
+
     0%,
     100% {
         transform: rotate(-3deg) translateY(0) scale(1);
     }
+
     50% {
         transform: rotate(3deg) translateY(-2px) scale(1.04);
     }
 }
 
 @keyframes customer-sidebar-documents-page-back-fan {
+
     0%,
     100% {
         transform: translate(0, 0) rotate(0deg);
         opacity: 0.06;
     }
+
     50% {
         transform: translate(var(--documents-page-x, 0.8px), var(--documents-page-y, -1.4px)) rotate(var(--documents-page-rotate, 2deg));
         opacity: 0.4;
@@ -1427,11 +1502,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-documents-fold-flip {
+
     0%,
     100% {
         transform: rotate(0deg) translate(0, 0);
         opacity: 0.72;
     }
+
     45% {
         transform: rotate(-10deg) translate(-0.45px, -0.45px);
         opacity: 1;
@@ -1443,6 +1520,7 @@ html.dark * {
         transform: scaleX(0);
         opacity: 0;
     }
+
     100% {
         transform: scaleX(1);
         opacity: 0.86;
@@ -1454,13 +1532,16 @@ html.dark * {
         transform: translateX(-10px) skewX(-14deg);
         opacity: 0;
     }
+
     18% {
         opacity: 0.28;
     }
+
     58% {
         transform: translateX(28px) skewX(-14deg);
         opacity: 0.18;
     }
+
     100% {
         transform: translateX(36px) skewX(-14deg);
         opacity: 0;
@@ -1468,11 +1549,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-documents-stamp-pop {
+
     0%,
     100% {
         transform: scale(0.62);
         opacity: 0.12;
     }
+
     50% {
         transform: scale(1.18);
         opacity: 0.72;
@@ -1480,11 +1563,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-documents-trail-slide {
+
     0%,
     100% {
         transform: translateX(-2px) scaleX(0.7);
         opacity: 0;
     }
+
     45% {
         transform: translateX(1px) scaleX(1);
         opacity: 0.46;
@@ -1492,11 +1577,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-documents-shadow-bloom {
+
     0%,
     100% {
         transform: scale(0.94);
         opacity: 0.02;
     }
+
     50% {
         transform: scale(1.12);
         opacity: 0.12;
@@ -1504,10 +1591,12 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-payments-float {
+
     0%,
     100% {
         transform: rotate(-4deg) translateY(0) scale(1);
     }
+
     50% {
         transform: rotate(3.5deg) translateY(-2px) scale(1.035);
     }
@@ -1525,6 +1614,7 @@ html.dark * {
         opacity: 0;
         fill-opacity: 0;
     }
+
     100% {
         transform: scale(1) translateY(0);
         opacity: 1;
@@ -1537,13 +1627,16 @@ html.dark * {
         transform: translateX(-10px) skewX(-14deg);
         opacity: 0;
     }
+
     18% {
         opacity: 0.28;
     }
+
     50% {
         transform: translateX(25px) skewX(-14deg);
         opacity: 0.18;
     }
+
     100% {
         transform: translateX(34px) skewX(-14deg);
         opacity: 0;
@@ -1551,11 +1644,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-payments-dot-pulse {
+
     0%,
     100% {
         transform: scale(0.72);
         opacity: 0.16;
     }
+
     50% {
         transform: scale(1.42);
         opacity: 0.82;
@@ -1563,11 +1658,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-payments-stack-lift {
+
     0%,
     100% {
         transform: translate(0, 0) rotate(0deg);
         opacity: 0.08;
     }
+
     50% {
         transform: translate(var(--payments-stack-shift-x, 0.8px), var(--payments-stack-shift-y, -1.2px)) rotate(var(--payments-stack-rotate, 1.5deg));
         opacity: 0.4;
@@ -1575,11 +1672,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-payments-shadow-bloom {
+
     0%,
     100% {
         transform: scale(0.94);
         opacity: 0.02;
     }
+
     50% {
         transform: scale(1.12);
         opacity: 0.12;
@@ -1587,11 +1686,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-payments-chip-grid {
+
     0%,
     100% {
         opacity: 0.12;
         transform: scale(0.88);
     }
+
     50% {
         opacity: 0.62;
         transform: scale(1);
@@ -1603,6 +1704,7 @@ html.dark * {
         transform: scaleX(0);
         opacity: 0;
     }
+
     100% {
         transform: scaleX(1);
         opacity: 0.58;
@@ -1610,11 +1712,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-payments-wave-ping {
+
     0%,
     100% {
         transform: translateX(-0.5px) scaleX(0.82);
         opacity: 0.08;
     }
+
     45% {
         transform: translateX(0.7px) scaleX(1.08);
         opacity: 0.48;
@@ -1626,13 +1730,16 @@ html.dark * {
         stroke-dashoffset: 100;
         opacity: 0;
     }
+
     18% {
         opacity: 0.5;
     }
+
     56% {
         stroke-dashoffset: 0;
         opacity: 0.5;
     }
+
     100% {
         stroke-dashoffset: -100;
         opacity: 0;
@@ -1640,21 +1747,25 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-rewards-star-float {
+
     0%,
     100% {
         transform: rotate(-4deg) translateY(0) scale(1);
     }
+
     50% {
         transform: rotate(5deg) translateY(-1.5px) scale(1.045);
     }
 }
 
 @keyframes customer-sidebar-rewards-glow-breathe {
+
     0%,
     100% {
         transform: scale(0.92);
         opacity: 0.08;
     }
+
     50% {
         transform: scale(1.18);
         opacity: 0.34;
@@ -1668,11 +1779,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-rewards-ring-pulse {
+
     0%,
     100% {
         stroke-dashoffset: 0;
         opacity: 0.18;
     }
+
     50% {
         stroke-dashoffset: -6;
         opacity: 0.46;
@@ -1684,13 +1797,16 @@ html.dark * {
         transform: translateX(-8px) skewX(-16deg);
         opacity: 0;
     }
+
     18% {
         opacity: 0.38;
     }
+
     56% {
         transform: translateX(25px) skewX(-16deg);
         opacity: 0.24;
     }
+
     100% {
         transform: translateX(33px) skewX(-16deg);
         opacity: 0;
@@ -1698,11 +1814,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-rewards-inner-breathe {
+
     0%,
     100% {
         transform: scale(0.86) rotate(0deg);
         opacity: 0.2;
     }
+
     50% {
         transform: scale(1.02) rotate(10deg);
         opacity: 0.58;
@@ -1710,11 +1828,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-rewards-dot-twinkle {
+
     0%,
     100% {
         transform: scale(0.78);
         opacity: 0.18;
     }
+
     50% {
         transform: scale(1.3);
         opacity: 0.85;
@@ -1722,11 +1842,13 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-rewards-sparkle-pop {
+
     0%,
     100% {
         transform: scale(0.62) rotate(0deg);
         opacity: 0.16;
     }
+
     45% {
         transform: scale(1.28) rotate(20deg);
         opacity: 0.92;
@@ -1734,24 +1856,29 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-star-pulse {
+
     0%,
     100% {
         transform: scale(1) rotate(0deg);
     }
+
     40% {
         transform: scale(1.18) rotate(12deg);
     }
+
     70% {
         transform: scale(0.96) rotate(-6deg);
     }
 }
 
 @keyframes customer-sidebar-sparkle-twinkle {
+
     0%,
     100% {
         transform: scale(1) rotate(0deg);
         opacity: 1;
     }
+
     50% {
         transform: scale(1.2) rotate(20deg);
         opacity: 0.75;
@@ -1759,20 +1886,24 @@ html.dark * {
 }
 
 @keyframes customer-sidebar-logout-arrow {
+
     0%,
     100% {
         transform: translateX(0);
     }
+
     55% {
         transform: translateX(3px);
     }
 }
 
 @keyframes customer-sidebar-chevron-slide {
+
     0%,
     100% {
         transform: translateX(0);
     }
+
     55% {
         transform: translateX(-3px);
     }
@@ -2741,6 +2872,7 @@ html.dark * {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon path,
     .customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon line,
     .customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon circle,
@@ -3316,7 +3448,7 @@ html.dark * {
 }
 
 /* Customer workspace pages inherit the shell width instead of retaining desktop caps. */
-.customer-dashboard-main > .customer-content-fade-in.max-w-\[1380px\],
+.customer-dashboard-main>.customer-content-fade-in.max-w-\[1380px\],
 .customer-dashboard-main .customer-payments {
     max-width: none;
 }
@@ -3330,7 +3462,7 @@ html.dark * {
     color: #0F172A;
 }
 
-.customer-dashboard-home > * + * {
+.customer-dashboard-home>*+* {
     margin-top: 1rem !important;
 }
 
@@ -3428,7 +3560,7 @@ html.dark * {
         linear-gradient(180deg, transparent, rgba(37, 99, 235, 0.018));
 }
 
-.customer-recommendation-card > div.relative {
+.customer-recommendation-card>div.relative {
     position: relative;
     z-index: 1;
 }
@@ -3527,6 +3659,7 @@ html.dark * {
 }
 
 @keyframes customerOverviewDotBreathe {
+
     0%,
     100% {
         box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12), 0 0 12px rgba(37, 99, 235, 0.34);
@@ -3851,6 +3984,7 @@ html.dark * {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .customer-overview-card,
     .customer-overview-card::after,
     .customer-overview-card:hover::after,
@@ -3927,7 +4061,7 @@ html.dark * {
     letter-spacing: -0.02em;
 }
 
-.customer-booking-alert h2 + p {
+.customer-booking-alert h2+p {
     max-width: 48rem;
     margin: 0.25rem 0 0;
     color: #7f4a54;
@@ -4125,6 +4259,7 @@ html.dark * {
     from {
         opacity: 0;
     }
+
     to {
         opacity: 1;
     }
@@ -4135,6 +4270,7 @@ html.dark * {
         opacity: 0;
         transform: translate3d(0, 10px, 0) scale(0.98);
     }
+
     to {
         opacity: 1;
         transform: translate3d(0, 0, 0) scale(1);
@@ -4142,6 +4278,7 @@ html.dark * {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .customer-modal-layer,
     .customer-modal-panel {
         animation: none !important;
@@ -4221,6 +4358,7 @@ html.dark * {
         opacity: 0.85;
         transform: scale(0.82);
     }
+
     100% {
         opacity: 0;
         transform: scale(1.55);
@@ -4231,6 +4369,7 @@ html.dark * {
     0% {
         background-position: 180% 50%, 0 0;
     }
+
     100% {
         background-position: -80% 50%, 0 0;
     }
@@ -4240,6 +4379,7 @@ html.dark * {
     0% {
         background-position: 0 0, 0 0;
     }
+
     100% {
         background-position: 44px 44px, 44px 44px;
     }
@@ -4250,6 +4390,7 @@ html.dark * {
         opacity: 0;
         transform: translateY(0.35rem);
     }
+
     100% {
         opacity: 1;
         transform: translateY(0);
@@ -4257,10 +4398,12 @@ html.dark * {
 }
 
 @keyframes customerLiveChipSheen {
+
     0%,
     54% {
         transform: translateX(-120%);
     }
+
     82%,
     100% {
         transform: translateX(120%);
@@ -4272,6 +4415,7 @@ html.dark * {
         opacity: 0;
         transform: translateY(0.7rem) scale(0.985);
     }
+
     100% {
         opacity: 1;
         transform: translateY(0) scale(1);
@@ -4284,10 +4428,12 @@ html.dark * {
         filter: saturate(0.82);
         transform: scale(0.96);
     }
+
     70% {
         filter: saturate(1.12);
         transform: scale(1.025);
     }
+
     100% {
         --customer-live-ring-angle: var(--tracker-progress-angle);
         filter: saturate(1);
@@ -4299,6 +4445,7 @@ html.dark * {
     0% {
         transform: rotate(0deg);
     }
+
     100% {
         transform: rotate(360deg);
     }
@@ -4309,10 +4456,12 @@ html.dark * {
         opacity: 0;
         transform: translateY(0.25rem) scale(0.84);
     }
+
     72% {
         opacity: 1;
         transform: translateY(0) scale(1.08);
     }
+
     100% {
         opacity: 1;
         transform: translateY(0) scale(1);
@@ -4320,20 +4469,24 @@ html.dark * {
 }
 
 @keyframes customerLiveNumberBreathe {
+
     0%,
     100% {
         text-shadow: 0 0 0 rgba(251, 191, 36, 0);
     }
+
     50% {
         text-shadow: 0 0 18px rgba(251, 191, 36, 0.22);
     }
 }
 
 @keyframes customerLiveNextGlow {
+
     0%,
     100% {
         box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.1);
     }
+
     50% {
         box-shadow: 0 0 0 0.22rem rgba(56, 189, 248, 0.08);
     }
@@ -4344,6 +4497,7 @@ html.dark * {
         opacity: 0;
         transform: translateX(-0.45rem);
     }
+
     100% {
         opacity: 1;
         transform: translateX(0);
@@ -4354,6 +4508,7 @@ html.dark * {
     0% {
         transform: translateX(-120%);
     }
+
     100% {
         transform: translateX(120%);
     }
@@ -4364,10 +4519,12 @@ html.dark * {
         opacity: 0;
         transform: scale(0.78);
     }
+
     68% {
         opacity: 1;
         transform: scale(1.08);
     }
+
     100% {
         opacity: 1;
         transform: scale(1);
@@ -4379,6 +4536,7 @@ html.dark * {
         opacity: 0.7;
         transform: scale(0.74);
     }
+
     100% {
         opacity: 0;
         transform: scale(1.55);
@@ -4386,11 +4544,13 @@ html.dark * {
 }
 
 @keyframes customerLiveActiveGlow {
+
     0%,
     100% {
         transform: scale(0.96);
         opacity: 0.58;
     }
+
     50% {
         transform: scale(1.08);
         opacity: 0.92;
@@ -4402,6 +4562,7 @@ html.dark * {
         opacity: 0;
         transform: translateY(0.35rem);
     }
+
     100% {
         opacity: 1;
         transform: translateY(0);
@@ -4413,6 +4574,7 @@ html.dark * {
         opacity: 0;
         transform: translateY(0.8rem) scale(0.985);
     }
+
     100% {
         opacity: 1;
         transform: translateY(0) scale(1);
@@ -4420,11 +4582,13 @@ html.dark * {
 }
 
 @keyframes customerLiveActiveCardBreath {
+
     0%,
     100% {
         border-color: rgba(251, 191, 36, 0.42);
         box-shadow: 0 16px 34px rgba(245, 158, 11, 0.12);
     }
+
     50% {
         border-color: rgba(251, 191, 36, 0.68);
         box-shadow:
@@ -4435,11 +4599,13 @@ html.dark * {
 
 /** Appointment Confirmed (sales-approved) — success green, not “in bay” amber */
 @keyframes customerLiveActiveCardBreathGreen {
+
     0%,
     100% {
         border-color: rgba(134, 239, 172, 0.42);
         box-shadow: 0 16px 34px rgba(34, 197, 94, 0.12);
     }
+
     50% {
         border-color: rgba(134, 239, 172, 0.72);
         box-shadow:
@@ -4449,11 +4615,13 @@ html.dark * {
 }
 
 @keyframes customerLiveIconLiveGreen {
+
     0%,
     100% {
         transform: scale(1);
         box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
     }
+
     50% {
         transform: scale(1.04);
         box-shadow: 0 0 0 0.22rem rgba(34, 197, 94, 0.1);
@@ -4461,10 +4629,12 @@ html.dark * {
 }
 
 @keyframes customerLiveCardSweep {
+
     0%,
     46% {
         transform: translateX(-120%);
     }
+
     82%,
     100% {
         transform: translateX(120%);
@@ -4472,11 +4642,13 @@ html.dark * {
 }
 
 @keyframes customerLiveIconLive {
+
     0%,
     100% {
         transform: scale(1);
         box-shadow: 0 0 0 0 rgba(251, 191, 36, 0);
     }
+
     50% {
         transform: scale(1.04);
         box-shadow: 0 0 0 0.22rem rgba(251, 191, 36, 0.08);
@@ -4488,6 +4660,7 @@ html.dark * {
         opacity: 0;
         transform: translateY(0.45rem);
     }
+
     100% {
         opacity: 1;
         transform: translateY(0);
@@ -4500,6 +4673,7 @@ html.dark * {
         transform: scale(1.06);
         filter: saturate(0.65);
     }
+
     100% {
         opacity: 1;
         transform: scale(1);
@@ -4508,10 +4682,12 @@ html.dark * {
 }
 
 @keyframes customerLivePhotoGlint {
+
     0%,
     58% {
         transform: translateX(-120%);
     }
+
     88%,
     100% {
         transform: translateX(120%);
@@ -4519,10 +4695,12 @@ html.dark * {
 }
 
 @keyframes customerLiveEvidenceScan {
+
     0%,
     38% {
         transform: translateY(-100%);
     }
+
     72%,
     100% {
         transform: translateY(100%);
@@ -4682,7 +4860,7 @@ html.dark * {
     pointer-events: none;
 }
 
-.customer-live-progress-ring > div {
+.customer-live-progress-ring>div {
     position: relative;
     z-index: 1;
     display: flex;
@@ -5118,7 +5296,7 @@ html.dark * {
     min-width: 0;
 }
 
-.customer-live-step-copy > div {
+.customer-live-step-copy>div {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -5280,7 +5458,7 @@ html.dark * {
     color: rgba(248, 250, 252, 0.96);
 }
 
-.customer-live-step--confirmation .customer-live-step-copy > div {
+.customer-live-step--confirmation .customer-live-step-copy>div {
     width: 100%;
 }
 
@@ -5580,6 +5758,7 @@ html.dark * {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .customer-live-tracker::before,
     .customer-live-tracker::after,
     .customer-live-dot::after,
@@ -5687,22 +5866,18 @@ html.dark * {
 }
 
 .booking-service-hint--amber {
-    background: linear-gradient(
-        135deg,
-        rgba(255, 251, 235, 0.95),
-        rgba(254, 243, 199, 0.45)
-    ) !important;
+    background: linear-gradient(135deg,
+            rgba(255, 251, 235, 0.95),
+            rgba(254, 243, 199, 0.45)) !important;
     box-shadow:
         0 4px 16px rgba(245, 158, 11, 0.08),
         0 10px 28px rgba(15, 23, 42, 0.05) !important;
 }
 
 .booking-service-hint--blue {
-    background: linear-gradient(
-        135deg,
-        rgba(239, 246, 255, 0.95),
-        rgba(219, 234, 254, 0.45)
-    ) !important;
+    background: linear-gradient(135deg,
+            rgba(239, 246, 255, 0.95),
+            rgba(219, 234, 254, 0.45)) !important;
     box-shadow:
         0 4px 16px rgba(37, 99, 235, 0.08),
         0 10px 28px rgba(15, 23, 42, 0.05) !important;
@@ -5885,12 +6060,10 @@ html.dark * {
 .booking-package-edge--right {
     right: 0;
     background:
-        linear-gradient(
-            90deg,
+        linear-gradient(90deg,
             rgb(255 255 255 / 0) 0%,
             rgb(239 246 255 / 0.58) 54%,
-            rgb(255 255 255 / 0.96) 100%
-        );
+            rgb(255 255 255 / 0.96) 100%);
 }
 
 .booking-package-edge--right::after {
@@ -5899,13 +6072,11 @@ html.dark * {
     inset: 12% 0.28rem 12% auto;
     width: 2px;
     border-radius: 999px;
-    background: linear-gradient(
-        180deg,
-        rgb(37 99 235 / 0),
-        rgb(96 165 250 / 0.72) 36%,
-        rgb(245 158 11 / 0.35) 72%,
-        rgb(245 158 11 / 0)
-    );
+    background: linear-gradient(180deg,
+            rgb(37 99 235 / 0),
+            rgb(96 165 250 / 0.72) 36%,
+            rgb(245 158 11 / 0.35) 72%,
+            rgb(245 158 11 / 0));
     box-shadow:
         0 0 16px rgb(37 99 235 / 0.3),
         -5px 0 22px rgb(147 197 253 / 0.16);
@@ -5919,20 +6090,20 @@ html.dark * {
     left: 0;
     width: 2.75rem;
     background:
-        linear-gradient(
-            90deg,
+        linear-gradient(90deg,
             rgb(255 255 255 / 0.94) 0%,
             rgb(239 246 255 / 0.44) 45%,
-            rgb(255 255 255 / 0) 100%
-        );
+            rgb(255 255 255 / 0) 100%);
 }
 
 @keyframes bookingPackageChevronGlide {
+
     0%,
     100% {
         transform: translateX(0);
         opacity: 0.72;
     }
+
     50% {
         transform: translateX(3px);
         opacity: 1;
@@ -5940,6 +6111,7 @@ html.dark * {
 }
 
 @keyframes bookingPackageEdgePulse {
+
     0%,
     100% {
         opacity: 0.56;
@@ -5948,6 +6120,7 @@ html.dark * {
             0 0 12px rgb(37 99 235 / 0.2),
             -5px 0 18px rgb(147 197 253 / 0.12);
     }
+
     50% {
         opacity: 1;
         transform: scaleY(1);
@@ -5985,6 +6158,7 @@ html.dark * {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .booking-package-scroll-hint iconify-icon,
     .booking-package-edge--right.is-emphasized::after {
         animation: none !important;
@@ -5996,6 +6170,7 @@ html.dark * {
 }
 
 @keyframes customer-services-premium-card-glow {
+
     0%,
     100% {
         box-shadow:
@@ -6003,6 +6178,7 @@ html.dark * {
             0 0 0 1px rgba(147, 197, 253, 0.55),
             0 0 0 6px rgba(219, 234, 254, 0.34);
     }
+
     50% {
         box-shadow:
             0 28px 72px -34px rgba(37, 99, 235, 0.62),
@@ -6016,13 +6192,16 @@ html.dark * {
         transform: translateX(-72%) skewX(-14deg);
         opacity: 0;
     }
+
     18% {
         opacity: 0.64;
     }
+
     48% {
         transform: translateX(78%) skewX(-14deg);
         opacity: 0.36;
     }
+
     100% {
         transform: translateX(118%) skewX(-14deg);
         opacity: 0;
@@ -6030,31 +6209,37 @@ html.dark * {
 }
 
 @keyframes customer-services-premium-badge {
+
     0%,
     100% {
         background-position: 0% 50%;
     }
+
     50% {
         background-position: 100% 50%;
     }
 }
 
 @keyframes customer-services-premium-price {
+
     0%,
     100% {
         text-shadow: 0 0 0 rgba(37, 99, 235, 0);
     }
+
     50% {
         text-shadow: 0 10px 28px rgba(37, 99, 235, 0.22);
     }
 }
 
 @keyframes customer-services-premium-check {
+
     0%,
     100% {
         transform: scale(1);
         box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.18);
     }
+
     50% {
         transform: scale(1.08);
         box-shadow: 0 0 0 5px rgba(37, 99, 235, 0);
@@ -6084,19 +6269,17 @@ html.dark * {
     inset: -16% -45%;
     z-index: 0;
     width: 54%;
-    background: linear-gradient(
-        90deg,
-        transparent 0%,
-        rgba(255, 255, 255, 0.2) 34%,
-        rgba(37, 99, 235, 0.14) 50%,
-        rgba(255, 255, 255, 0.34) 66%,
-        transparent 100%
-    );
+    background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.2) 34%,
+            rgba(37, 99, 235, 0.14) 50%,
+            rgba(255, 255, 255, 0.34) 66%,
+            transparent 100%);
     pointer-events: none;
     animation: customer-services-premium-sweep 5.6s ease-in-out infinite;
 }
 
-.customer-services-premium-card > * {
+.customer-services-premium-card>* {
     position: relative;
     z-index: 1;
 }
@@ -6152,6 +6335,7 @@ html.dark * {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .customer-services-premium-card,
     .customer-services-premium-card::after,
     .customer-services-premium-badge,
@@ -6374,11 +6558,9 @@ html.dark * {
     border: none !important;
     outline: none !important;
     background-color: rgba(255, 255, 255, 0.45) !important;
-    background-image: linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.62) 0%,
-        rgba(255, 255, 255, 0.38) 100%
-    ) !important;
+    background-image: linear-gradient(180deg,
+            rgba(255, 255, 255, 0.62) 0%,
+            rgba(255, 255, 255, 0.38) 100%) !important;
     backdrop-filter: blur(22px) saturate(185%) !important;
     -webkit-backdrop-filter: blur(22px) saturate(185%) !important;
     box-shadow:
@@ -6514,7 +6696,7 @@ html.dark * {
     font-weight: 760 !important;
 }
 
-.customer-add-vehicle-modal .customer-vehicle-header > button {
+.customer-add-vehicle-modal .customer-vehicle-header>button {
     border: 1px solid #e5e7eb !important;
     border-radius: 12px !important;
     background: #ffffff !important;
@@ -6530,7 +6712,7 @@ html.dark * {
     background: #faf9f6 !important;
 }
 
-.customer-add-vehicle-modal .customer-vehicle-form > :not([hidden]) ~ :not([hidden]) {
+.customer-add-vehicle-modal .customer-vehicle-form> :not([hidden])~ :not([hidden]) {
     margin-top: 0 !important;
 }
 
@@ -6704,7 +6886,7 @@ html.dark * {
     background: linear-gradient(90deg, rgba(203, 213, 225, 0.62), transparent 90%);
 }
 
-.customer-add-vehicle-modal .customer-vehicle-section-label--concierge > div:last-child {
+.customer-add-vehicle-modal .customer-vehicle-section-label--concierge>div:last-child {
     min-width: 0;
 }
 
@@ -6805,11 +6987,11 @@ html.dark * {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94) !important;
 }
 
-.customer-add-vehicle-modal .customer-vehicle-pricing-panel > div:first-child {
+.customer-add-vehicle-modal .customer-vehicle-pricing-panel>div:first-child {
     margin-bottom: 0.5rem !important;
 }
 
-.customer-add-vehicle-modal .customer-vehicle-pricing-panel > p:last-child {
+.customer-add-vehicle-modal .customer-vehicle-pricing-panel>p:last-child {
     margin-top: 0.5rem !important;
 }
 
@@ -6840,7 +7022,7 @@ html.dark * {
     box-shadow: none !important;
 }
 
-.customer-add-vehicle-modal .customer-vehicle-footer-hint > div:first-child {
+.customer-add-vehicle-modal .customer-vehicle-footer-hint>div:first-child {
     width: 30px !important;
     height: 30px !important;
     border-radius: 10px !important;
@@ -6947,7 +7129,7 @@ html.dark * {
         linear-gradient(135deg, rgba(255, 255, 255, 0.32), transparent 44%);
 }
 
-.customer-garage-empty-state > * {
+.customer-garage-empty-state>* {
     position: relative;
     z-index: 1;
 }
@@ -6961,8 +7143,8 @@ html.dark * {
     border: 1px solid color-mix(in srgb, var(--vehicle-accent-border, #94a3b8) 20%, #e5e2dc) !important;
     border-radius: 20px !important;
     background: linear-gradient(145deg,
-        color-mix(in srgb, var(--vehicle-card-tint, #fffefa) 68%, #ffffff),
-        color-mix(in srgb, var(--vehicle-card-tint, #fffefa) 42%, #fffefa)) !important;
+            color-mix(in srgb, var(--vehicle-card-tint, #fffefa) 68%, #ffffff),
+            color-mix(in srgb, var(--vehicle-card-tint, #fffefa) 42%, #fffefa)) !important;
     box-shadow:
         0 18px 38px -34px rgba(15, 23, 42, 0.4),
         0 2px 8px -7px rgba(15, 23, 42, 0.12) !important;
@@ -6989,8 +7171,8 @@ html.dark * {
     overflow: hidden;
     border-radius: inherit;
     background: linear-gradient(155deg,
-        color-mix(in srgb, var(--vehicle-card-tint, #fffefa) 58%, #ffffff),
-        color-mix(in srgb, var(--vehicle-card-tint, #fffefa) 32%, #fffefa)) !important;
+            color-mix(in srgb, var(--vehicle-card-tint, #fffefa) 58%, #ffffff),
+            color-mix(in srgb, var(--vehicle-card-tint, #fffefa) 32%, #fffefa)) !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -7054,8 +7236,8 @@ html.dark * {
         border-color 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-.customer-garage-card-banner > .absolute.-top-6,
-.customer-garage-card-banner > .absolute.-bottom-8 {
+.customer-garage-card-banner>.absolute.-top-6,
+.customer-garage-card-banner>.absolute.-bottom-8 {
     opacity: var(--vehicle-decoration-opacity, 0.08) !important;
 }
 
@@ -7084,15 +7266,15 @@ html.dark * {
     transform: translate(-50%, -50%);
 }
 
-.customer-garage-vehicle-visual > * {
+.customer-garage-vehicle-visual>* {
     position: relative;
     z-index: 1;
 }
 
 .customer-garage-card-body {
     background: linear-gradient(180deg,
-        color-mix(in srgb, var(--vehicle-card-tint, #fffefa) 46%, rgba(255, 255, 255, 0.96)),
-        color-mix(in srgb, var(--vehicle-card-tint, #fffefa) 24%, #fffefa)) !important;
+            color-mix(in srgb, var(--vehicle-card-tint, #fffefa) 46%, rgba(255, 255, 255, 0.96)),
+            color-mix(in srgb, var(--vehicle-card-tint, #fffefa) 24%, #fffefa)) !important;
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.84),
         inset 0 18px 32px -34px rgba(15, 23, 42, 0.22);
@@ -7200,9 +7382,11 @@ html.dark * {
     0% {
         box-shadow: 0 0 0 2.5px rgba(59, 130, 246, 0.55), 0 20px 44px -20px rgba(37, 99, 235, 0.4);
     }
+
     40% {
         box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35), 0 20px 42px -20px rgba(37, 99, 235, 0.25);
     }
+
     100% {
         box-shadow: 0 18px 38px -34px rgba(15, 23, 42, 0.4), 0 2px 8px -7px rgba(15, 23, 42, 0.12);
     }
@@ -7217,10 +7401,12 @@ html.dark * {
         transform: scale(0.99);
         box-shadow: 0 0 0 2.5px rgba(16, 185, 129, 0.5), 0 16px 36px -18px rgba(16, 185, 129, 0.35);
     }
+
     45% {
         transform: scale(1.006);
         box-shadow: 0 0 0 1.5px rgba(16, 185, 129, 0.3), 0 16px 36px -20px rgba(16, 185, 129, 0.2);
     }
+
     100% {
         transform: scale(1);
         box-shadow: 0 18px 38px -34px rgba(15, 23, 42, 0.4), 0 2px 8px -7px rgba(15, 23, 42, 0.12);
@@ -7243,6 +7429,7 @@ html.dark * {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .customer-garage-card,
     .customer-garage-card-frame,
     .customer-garage-card-banner,
@@ -7456,35 +7643,87 @@ html.dark * {
 
 /* ── Keyframes ─────────────────────────────────────── */
 @keyframes sales-row-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
+
 @keyframes sales-fade-up {
-    from { opacity: 0; transform: translateY(12px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
+
 @keyframes sales-slide-right {
-    from { transform: scaleX(0); opacity: 0; }
-    to   { transform: scaleX(1); opacity: 1; }
+    from {
+        transform: scaleX(0);
+        opacity: 0;
+    }
+
+    to {
+        transform: scaleX(1);
+        opacity: 1;
+    }
 }
+
 @keyframes sales-card-in {
-    from { opacity: 0; transform: translateY(16px) scale(0.98); }
-    to   { opacity: 1; transform: translateY(0)   scale(1); }
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
 }
+
 @keyframes sales-badge-pop {
-    0%   { transform: scale(1); }
-    40%  { transform: scale(1.06); }
-    100% { transform: scale(1); }
+    0% {
+        transform: scale(1);
+    }
+
+    40% {
+        transform: scale(1.06);
+    }
+
+    100% {
+        transform: scale(1);
+    }
 }
 
 /* ── Stat cards — staggered entrance ─────────────────── */
 .sales-layout .stat-card-animate {
     animation: sales-card-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-.sales-layout .stat-card-animate:nth-child(1) { animation-delay: 0.05s; }
-.sales-layout .stat-card-animate:nth-child(2) { animation-delay: 0.10s; }
-.sales-layout .stat-card-animate:nth-child(3) { animation-delay: 0.15s; }
-.sales-layout .stat-card-animate:nth-child(4) { animation-delay: 0.20s; }
+
+.sales-layout .stat-card-animate:nth-child(1) {
+    animation-delay: 0.05s;
+}
+
+.sales-layout .stat-card-animate:nth-child(2) {
+    animation-delay: 0.10s;
+}
+
+.sales-layout .stat-card-animate:nth-child(3) {
+    animation-delay: 0.15s;
+}
+
+.sales-layout .stat-card-animate:nth-child(4) {
+    animation-delay: 0.20s;
+}
 
 /* ── Table row stagger ────────────────────────────────── */
 /* NOTE: <tr> does NOT support position:relative or ::before in browsers.
@@ -7495,23 +7734,54 @@ html.dark * {
         background-color 0.18s ease,
         box-shadow 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
+
 /* Stagger delays for rows */
-.sales-layout .txn-row:nth-child(1)  { animation-delay: 0.04s; }
-.sales-layout .txn-row:nth-child(2)  { animation-delay: 0.07s; }
-.sales-layout .txn-row:nth-child(3)  { animation-delay: 0.10s; }
-.sales-layout .txn-row:nth-child(4)  { animation-delay: 0.13s; }
-.sales-layout .txn-row:nth-child(5)  { animation-delay: 0.16s; }
-.sales-layout .txn-row:nth-child(6)  { animation-delay: 0.19s; }
-.sales-layout .txn-row:nth-child(7)  { animation-delay: 0.22s; }
-.sales-layout .txn-row:nth-child(8)  { animation-delay: 0.25s; }
-.sales-layout .txn-row:nth-child(9)  { animation-delay: 0.28s; }
-.sales-layout .txn-row:nth-child(10) { animation-delay: 0.31s; }
+.sales-layout .txn-row:nth-child(1) {
+    animation-delay: 0.04s;
+}
+
+.sales-layout .txn-row:nth-child(2) {
+    animation-delay: 0.07s;
+}
+
+.sales-layout .txn-row:nth-child(3) {
+    animation-delay: 0.10s;
+}
+
+.sales-layout .txn-row:nth-child(4) {
+    animation-delay: 0.13s;
+}
+
+.sales-layout .txn-row:nth-child(5) {
+    animation-delay: 0.16s;
+}
+
+.sales-layout .txn-row:nth-child(6) {
+    animation-delay: 0.19s;
+}
+
+.sales-layout .txn-row:nth-child(7) {
+    animation-delay: 0.22s;
+}
+
+.sales-layout .txn-row:nth-child(8) {
+    animation-delay: 0.25s;
+}
+
+.sales-layout .txn-row:nth-child(9) {
+    animation-delay: 0.28s;
+}
+
+.sales-layout .txn-row:nth-child(10) {
+    animation-delay: 0.31s;
+}
 
 /* ── Row hover — soft tint + subtle left rail (SaaS-style) ─ */
 .sales-layout .txn-row:hover {
     background-color: rgba(248, 250, 252, 0.98) !important;
     box-shadow: inset 2px 0 0 rgba(59, 130, 246, 0.22);
 }
+
 .sales-layout .txn-row.bg-blue-50\/40:hover {
     background-color: rgba(239, 246, 255, 0.92) !important;
     box-shadow: inset 2px 0 0 rgba(29, 78, 216, 0.35);
@@ -7524,17 +7794,20 @@ html.dark * {
     display: inline-flex;
     align-items: center;
 }
+
 .sales-layout .pm-badge:hover {
     box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
-    transform: none; /* keep table layout stable */
+    transform: none;
+    /* keep table layout stable */
 }
 
 /* ── Sidebar nav item hover ──────────────────────────── */
 .sales-layout .nav-item {
     transition: background-color 0.15s cubic-bezier(0.22, 1, 0.36, 1),
-                color 0.15s ease,
-                transform 0.15s cubic-bezier(0.22, 1, 0.36, 1);
+        color 0.15s ease,
+        transform 0.15s cubic-bezier(0.22, 1, 0.36, 1);
 }
+
 .sales-layout .nav-item:hover {
     transform: translateX(2px);
 }
@@ -7547,10 +7820,11 @@ html.dark * {
 /* ── Action button hover ─────────────────────────────── */
 .sales-layout .action-btn {
     transition: background-color 0.15s ease,
-                color 0.15s ease,
-                transform 0.15s cubic-bezier(0.22, 1, 0.36, 1),
-                box-shadow 0.15s ease;
+        color 0.15s ease,
+        transform 0.15s cubic-bezier(0.22, 1, 0.36, 1),
+        box-shadow 0.15s ease;
 }
+
 .sales-layout .action-btn:hover {
     transform: scale(1.05);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
@@ -7564,11 +7838,13 @@ html.dark * {
     cursor: pointer;
     transition: background-color 0.15s ease, color 0.15s ease;
 }
+
 .sales-layout .txn-row-icon-btn:hover,
 .sales-layout .txn-row-icon-btn:focus {
     transform: none;
     box-shadow: none;
 }
+
 .sales-layout .txn-row-icon-btn:focus-visible {
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.28);
     outline: none;
@@ -7584,22 +7860,26 @@ html.dark * {
 .sales-layout [class*="border-slate-200"] {
     border-color: rgba(226, 232, 240, 0.70) !important;
 }
+
 /* All border-slate-100 → near-invisible */
 .sales-layout .border-slate-100,
 .sales-layout [class*="border-slate-100"] {
     border-color: rgba(241, 245, 249, 0.7) !important;
 }
+
 /* All shadow-sm → layered ambient shadow (no hard outline) */
 .sales-layout .shadow-sm {
     box-shadow:
         0 1px 2px rgba(0, 0, 0, 0.03),
         0 4px 14px -3px rgba(0, 0, 0, 0.06) !important;
 }
+
 /* Divide lines */
-.sales-layout .divide-y > * + * {
+.sales-layout .divide-y>*+* {
     border-top-color: rgba(226, 232, 240, 0.4) !important;
 }
-.sales-layout .divide-slate-50 > * + * {
+
+.sales-layout .divide-slate-50>*+* {
     border-top-color: rgba(248, 250, 252, 0.8) !important;
 }
 
@@ -7610,17 +7890,21 @@ html.dark * {
         0 18px 42px rgba(15, 23, 42, 0.055),
         0 1px 0 rgba(255, 255, 255, 0.9) inset !important;
 }
+
 .sales-layout .pos-service-cart-header,
 .sales-layout .pos-service-cart-added,
 .sales-layout .pos-service-catalog-meta {
     border-color: rgba(226, 232, 240, 0.56) !important;
 }
+
 .sales-layout .pos-service-row {
     border-color: rgba(203, 213, 225, 0.48) !important;
 }
+
 .sales-layout .pos-service-row:hover {
     border-color: rgba(147, 197, 253, 0.58) !important;
 }
+
 .sales-layout .pos-service-list {
     background:
         linear-gradient(180deg, rgba(248, 250, 252, 0.84), rgba(255, 255, 255, 0.94)) !important;
@@ -7635,20 +7919,24 @@ html.dark * {
         0 18px 42px rgba(15, 23, 42, 0.052),
         0 1px 0 rgba(255, 255, 255, 0.88) inset !important;
 }
+
 .sales-layout .booking-approvals-header {
     background:
         radial-gradient(circle at top right, rgba(37, 99, 235, 0.1), transparent 34%),
         radial-gradient(circle at bottom left, rgba(16, 185, 129, 0.08), transparent 30%),
         linear-gradient(180deg, #ffffff, #f8fafc) !important;
 }
+
 .sales-layout .booking-approvals-content {
     background:
         linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.98)) !important;
 }
+
 .sales-layout .booking-approval-stat {
     border-color: rgba(203, 213, 225, 0.36) !important;
     box-shadow: 0 8px 22px rgba(15, 23, 42, 0.035) !important;
 }
+
 .sales-layout .booking-approval-card,
 .sales-layout .booking-approval-history-row {
     border-color: rgba(203, 213, 225, 0.34) !important;
@@ -7656,6 +7944,7 @@ html.dark * {
         0 12px 30px rgba(15, 23, 42, 0.045),
         0 1px 0 rgba(255, 255, 255, 0.9) inset !important;
 }
+
 .sales-layout .booking-approval-card:hover,
 .sales-layout .booking-approval-history-row:hover {
     border-color: rgba(147, 197, 253, 0.5) !important;
@@ -7663,9 +7952,11 @@ html.dark * {
         0 16px 34px rgba(15, 23, 42, 0.06),
         0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
 }
+
 .sales-layout .booking-approval-detail {
     border-color: rgba(226, 232, 240, 0.7) !important;
 }
+
 .sales-layout .booking-payment-ledger,
 .sales-layout .booking-proof-rail,
 .sales-layout .booking-approval-action-bar {
@@ -7674,32 +7965,39 @@ html.dark * {
         0 14px 28px rgba(15, 23, 42, 0.045),
         0 1px 0 rgba(255, 255, 255, 0.94) inset !important;
 }
+
 .sales-layout .booking-payment-ledger {
     background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.98)) !important;
 }
+
 .sales-layout .booking-proof-rail {
     background:
         radial-gradient(circle at top, rgba(239, 246, 255, 0.86), transparent 46%),
         linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.98)) !important;
 }
+
 .sales-layout .booking-approval-action-bar {
     background: rgba(255, 255, 255, 0.94) !important;
     backdrop-filter: blur(10px);
 }
+
 .sales-layout .booking-approvals-empty {
     border-color: rgba(226, 232, 240, 0.64) !important;
     background:
         radial-gradient(circle at top, rgba(219, 234, 254, 0.32), transparent 42%),
         linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.96)) !important;
 }
+
 /* Rounded panels — upgrade to rounder corners */
 .sales-layout .rounded-xl {
     border-radius: 1rem !important;
 }
+
 .sales-layout .rounded-2xl {
     border-radius: 1.125rem !important;
 }
+
 /* Input borders — excludes checkboxes */
 .sales-layout input:not([type="checkbox"]),
 .sales-layout textarea,
@@ -7707,6 +8005,7 @@ html.dark * {
     border-color: rgba(226, 232, 240, 0.6) !important;
     transition: border-color 0.15s, box-shadow 0.15s !important;
 }
+
 .sales-layout input:not([type="checkbox"]):focus,
 .sales-layout textarea:focus,
 .sales-layout select:focus {
@@ -7724,7 +8023,8 @@ html.dark * {
     width: 16px;
     height: 16px;
     min-width: 16px;
-    border: 1.5px solid rgba(203, 213, 225, 0.9);   /* slate-300 at 90% */
+    border: 1.5px solid rgba(203, 213, 225, 0.9);
+    /* slate-300 at 90% */
     border-radius: 50%;
     background-color: #ffffff;
     cursor: pointer;
@@ -7738,15 +8038,18 @@ html.dark * {
     justify-content: center;
     vertical-align: middle;
 }
+
 .sales-layout input[type="checkbox"]:hover {
     border-color: #2563eb;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.10);
 }
+
 .sales-layout input[type="checkbox"]:checked {
     background-color: #1d4ed8;
     border-color: #1d4ed8;
     box-shadow: 0 1px 4px rgba(29, 78, 216, 0.30);
 }
+
 /* Checkmark via ::after */
 .sales-layout input[type="checkbox"]:checked::after {
     content: '';
@@ -7761,11 +8064,13 @@ html.dark * {
     transform: rotate(42deg);
     border-radius: 1px;
 }
+
 /* Indeterminate (select-all partial) */
 .sales-layout input[type="checkbox"]:indeterminate {
     background-color: #dbeafe;
     border-color: #2563eb;
 }
+
 .sales-layout input[type="checkbox"]:indeterminate::after {
     content: '';
     position: absolute;
@@ -7776,6 +8081,7 @@ html.dark * {
     background-color: #1d4ed8;
     border-radius: 1px;
 }
+
 .sales-layout input[type="checkbox"]:focus {
     outline: none;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
@@ -7792,8 +8098,9 @@ html.dark * {
         0 4px 16px -4px rgba(15, 23, 42, 0.07),
         0 12px 40px -12px rgba(15, 23, 42, 0.06);
     transition: box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1),
-                transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+        transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
 }
+
 .card-base:hover {
     box-shadow:
         0 2px 4px rgba(15, 23, 42, 0.05),
@@ -7801,6 +8108,7 @@ html.dark * {
         0 20px 48px -16px rgba(15, 23, 42, 0.08);
     transform: translateY(-1px);
 }
+
 /* POS panels: disable hover lift to prevent jitter */
 .sales-layout .pos-panel.card-base:hover {
     transform: none;
@@ -7826,8 +8134,14 @@ html.dark * {
     cursor: pointer;
     transition: background-color 0.15s, transform 0.15s;
 }
-.btn-primary:hover { background-color: #1e40af; }
-.btn-primary:active { transform: scale(0.97); }
+
+.btn-primary:hover {
+    background-color: #1e40af;
+}
+
+.btn-primary:active {
+    transform: scale(0.97);
+}
 
 .btn-secondary {
     display: inline-flex;
@@ -7843,8 +8157,14 @@ html.dark * {
     cursor: pointer;
     transition: background-color 0.15s, transform 0.15s;
 }
-.btn-secondary:hover { background-color: #f8fafc; }
-.btn-secondary:active { transform: scale(0.97); }
+
+.btn-secondary:hover {
+    background-color: #f8fafc;
+}
+
+.btn-secondary:active {
+    transform: scale(0.97);
+}
 
 /* Input */
 .input-base {
@@ -7859,7 +8179,11 @@ html.dark * {
     transition: border-color 0.15s, box-shadow 0.15s;
     outline: none;
 }
-.input-base::placeholder { color: #94a3b8; }
+
+.input-base::placeholder {
+    color: #94a3b8;
+}
+
 .input-base:focus {
     border-color: #2563eb;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
@@ -7944,9 +8268,20 @@ html.dark * {
     scrollbar-width: thin;
     scrollbar-color: #e2e8f0 transparent;
 }
-.scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
-.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-.scrollbar-thin::-webkit-scrollbar-thumb { background-color: #e2e8f0; border-radius: 3px; }
+
+.scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #e2e8f0;
+    border-radius: 3px;
+}
 
 /* Public navbar: transparent hero mode plus full-width glass mode */
 .public-glass-nav-backdrop {
@@ -8201,15 +8536,34 @@ a.public-nav-link.public-nav-link--active {
 
 /* Slide-up animation for sales modals */
 @keyframes sales-fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
 }
+
 @keyframes sales-slide-up {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
-.animate-fade-in { animation: sales-fade-in 0.15s ease-out forwards; }
-.animate-slide-up { animation: sales-slide-up 0.2s ease-out forwards; }
+
+.animate-fade-in {
+    animation: sales-fade-in 0.15s ease-out forwards;
+}
+
+.animate-slide-up {
+    animation: sales-slide-up 0.2s ease-out forwards;
+}
 
 /* ── Sidebar link classes (used by SalesSidebar / Topbar dropdowns) ── */
 .sidebar-link {
@@ -8225,6 +8579,7 @@ a.public-nav-link.public-nav-link--active {
     transition: background-color 0.15s, color 0.15s;
     cursor: pointer;
 }
+
 .sidebar-link:hover {
     background-color: #f1f5f9;
     color: #0f172a;
@@ -8310,10 +8665,8 @@ a.public-nav-link.public-nav-link--active {
         inset 0 1px 0 rgb(255 255 255 / 0.88) !important;
 }
 
-.customer-booking-modal .booking-step2 :is(
-        input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
-        select
-    ) {
+.customer-booking-modal .booking-step2 :is(input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+    select) {
     border-radius: var(--booking-field-radius) !important;
     border-color: rgb(226 232 240 / 0.82) !important;
     box-shadow:
@@ -8378,7 +8731,8 @@ a.public-nav-link.public-nav-link--active {
 }
 
 .customer-booking-modal--schedule {
-    --booking-step3-content-max: 51.25rem; /* 820px — single-column schedule stack */
+    --booking-step3-content-max: 51.25rem;
+    /* 820px — single-column schedule stack */
     --booking-step3-body-pad-bottom: 1.5rem;
 }
 
@@ -8397,6 +8751,7 @@ a.public-nav-link.public-nav-link--active {
 }
 
 @media (min-width: 640px) {
+
     .customer-booking-modal--schedule .booking-body,
     .customer-booking-modal .booking-body--schedule {
         padding-left: 2rem;
@@ -8615,7 +8970,7 @@ a.public-nav-link.public-nav-link--active {
     line-height: 1.12;
 }
 
-.customer-booking-modal .booking-step3-selected-panel > span:last-child {
+.customer-booking-modal .booking-step3-selected-panel>span:last-child {
     margin-top: 0;
     color: #5b76a5;
     font-size: 0.78rem;
@@ -9614,14 +9969,17 @@ a.public-nav-link.public-nav-link--active {
 }
 
 @keyframes customerBookingStep3ExecutiveSheen {
+
     0%,
     58% {
         transform: translateX(0) skewX(-18deg);
         opacity: 0;
     }
+
     72% {
         opacity: 0.68;
     }
+
     100% {
         transform: translateX(520%) skewX(-18deg);
         opacity: 0;
@@ -9629,11 +9987,13 @@ a.public-nav-link.public-nav-link--active {
 }
 
 @keyframes customerBookingStep3HeroSweep {
+
     0%,
     100% {
         transform: translateX(-45%);
         opacity: 0.45;
     }
+
     50% {
         transform: translateX(45%);
         opacity: 0.9;
@@ -9645,9 +10005,11 @@ a.public-nav-link.public-nav-link--active {
         transform: translateX(-18%);
         width: 24%;
     }
+
     48% {
         width: 62%;
     }
+
     100% {
         transform: translateX(260%);
         width: 24%;
@@ -9655,6 +10017,7 @@ a.public-nav-link.public-nav-link--active {
 }
 
 @keyframes customerBookingStep3DotBreathe {
+
     0%,
     100% {
         transform: scale(1);
@@ -9662,6 +10025,7 @@ a.public-nav-link.public-nav-link--active {
             0 0 0 4px rgb(16 185 129 / 0.12),
             0 8px 14px -8px rgb(16 185 129 / 0.72);
     }
+
     50% {
         transform: scale(1.18);
         box-shadow:
@@ -9675,6 +10039,7 @@ a.public-nav-link.public-nav-link--active {
         opacity: 0.42;
         transform: scale(0.42);
     }
+
     74%,
     100% {
         opacity: 0;
@@ -9683,12 +10048,14 @@ a.public-nav-link.public-nav-link--active {
 }
 
 @keyframes customerBookingStep3SelectedGlow {
+
     0%,
     100% {
         box-shadow:
             0 16px 30px -18px rgb(37 99 235 / 0.76),
             inset 0 1px 0 rgb(255 255 255 / 0.18);
     }
+
     50% {
         box-shadow:
             0 18px 34px -16px rgb(14 165 233 / 0.82),
@@ -9697,11 +10064,13 @@ a.public-nav-link.public-nav-link--active {
 }
 
 @keyframes customerBookingStep3VerifiedPulse {
+
     0%,
     100% {
         transform: scale(1);
         filter: drop-shadow(0 0 0 rgb(14 165 233 / 0));
     }
+
     50% {
         transform: scale(1.08);
         filter: drop-shadow(0 5px 12px rgb(14 165 233 / 0.28));
@@ -9709,10 +10078,12 @@ a.public-nav-link.public-nav-link--active {
 }
 
 @keyframes customerBookingStep3SlotPulse {
+
     0%,
     100% {
         filter: saturate(1);
     }
+
     50% {
         filter: saturate(1.35) brightness(1.04);
     }
@@ -9722,12 +10093,14 @@ a.public-nav-link.public-nav-link--active {
     0% {
         background-position: 120% 0;
     }
+
     100% {
         background-position: -120% 0;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .customer-booking-modal .booking-step3-hero::after,
     .customer-booking-modal .booking-step3-live-rail span,
     .customer-booking-modal .booking-step3-hero.is-ready .booking-step3-selected-panel iconify-icon,
@@ -10592,6 +10965,7 @@ a.public-nav-link.public-nav-link--active {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .customer-skeleton,
     .customer-content-fade-in {
         animation: none;
@@ -10600,6 +10974,7 @@ a.public-nav-link.public-nav-link--active {
 }
 
 @media (max-width: 640px) {
+
     .customer-booking-modal .booking-step6-hero,
     .customer-booking-modal .booking-step6-section-head {
         flex-direction: column;
@@ -11335,7 +11710,7 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     filter: saturate(0.68);
 }
 
-.ppf-terms-dialog > button[class*='absolute'] {
+.ppf-terms-dialog>button[class*='absolute'] {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -11357,7 +11732,7 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
 }
 
-.ppf-terms-dialog > button[class*='absolute']:hover {
+.ppf-terms-dialog>button[class*='absolute']:hover {
     transform: translateY(-1px);
     border-color: rgba(196, 165, 116, 0.26);
     background: rgba(33, 29, 25, 0.72);
@@ -11367,7 +11742,7 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
         0 14px 32px -18px rgba(0, 0, 0, 0.82);
 }
 
-.ppf-terms-dialog > button[class*='absolute']:focus-visible {
+.ppf-terms-dialog>button[class*='absolute']:focus-visible {
     outline: none;
     box-shadow:
         0 0 0 3px rgba(235, 213, 181, 0.22),
@@ -11375,14 +11750,14 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
         0 14px 32px -18px rgba(0, 0, 0, 0.82);
 }
 
-.ppf-terms-dialog > button[class*='absolute'] svg {
+.ppf-terms-dialog>button[class*='absolute'] svg {
     width: 1.0625rem;
     height: 1.0625rem;
     stroke-width: 2;
 }
 
 @media (min-width: 640px) {
-    .ppf-terms-dialog > button[class*='absolute'] {
+    .ppf-terms-dialog>button[class*='absolute'] {
         right: 1.35rem;
         top: 1.35rem;
     }
@@ -11650,7 +12025,7 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     box-shadow: none;
 }
 
-.auth-login-card > * {
+.auth-login-card>* {
     position: relative;
     z-index: 1;
 }
@@ -11939,7 +12314,10 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
 }
 
 @keyframes authDotPulse {
-    0%, 80%, 100% {
+
+    0%,
+    80%,
+    100% {
         opacity: 0.35;
         transform: translateY(0);
     }

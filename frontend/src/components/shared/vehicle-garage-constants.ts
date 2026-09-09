@@ -145,6 +145,12 @@ export type VehicleGarageFormValues = {
   segment?: string;
   recommendedServiceCategory?: string;
   classificationStatus?: 'loading' | 'classified' | 'review_required' | 'unavailable';
+  classificationOptions?: Array<{ code: VehiclePricingCategory; label: string }>;
+  validClassifications?: string[];
+  validPricingCategories?: VehiclePricingCategory[];
+  classificationVerified?: boolean;
+  requiresClassificationSelection?: boolean;
+  classificationRequiresReview?: boolean;
 };
 
 export const emptyVehicleGarageForm = (): VehicleGarageFormValues => ({
@@ -178,8 +184,11 @@ export function validateVehicleGarageForm(v: VehicleGarageFormValues): Record<st
     errors.model = 'Model name must be at most 200 characters.';
   }
   if (v.classificationStatus === 'loading') errors.type = 'Checking vehicle classification. Please wait.';
+  else if (v.requiresClassificationSelection && !v.pricingCategory) {
+    errors.type = 'Select a supported vehicle classification.';
+  }
   else if (v.classificationStatus === 'review_required' || v.classificationStatus === 'unavailable') {
-    // Garage registration can proceed; only an approved server classification can unlock pricing.
+    errors.type = 'Select a supported vehicle classification.';
   }
   else if (!type) errors.type = 'Select a brand and model for automatic classification.';
   else if (!getVehiclePricingCategory(type) && !getVehiclePriceKeyForPricingCategory(v.pricingCategory)) {

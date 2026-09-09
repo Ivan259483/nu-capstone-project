@@ -27,6 +27,10 @@ import {
   severityMeta,
 } from '@/features/ai-scan/components/PremiumScanner';
 import { aiScanStore, useAiScanStore } from '@/features/ai-scan/scanStore';
+import {
+  isZeroDetectionResult,
+  ZERO_DETECTION_MESSAGE,
+} from '@/features/ai-scan/scanResultState';
 import { pollAiScan3D, startAiScan3D } from '@/services/api/aiService';
 import {
   createArLaunchSession,
@@ -50,6 +54,7 @@ export default function ArViewScreen() {
   const [launchSession, setLaunchSession] = useState<ArLaunchSession | null>(null);
   const [launchBusy, setLaunchBusy] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const noDamageDetected = scan ? isZeroDetectionResult(scan) : false;
 
   const ready = modelStatus === 'ready' && Boolean(modelUrl);
   const unavailable = modelStatus === 'failed' || modelStatus === 'unavailable';
@@ -246,6 +251,21 @@ export default function ArViewScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingBottom: 24 }]}
       >
+        {noDamageDetected ? (
+          <GlassPanel style={styles.zeroDetectionCard}>
+            <View style={styles.zeroDetectionRow}>
+              <Ionicons name="alert-circle-outline" size={22} color={scannerColors.orange} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.zeroDetectionTitle}>Vehicle-only 3D model</Text>
+                <Text style={styles.zeroDetectionText}>{ZERO_DETECTION_MESSAGE}</Text>
+                <Text style={styles.zeroDetectionText}>
+                  Model generation remains available, but no AI-confirmed damage region will be overlaid.
+                </Text>
+              </View>
+            </View>
+          </GlassPanel>
+        ) : null}
+
         <Animated.View entering={FadeInDown.duration(400)}>
           <GlassPanel style={styles.viewerCard} contentStyle={styles.viewerInner} intense>
             {!ready ? (
@@ -380,7 +400,9 @@ export default function ArViewScreen() {
               : 'Launch Native AR'
             : unavailable
               ? 'Retry 3D Twin'
-              : 'Continue to Cost Estimate'
+              : noDamageDetected
+                ? 'Continue with 0 AI Issues'
+                : 'Continue to Cost Estimate'
         }
         primaryIcon={
           ready
@@ -408,7 +430,13 @@ export default function ArViewScreen() {
 
           router.push('/(customer)/scan/estimate' as never);
         }}
-        secondaryLabel={ready || unavailable ? 'Continue to Cost Estimate' : 'Skip to Cost Estimate'}
+        secondaryLabel={
+          noDamageDetected
+            ? 'Continue with 0 AI Issues'
+            : ready || unavailable
+              ? 'Continue to Cost Estimate'
+              : 'Skip to Cost Estimate'
+        }
         onSecondaryPress={() => router.push('/(customer)/scan/estimate' as never)}
       />
     </ScannerBackground>
@@ -420,6 +448,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 6,
     gap: 14,
+  },
+  zeroDetectionCard: {
+    borderColor: 'rgba(255,107,53,0.32)',
+  },
+  zeroDetectionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  zeroDetectionTitle: {
+    color: scannerColors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  zeroDetectionText: {
+    color: scannerColors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+    marginTop: 3,
   },
   stateBar: {
     flexDirection: 'row',

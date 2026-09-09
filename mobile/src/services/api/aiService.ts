@@ -625,10 +625,10 @@ export const confirmAiServiceRequest = async (params: {
 };
 
 /* ══════════════════════════════════════════════════════════════════════════════
- * NEW AI SCAN MODULE — GPT-4 Vision (mock+real toggle), Meshy 3D, Estimator
+ * AI SCAN MODULE — Roboflow RF-DETR, Meshy 3D, Estimator
  *
  * These methods power the new (customer)/ai-scan/ flow:
- *   POST /api/ai/scan                  → analyze damage with Roboflow YOLO11 segmentation
+ *   POST /api/ai/scan                  → analyze damage with Roboflow RF-DETR segmentation
  *   GET  /api/ai/scan/:id              → fetch a saved scan
  *   POST /api/ai/generate-3d-from-scan → start Meshy task using saved images
  *   GET  /api/ai/generate-3d/:taskId   → poll Meshy progress
@@ -638,6 +638,7 @@ export const confirmAiServiceRequest = async (params: {
 export type AiScanSeverity = 'high' | 'medium' | 'low';
 export type AiScanUrgency = 'Immediate' | 'Can Wait' | 'Optional';
 export type AiScanCondition = 'Excellent' | 'Good' | 'Fair' | 'Poor';
+export type AiScanDamageSubtype = 'Scratch / Scuff' | 'Dent' | 'Paint Damage' | 'Crack' | 'Unknown Damage';
 
 export interface AiScanCoordinates {
   x: number;
@@ -664,10 +665,23 @@ export interface AiScanDetectedArea {
   imageHeight: number;
 }
 
+export interface AiScanSubtypeAnalysis {
+  accepted: boolean;
+  rawClass: string | null;
+  top1Confidence: number | null;
+  top2Class: string | null;
+  top2Confidence: number | null;
+  margin: number | null;
+  reason: string;
+}
+
 export interface AiScanDamage {
   id: string;
   type: string;
   damageClass: string;
+  damageSubtype: AiScanDamageSubtype;
+  component: string;
+  subtypeAnalysis: AiScanSubtypeAnalysis;
   severity: AiScanSeverity;
   severityLabel: 'Severe' | 'Moderate' | 'Minor';
   description: string;
@@ -679,6 +693,7 @@ export interface AiScanDamage {
   urgency: AiScanUrgency;
   segmentation: AiScanSegmentation;
   detectedArea: AiScanDetectedArea;
+  affectedAreaPercent: number;
   recommendation: string;
 }
 
@@ -834,10 +849,35 @@ const toAiCondition = (value: unknown): AiScanCondition => {
   return 'Fair';
 };
 
+const toDamageSubtype = (value: unknown): AiScanDamageSubtype => {
+  const subtype = String(value || '');
+  if (subtype === 'Scratch / Scuff' || subtype === 'Dent' || subtype === 'Paint Damage' || subtype === 'Crack') {
+    return subtype;
+  }
+  return 'Unknown Damage';
+};
+
+const nullableConfidence = (value: unknown) => {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : null;
+};
+
 const mapDamage = (raw: any, index: number): AiScanDamage => ({
   id: String(raw?.id || `dmg_${index + 1}`),
   type: String(raw?.type || raw?.damage_type || raw?.name || 'Damage'),
   damageClass: String(raw?.damageClass || raw?.damage_class || raw?.class || raw?.type || 'damage'),
+  damageSubtype: toDamageSubtype(raw?.damageSubtype || raw?.damage_subtype),
+  component: String(raw?.component || 'Unknown Vehicle Panel'),
+  subtypeAnalysis: {
+    accepted: Boolean(raw?.subtypeAnalysis?.accepted),
+    rawClass: raw?.subtypeAnalysis?.rawClass == null ? null : String(raw.subtypeAnalysis.rawClass),
+    top1Confidence: nullableConfidence(raw?.subtypeAnalysis?.top1Confidence),
+    top2Class: raw?.subtypeAnalysis?.top2Class == null ? null : String(raw.subtypeAnalysis.top2Class),
+    top2Confidence: nullableConfidence(raw?.subtypeAnalysis?.top2Confidence),
+    margin: nullableConfidence(raw?.subtypeAnalysis?.margin),
+    reason: String(raw?.subtypeAnalysis?.reason || 'subtype_data_unavailable'),
+  },
   severity: toAiSeverity(raw?.severity),
   severityLabel: raw?.severityLabel === 'Severe' || raw?.severityLabel === 'Minor'
     ? raw.severityLabel
@@ -869,6 +909,10 @@ const mapDamage = (raw: any, index: number): AiScanDamage => ({
     imageWidth: Math.max(1, Number(raw?.detectedArea?.imageWidth) || 1),
     imageHeight: Math.max(1, Number(raw?.detectedArea?.imageHeight) || 1),
   },
+  affectedAreaPercent: Math.max(
+    0,
+    Math.min(100, Number(raw?.affectedAreaPercent ?? raw?.detectedArea?.percentage) || 0)
+  ),
   recommendation: String(raw?.recommendation || raw?.recommendedAction || raw?.description || ''),
 });
 

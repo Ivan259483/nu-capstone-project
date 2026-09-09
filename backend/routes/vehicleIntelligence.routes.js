@@ -101,7 +101,8 @@ router.get('/classify', handle(async (req, res) => {
     }
     const fields = await vehicleClassificationFields({ ...identity, make: identity.brand }, existing);
     return res.set('Cache-Control', 'no-store').json({ success: true, data: {
-      ...fields.classification, pricingCategory: fields.pricingCategory || null, vehicleType: fields.vehicleType,
+      ...fields.classification, pricingCategory: fields.pricingCategory || null,
+      vehicleType: fields.pricingCategory ? fields.vehicleType : null,
       status: fields.pricingCategory ? 'classified' : 'review_required',
     } });
   }

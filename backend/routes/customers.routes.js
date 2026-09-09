@@ -21,6 +21,12 @@ router.get('/me', authorize(...CUSTOMER_ROLES), customerController.getMe);
  */
 router.put('/me', authorize(...CUSTOMER_ROLES), customerController.updateMe);
 
+router.patch(
+  '/me/garage-onboarding',
+  authorize(...CUSTOMER_ROLES),
+  customerController.markMyGarageOnboardingSeen
+);
+
 router.get(
   '/me/notification-preferences',
   authorize(...CUSTOMER_ROLES),

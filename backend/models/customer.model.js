@@ -28,6 +28,10 @@ const customerSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    garageOnboardingSeen: {
+      type: Boolean,
+      default: false,
+    },
     notificationPreferences: {
       pushEnabled: { type: Boolean, default: DEFAULT_CUSTOMER_NOTIFICATION_PREFERENCES.pushEnabled },
       emailEnabled: { type: Boolean, default: DEFAULT_CUSTOMER_NOTIFICATION_PREFERENCES.emailEnabled },

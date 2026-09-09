@@ -4,11 +4,33 @@ import { buildDamageIssue, buildDamageReport } from '../models/damageReport.mode
 import { timeOperation } from '../utils/performance.utils.js';
 
 const DEFAULT_WORKSPACE = 'ivan-tadena';
-const DEFAULT_WORKFLOW_ID = 'vehicle-damage-dataset-vvehicle-damage-dataset-le164-1-yolo11s-seg-t1-logic';
+const DEFAULT_WORKFLOW_ID = 'autogloss-binary-damage-deployment-1787502823460';
 const DEFAULT_API_ORIGIN = 'https://serverless.roboflow.com';
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_EDGE = 1600;
-const DEFAULT_MIN_CONFIDENCE = 0.2;
+const DEFAULT_MIN_CONFIDENCE = 0.36;
+const DEFAULT_SUBTYPE_API_ORIGIN = DEFAULT_API_ORIGIN;
+const DEFAULT_SUBTYPE_MODEL_ID = 'damage-classifier-o1i5b/3';
+const DEFAULT_SUBTYPE_TIMEOUT_MS = 10_000;
+const DEFAULT_SUBTYPE_MIN_CONFIDENCE = 0.60;
+const DEFAULT_SUBTYPE_MIN_MARGIN = 0.15;
+const MIN_SUBTYPE_CROP_EDGE = 12;
+const MIN_SUBTYPE_CROP_AREA_RATIO = 0.001;
+const BINARY_DAMAGE_CLASS = 'damage';
+
+export const UNKNOWN_DAMAGE_SUBTYPE = 'Unknown Damage';
+export const UNKNOWN_VEHICLE_PANEL = 'Unknown Vehicle Panel';
+
+const APPROVED_DAMAGE_SUBTYPES = Object.freeze({
+  car_scratch: 'Scratch / Scuff',
+  deep_car_scratch: 'Scratch / Scuff',
+  scuffed_paint: 'Scratch / Scuff',
+  car_dent: 'Dent',
+  chipped_paint: 'Paint Damage',
+  cracked_bumper: 'Crack',
+});
+
+export const ZERO_DETECTION_MESSAGE = 'No confident damage detected. Try taking a closer photo of the affected area.';
 
 export class RoboflowDamageError extends Error {
   constructor(message, code, status = 502, cause) {
@@ -25,11 +47,32 @@ const numberFromEnv = (name, fallback, { min, max } = {}) => {
   return Math.max(min ?? parsed, Math.min(max ?? parsed, parsed));
 };
 
+const booleanFromEnv = (name, fallback) => {
+  const value = String(process.env[name] ?? '').trim().toLowerCase();
+  if (!value) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(value)) return true;
+  if (['0', 'false', 'no', 'off'].includes(value)) return false;
+  return fallback;
+};
+
+const buildModelEndpoint = (origin, modelId) => {
+  const [project, version] = String(modelId || '').split('/');
+  if (!project || !version) return '';
+  return `${origin}/${encodeURIComponent(project)}/${encodeURIComponent(version)}`;
+};
+
 export const getRoboflowDamageConfig = () => {
   const workspace = String(process.env.ROBOFLOW_WORKSPACE || DEFAULT_WORKSPACE).trim();
   const workflowId = String(process.env.ROBOFLOW_WORKFLOW_ID || DEFAULT_WORKFLOW_ID).trim();
   const apiOrigin = String(process.env.ROBOFLOW_API_URL || DEFAULT_API_ORIGIN).trim().replace(/\/+$/, '');
   const endpointOverride = String(process.env.ROBOFLOW_WORKFLOW_ENDPOINT || '').trim();
+  const subtypeApiOrigin = String(
+    process.env.ROBOFLOW_SUBTYPE_API_URL || DEFAULT_SUBTYPE_API_ORIGIN
+  ).trim().replace(/\/+$/, '');
+  const subtypeModelId = String(
+    process.env.ROBOFLOW_SUBTYPE_MODEL_ID || DEFAULT_SUBTYPE_MODEL_ID
+  ).trim();
+  const subtypeEndpointOverride = String(process.env.ROBOFLOW_SUBTYPE_ENDPOINT || '').trim();
 
   return {
     apiKey: String(process.env.ROBOFLOW_API_KEY || '').trim(),
@@ -42,6 +85,19 @@ export const getRoboflowDamageConfig = () => {
     maxImageEdge: numberFromEnv('ROBOFLOW_MAX_IMAGE_EDGE', DEFAULT_MAX_EDGE, { min: 640, max: 2400 }),
     minConfidence: numberFromEnv('ROBOFLOW_MIN_CONFIDENCE', DEFAULT_MIN_CONFIDENCE, { min: 0, max: 1 }),
     maxRetries: Math.round(numberFromEnv('ROBOFLOW_MAX_RETRIES', 1, { min: 0, max: 2 })),
+    subtype: {
+      enabled: booleanFromEnv('ROBOFLOW_SUBTYPE_ENABLED', true),
+      modelId: subtypeModelId,
+      endpoint: subtypeEndpointOverride || buildModelEndpoint(subtypeApiOrigin, subtypeModelId),
+      timeoutMs: numberFromEnv(
+        'ROBOFLOW_SUBTYPE_TIMEOUT_MS',
+        DEFAULT_SUBTYPE_TIMEOUT_MS,
+        { min: 3_000, max: 30_000 }
+      ),
+      // These are approval gates, not deployment tuning knobs.
+      minConfidence: DEFAULT_SUBTYPE_MIN_CONFIDENCE,
+      minMargin: DEFAULT_SUBTYPE_MIN_MARGIN,
+    },
   };
 };
 
@@ -209,9 +265,242 @@ const optimizeImage = async (file, maxImageEdge) => {
   }
 };
 
+const emptySubtypeAnalysis = (reason, overrides = {}) => ({
+  accepted: false,
+  rawClass: null,
+  top1Confidence: null,
+  top2Class: null,
+  top2Confidence: null,
+  margin: null,
+  reason,
+  ...overrides,
+});
+
+const findClassifierPredictions = (payload) => {
+  const visited = new Set();
+  const visit = (value) => {
+    if (!value || typeof value !== 'object' || visited.has(value)) return null;
+    visited.add(value);
+
+    if (Array.isArray(value.predictions)) {
+      return value.predictions;
+    }
+
+    const entries = Array.isArray(value) ? value : Object.values(value);
+    for (const entry of entries) {
+      const result = visit(entry);
+      if (result) return result;
+    }
+    return null;
+  };
+  return visit(payload);
+};
+
+export const analyzeDamageSubtype = (payload, thresholds = {}) => {
+  const predictions = findClassifierPredictions(payload);
+  if (!predictions) return emptySubtypeAnalysis('classifier_output_malformed');
+
+  const ranked = predictions
+    .map((prediction) => {
+      const rawConfidence = prediction?.confidence ?? prediction?.score;
+      return {
+        className: prediction?.class ?? prediction?.class_name ?? prediction?.label,
+        confidence: typeof rawConfidence === 'string' && !rawConfidence.trim()
+          ? Number.NaN
+          : Number(rawConfidence),
+      };
+    })
+    .filter((score) => (
+      typeof score.className === 'string'
+      && score.className.trim()
+      && Number.isFinite(score.confidence)
+      && score.confidence >= 0
+      && score.confidence <= 1
+    ))
+    .map((score) => ({ ...score, className: score.className.trim() }))
+    .sort((left, right) => right.confidence - left.confidence);
+
+  if (ranked.length < 2) {
+    return emptySubtypeAnalysis('classifier_output_malformed');
+  }
+
+  const [top1, top2] = ranked;
+  const margin = top1.confidence - top2.confidence;
+  const details = {
+    rawClass: top1.className,
+    top1Confidence: Number(top1.confidence.toFixed(4)),
+    top2Class: top2.className,
+    top2Confidence: Number(top2.confidence.toFixed(4)),
+    margin: Number(margin.toFixed(4)),
+  };
+  const minConfidence = Number.isFinite(Number(thresholds.minConfidence))
+    ? Number(thresholds.minConfidence)
+    : DEFAULT_SUBTYPE_MIN_CONFIDENCE;
+  const minMargin = Number.isFinite(Number(thresholds.minMargin))
+    ? Number(thresholds.minMargin)
+    : DEFAULT_SUBTYPE_MIN_MARGIN;
+
+  if (top1.confidence < minConfidence) {
+    return emptySubtypeAnalysis('top1_below_confidence', details);
+  }
+  if (margin < minMargin) {
+    return emptySubtypeAnalysis('margin_below_threshold', details);
+  }
+
+  const damageSubtype = APPROVED_DAMAGE_SUBTYPES[top1.className];
+  if (!damageSubtype) {
+    return emptySubtypeAnalysis('unmapped_classifier_label', details);
+  }
+
+  return {
+    accepted: true,
+    ...details,
+    reason: 'accepted',
+    damageSubtype,
+  };
+};
+
+export const assessSubtypeLocalization = (prediction, dimensions, minConfidence = DEFAULT_MIN_CONFIDENCE) => {
+  const predictionClass = String(
+    prediction?.class || prediction?.class_name || prediction?.label || ''
+  ).trim().toLowerCase();
+  const confidence = Number(prediction?.confidence ?? prediction?.score);
+  if (predictionClass !== BINARY_DAMAGE_CLASS || !Number.isFinite(confidence) || confidence < minConfidence) {
+    return { credible: false, reason: 'localization_not_credible' };
+  }
+
+  const imageWidth = Number(dimensions?.width);
+  const imageHeight = Number(dimensions?.height);
+  const box = prediction?.boundingBox || {};
+  const x = Number(box.x);
+  const y = Number(box.y);
+  const width = Number(box.width);
+  const height = Number(box.height);
+  const points = Array.isArray(prediction?.points) ? prediction.points : [];
+  if (
+    ![imageWidth, imageHeight, x, y, width, height].every(Number.isFinite)
+    || imageWidth <= 0
+    || imageHeight <= 0
+    || width <= 0
+    || height <= 0
+    || x < 0
+    || y < 0
+    || x + width > imageWidth + 0.5
+    || y + height > imageHeight + 0.5
+    || points.length < 3
+    || points.some((point) => !Number.isFinite(Number(point?.x)) || !Number.isFinite(Number(point?.y)))
+  ) {
+    return { credible: false, reason: 'invalid_localization' };
+  }
+
+  const areaRatio = (width * height) / (imageWidth * imageHeight);
+  if (width < MIN_SUBTYPE_CROP_EDGE || height < MIN_SUBTYPE_CROP_EDGE || areaRatio < MIN_SUBTYPE_CROP_AREA_RATIO) {
+    return { credible: false, reason: 'tiny_localization' };
+  }
+
+  const touchesBorder = x <= 0.5
+    || y <= 0.5
+    || x + width >= imageWidth - 0.5
+    || y + height >= imageHeight - 0.5;
+  if (touchesBorder) {
+    return { credible: false, reason: 'border_clipped_localization' };
+  }
+
+  return { credible: true, reason: 'credible_localization' };
+};
+
+const cropDamageRegion = async (image, prediction) => {
+  const box = prediction.boundingBox;
+  const left = Math.max(0, Math.floor(box.x));
+  const top = Math.max(0, Math.floor(box.y));
+  const right = Math.min(image.width, Math.ceil(box.x + box.width));
+  const bottom = Math.min(image.height, Math.ceil(box.y + box.height));
+  if (right <= left || bottom <= top) return null;
+  return sharp(image.buffer)
+    .extract({ left, top, width: right - left, height: bottom - top })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+};
+
+const executeSubtypeClassifier = async (cropBuffer, apiKey, config) => {
+  const response = await axios.post(
+    config.endpoint,
+    cropBuffer.toString('base64'),
+    {
+      // Hosted classification defaults can filter out low-scoring classes.
+      // Request the full score list; the fixed acceptance gates below still decide whether to abstain.
+      params: { api_key: apiKey, confidence: 0 },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+      timeout: config.timeoutMs,
+      maxBodyLength: 6 * 1024 * 1024,
+      maxContentLength: 2 * 1024 * 1024,
+    }
+  );
+  return response.data;
+};
+
+const enrichPredictionSubtype = async (prediction, image, config) => {
+  const localization = assessSubtypeLocalization(prediction, image, config.minConfidence);
+  if (!localization.credible) {
+    return {
+      damageSubtype: UNKNOWN_DAMAGE_SUBTYPE,
+      component: UNKNOWN_VEHICLE_PANEL,
+      subtypeAnalysis: emptySubtypeAnalysis(localization.reason),
+    };
+  }
+  if (!config.subtype.enabled || !config.subtype.endpoint) {
+    return {
+      damageSubtype: UNKNOWN_DAMAGE_SUBTYPE,
+      component: UNKNOWN_VEHICLE_PANEL,
+      subtypeAnalysis: emptySubtypeAnalysis('subtype_enrichment_disabled'),
+    };
+  }
+
+  try {
+    const cropBuffer = await cropDamageRegion(image, prediction);
+    if (!cropBuffer) {
+      return {
+        damageSubtype: UNKNOWN_DAMAGE_SUBTYPE,
+        component: UNKNOWN_VEHICLE_PANEL,
+        subtypeAnalysis: emptySubtypeAnalysis('invalid_localization'),
+      };
+    }
+    const payload = await executeSubtypeClassifier(cropBuffer, config.apiKey, config.subtype);
+    const subtypeAnalysis = analyzeDamageSubtype(payload, config.subtype);
+    return {
+      damageSubtype: subtypeAnalysis.accepted
+        ? subtypeAnalysis.damageSubtype
+        : UNKNOWN_DAMAGE_SUBTYPE,
+      component: UNKNOWN_VEHICLE_PANEL,
+      subtypeAnalysis: {
+        accepted: subtypeAnalysis.accepted,
+        rawClass: subtypeAnalysis.rawClass,
+        top1Confidence: subtypeAnalysis.top1Confidence,
+        top2Class: subtypeAnalysis.top2Class,
+        top2Confidence: subtypeAnalysis.top2Confidence,
+        margin: subtypeAnalysis.margin,
+        reason: subtypeAnalysis.reason,
+      },
+    };
+  } catch {
+    return {
+      damageSubtype: UNKNOWN_DAMAGE_SUBTYPE,
+      component: UNKNOWN_VEHICLE_PANEL,
+      subtypeAnalysis: emptySubtypeAnalysis('classifier_request_failed'),
+    };
+  }
+};
+
 const shouldRetry = (error) => {
   const status = Number(error?.response?.status) || 0;
-  return error?.code === 'ECONNRESET' || error?.code === 'ETIMEDOUT' || status === 429 || status >= 500;
+  return error?.code === 'ECONNRESET'
+    || error?.code === 'ECONNABORTED'
+    || error?.code === 'ETIMEDOUT'
+    || status === 429
+    || status >= 500;
 };
 
 const executeWorkflow = async (image, config) => {
@@ -221,14 +510,22 @@ const executeWorkflow = async (image, config) => {
       const response = await axios.post(
         config.endpoint,
         {
-          api_key: config.apiKey,
           inputs: {
             [config.imageInputName]: { type: 'base64', value: image.buffer.toString('base64') },
           },
+          // The mobile app renders the returned polygons over its local image.
+          // Excluding the Workflow's annotated image avoids returning a duplicate
+          // base64 image from Roboflow to this server.
+          excluded_fields: ['output_image'],
+          enable_profiling: false,
           use_cache: true,
         },
         {
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          headers: {
+            Authorization: `Bearer ${config.apiKey}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
           timeout: config.timeoutMs,
           maxBodyLength: 12 * 1024 * 1024,
           maxContentLength: 8 * 1024 * 1024,
@@ -271,22 +568,31 @@ export const detectDamageWithRoboflow = async (files, options = {}) => {
   )));
   const issues = [];
 
-  workflowResults.forEach((payload, imageIndex) => {
+  const perImageIssues = await Promise.all(workflowResults.map(async (payload, imageIndex) => {
     const image = optimizedImages[imageIndex];
     const predictions = parseRoboflowWorkflowResponse(payload, image)
-      .filter((prediction) => Number(prediction.confidence ?? prediction.score) >= config.minConfidence);
+      .filter((prediction) => {
+        const predictionClass = String(
+          prediction.class || prediction.class_name || prediction.label || ''
+        ).trim().toLowerCase();
+        const confidence = Number(prediction.confidence ?? prediction.score);
+        return predictionClass === BINARY_DAMAGE_CLASS && confidence >= config.minConfidence;
+      });
 
-    predictions.forEach((prediction, index) => {
-      issues.push(buildDamageIssue(prediction, {
+    return Promise.all(predictions.map(async (prediction, index) => {
+      const enrichment = await enrichPredictionSubtype(prediction, image, config);
+      return buildDamageIssue(prediction, {
         imageIndex,
         index,
         imageWidth: prediction.imageWidth || image.width,
         imageHeight: prediction.imageHeight || image.height,
         angleHint: options.angles?.[imageIndex] || 'close_up',
         damageAreaHint: options.damageAreas?.[imageIndex] || '',
-      }));
-    });
-  });
+        ...enrichment,
+      });
+    }));
+  }));
+  issues.push(...perImageIssues.flat());
 
   const requestId = options.requestId || `roboflow_${Date.now()}`;
   const model = `roboflow-workflow:${config.workflowId}`;
@@ -303,8 +609,8 @@ export const detectDamageWithRoboflow = async (files, options = {}) => {
     recommendedPackage: severity === 'high' ? 'SPF 99 Premium' : severity === 'medium' ? 'SPF 89 Advanced' : 'SPF 80 Essential',
     urgency: severity === 'high' ? 'Immediate' : severity === 'medium' ? 'Can Wait' : 'Optional',
     summary: issues.length
-      ? `${issues.length} vehicle damage area${issues.length === 1 ? '' : 's'} detected by YOLO11 instance segmentation.`
-      : 'No damage predictions met the configured confidence threshold.',
+      ? `${issues.length} damage region${issues.length === 1 ? '' : 's'} detected by RF-DETR instance segmentation.`
+      : ZERO_DETECTION_MESSAGE,
     damages: issues,
     damageReport,
     imageProcessing: optimizedImages.map((image, index) => ({
@@ -322,4 +628,6 @@ export default {
   getRoboflowDamageConfig,
   isRoboflowDamageConfigured,
   parseRoboflowWorkflowResponse,
+  analyzeDamageSubtype,
+  assessSubtypeLocalization,
 };

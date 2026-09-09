@@ -71,7 +71,7 @@ import {
   validateVehicleGarageForm,
   type VehicleGarageFormValues,
 } from '@/components/shared/vehicle-garage-constants';
-import { garageFormToApiPayload, normalizeVehicleColorDisplay } from '@/lib/vehicle-service';
+import { garageFormToApiPayload, getVehicleClassificationCorrection, normalizeVehicleColorDisplay } from '@/lib/vehicle-service';
 import { getVehicleAccentTheme, getVehicleCardTheme } from '@/lib/vehicle-card-theme';
 import {
   type CustomerGarageLoadState,
@@ -82,6 +82,7 @@ import {
   readCustomerBookingFunnelDraft,
   resetCustomerBookingPackageIntent,
   resolveFunnelVehicleId,
+  shouldShowGarageOnboarding,
   updateCustomerBookingFunnelDraft,
 } from '@/lib/customer-booking-funnel';
 
@@ -1095,6 +1096,7 @@ export default function CustomerDashboard() {
 
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [garageOnboardingSeen, setGarageOnboardingSeen] = useState<boolean | null>(null);
   const [newVehicle, setNewVehicle] = useState<VehicleGarageFormValues>({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' });
   const [newVehicleShowColorInput, setNewVehicleShowColorInput] = useState(false);
   const [vehicleErrors, setVehicleErrors] = useState<Record<string, string>>({});
@@ -1160,7 +1162,6 @@ export default function CustomerDashboard() {
       if (res.success && Array.isArray(res.data)) {
         const mapped = res.data.map(mapCustomerVehicleApiRecord);
         setVehicles(mapped);
-        if (mapped.length === 0) setShowOnboarding(true);
         return { status: 'loaded', count: mapped.length };
       }
       return {
@@ -1192,6 +1193,33 @@ export default function CustomerDashboard() {
 
   useEffect(() => {
     if (!vehicleOwnerId) {
+      setGarageOnboardingSeen(null);
+      setShowOnboarding(false);
+      return;
+    }
+
+    let active = true;
+    setGarageOnboardingSeen(null);
+    setShowOnboarding(false);
+
+    void api.get('/customers/me')
+      .then((response) => {
+        if (!active) return;
+        setGarageOnboardingSeen(response.data?.data?.garageOnboardingSeen === true);
+      })
+      .catch((error) => {
+        if (!active) return;
+        console.warn('[Garage] Failed to load onboarding status:', error);
+        setGarageOnboardingSeen(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [vehicleOwnerId]);
+
+  useEffect(() => {
+    if (!vehicleOwnerId) {
       vehiclesFetchGenRef.current += 1;
       setVehicles([]);
       setGarageLoadState('idle');
@@ -1218,6 +1246,23 @@ export default function CustomerDashboard() {
       active = false;
     };
   }, [vehicleOwnerId, fetchVehiclesAndApply]);
+
+  useEffect(() => {
+    const shouldShow = activeSection === 'dashboard'
+      && shouldShowGarageOnboarding(garageLoadState, garageOnboardingSeen);
+    setShowOnboarding(shouldShow);
+  }, [activeSection, garageLoadState, garageOnboardingSeen]);
+
+  const persistGarageOnboardingSeen = useCallback(async () => {
+    setGarageOnboardingSeen(true);
+    try {
+      await api.patch('/customers/me/garage-onboarding');
+    } catch (error) {
+      console.warn('[Garage] Failed to persist onboarding status:', error);
+      setGarageOnboardingSeen(null);
+      toast.error('Could not save your Garage setup preference. Please try again.');
+    }
+  }, []);
 
   const selectedServicesVehicle = useMemo(
     () => vehicles.find((vehicle) => getFunnelVehicleId(vehicle) === servicesVehicleId) || null,
@@ -1285,6 +1330,8 @@ export default function CustomerDashboard() {
       year: v.year != null && v.year !== '' ? String(v.year) : '',
       color: presetMatch || rawColor,
       type: (v.type || '').trim(),
+      pricingCategory: v.pricingCategory ?? null,
+      classificationStatus: 'loading',
       transmission: (v.transmission || '').trim(),
       fuelType: (v.fuelType || '').trim(),
       generation: v.generation || '',
@@ -1336,6 +1383,8 @@ export default function CustomerDashboard() {
       // Background synchronization
       void refetchVehiclesAfterMutation();
     } catch (err: any) {
+      const correction = getVehicleClassificationCorrection(err);
+      if (correction) setEditVehicleForm((previous) => ({ ...previous, ...correction }));
       setEditVehicleApiError(err?.response?.data?.message || 'Failed to update. Please check your details.');
     } finally {
       setEditVehiclePending(false);
@@ -1361,7 +1410,6 @@ export default function CustomerDashboard() {
       setVehicles(prev => {
         const next = prev.filter(v => String(v._id || v.id) !== String(vehicleId));
         setGarageLoadState(getLoadedCustomerGarageState(next.length));
-        if (next.length === 0) setShowOnboarding(true);
         return next;
       });
 
@@ -2286,6 +2334,7 @@ export default function CustomerDashboard() {
           return next;
         });
         setGarageLoadError('');
+        setGarageOnboardingSeen(true);
         setShowOnboarding(false);
 
         if (newVehicleId) {
@@ -2306,6 +2355,8 @@ export default function CustomerDashboard() {
         setVehicleApiError(res.message || 'Failed to add vehicle. Please try again.');
       }
     } catch (err: any) {
+      const correction = getVehicleClassificationCorrection(err);
+      if (correction) setNewVehicle((previous) => ({ ...previous, ...correction }));
       setVehicleApiError(err?.response?.data?.message || 'Failed to add vehicle. Please check your details.');
     } finally {
       setAddVehiclePending(false);
@@ -6551,7 +6602,11 @@ export default function CustomerDashboard() {
 	            {/* CTA */}
 	            <div className="px-6 pb-6 space-y-2">
 	              <button
-	                onClick={() => { setShowOnboarding(false); setAddVehicleOpen(true); }}
+	                onClick={() => {
+	                  setShowOnboarding(false);
+	                  setAddVehicleOpen(true);
+	                  void persistGarageOnboardingSeen();
+	                }}
 	                className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-[15px] font-bold transition-all hover:-translate-y-0.5"
 	                style={{
 	                  background: 'linear-gradient(135deg, rgba(255,222,142,0.98), rgba(245,166,35,0.94) 45%, rgba(232,111,30,0.9))',
@@ -6563,7 +6618,10 @@ export default function CustomerDashboard() {
 	                Set Up My Garage
 	              </button>
 	              <button
-	                onClick={() => setShowOnboarding(false)}
+	                onClick={() => {
+	                  setShowOnboarding(false);
+	                  void persistGarageOnboardingSeen();
+	                }}
 	                className="w-full py-2.5 text-[13px] font-medium text-slate-500 transition-colors hover:text-amber-200"
 	              >
 	                I’ll do this later

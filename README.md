@@ -125,8 +125,10 @@ GROQ_CHAT_MODEL=openai/gpt-oss-20b
 GROQ_CHAT_REASONING_EFFORT=low
 ROBOFLOW_API_KEY=<roboflow-api-key>
 ROBOFLOW_WORKSPACE=ivan-tadena
-ROBOFLOW_WORKFLOW_ID=vehicle-damage-dataset-vvehicle-damage-dataset-le164-1-yolo11s-seg-t1-logic
+ROBOFLOW_WORKFLOW_ID=autogloss-binary-damage-deployment-1787502823460
 ROBOFLOW_IMAGE_INPUT=image
+ROBOFLOW_SUBTYPE_ENABLED=true
+ROBOFLOW_SUBTYPE_MODEL_ID=damage-classifier-o1i5b/3
 MESHY_API_KEY=<meshy-api-key>
 
 CLOUDINARY_CLOUD_NAME=<cloudinary-cloud-name>

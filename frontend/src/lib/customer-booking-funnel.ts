@@ -55,6 +55,13 @@ export function shouldPromptForVehicleRegistration(state: CustomerGarageLoadStat
   return state === 'loaded_empty';
 }
 
+export function shouldShowGarageOnboarding(
+  state: CustomerGarageLoadState,
+  garageOnboardingSeen: boolean | null,
+): boolean {
+  return state === 'loaded_empty' && garageOnboardingSeen === false;
+}
+
 export type CatalogBookingVehicleAction =
   | 'wait_for_garage'
   | 'add_vehicle'

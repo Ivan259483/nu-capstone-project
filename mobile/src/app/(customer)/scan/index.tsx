@@ -228,7 +228,7 @@ export default function AiScanEntry() {
             <Text style={styles.assistTitle}>One-handed scan guidance</Text>
           </View>
           <Text style={styles.assistText}>
-            Keep the vehicle centered, avoid harsh reflections, and capture one close-up for each visible damage cluster.
+            {'Take a close-up photo of the damaged panel.\nKeep the damaged area centered and clearly visible.\nAvoid excessive glare or reflections.'}
           </Text>
         </GlassPanel>
 

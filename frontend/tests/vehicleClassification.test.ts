@@ -53,3 +53,19 @@ test('automatic detection requires a matching brand and model', () => {
 test('fallback types use the requested customer-facing labels', () => {
   assert.deepEqual(FALLBACK_VEHICLE_TYPES, ['SUV', 'Hatchback', 'Sedan', 'Midsize', 'Large SUV / Van', 'High-end Sedan', 'Other']);
 });
+
+test('Web and Mobile Add/Edit surfaces distinguish verified and manual classification without review dead-end copy', () => {
+  const webForm = readFileSync(new URL('../src/components/shared/VehicleGarageForm.tsx', import.meta.url), 'utf8');
+  const dashboard = readFileSync(new URL('../src/pages/CustomerDashboard.tsx', import.meta.url), 'utf8');
+  const mobileModal = readFileSync(new URL('../../mobile/src/components/booking/AddVehicleModal.tsx', import.meta.url), 'utf8');
+
+  for (const source of [webForm, mobileModal]) {
+    assert.match(source, /Verified classification/);
+    assert.match(source, /Classification selected manually/);
+    assert.doesNotMatch(source, /Classification requires review/);
+  }
+  assert.match(dashboard, /experience="customer-add"/);
+  assert.match(dashboard, /experience="customer-edit"/);
+  assert.match(mobileModal, /vehicleService\.addVehicle/);
+  assert.match(mobileModal, /vehicleService\.updateVehicle/);
+});
