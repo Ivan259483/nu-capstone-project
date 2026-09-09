@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Linking,
   Platform,
@@ -36,6 +36,7 @@ import {
   createArLaunchSession,
   type ArLaunchSession,
 } from '@/services/api/arLaunchService';
+import { AI_SCAN_ROUTES } from '@/features/ai-scan/threeDPreparation';
 
 export default function ArViewScreen() {
   const router = useRouter();
@@ -48,7 +49,8 @@ export default function ArViewScreen() {
   const modelUsdzUrl = useAiScanStore((state) => state.modelUsdzUrl);
   const modelProgress = useAiScanStore((state) => state.modelProgress);
   const modelMessage = useAiScanStore((state) => state.modelMessage);
-  const capturedImages = useAiScanStore((state) => state.capturedImages);
+  const vehicle3DSourceImage = useAiScanStore((state) => state.vehicle3DSourceImage);
+  const workflow = useAiScanStore((state) => state.workflow);
 
   const running = useRef(false);
   const [launchSession, setLaunchSession] = useState<ArLaunchSession | null>(null);
@@ -66,11 +68,6 @@ export default function ArViewScreen() {
         ? 'Open Scene Viewer AR'
         : 'Open AR Launcher';
 
-  const pipelineStepIndex = useMemo(() => {
-    if (!scan) return 0;
-    return ready ? 3 : 2;
-  }, [scan, ready]);
-
   const startOrPoll = useCallback(
     async (force = false) => {
       if (!scan || running.current) return;
@@ -85,16 +82,16 @@ export default function ArViewScreen() {
         let taskId = force ? null : modelTaskId;
 
         if (!taskId) {
-          if (!scan.scanId && capturedImages.length === 0) {
-            aiScanStore.setModelProgress({
-              status: 'unavailable',
-              progress: 0,
-              message: '3D reconstruction requires a saved scan or captured vehicle photo.',
-            });
+          if (!vehicle3DSourceImage) {
+            router.replace(AI_SCAN_ROUTES.prepare3d as never);
             return;
           }
 
-          const started = await startAiScan3D(scan.scanId || '', capturedImages);
+          const started = await startAiScan3D(
+            scan.scanId || '',
+            [vehicle3DSourceImage],
+            { preferUploadedImages: true }
+          );
           aiScanStore.setModelProgress(started);
 
           taskId = started.taskId ?? null;
@@ -128,7 +125,7 @@ export default function ArViewScreen() {
         running.current = false;
       }
     },
-    [capturedImages, modelProgress, modelStatus, modelTaskId, scan]
+    [modelProgress, modelStatus, modelTaskId, router, scan, vehicle3DSourceImage]
   );
 
   const prepareLaunchSession = useCallback(async () => {
@@ -180,6 +177,10 @@ export default function ArViewScreen() {
   }, [iosMissingUsdz, launchSession]);
 
   useEffect(() => {
+    aiScanStore.activateWorkflowStage('3d');
+  }, []);
+
+  useEffect(() => {
     startOrPoll();
   }, [startOrPoll]);
 
@@ -226,7 +227,7 @@ export default function ArViewScreen() {
           />
         }
       />
-      <PipelineStepper currentIndex={pipelineStepIndex} />
+      <PipelineStepper currentIndex={ready ? 3 : 2} stepStates={workflow.stepStates} />
 
       {ready ? (
         <View style={[styles.stateBar, iosMissingUsdz ? styles.stateBarBlocked : styles.stateBarReady]}>
@@ -369,8 +370,8 @@ export default function ArViewScreen() {
                 ? 'This iOS device requires Meshy USDZ output for Quick Look. Retry generation and wait for a USDZ URL.'
                 : 'Use the QR code for cross-device launch and the direct button below for same-device native viewer launch.'
               : unavailable
-                ? 'Meshy could not start from the saved scan image. Retry will upload the captured photo directly to the 3D pipeline.'
-                : 'The app is uploading your captured vehicle photo to Meshy and waiting for model completion before creating QR launch links.'}
+                ? 'Meshy could not start from the selected full-vehicle photo. Retry will upload that separate 3D source again.'
+                : 'The app is uploading your selected full-vehicle photo to Meshy and waiting for model completion before creating QR launch links.'}
           </Text>
           {!ready && !unavailable ? (
             <Text style={styles.loadingHint}>{modelMessage || 'Meshy reconstruction is running in the background.'}</Text>
@@ -428,6 +429,7 @@ export default function ArViewScreen() {
             return;
           }
 
+          aiScanStore.activateWorkflowStage('price');
           router.push('/(customer)/scan/estimate' as never);
         }}
         secondaryLabel={
@@ -437,7 +439,10 @@ export default function ArViewScreen() {
               ? 'Continue to Cost Estimate'
               : 'Skip to Cost Estimate'
         }
-        onSecondaryPress={() => router.push('/(customer)/scan/estimate' as never)}
+        onSecondaryPress={() => {
+          aiScanStore.activateWorkflowStage('price');
+          router.push('/(customer)/scan/estimate' as never);
+        }}
       />
     </ScannerBackground>
   );

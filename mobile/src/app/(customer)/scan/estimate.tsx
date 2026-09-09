@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -31,6 +31,7 @@ import {
   ZERO_DETECTION_MESSAGE,
 } from '@/features/ai-scan/scanResultState';
 import { recomputeAiScanEstimate } from '@/services/api/aiService';
+import { AI_SCAN_ROUTES } from '@/features/ai-scan/threeDPreparation';
 
 export default function EstimateScreen() {
   const router = useRouter();
@@ -38,9 +39,15 @@ export default function EstimateScreen() {
   const scan = useAiScanStore((state) => state.scan);
   const estimate = useAiScanStore((state) => state.estimate);
   const selectedIds = useAiScanStore((state) => state.selectedLineItemIds);
+  const modelStatus = useAiScanStore((state) => state.modelStatus);
+  const workflow = useAiScanStore((state) => state.workflow);
   const [busy, setBusy] = useState(false);
   const [whyOpen, setWhyOpen] = useState(false);
   const noDamageDetected = scan ? isZeroDetectionResult(scan) : false;
+
+  useEffect(() => {
+    aiScanStore.activateWorkflowStage('price');
+  }, []);
 
   const lineItems = useMemo(() => estimate?.lineItems ?? [], [estimate?.lineItems]);
   const selectedLines = useMemo(
@@ -85,6 +92,7 @@ export default function EstimateScreen() {
   const continueToApproval = useCallback(() => {
     if (selectedIds.length === 0) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    aiScanStore.activateWorkflowStage('approve');
     router.push('/(customer)/scan/confirm' as never);
   }, [router, selectedIds.length]);
 
@@ -123,7 +131,7 @@ export default function EstimateScreen() {
           </Pressable>
         }
       />
-      <PipelineStepper currentIndex={4} />
+      <PipelineStepper currentIndex={4} stepStates={workflow.stepStates} />
 
       <ScrollView
         style={{ flex: 1 }}
@@ -284,7 +292,11 @@ export default function EstimateScreen() {
         disabled={selectedIds.length === 0}
         onPrimaryPress={continueToApproval}
         secondaryLabel={noDamageDetected ? 'Review Vehicle-only 3D' : 'Review 3D Simulation'}
-        onSecondaryPress={() => router.push('/(customer)/scan/ar-view' as never)}
+        onSecondaryPress={() => router.push(
+          (modelStatus !== 'idle'
+            ? AI_SCAN_ROUTES.arView
+            : AI_SCAN_ROUTES.prepare3d) as never
+        )}
       />
     </ScannerBackground>
   );

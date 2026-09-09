@@ -18,17 +18,30 @@ import type {
   AiScanEstimate,
 } from '@/services/api/aiService';
 import { normalizeAiScanResult } from './scanResultState';
+import { createVehicle3DSourcePatch } from './threeDPreparation';
+import {
+  activateAiScanWorkflowStage,
+  beginAiScanWorkflow,
+  completeAiScanWorkflow,
+  createInitialAiScanWorkflow,
+  failAiScanWorkflow,
+  updatePendingAiScanProgress,
+  type AiScanWorkflowStage,
+  type AiScanWorkflowState,
+} from './scanWorkflowState';
 
 export type Screen3DStatus = 'idle' | 'processing' | 'ready' | 'failed' | 'unavailable';
 
 export interface AiScanStoreState {
   // Source images chosen on the entry screen
   capturedImages: AiScanInputImage[];
+  vehicle3DSourceImage: AiScanInputImage | null;
   vehicleId: string | null;
 
   // Roboflow RF-DETR binary damage segmentation result
   scan: AiScanResult | null;
   scanError: string | null;
+  workflow: AiScanWorkflowState;
 
   // Selected line items (for the estimate screen)
   selectedLineItemIds: string[];
@@ -51,9 +64,11 @@ export interface AiScanStoreState {
 
 const INITIAL_STATE: AiScanStoreState = {
   capturedImages: [],
+  vehicle3DSourceImage: null,
   vehicleId: null,
   scan: null,
   scanError: null,
+  workflow: createInitialAiScanWorkflow(),
   selectedLineItemIds: [],
   estimate: null,
   modelStatus: 'idle',
@@ -67,6 +82,7 @@ const INITIAL_STATE: AiScanStoreState = {
 };
 
 let state: AiScanStoreState = { ...INITIAL_STATE };
+let nextScanSessionId = 0;
 const listeners = new Set<() => void>();
 
 const emit = () => {
@@ -88,16 +104,18 @@ export const aiScanStore = {
   },
 
   reset: () => {
-    state = { ...INITIAL_STATE };
+    state = { ...INITIAL_STATE, workflow: createInitialAiScanWorkflow() };
     emit();
   },
 
   setCapturedImages: (images: AiScanInputImage[], vehicleId?: string | null) => {
     update({
       capturedImages: images,
+      vehicle3DSourceImage: null,
       vehicleId: vehicleId ?? state.vehicleId,
       scan: null,
       scanError: null,
+      workflow: createInitialAiScanWorkflow(),
       selectedLineItemIds: [],
       estimate: null,
       modelStatus: 'idle',
@@ -118,6 +136,7 @@ export const aiScanStore = {
       estimate: normalizedScan.estimate,
       selectedLineItemIds: normalizedScan.estimate.lineItems.map((line) => line.id),
       vehicleId: normalizedScan.vehicleId || state.vehicleId,
+      vehicle3DSourceImage: null,
       modelStatus: 'idle',
       modelTaskId: null,
       modelUrl: null,
@@ -126,6 +145,63 @@ export const aiScanStore = {
       modelProgress: 0,
       modelMessage: '',
     });
+  },
+
+  beginScanRequest: () => {
+    nextScanSessionId += 1;
+    update({
+      scan: null,
+      scanError: null,
+      workflow: beginAiScanWorkflow(nextScanSessionId),
+    });
+    return nextScanSessionId;
+  },
+
+  updateScanProgress: (sessionId: number, progress: number) => {
+    const workflow = updatePendingAiScanProgress(state.workflow, sessionId, progress);
+    if (workflow === state.workflow) return false;
+    update({ workflow });
+    return true;
+  },
+
+  completeScanRequest: (sessionId: number, scan: AiScanResult) => {
+    const workflow = completeAiScanWorkflow(state.workflow, sessionId);
+    if (workflow === state.workflow) return false;
+
+    const normalizedScan = normalizeAiScanResult(scan);
+    update({
+      scan: normalizedScan,
+      scanError: null,
+      estimate: normalizedScan.estimate,
+      selectedLineItemIds: normalizedScan.estimate.lineItems.map((line) => line.id),
+      vehicleId: normalizedScan.vehicleId || state.vehicleId,
+      vehicle3DSourceImage: null,
+      modelStatus: 'idle',
+      modelTaskId: null,
+      modelUrl: null,
+      repairedModelUrl: null,
+      modelUsdzUrl: null,
+      modelProgress: 0,
+      modelMessage: '',
+      workflow,
+    });
+    return true;
+  },
+
+  failScanRequest: (sessionId: number, message: string) => {
+    const workflow = failAiScanWorkflow(state.workflow, sessionId);
+    if (workflow === state.workflow) return false;
+    update({ scanError: message, workflow });
+    return true;
+  },
+
+  activateWorkflowStage: (
+    stage: Extract<AiScanWorkflowStage, '3d' | 'ar' | 'price' | 'approve'>
+  ) => {
+    const workflow = activateAiScanWorkflowStage(state.workflow, stage);
+    if (workflow === state.workflow) return false;
+    update({ workflow });
+    return true;
   },
 
   setScanError: (message: string) => {
@@ -147,7 +223,14 @@ export const aiScanStore = {
     update({ estimate });
   },
 
+  setVehicle3DSourceImage: (image: AiScanInputImage | null) => {
+    update(createVehicle3DSourcePatch(image));
+  },
+
   setModelProgress: (progress: AiScan3DProgress) => {
+    const workflow = progress.status === 'ar_ready'
+      ? activateAiScanWorkflowStage(state.workflow, 'ar')
+      : state.workflow;
     update({
       modelStatus:
         progress.status === 'ar_ready'
@@ -163,6 +246,7 @@ export const aiScanStore = {
       modelUsdzUrl: progress.modelUsdzUrl ?? state.modelUsdzUrl,
       modelProgress: progress.progress,
       modelMessage: progress.message ?? state.modelMessage,
+      workflow,
     });
   },
 

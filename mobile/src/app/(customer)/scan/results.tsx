@@ -28,12 +28,16 @@ import {
   scannerColors,
   severityMeta,
 } from '@/features/ai-scan/components/PremiumScanner';
-import { useAiScanStore } from '@/features/ai-scan/scanStore';
+import { aiScanStore, useAiScanStore } from '@/features/ai-scan/scanStore';
 import {
   getAiScanResultPresentation,
   ZERO_DETECTION_MESSAGE,
 } from '@/features/ai-scan/scanResultState';
 import type { AiScanDamage } from '@/services/api/aiService';
+import {
+  getAiResultDestination,
+  THREE_D_OPTIONAL_HELPER,
+} from '@/features/ai-scan/threeDPreparation';
 
 const causeForDamage = (damage: AiScanDamage) => {
   const text = `${damage.damageSubtype} ${damage.description}`.toLowerCase();
@@ -94,6 +98,7 @@ export default function ResultsScreen() {
   const scan = useAiScanStore((state) => state.scan);
   const scanError = useAiScanStore((state) => state.scanError);
   const capturedImages = useAiScanStore((state) => state.capturedImages);
+  const workflow = useAiScanStore((state) => state.workflow);
   const [showOverlay, setShowOverlay] = useState(true);
   const [activeDamageId, setActiveDamageId] = useState<string | null>(
     scan?.damages[0]?.id ?? null
@@ -174,7 +179,7 @@ export default function ResultsScreen() {
         onBack={() => router.replace('/(customer)/scan' as never)}
         right={<Ionicons name="analytics-outline" size={20} color={scannerColors.orange} />}
       />
-      <PipelineStepper currentIndex={1} />
+      <PipelineStepper currentIndex={1} stepStates={workflow.stepStates} />
 
       <ScrollView
         style={{ flex: 1 }}
@@ -441,7 +446,8 @@ export default function ResultsScreen() {
         <Pressable
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            router.push('/(customer)/scan/ar-view' as never);
+            aiScanStore.activateWorkflowStage('3d');
+            router.push(getAiResultDestination('continue_3d') as never);
           }}
           style={({ pressed }) => [styles.webArRow, pressed && { opacity: 0.88 }]}
         >
@@ -454,12 +460,12 @@ export default function ResultsScreen() {
           <Ionicons name="cube-outline" size={20} color="#93C5FD" />
           <View style={{ flex: 1 }}>
             <Text style={styles.webArRowTitle}>
-              {noDamageDetected ? 'Optional: vehicle-only 3D preview' : 'Next: Browser WebAR preview'}
+              {noDamageDetected ? 'Optional: prepare a vehicle-only 3D photo' : 'Optional: prepare a full-vehicle 3D photo'}
             </Text>
             <Text style={styles.webArRowSub}>
               {noDamageDetected
-                ? 'No AI-confirmed damage region will be included in the overlay.'
-                : 'Generate the GLB, then open the MindAR repair simulation in the browser.'}
+                ? 'Use a separate full-vehicle photo. No AI-confirmed damage region will be included.'
+                : 'Review the photo requirements before generating the model.'}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={scannerColors.textMuted} />
@@ -467,11 +473,18 @@ export default function ResultsScreen() {
       </ScrollView>
 
       <BottomActionBar
-        primaryLabel={noDamageDetected ? 'Generate Vehicle 3D Model' : 'Generate 3D Model'}
+        helperText={THREE_D_OPTIONAL_HELPER}
+        primaryLabel="Continue to 3D"
         primaryIcon="cube-outline"
-        onPrimaryPress={() => router.push('/(customer)/scan/ar-view' as never)}
-        secondaryLabel={noDamageDetected ? 'Continue with 0 AI Issues' : 'Skip to Cost Estimate'}
-        onSecondaryPress={() => router.push('/(customer)/scan/estimate' as never)}
+        onPrimaryPress={() => {
+          aiScanStore.activateWorkflowStage('3d');
+          router.push(getAiResultDestination('continue_3d') as never);
+        }}
+        secondaryLabel="Skip to Cost Estimate"
+        onSecondaryPress={() => {
+          aiScanStore.activateWorkflowStage('price');
+          router.push(getAiResultDestination('estimate') as never);
+        }}
       />
     </ScannerBackground>
   );

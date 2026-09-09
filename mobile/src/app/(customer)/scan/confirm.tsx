@@ -58,10 +58,15 @@ export default function ConfirmScreen() {
   const estimate = useAiScanStore((state) => state.estimate);
   const selectedIds = useAiScanStore((state) => state.selectedLineItemIds);
   const storedVehicleId = useAiScanStore((state) => state.vehicleId);
+  const workflow = useAiScanStore((state) => state.workflow);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(storedVehicleId);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    aiScanStore.activateWorkflowStage('approve');
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -178,7 +183,7 @@ export default function ConfirmScreen() {
         onBack={() => router.back()}
         right={<Ionicons name="checkmark-done-outline" size={20} color={scannerColors.orange} />}
       />
-      <PipelineStepper currentIndex={5} />
+      <PipelineStepper currentIndex={5} stepStates={workflow.stepStates} />
 
       <ScrollView
         style={{ flex: 1 }}

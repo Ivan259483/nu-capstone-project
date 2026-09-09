@@ -21,6 +21,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { BorderRadius, Colors, Glass, Palette, TabBarHeight } from '@/constants/theme';
 import type { AiScanLineItem, AiScanSeverity } from '@/services/api/aiService';
+import type { AiScanWorkflowStepState } from '@/features/ai-scan/scanWorkflowState';
 
 export const scannerColors = {
   bg: Colors.dark.background,
@@ -187,16 +188,24 @@ export function AiPill({
 export function PipelineStepper({
   currentIndex,
   steps = defaultInspectionSteps,
+  stepStates,
 }: {
   currentIndex: number;
   steps?: StepItem[];
+  stepStates?: Partial<Record<string, AiScanWorkflowStepState>>;
 }) {
   return (
     <GlassPanel contentStyle={styles.stepperContent} style={styles.stepperWrap}>
       {steps.map((step, index) => {
-        const active = index === currentIndex;
-        const complete = index < currentIndex;
+        const explicitState = stepStates?.[step.key];
+        const active = explicitState ? explicitState === 'active' : index === currentIndex;
+        const complete = explicitState ? explicitState === 'complete' : index < currentIndex;
+        const skipped = explicitState === 'skipped';
         const color = active || complete ? scannerColors.orange : scannerColors.textMuted;
+        const nextExplicitState = stepStates?.[steps[index + 1]?.key];
+        const railComplete = stepStates
+          ? complete && nextExplicitState !== 'inactive'
+          : complete;
         return (
           <React.Fragment key={step.key}>
             <View style={styles.stepItem}>
@@ -208,7 +217,7 @@ export function PipelineStepper({
                 ]}
               >
                 <Ionicons
-                  name={complete ? 'checkmark' : step.icon}
+                  name={complete ? 'checkmark' : skipped ? 'remove' : step.icon}
                   size={14}
                   color={complete ? '#fff' : color}
                 />
@@ -218,7 +227,7 @@ export function PipelineStepper({
               </Text>
             </View>
             {index < steps.length - 1 ? (
-              <View style={[styles.stepRail, complete && styles.stepRailComplete]} />
+              <View style={[styles.stepRail, railComplete && styles.stepRailComplete]} />
             ) : null}
           </React.Fragment>
         );
@@ -416,6 +425,7 @@ export function BottomActionBar({
   secondaryLabel,
   onSecondaryPress,
   inline = false,
+  helperText,
 }: {
   primaryLabel: string;
   onPrimaryPress: () => void;
@@ -424,6 +434,7 @@ export function BottomActionBar({
   secondaryLabel?: string;
   onSecondaryPress?: () => void;
   inline?: boolean;
+  helperText?: string;
 }) {
   return (
     <View style={[styles.bottomBar, inline && styles.bottomBarInline]}>
@@ -433,6 +444,7 @@ export function BottomActionBar({
           <View style={styles.bottomBarVeil} />
         </>
       ) : null}
+      {helperText ? <Text style={styles.bottomBarHelper}>{helperText}</Text> : null}
       {secondaryLabel && onSecondaryPress ? (
         <Pressable onPress={onSecondaryPress} style={styles.secondaryAction}>
           <Text style={styles.secondaryActionText}>{secondaryLabel}</Text>
@@ -823,6 +835,14 @@ const styles = StyleSheet.create({
   bottomBarVeil: {
     ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(4,4,5,0.76)',
+  },
+  bottomBarHelper: {
+    color: scannerColors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingHorizontal: 8,
   },
   secondaryAction: {
     height: 44,

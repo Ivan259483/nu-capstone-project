@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Image,
   ScrollView,
@@ -30,23 +30,13 @@ import {
   scannerColors,
 } from '@/features/ai-scan/components/PremiumScanner';
 import { aiScanStore, useAiScanStore } from '@/features/ai-scan/scanStore';
+import {
+  createPendingScanProgressController,
+  createSessionNavigationGuard,
+} from '@/features/ai-scan/scanWorkflowState';
 import { runAiScan } from '@/services/api/aiService';
 
-const STAGES = [
-  { threshold: 8, label: 'Secure upload', detail: 'Encrypting and sending vehicle image set.', icon: 'cloud-upload-outline' },
-  { threshold: 28, label: 'Vehicle lock', detail: 'Finding body edges, glass, paint, and panel geometry.', icon: 'scan-outline' },
-  { threshold: 52, label: 'Damage detection', detail: 'Segmenting visible damage regions and measuring model confidence.', icon: 'analytics-outline' },
-  { threshold: 76, label: 'Repair intelligence', detail: 'Building technician-level recommendations and priority order.', icon: 'construct-outline' },
-  { threshold: 94, label: 'Cost engine', detail: 'Estimating labor, materials, paint work, and protection package.', icon: 'cash-outline' },
-] as const;
-
-const stepForProgress = (progress: number) => {
-  if (progress < 24) return 1;
-  if (progress < 62) return 1;
-  if (progress < 80) return 2;
-  if (progress < 94) return 4;
-  return 4;
-};
+const DETECTION_MESSAGE = 'AI is analyzing the image for visible vehicle damage.';
 
 function ProgressRing({ progress }: { progress: number }) {
   const rotation = useSharedValue(0);
@@ -79,69 +69,62 @@ export default function AnalyzingScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ vehicleId?: string }>();
   const capturedImages = useAiScanStore((state) => state.capturedImages);
-  const [progress, setProgress] = useState(5);
-  const [status, setStatus] = useState('Initializing AI inspection pipeline.');
+  const workflow = useAiScanStore((state) => state.workflow);
+  const progress = workflow.progress;
+  const [status, setStatus] = useState(DETECTION_MESSAGE);
   const [failed, setFailed] = useState(false);
-  const inFlight = useRef(false);
-
-  const currentStageIndex = useMemo(() => {
-    let active = 0;
-    STAGES.forEach((stage, index) => {
-      if (progress >= stage.threshold) active = index;
-    });
-    return active;
-  }, [progress]);
-
-  const currentStage = STAGES[currentStageIndex];
+  const [attempt, setAttempt] = useState(0);
+  const navigationGuard = useRef(createSessionNavigationGuard());
   const heroImage = capturedImages[0]?.uri;
 
   useEffect(() => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-
     if (capturedImages.length === 0) {
       router.replace('/(customer)/scan' as never);
       return;
     }
 
     let mounted = true;
-    let cosmeticProgress = 6;
-    const interval = setInterval(() => {
-      cosmeticProgress = Math.min(88, cosmeticProgress + 4);
-      if (mounted) setProgress((value) => Math.max(value, cosmeticProgress));
-    }, 720);
+    let transitionTimer: ReturnType<typeof setTimeout> | null = null;
+    const sessionId = aiScanStore.beginScanRequest();
+    const progressController = createPendingScanProgressController((nextProgress) => {
+      if (mounted) aiScanStore.updateScanProgress(sessionId, nextProgress);
+    });
 
     const run = async () => {
       try {
         const result = await runAiScan(capturedImages, {
           vehicleId: params.vehicleId,
           onUploadProgress: (uploadProgress) => {
-            if (!mounted) return;
-            setProgress((value) => Math.max(value, Math.min(68, uploadProgress)));
+            if (mounted) progressController.reportUpload(uploadProgress);
           },
         });
 
         if (!mounted) return;
-        clearInterval(interval);
-        setProgress(100);
-        setStatus('Inspection complete. Preparing diagnostic report.');
-        aiScanStore.setScan(result);
+        progressController.stop();
+        const accepted = aiScanStore.completeScanRequest(sessionId, result);
+        if (!accepted) return;
+
+        setStatus('Damage detection complete. Preparing diagnostic report.');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setTimeout(() => {
-          if (mounted) router.replace('/(customer)/scan/results' as never);
+        transitionTimer = setTimeout(() => {
+          const currentSessionId = aiScanStore.getState().workflow.sessionId;
+          if (mounted && navigationGuard.current.claim(sessionId, currentSessionId)) {
+            router.replace('/(customer)/scan/results' as never);
+          }
         }, 700);
       } catch (error) {
         if (!mounted) return;
-        clearInterval(interval);
+        progressController.stop();
         const message = error instanceof Error
           ? error.message
           : typeof error === 'object' && error !== null && 'message' in error
             ? String(error.message)
             : 'AI scan failed. Please retry.';
-        setFailed(true);
-        setStatus(message);
-        aiScanStore.setScanError(message);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        if (aiScanStore.failScanRequest(sessionId, message)) {
+          setFailed(true);
+          setStatus(message);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        }
       }
     };
 
@@ -149,22 +132,15 @@ export default function AnalyzingScreen() {
 
     return () => {
       mounted = false;
-      clearInterval(interval);
+      progressController.stop();
+      if (transitionTimer !== null) clearTimeout(transitionTimer);
     };
-  }, [capturedImages, params.vehicleId, router]);
-
-  useEffect(() => {
-    if (failed) return undefined;
-    const frame = requestAnimationFrame(() => setStatus(currentStage.detail));
-    return () => cancelAnimationFrame(frame);
-  }, [currentStage.detail, failed]);
+  }, [attempt, capturedImages, params.vehicleId, router]);
 
   const retry = () => {
-    inFlight.current = false;
     setFailed(false);
-    setProgress(5);
-    setStatus('Restarting AI inspection pipeline.');
-    router.replace('/(customer)/scan/analyzing' as never);
+    setStatus(DETECTION_MESSAGE);
+    setAttempt((value) => value + 1);
   };
 
   return (
@@ -176,7 +152,10 @@ export default function AnalyzingScreen() {
         onBack={() => router.replace('/(customer)/scan' as never)}
         right={<Ionicons name="hardware-chip-outline" size={20} color={scannerColors.orange} />}
       />
-      <PipelineStepper currentIndex={stepForProgress(progress)} />
+      <PipelineStepper
+        currentIndex={1}
+        stepStates={workflow.requestStatus === 'idle' ? undefined : workflow.stepStates}
+      />
 
       <ScrollView
         style={{ flex: 1 }}
@@ -187,7 +166,7 @@ export default function AnalyzingScreen() {
           <GlassPanel style={styles.visualPanel} contentStyle={styles.visualInner} intense>
             {heroImage ? <Image source={{ uri: heroImage }} style={styles.heroImage} /> : null}
             <View style={styles.heroVeil} />
-            <ScanZoneOverlay label="Live AI scan" hint="Damage map generation in progress" compact />
+            <ScanZoneOverlay label="Damage Detection" hint={DETECTION_MESSAGE} compact />
             <View style={styles.progressOverlay}>
               <ProgressRing progress={progress} />
             </View>
@@ -198,14 +177,14 @@ export default function AnalyzingScreen() {
           <GlassPanel>
             <View style={styles.stageHead}>
               <AiPill
-                label={failed ? 'Needs retry' : currentStage.label}
-                icon={failed ? 'alert-circle-outline' : currentStage.icon}
+                label={failed ? 'Needs retry' : 'Damage Detection'}
+                icon={failed ? 'alert-circle-outline' : 'analytics-outline'}
                 color={failed ? scannerColors.red : scannerColors.orange}
               />
-              <Text style={styles.stageCount}>{currentStageIndex + 1}/{STAGES.length}</Text>
+              <Text style={styles.stageCount}>RF-DETR</Text>
             </View>
             <Text style={styles.stageTitle}>
-              {failed ? 'Inspection interrupted' : currentStage.label}
+              {failed ? 'Inspection interrupted' : 'Damage Detection'}
             </Text>
             <Text style={styles.stageText}>{status}</Text>
             <View style={styles.progressTrack}>
@@ -215,36 +194,25 @@ export default function AnalyzingScreen() {
         </Animated.View>
 
         <View style={styles.pipelineList}>
-          {STAGES.map((stage, index) => {
-            const complete = index < currentStageIndex || progress >= 100;
-            const active = index === currentStageIndex && !failed;
-            return (
-              <Animated.View
-                key={stage.label}
-                entering={FadeInDown.duration(260).delay(index * 45)}
-              >
-                <GlassPanel contentStyle={styles.pipelineRow}>
-                  <View
-                    style={[
-                      styles.pipelineIcon,
-                      complete && styles.pipelineIconDone,
-                      active && styles.pipelineIconActive,
-                    ]}
-                  >
-                    <Ionicons
-                      name={complete ? 'checkmark' : stage.icon}
-                      size={17}
-                      color={complete ? '#041014' : active ? scannerColors.orange : scannerColors.textMuted}
-                    />
-                  </View>
-                  <View style={styles.pipelineCopy}>
-                    <Text style={styles.pipelineTitle}>{stage.label}</Text>
-                    <Text style={styles.pipelineText}>{stage.detail}</Text>
-                  </View>
-                </GlassPanel>
-              </Animated.View>
-            );
-          })}
+          <Animated.View entering={FadeInDown.duration(260)}>
+            <GlassPanel contentStyle={styles.pipelineRow}>
+              <View style={[
+                styles.pipelineIcon,
+                progress >= 100 && styles.pipelineIconDone,
+                progress < 100 && !failed && styles.pipelineIconActive,
+              ]}>
+                <Ionicons
+                  name={progress >= 100 ? 'checkmark' : 'analytics-outline'}
+                  size={17}
+                  color={progress >= 100 ? '#041014' : scannerColors.orange}
+                />
+              </View>
+              <View style={styles.pipelineCopy}>
+                <Text style={styles.pipelineTitle}>Damage Detection</Text>
+                <Text style={styles.pipelineText}>{DETECTION_MESSAGE}</Text>
+              </View>
+            </GlassPanel>
+          </Animated.View>
         </View>
       </ScrollView>
 

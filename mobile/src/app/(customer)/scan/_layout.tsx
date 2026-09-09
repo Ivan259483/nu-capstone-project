@@ -1,6 +1,6 @@
 /**
  * AI Scan Stack Layout - drives the 5-step new-AI flow:
- *   index -> analyzing -> results -> ar-view (Meshy + WebAR) -> estimate -> confirm
+ *   index -> analyzing -> results -> prepare-3d -> ar-view (Meshy + WebAR) -> estimate -> confirm
  *   ar-view owns the browser-based MindAR repair simulation.
  */
 import React from 'react';
@@ -18,6 +18,7 @@ export default function AiScanLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="analyzing" options={{ animation: 'fade', gestureEnabled: false }} />
       <Stack.Screen name="results" options={{ animation: 'fade' }} />
+      <Stack.Screen name="prepare-3d" options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="ar-view" options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="estimate" options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="confirm" options={{ animation: 'slide_from_right' }} />

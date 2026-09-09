@@ -815,6 +815,9 @@ export interface AiScanInputImage {
   mimeType?: string;
   angle?: string;
   selectedDamageArea?: string;
+  width?: number;
+  height?: number;
+  fileSize?: number;
 }
 
 export interface AiScan3DProgress {
@@ -1132,8 +1135,50 @@ export const fetchAiScanById = async (scanId: string): Promise<AiScanResult> => 
  */
 export const startAiScan3D = async (
   scanId: string,
-  images: AiScanInputImage[] = []
+  images: AiScanInputImage[] = [],
+  options: { preferUploadedImages?: boolean } = {}
 ): Promise<AiScan3DProgress> => {
+  // A user-selected full-vehicle photo must take precedence over the images
+  // saved for damage diagnosis. The current Meshy image-to-3D endpoint consumes
+  // one source image, so only the explicitly selected first image is uploaded.
+  if (options.preferUploadedImages && images.length > 0) {
+    const formData = new FormData();
+    const image = images[0];
+    formData.append('images', {
+      uri: image.uri,
+      name: image.fileName || 'vehicle_3d_source.jpg',
+      type: image.mimeType || 'image/jpeg',
+    } as never);
+    if (scanId) formData.append('scanId', scanId);
+
+    const directResponse = await apiClient.post('/ai/generate-3d-from-scan', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      validateStatus: () => true,
+      timeout: 120_000,
+    });
+    const directStatus = String(directResponse.data?.status || '').toLowerCase();
+
+    if (directStatus === 'processing' && directResponse.data?.task_id) {
+      return {
+        status: 'processing',
+        taskId: String(directResponse.data.task_id),
+        progress: 0,
+        message: 'Uploading full-vehicle photo to Meshy 3D pipeline…',
+      };
+    }
+
+    return {
+      status: 'unavailable',
+      progress: 0,
+      message: String(
+        directResponse.data?.detail?.error?.message
+        || directResponse.data?.detail?.message
+        || directResponse.data?.message
+        || 'Meshy did not start. Check your API key and network connection.'
+      ),
+    };
+  }
+
   // ── PATH 1: Scan-based (uses Cloudinary URLs stored during POST /ai/scan) ──
   if (scanId) {
     const response = await apiClient.post(
