@@ -11,6 +11,7 @@ import ShopAvailability, { normalizeRecurringSchedule } from '../models/shopAvai
 import { COMPANY_BRANDING } from '../constants/companyBranding.js';
 import { config } from '../config/environment.js';
 import { getIO } from '../utils/socket.utils.js';
+import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
 import {
   buildCompleteServicePriceListReply,
   buildOtherServicesSummary,
@@ -1690,15 +1691,14 @@ const buildPublicTrackerSummary = (orderDoc) => {
     currentStageLabel,
     progressPercent,
     updatedAt: order.serviceTrackingUpdatedAt || order.updatedAt || order.createdAt || null,
-    trackerStageMedia: Array.isArray(order.trackerStageMedia)
-      ? order.trackerStageMedia.map((entry) => ({
+    trackerStageMedia: getCustomerVisibleTrackerStageMedia(order)
+      .map((entry) => ({
           stage: entry.stage || '',
           slot: entry.slot || '',
           photoUrl: entry.photoUrl || '',
           description: entry.description || '',
           uploadedAt: entry.uploadedAt || null,
-        }))
-      : [],
+        })),
     serviceStaffAssignments: Array.isArray(order.serviceStaffAssignments)
       ? order.serviceStaffAssignments
           .filter((entry) => entry?.name)

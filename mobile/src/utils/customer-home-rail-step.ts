@@ -1,17 +1,10 @@
 /**
  * Home hero 8-step rail — aligned with web CustomerDashboard live tracker inputs:
- * `serviceTrackingStage`, `customerStatus`, `status`, and the same gate-photo bumps
- * as the 5-step tracker (mapped onto the 8 micro-steps used on mobile Home).
- *
- * Keep gate thresholds in sync with `customer-tracker-stage-media.ts` / web customer tracker.
+ * `serviceTrackingStage`, `customerStatus`, and `status`, mapped onto the
+ * 8 micro-steps used on mobile Home. Evidence existence never advances this rail.
  */
 
 import type { BookingRecord } from '@/services/api/types';
-import {
-  CUSTOMER_TRACKER_GATE_MIN_PHOTOS,
-  customerGateMinSlotCount,
-  getCustomerStageSlotPhotos,
-} from '@/utils/customer-tracker-stage-media';
 import { normTrackerStr } from '@/utils/customer-live-tracker-pick';
 
 export const CUSTOMER_HOME_RAIL_LABELS = [
@@ -45,36 +38,6 @@ const PILL: CustomerHomeHeroPill[] = [
   { label: 'Released', color: '#2DDBA6', fill: 'rgba(45,219,166,0.11)', icon: 'car-sport-outline', step: 7 },
 ];
 
-function applyHome8EvidenceBumps(
-  booking: Pick<BookingRecord, 'trackerStageMedia' | 'serviceTrackingStage' | 'status'>,
-  base: number
-): number {
-  let s = Math.min(Math.max(base, 0), 7);
-  const ts = normTrackerStr(booking.serviceTrackingStage);
-  const status = normTrackerStr(booking.status);
-
-  if (getCustomerStageSlotPhotos(booking, 'received').length >= CUSTOMER_TRACKER_GATE_MIN_PHOTOS) {
-    if (ts === 'received' || (!ts && status === 'received')) {
-      s = Math.max(s, 4);
-    }
-  }
-  if (getCustomerStageSlotPhotos(booking, 'in_progress').length >= CUSTOMER_TRACKER_GATE_MIN_PHOTOS) {
-    if (ts === 'in_progress' || (!ts && (status === 'in_progress' || status === 'in-progress'))) {
-      s = Math.max(s, 5);
-    }
-  }
-  if (ts === 'quality_check') {
-    const n = getCustomerStageSlotPhotos(booking, 'quality_check').length;
-    if (n >= customerGateMinSlotCount('quality_check')) {
-      s = Math.max(s, 6);
-    }
-  }
-  if (getCustomerStageSlotPhotos(booking, 'ready_pickup').length >= CUSTOMER_TRACKER_GATE_MIN_PHOTOS) {
-    s = Math.max(s, 6);
-  }
-  return Math.min(s, 7);
-}
-
 /**
  * Active dot index 0..7 on the Home 8-step rail (Booked → Released).
  */
@@ -88,37 +51,37 @@ export function resolveCustomerHomeRailStep(booking: BookingRecord | null | unde
   const cs = String(booking.customerStatus || '').toLowerCase();
 
   if (['washing', 'detailing', 'finishing'].includes(cs) || cs === 'in-progress' || cs === 'in_progress') {
-    return applyHome8EvidenceBumps(booking, 4);
+    return 4;
   }
   if (cs === 'ready') {
-    return applyHome8EvidenceBumps(booking, 6);
+    return 6;
   }
 
-  if (ts === 'confirmed') return applyHome8EvidenceBumps(booking, 1);
-  if (ts === 'received') return applyHome8EvidenceBumps(booking, 3);
-  if (ts === 'in_progress') return applyHome8EvidenceBumps(booking, 4);
-  if (ts === 'quality_check') return applyHome8EvidenceBumps(booking, 5);
+  if (ts === 'confirmed') return 1;
+  if (ts === 'received') return 3;
+  if (ts === 'in_progress') return 4;
+  if (ts === 'quality_check') return 5;
   if (ts === 'ready_pickup') {
     const s = payPaid && (st === 'released' || st === 'completed') ? 7 : 6;
-    return applyHome8EvidenceBumps(booking, s);
+    return s;
   }
   if (ts === 'completed' || ts === 'released') {
-    return applyHome8EvidenceBumps(booking, 7);
+    return 7;
   }
 
-  if (['pending', 'pending_confirmation'].includes(st)) return applyHome8EvidenceBumps(booking, 0);
-  if (st === 'approved') return applyHome8EvidenceBumps(booking, 1);
-  if (st === 'confirmed') return applyHome8EvidenceBumps(booking, 1);
-  if (st === 'assigned') return applyHome8EvidenceBumps(booking, 2);
-  if (st === 'received') return applyHome8EvidenceBumps(booking, 3);
-  if (st === 'in_progress' || st === 'in-progress') return applyHome8EvidenceBumps(booking, 4);
-  if (st === 'completed') return applyHome8EvidenceBumps(booking, 5);
-  if (st === 'ready_for_payment') return applyHome8EvidenceBumps(booking, 6);
-  if (st === 'paid') return applyHome8EvidenceBumps(booking, 6);
-  if (st === 'released') return applyHome8EvidenceBumps(booking, 7);
-  if (st === 'queued') return applyHome8EvidenceBumps(booking, 1);
+  if (['pending', 'pending_confirmation'].includes(st)) return 0;
+  if (st === 'approved') return 1;
+  if (st === 'confirmed') return 1;
+  if (st === 'assigned') return 2;
+  if (st === 'received') return 3;
+  if (st === 'in_progress' || st === 'in-progress') return 4;
+  if (st === 'completed') return 5;
+  if (st === 'ready_for_payment') return 6;
+  if (st === 'paid') return 6;
+  if (st === 'released') return 7;
+  if (st === 'queued') return 1;
 
-  return applyHome8EvidenceBumps(booking, 0);
+  return 0;
 }
 
 export function getCustomerHomeHeroPill(booking: BookingRecord): CustomerHomeHeroPill {

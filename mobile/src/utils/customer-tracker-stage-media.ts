@@ -12,6 +12,8 @@ import {
   TRACKER_QC_FORM_SLOT_KEY,
   type TrackerPhotoSlotKey,
 } from './tracker-gate-photo-slots';
+import { isCustomerTrackerMediaStageReleased } from './customer-tracker-evidence-release';
+export { isCustomerTrackerMediaStageReleased } from './customer-tracker-evidence-release';
 
 export type TrackerMediaStage =
   | 'confirmed'
@@ -77,10 +79,10 @@ export function customerGateMinSlotCount(stage: TrackerMediaStage): number {
 
 /** Ordered gate photos for customer UI (five angles; Vehicle Arrive may add a 6th checklist row; Quality Check is one qc_form row). Legacy slotless row maps to front only. */
 export function listTrackerStageMediaForStage(
-  booking: { trackerStageMedia?: TrackerStageMediaEntry[] } | null | undefined,
+  booking: { trackerStageMedia?: TrackerStageMediaEntry[]; serviceTrackingStage?: string | null } | null | undefined,
   stage: TrackerMediaStage | null | undefined
 ): TrackerStageMediaWithDisplaySlot[] {
-  if (!stage || !booking?.trackerStageMedia?.length) return [];
+  if (!stage || !booking?.trackerStageMedia?.length || !isCustomerTrackerMediaStageReleased(booking, stage)) return [];
   const rows = booking.trackerStageMedia.filter((e) => e.stage === stage && String(e.photoUrl || '').trim());
 
   if (stage === 'quality_check') {
@@ -122,7 +124,7 @@ export function listTrackerStageMediaForStage(
 }
 
 export function getCustomerStageSlotPhotos(
-  booking: { trackerStageMedia?: TrackerStageMediaEntry[] } | null | undefined,
+  booking: { trackerStageMedia?: TrackerStageMediaEntry[]; serviceTrackingStage?: string | null } | null | undefined,
   stage: TrackerMediaStage | null | undefined
 ): { url: string; label: string }[] {
   return listTrackerStageMediaForStage(booking, stage).map((r) => ({
@@ -137,10 +139,10 @@ export function getCustomerStageSlotPhotos(
 }
 
 export function findTrackerStageMedia(
-  booking: { trackerStageMedia?: TrackerStageMediaEntry[] } | null | undefined,
+  booking: { trackerStageMedia?: TrackerStageMediaEntry[]; serviceTrackingStage?: string | null } | null | undefined,
   stage: TrackerMediaStage | null | undefined
 ): TrackerStageMediaEntry | null {
-  if (!stage || !booking?.trackerStageMedia?.length) return null;
+  if (!stage || !booking?.trackerStageMedia?.length || !isCustomerTrackerMediaStageReleased(booking, stage)) return null;
   const ordered = listTrackerStageMediaForStage(booking, stage);
   if (ordered.length) return ordered[0];
   return booking.trackerStageMedia.find((e) => e.stage === stage) || null;
@@ -161,16 +163,7 @@ function isQualityCheckCompleteForCustomer(
     | undefined
 ): boolean {
   const trackerStage = normalizedTrackerValue(booking?.serviceTrackingStage);
-  const status = normalizedTrackerValue(booking?.status);
-  const qcEvidenceComplete =
-    getCustomerStageSlotPhotos(booking, 'quality_check').length >=
-    customerGateMinSlotCount('quality_check');
-
-  return (
-    qcEvidenceComplete ||
-    ['ready_pickup', 'completed', 'released'].includes(trackerStage) ||
-    ['ready_for_payment', 'completed', 'paid', 'released', 'done'].includes(status)
-  );
+  return ['ready_pickup', 'completed', 'released'].includes(trackerStage);
 }
 
 /** Final line shown to customer: completed QC copy wins, then staff note, then default catalog line. */
@@ -193,48 +186,4 @@ export function resolveTrackerStageDescription(
   const custom = rows.map((r) => (r.description || '').trim()).find(Boolean);
   if (custom) return custom;
   return DEFAULT_TRACKER_STAGE_DESCRIPTION[stage] || '';
-}
-
-/**
- * When `serviceTrackingStage` (or coarse `status`) still says "received" but all intake
- * photos exist, treat the pipeline as at least the next step so the customer UI matches evidence.
- */
-export function bumpCustomerTrackerIndexForReceivedGateComplete(
-  booking: { trackerStageMedia?: TrackerStageMediaEntry[]; serviceTrackingStage?: string | null; status?: string } | null | undefined,
-  baseIndex: number,
-  pipeline: 'dashboard5' | 'fullpage6'
-): number {
-  if (!booking) return baseIndex;
-  const tsKey = String(booking.serviceTrackingStage ?? '').trim().toLowerCase().replace(/-/g, '_');
-  const status = String(booking.status ?? '').trim().toLowerCase().replace(/-/g, '_');
-  if (getCustomerStageSlotPhotos(booking, 'received').length < CUSTOMER_TRACKER_GATE_MIN_PHOTOS) {
-    return baseIndex;
-  }
-  const stageLagsEvidence = tsKey === 'received' || (!tsKey && status === 'received');
-  if (!stageLagsEvidence) return baseIndex;
-  const minAfterIntake = pipeline === 'dashboard5' ? 2 : 3;
-  return Math.max(baseIndex, minAfterIntake);
-}
-
-/**
- * When `serviceTrackingStage` is still `in_progress` but all service-bay photos exist, advance
- * the customer display to the QC step.
- */
-export function bumpCustomerTrackerIndexForInProgressGateComplete(
-  booking: { trackerStageMedia?: TrackerStageMediaEntry[]; serviceTrackingStage?: string | null; status?: string } | null | undefined,
-  baseIndex: number,
-  pipeline: 'dashboard5' | 'fullpage6'
-): number {
-  if (!booking) return baseIndex;
-  const tsKey = String(booking.serviceTrackingStage ?? '').trim().toLowerCase().replace(/-/g, '_');
-  const status = String(booking.status ?? '').trim().toLowerCase().replace(/-/g, '_');
-  if (getCustomerStageSlotPhotos(booking, 'in_progress').length < CUSTOMER_TRACKER_GATE_MIN_PHOTOS) {
-    return baseIndex;
-  }
-  const stageLagsEvidence =
-    tsKey === 'in_progress'
-    || (!tsKey && (status === 'in_progress' || status === 'in-progress'));
-  if (!stageLagsEvidence) return baseIndex;
-  const minAfterWork = pipeline === 'dashboard5' ? 3 : 4;
-  return Math.max(baseIndex, minAfterWork);
 }

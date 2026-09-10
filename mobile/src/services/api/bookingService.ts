@@ -138,6 +138,7 @@ export const bookingService = {
     vehicleId?: string;
     downpaymentProof?: string;
     reservationPaymentAmount?: number;
+    bookingRequestId?: string;
   }): Promise<BookingRecord> {
     const bookingDate = normalizeBookingDateForApi(params.date);
 
@@ -160,10 +161,15 @@ export const bookingService = {
       service: params.service.id,
       downpaymentProof: params.downpaymentProof,
       reservationPaymentAmount: params.reservationPaymentAmount ?? 500,
+      bookingRequestId: params.bookingRequestId,
       items: [],
     };
 
-    const response = await apiClient.post<ApiEnvelope<any>>('/bookings', payload);
+    const response = await apiClient.post<ApiEnvelope<any>>('/bookings', payload, {
+      headers: params.bookingRequestId
+        ? { 'Idempotency-Key': params.bookingRequestId }
+        : undefined,
+    });
     return normalizeBooking(response.data.data);
   },
 

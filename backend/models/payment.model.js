@@ -1,5 +1,11 @@
 import mongoose from 'mongoose';
 
+const normalizeOptionalUniqueReference = (value) => {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return normalized || undefined;
+};
+
 const paymentSchema = new mongoose.Schema(
   {
     invoiceId: { type: String, required: true, unique: true, index: true },
@@ -41,7 +47,11 @@ const paymentSchema = new mongoose.Schema(
     provider: { type: String, default: 'stripe' },
     providerReference: String,
     /** Customer-facing reference supplied by an external tender such as GCash. */
-    paymentReference: { type: String, default: null },
+    paymentReference: {
+      type: String,
+      default: undefined,
+      set: normalizeOptionalUniqueReference,
+    },
     proofImage: { type: String, default: null },
     submittedAt: { type: Date, default: null },
     /** Financial recognition timestamp. Reporting never derives this from an Order flag. */
@@ -73,7 +83,11 @@ const paymentSchema = new mongoose.Schema(
     refundReason: { type: String, default: null, trim: true, maxlength: 500 },
     refundedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     idempotencyKey: { type: String, default: null, trim: true },
-    checkoutReference: { type: String, default: null },
+    checkoutReference: {
+      type: String,
+      default: undefined,
+      set: normalizeOptionalUniqueReference,
+    },
     metadata: mongoose.Schema.Types.Mixed,
 
     // POS-specific fields

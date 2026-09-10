@@ -1,8 +1,8 @@
 /**
  * Single source for the 4-gate service pipeline progress (25% increments).
  * Matches QC `getTrackerState` in `QCLiveTrackerView.tsx` — customer UI must use this
- * for completion % so it does not jump ahead when photo bumps advance the *display* step
- * before `serviceTrackingStage` catches up.
+ * for completion % so uploads never advance customer-visible state before
+ * `serviceTrackingStage` catches up.
  */
 
 export const TRACKER_PIPELINE_GATE_STAGES = ['received', 'in_progress', 'quality_check', 'ready_pickup'] as const;

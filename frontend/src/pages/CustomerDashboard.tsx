@@ -31,10 +31,6 @@ import {
 } from '../lib/booking-terms';
 import {
   DASHBOARD_TRACKER_STEP_MEDIA_STAGE,
-  bumpCustomerTrackerIndexForInProgressGateComplete,
-  bumpCustomerTrackerIndexForReceivedGateComplete,
-  CUSTOMER_TRACKER_GATE_MIN_PHOTOS,
-  customerGateMinSlotCount,
   getCustomerStageSlotPhotos,
   resolveTrackerStageDescription,
 } from '../lib/customer-tracker-stage-media';
@@ -4849,21 +4845,7 @@ export default function CustomerDashboard() {
                     ? (stageMap[tsKey] ?? 0)
                     : (statusFallback[status] ?? 0))
                   : -1;
-                const qcGatePhotoCount = activeBooking
-                  ? getCustomerStageSlotPhotos(activeBooking as any, 'quality_check').length
-                  : 0;
-                let currentStep = rawStep;
-                if (activeBooking && tsKey === 'quality_check' && qcGatePhotoCount >= customerGateMinSlotCount('quality_check')) {
-                  currentStep = Math.max(currentStep, TRACKER_STEPS.length - 1);
-                }
-                const readyPickupCountSimple = activeBooking
-                  ? getCustomerStageSlotPhotos(activeBooking as any, 'ready_pickup').length
-                  : 0;
-                if (activeBooking && readyPickupCountSimple >= CUSTOMER_TRACKER_GATE_MIN_PHOTOS) {
-                  currentStep = Math.max(currentStep, TRACKER_STEPS.length - 1);
-                }
-                currentStep = bumpCustomerTrackerIndexForReceivedGateComplete(activeBooking, currentStep, 'dashboard5');
-                currentStep = bumpCustomerTrackerIndexForInProgressGateComplete(activeBooking, currentStep, 'dashboard5');
+                const currentStep = rawStep;
 
                 return (
                   <div className="customer-content-fade-in min-w-0 w-full flex-1 space-y-6 pb-12">
@@ -5742,21 +5724,7 @@ export default function CustomerDashboard() {
                     { id: 'paid', label: 'Ready for Pickup', short: 'Pickup', sub: 'Handover ready', detail: 'Final handover is ready for customer pickup.', icon: 'solar:car-bold', time: '100%', mediaId: 'paid' },
                   ] as const;
 
-                  const qcGatePhotoCountDash = activeBooking
-                    ? getCustomerStageSlotPhotos(activeBooking as any, 'quality_check').length
-                    : 0;
-                  let displayStepIdx = currentStepIdx;
-                  if (activeBooking && tsKey === 'quality_check' && qcGatePhotoCountDash >= customerGateMinSlotCount('quality_check')) {
-                    displayStepIdx = Math.max(displayStepIdx, STEPS.length - 1);
-                  }
-                  const readyPickupGateCountDash = activeBooking
-                    ? getCustomerStageSlotPhotos(activeBooking as any, 'ready_pickup').length
-                    : 0;
-                  if (activeBooking && readyPickupGateCountDash >= CUSTOMER_TRACKER_GATE_MIN_PHOTOS) {
-                    displayStepIdx = Math.max(displayStepIdx, STEPS.length - 1);
-                  }
-                  displayStepIdx = bumpCustomerTrackerIndexForReceivedGateComplete(activeBooking, displayStepIdx, 'dashboard5');
-                  displayStepIdx = bumpCustomerTrackerIndexForInProgressGateComplete(activeBooking, displayStepIdx, 'dashboard5');
+                  const displayStepIdx = currentStepIdx;
                   const activeIdx = Math.min(Math.max(displayStepIdx, 0), STEPS.length - 1);
                   const pct = postPayComplete
                     ? 100

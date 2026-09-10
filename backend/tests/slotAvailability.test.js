@@ -47,6 +47,7 @@ const { default: Vehicle } = await import('../models/vehicle.model.js');
 const availabilityRouter = (await import('../routes/admin/availability.js'))
   .default;
 const orderRoutes = (await import('../routes/orders.routes.js')).default;
+const paymentRoutes = (await import('../routes/payment.routes.js')).default;
 const slotRoutes = (await import('../routes/slot.routes.js')).default;
 const {
   SHOP_TIME_ZONE,
@@ -294,6 +295,8 @@ before(async () => {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
   app.use('/api/orders', orderRoutes);
+  app.use('/api/bookings', orderRoutes);
+  app.use('/api/payments', paymentRoutes);
   app.use('/api/slots', slotRoutes);
   app.use(
     '/api/admin/availability',
@@ -323,6 +326,7 @@ beforeEach(async () => {
   await Promise.all([
     BookingSlotCounter.syncIndexes(),
     Order.syncIndexes(),
+    Payment.syncIndexes(),
     ShopAvailability.syncIndexes(),
     User.syncIndexes(),
     Vehicle.syncIndexes(),
@@ -347,7 +351,7 @@ test('GCash screenshot data remains byte-for-byte intact through booking storage
   const proof =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAACCAYAAACZgbYnAAAAEElEQVR42mNkYGD4z8DAwMAAAAYAAWgmWQ0AAAAASUVORK5CYII=';
 
-  const created = await requestJson('/api/orders', {
+  const created = await requestJson('/api/bookings', {
     method: 'POST',
     headers: { Authorization: `Bearer ${tokenFor(customer)}` },
     body: JSON.stringify(bookingPayload({ vehicle, service, proof })),
@@ -369,6 +373,126 @@ test('GCash screenshot data remains byte-for-byte intact through booking storage
   assert.equal(staffView.response.status, 200);
   assert.equal(staffView.body.data.downpaymentProof, proof);
   assert.equal(staffView.body.data.paymentProofUrl, proof);
+});
+
+test('mobile booking request id creates one booking and one pending reservation payment across retries', async () => {
+  await setMondayAvailability({ capacity: 1 });
+  const { customer, administrator, vehicle, service } = await seedBookingActors();
+  const headers = { Authorization: `Bearer ${tokenFor(customer)}` };
+  const payload = {
+    ...bookingPayload({ vehicle, service }),
+    reservationPaymentAmount: 500,
+    bookingRequestId: 'mobile-booking:retry-contract-001',
+  };
+
+  const created = await requestJson('/api/bookings', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+  const retried = await requestJson('/api/bookings', {
+    method: 'POST',
+    headers: { ...headers, 'Idempotency-Key': payload.bookingRequestId },
+    body: JSON.stringify(payload),
+  });
+
+  assert.equal(created.response.status, 201);
+  assert.equal(retried.response.status, 200);
+  assert.equal(retried.body.idempotent, true);
+  const bookingId = created.body.data.id || created.body.data._id;
+  assert.equal(retried.body.data.id || retried.body.data._id, bookingId);
+  assert.equal(await Order.countDocuments({ customer: customer._id }), 1);
+  assert.equal(
+    await Payment.countDocuments({ order: bookingId, transactionType: 'reservation_fee' }),
+    1,
+  );
+  const payment = await Payment.findOne({ order: bookingId, transactionType: 'reservation_fee' }).lean();
+  assert.equal(payment.amount, 500);
+  assert.equal(payment.amountSubmitted, 500);
+  assert.equal(payment.status, 'pending');
+  assert.equal(payment.method, 'gcash');
+  assert.equal(payment.provider, 'customer_proof');
+  assert.equal((await counterAt(MONDAY, '08:00')).count, 1);
+
+  const salesPreview = await requestJson(`/api/bookings/${bookingId}/approval-preview`, {
+    headers: { Authorization: `Bearer ${tokenFor(administrator)}` },
+  });
+  assert.equal(salesPreview.response.status, 200);
+  assert.equal(salesPreview.body.data.status, 'pending_confirmation');
+  assert.equal(salesPreview.body.data.latestPayment.transactionType, 'reservation_fee');
+  assert.equal(salesPreview.body.data.latestPayment.amountSubmitted, 500);
+  assert.equal(salesPreview.body.data.latestPayment.status, 'pending');
+  assert.equal(salesPreview.body.data.latestPayment.method, 'gcash');
+
+  const salesTransactions = await requestJson(`/api/payments?order=${bookingId}`, {
+    headers: { Authorization: `Bearer ${tokenFor(administrator)}` },
+  });
+  assert.equal(salesTransactions.response.status, 200);
+  assert.equal(salesTransactions.body.data.length, 1);
+  assert.equal(salesTransactions.body.data[0].transactionType, 'reservation_fee');
+  assert.equal(salesTransactions.body.data[0].amountSubmitted, 500);
+  assert.equal(salesTransactions.body.data[0].status, 'pending');
+  assert.equal(salesTransactions.body.data[0].method, 'gcash');
+});
+
+test('reservation payment omits null checkout reference under the legacy sparse unique index', async () => {
+  await mongoose.connection.db.collection('payments').dropIndex('checkoutReference_1');
+  await mongoose.connection.db.collection('payments').createIndex(
+    { checkoutReference: 1 },
+    { name: 'checkoutReference_1', unique: true, sparse: true },
+  );
+  await mongoose.connection.db.collection('payments').insertOne({
+    invoiceId: 'LEGACY-NULL-CHECKOUT',
+    order: new mongoose.Types.ObjectId(),
+    amount: 500,
+    checkoutReference: null,
+  });
+  await setMondayAvailability({ capacity: 1 });
+  const { customer, vehicle, service } = await seedBookingActors();
+
+  const created = await requestJson('/api/orders', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${tokenFor(customer)}` },
+    body: JSON.stringify({
+      ...bookingPayload({ vehicle, service }),
+      bookingRequestId: 'mobile-booking:legacy-index-001',
+    }),
+  });
+
+  assert.equal(created.response.status, 201);
+  const bookingId = created.body.data.id || created.body.data._id;
+  const payment = await Payment.findOne({ order: bookingId, transactionType: 'reservation_fee' }).lean();
+  assert.ok(payment);
+  assert.equal(Object.hasOwn(payment, 'checkoutReference'), false);
+});
+
+test('reservation transaction failure leaves neither booking nor occupied slot', async () => {
+  await setMondayAvailability({ capacity: 1 });
+  const { customer, vehicle, service } = await seedBookingActors();
+  const originalCreate = Payment.create;
+  Payment.create = async () => {
+    const error = new Error('Injected reservation transaction failure');
+    error.name = 'ValidationError';
+    error.errors = { method: { message: 'Injected invalid payment method' } };
+    throw error;
+  };
+
+  try {
+    const attempted = await requestJson('/api/orders', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokenFor(customer)}` },
+      body: JSON.stringify({
+        ...bookingPayload({ vehicle, service }),
+        bookingRequestId: 'mobile-booking:rollback-contract-001',
+      }),
+    });
+    assert.equal(attempted.response.status, 400);
+    assert.equal(await Order.countDocuments({ customer: customer._id }), 0);
+    assert.equal(await Payment.countDocuments({ customer: customer._id }), 0);
+    assert.equal((await counterAt(MONDAY, '08:00')).count, 0);
+  } finally {
+    Payment.create = originalCreate;
+  }
 });
 
 test('each generated appointment time has capacity one and daily availability counts open times', async () => {

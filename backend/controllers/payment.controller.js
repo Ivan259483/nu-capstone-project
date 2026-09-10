@@ -58,6 +58,7 @@ import PaymentReconciliationEvent from '../models/paymentReconciliationEvent.mod
 import { getSystemState } from '../services/systemState.service.js';
 import { beginTrackedSystemMutation } from '../middleware/systemLifecycle.middleware.js';
 import { findCustomerPaymentInvoices, reservationReceiptNumber } from './customerReceipt.controller.js';
+import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
 
 const LOW_STOCK_THRESHOLD = 10;
 const LOCAL_PAYMENTS_PROVIDER = (process.env.LOCAL_PAYMENTS_PROVIDER || 'paymongo').toLowerCase();
@@ -1814,7 +1815,7 @@ export const runPosCheckoutCore = async ({
         paymentStatus: 'paid',
         invoiceId: order.invoiceId || null,
         customerStatus: order.customerStatus,
-        trackerStageMedia: order.trackerStageMedia || [],
+        trackerStageMedia: getCustomerVisibleTrackerStageMedia(order),
         updatedAt: new Date().toISOString(),
       });
     }

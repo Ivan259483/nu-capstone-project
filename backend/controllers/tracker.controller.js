@@ -32,6 +32,7 @@ import {
 } from '../services/qualityNotification.service.js';
 import { runTrackedSystemMutation } from '../middleware/systemLifecycle.middleware.js';
 import { registerCloudinaryManagedAsset } from '../services/managedAsset.service.js';
+import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
 
 /** Same coarse stages as QC `service-status`; `confirmed` is optional text-only for customers. */
 const TRACKER_MEDIA_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'];
@@ -191,6 +192,7 @@ function emitTrackerStageMediaUpdate(order) {
   try {
     const io = getIO();
     const media = order.trackerStageMedia || [];
+    const customerMedia = getCustomerVisibleTrackerStageMedia(order);
     const payload = {
       orderId: order._id.toString(),
       status: order.status,
@@ -220,7 +222,7 @@ function emitTrackerStageMediaUpdate(order) {
         readyForPaymentAt: order.readyForPaymentAt || null,
         invoiceId: order.invoiceId || null,
         serviceStaffAssignments: order.serviceStaffAssignments || [],
-        trackerStageMedia: media,
+        trackerStageMedia: customerMedia,
         updatedAt: new Date().toISOString(),
       });
     }

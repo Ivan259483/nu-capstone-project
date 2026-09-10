@@ -283,6 +283,21 @@ test('stage media notification sends once for meaningful evidence, not per photo
   assert.equal(sentEmails.length, 1);
 });
 
+test('pending gate uploads do not create customer stage or evidence notifications', async () => {
+  const { order } = await seedOrder({
+    status: 'confirmed',
+    serviceTrackingStage: 'confirmed',
+    trackerStageMedia: [
+      { stage: 'received', slot: 'front', photoUrl: 'https://example.com/internal-arrival.jpg' },
+    ],
+  });
+
+  assert.equal(await createCustomerStageMediaNotification(order, 'received'), null);
+  assert.equal(await createCustomerStageNotification(order, 'received'), null);
+  assert.equal(await Notification.countDocuments({ 'metadata.stage': 'received' }), 0);
+  assert.equal(sentEmails.length, 0);
+});
+
 test('email is skipped when Resend config is missing', async () => {
   process.env.RESEND_API_KEY = '';
   const { order } = await seedOrder();

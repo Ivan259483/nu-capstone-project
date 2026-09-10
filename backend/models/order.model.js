@@ -204,6 +204,13 @@ const orderSchema = new mongoose.Schema(
       sparse: true,
       trim: true,
     },
+    /** Stable mobile request identifier used to return the original booking on retries. */
+    bookingRequestId: {
+      type: String,
+      trim: true,
+      maxlength: 128,
+      default: undefined,
+    },
     downpaymentProof: String,
     inventoryReservation: {
       items: [
@@ -640,6 +647,13 @@ orderSchema.index({ archived: 1, createdAt: -1, _id: -1 }); // Active order list
 orderSchema.index({ archived: 1, updatedAt: -1, _id: -1 }); // Active order list by latest update + stable pagination
 orderSchema.index({ assignedDetailer: 1, archived: 1, updatedAt: -1, _id: -1 }); // Scoped QC activity/report reads
 orderSchema.index({ bookingReference: 1 }, { unique: true, sparse: true }); // Booking ref lookup
+orderSchema.index(
+  { customer: 1, bookingRequestId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { bookingRequestId: { $type: 'string' } },
+  }
+); // Mobile booking retries resolve to the original booking.
 orderSchema.plugin(operationalClassificationPlugin, {
   collectionName: 'orders',
   label: (order) => order.orderNumber || order.bookingReference || order.customerName,

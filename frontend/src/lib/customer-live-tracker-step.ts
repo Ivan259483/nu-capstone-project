@@ -1,5 +1,4 @@
 import type { Booking } from '@/types';
-import { bumpCustomerTrackerIndexForInProgressGateComplete, bumpCustomerTrackerIndexForReceivedGateComplete } from './customer-tracker-stage-media';
 
 /**
  * Same pipeline as `TRACKER_STEPS` in CustomerLiveTrackerPage — keep indices in sync.
@@ -78,9 +77,5 @@ export function getLiveTrackerStepIndex(booking: Booking | null | undefined): nu
     idx = 0;
   }
 
-  return bumpCustomerTrackerIndexForInProgressGateComplete(
-    booking,
-    bumpCustomerTrackerIndexForReceivedGateComplete(booking, idx, 'fullpage6'),
-    'fullpage6'
-  );
+  return idx;
 }

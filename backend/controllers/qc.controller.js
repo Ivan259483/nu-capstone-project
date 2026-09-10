@@ -46,6 +46,7 @@ import {
   summarizeLedgerRows,
   syncOrderFinancialSnapshot,
 } from '../services/financialLedger.service.js';
+import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
 
 const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'paid', 'completed', 'released'];
 const QC_APPROVED_ORDER_STATUSES = ['completed', 'released'];
@@ -919,7 +920,7 @@ export const approveJob = async (req, res, next) => {
           readyForPickupEvidenceComplete: Boolean(order.readyForPickupEvidenceComplete),
           readyForPaymentAt: order.readyForPaymentAt || null,
           serviceStaffAssignments: order.serviceStaffAssignments || [],
-          trackerStageMedia: order.trackerStageMedia || [],
+          trackerStageMedia: getCustomerVisibleTrackerStageMedia(order),
           updatedAt: new Date().toISOString(),
         });
       }
@@ -1214,7 +1215,7 @@ export const updateServiceStatus = async (req, res, next) => {
           readyForPaymentAt: order.readyForPaymentAt || null,
           invoiceId: order.invoiceId || null,
           serviceStaffAssignments: order.serviceStaffAssignments || [],
-          trackerStageMedia: order.trackerStageMedia || [],
+          trackerStageMedia: getCustomerVisibleTrackerStageMedia(order),
           updatedAt: new Date().toISOString(),
         });
       }
@@ -1336,7 +1337,7 @@ export const assignServiceStaff = async (req, res, next) => {
           status: order.status,
           serviceTrackingStage: order.serviceTrackingStage || null,
           serviceStaffAssignments: order.serviceStaffAssignments || [],
-          trackerStageMedia: order.trackerStageMedia || [],
+          trackerStageMedia: getCustomerVisibleTrackerStageMedia(order),
           updatedAt: new Date().toISOString(),
         });
       }

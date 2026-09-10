@@ -31,6 +31,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as Crypto from 'expo-crypto';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { PremiumLoader } from '@/components/ui/loading';
@@ -1811,6 +1812,8 @@ export default function BookScreen() {
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoredStepRef = useRef<number | null>(null);
   const prefillAppliedRef = useRef(false);
+  const bookingSubmissionInFlightRef = useRef(false);
+  const bookingRequestRef = useRef<{ fingerprint: string; id: string } | null>(null);
 
   const closePackageDetails = useCallback(() => {
     setPackageDetailsKey(null);
@@ -2526,6 +2529,7 @@ export default function BookScreen() {
     setShowFullCalendar(false);
     setPhoneError('');
     setDraftDirty(false);
+    bookingRequestRef.current = null;
     restoredStepRef.current = null;
   }, [backendUser?.phone, profile?.phone, vehicles]);
 
@@ -2942,6 +2946,7 @@ export default function BookScreen() {
     clearLocalDraftFields();
   };
   const handleConfirm = async () => {
+    if (bookingSubmissionInFlightRef.current) return;
     const effectivePrice = selectedService?.price ?? null;
     const effectiveName = selectedService?.name || '';
     const selectedAvailability = selectedDate ? monthAvailability[selectedDate] : undefined;
@@ -2965,6 +2970,20 @@ export default function BookScreen() {
       );
       return;
     }
+    const requestFingerprint = [
+      selectedService?.id || '',
+      selectedVehicle?._id || selectedVehicle?.id || '',
+      selectedDate,
+      selectedTime,
+    ].join('|');
+    if (bookingRequestRef.current?.fingerprint !== requestFingerprint) {
+      bookingRequestRef.current = {
+        fingerprint: requestFingerprint,
+        id: `mobile-booking:${Crypto.randomUUID()}`,
+      };
+    }
+    const bookingRequestId = bookingRequestRef.current.id;
+    bookingSubmissionInFlightRef.current = true;
     setIsSubmitting(true);
 
     try {
@@ -2983,6 +3002,7 @@ export default function BookScreen() {
         vehicleId: selectedVehicle?._id || selectedVehicle?.id,
         downpaymentProof: downpaymentProof || undefined,
         reservationPaymentAmount: 500,
+        bookingRequestId,
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -3039,6 +3059,7 @@ export default function BookScreen() {
       }
       Toast.show(message, 'error');
     } finally {
+      bookingSubmissionInFlightRef.current = false;
       setIsSubmitting(false);
     }
   };

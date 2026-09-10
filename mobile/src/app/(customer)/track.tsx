@@ -61,9 +61,6 @@ import {
   pickCustomerLiveTrackerBooking,
 } from '@/utils/customer-live-tracker-pick';
 import {
-  bumpCustomerTrackerIndexForInProgressGateComplete,
-  bumpCustomerTrackerIndexForReceivedGateComplete,
-  customerGateMinSlotCount,
   getCustomerStageSlotPhotos,
   MOBILE_TRACKER_STEP_MEDIA_STAGE,
   resolveTrackerStageDescription,
@@ -304,6 +301,7 @@ function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string
   const pulse = useSharedValue(0);
   const orbit = useSharedValue(0);
   const sweep = useSharedValue(0);
+  const normalizedPct = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
 
   const isGreenAccent = accent === C.green;
   const accentSoft = isGreenAccent ? 'rgba(34,197,94,0.18)' : 'rgba(249,115,22,0.18)';
@@ -314,11 +312,11 @@ function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string
 
   useEffect(() => {
     if (reducedMotion) {
-      progress.value = pct / 100;
+      progress.value = normalizedPct / 100;
       return;
     }
-    progress.value = withTiming(pct / 100, { duration: 1400, easing: Easing.out(Easing.cubic) });
-  }, [pct, progress, reducedMotion]);
+    progress.value = withTiming(normalizedPct / 100, { duration: 1400, easing: Easing.out(Easing.cubic) });
+  }, [normalizedPct, progress, reducedMotion]);
 
   useEffect(() => {
     if (reducedMotion) {
@@ -355,9 +353,13 @@ function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string
     };
   }, [orbit, pulse, reducedMotion, sweep]);
 
-  const animatedProps = useAnimatedProps(() => ({
-    strokeDashoffset: CIRCUMFERENCE * (1 - progress.value),
-  }));
+  const animatedProps = useAnimatedProps(() => {
+    const normalizedProgress = Math.min(1, Math.max(0, progress.value));
+    return {
+      strokeDashoffset: CIRCUMFERENCE * (1 - normalizedProgress),
+      opacity: normalizedProgress <= 0 ? 0 : 1,
+    };
+  });
   const haloStyle = useAnimatedStyle(() => ({
     opacity: 0.48 + pulse.value * 0.22,
     transform: [
@@ -405,7 +407,7 @@ function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string
           strokeWidth={RING_STROKE}
           fill="none"
         />
-        <Circle
+        <AnimatedCircle
           cx={RING_SIZE / 2}
           cy={RING_SIZE / 2}
           r={RING_RADIUS}
@@ -413,7 +415,8 @@ function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string
           strokeWidth={RING_STROKE + 8}
           fill="none"
           strokeLinecap="round"
-          strokeDasharray={`${CIRCUMFERENCE * 0.18} ${CIRCUMFERENCE * 0.82}`}
+          strokeDasharray={CIRCUMFERENCE}
+          animatedProps={animatedProps}
         />
         {/* Progress arc */}
         <AnimatedCircle
@@ -432,7 +435,7 @@ function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string
       {/* Center text */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={[rg.pct, { color: accent }]}>{pct}%</Text>
+          <Text style={[rg.pct, { color: accent }]}>{normalizedPct}%</Text>
           <Text style={rg.done}>COMPLETE</Text>
         </View>
       </View>
@@ -1565,17 +1568,7 @@ export default function TrackScreen() {
   // ── Derived state ──
   // forceStepIdx takes priority: used during the 1.5s Step 5 buffer before ServiceCompleteCard
   const resolvedStepRaw = booking ? resolveStep(booking) : -1;
-  let resolvedStepBumped = resolvedStepRaw;
-  if (booking && resolvedStepRaw >= 0) {
-    const tsKey = String(booking.serviceTrackingStage ?? '').trim().toLowerCase().replace(/-/g, '_');
-    const qcGatePhotoCount = getCustomerStageSlotPhotos(booking, 'quality_check').length;
-    if (tsKey === 'quality_check' && qcGatePhotoCount >= customerGateMinSlotCount('quality_check')) {
-      resolvedStepBumped = Math.max(resolvedStepBumped, TRACKER_STEPS.length - 1);
-    }
-    resolvedStepBumped = bumpCustomerTrackerIndexForReceivedGateComplete(booking, resolvedStepBumped, 'dashboard5');
-    resolvedStepBumped = bumpCustomerTrackerIndexForInProgressGateComplete(booking, resolvedStepBumped, 'dashboard5');
-  }
-  const stepIdx = forceStepIdx !== null ? forceStepIdx : resolvedStepBumped;
+  const stepIdx = forceStepIdx !== null ? forceStepIdx : resolvedStepRaw;
   const readyForPickupComplete = bookingIsReadyForPickup(booking);
   const postPayComplete = isPostPaymentCompleteDisplay(booking);
   const appointmentSecuredComplete = isAppointmentSecuredDisplay(booking);
@@ -1587,12 +1580,11 @@ export default function TrackScreen() {
   const pct = useMemo(() => {
     if (!booking) return 0;
     if (postPayComplete || readyForPickupComplete) return 100;
-    const pipelinePct = getTrackerPipelineProgressPct({
+    return getTrackerPipelineProgressPct({
       serviceTrackingStage: booking.serviceTrackingStage,
       status: booking.status,
     });
-    return appointmentSecuredComplete ? Math.max(pipelinePct, 20) : pipelinePct;
-  }, [booking, postPayComplete, readyForPickupComplete, appointmentSecuredComplete]);
+  }, [booking, postPayComplete, readyForPickupComplete]);
   const hasActive =
     !!booking &&
     (bookingShowsCustomerLiveTracker(booking) || isDefaultTrackBookingRow(booking?.status || ''));

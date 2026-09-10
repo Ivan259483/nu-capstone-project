@@ -7,10 +7,6 @@
  */
 
 import type { BookingRecord } from '@/services/api/types';
-import {
-  CUSTOMER_TRACKER_GATE_MIN_PHOTOS,
-  getCustomerStageSlotPhotos,
-} from '@/utils/customer-tracker-stage-media';
 
 export function normTrackerStr(s: unknown): string {
   return String(s ?? '')
@@ -68,8 +64,8 @@ export function bookingShowsCustomerLiveTracker(b: unknown): boolean {
 }
 
 /**
- * Authoritative customer-facing Ready for Pickup decision shared by Home and
- * Tracker. This preserves Tracker's status/stage fallbacks and evidence gate.
+ * Authoritative customer-facing Ready for Pickup decision shared by Home and Tracker.
+ * A present workflow stage wins; evidence existence never advances lifecycle state.
  */
 export function bookingIsReadyForPickup(
   booking: BookingRecord | null | undefined
@@ -78,14 +74,10 @@ export function bookingIsReadyForPickup(
   const status = normTrackerStr(booking.status);
   const stage = normTrackerStr(booking.serviceTrackingStage);
   const customerStatus = normTrackerStr(booking.customerStatus);
-  const hasReadyPickupEvidence =
-    getCustomerStageSlotPhotos(booking, 'ready_pickup').length >= CUSTOMER_TRACKER_GATE_MIN_PHOTOS;
-
+  if (stage) return ['ready_pickup', 'completed', 'released'].includes(stage);
   return (
-    ['ready_pickup', 'completed', 'released'].includes(stage) ||
     ['ready_for_payment', 'completed', 'paid', 'released', 'done'].includes(status) ||
-    customerStatus === 'ready' ||
-    hasReadyPickupEvidence
+    customerStatus === 'ready'
   );
 }
 

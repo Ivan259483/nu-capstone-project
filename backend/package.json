@@ -13,6 +13,7 @@
         "migrate:protected-administrator": "node scripts/migrate-protected-administrator.js",
         "migrate:vehicle-pricing-categories": "node scripts/migrate-vehicle-pricing-categories.js",
         "migrate:vehicle-colors": "node scripts/migrate-vehicle-colors.js",
+        "migrate:booking-payment-indexes": "node scripts/migrate-booking-payment-indexes.js",
         "import:vehicle-colors": "node scripts/import-global-vehicle-colors.js",
         "catalog:import": "node scripts/import-global-vehicle-catalog.js",
         "catalog:sync-vpic": "node scripts/sync-vpic-vehicle-catalog.js",

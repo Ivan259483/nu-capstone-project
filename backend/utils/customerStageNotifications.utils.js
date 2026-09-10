@@ -7,6 +7,7 @@ import { computeOrderBalanceDue } from './readyPickupPaymentFlow.utils.js';
 import { sendCustomerNotificationEmail } from './mail.utils.js';
 import { createCustomerNotification } from '../services/customerNotification.service.js';
 import { customerNotificationAllowsExternalDelivery } from './customerNotificationPreferences.utils.js';
+import { isTrackerEvidenceStageReleased } from './customerTrackerEvidence.utils.js';
 
 const EMAIL_STATUSES = {
   PENDING: 'pending',
@@ -554,6 +555,7 @@ async function buildMediaSpec(order, stage) {
   const customerId = getOrderCustomerId(order);
   const orderId = order?._id;
   if (!customerId || !orderId || !MEDIA_EMAIL_STAGES.has(stage)) return null;
+  if (!isTrackerEvidenceStageReleased(order.serviceTrackingStage, stage)) return null;
 
   const mediaCount = stageMediaCount(order, stage);
   if (mediaCount <= 0) return null;
@@ -819,6 +821,12 @@ export async function createCustomerStageNotification(orderOrId, stage, options 
   const order = await getLatestOrder(orderOrId);
   if (!order) return null;
   const normalizedStage = normalizeKey(stage);
+  if (
+    MEDIA_EMAIL_STAGES.has(normalizedStage)
+    && !isTrackerEvidenceStageReleased(order.serviceTrackingStage, normalizedStage)
+  ) {
+    return null;
+  }
 
   if (normalizedStage === 'ready_pickup') {
     const eligibility = await readyPickupEligibility(order, options.balanceDue);

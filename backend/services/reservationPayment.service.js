@@ -52,6 +52,54 @@ export function reservationInvoiceId(order) {
   return `RSV-${reference}`;
 }
 
+const isReservationPaymentDuplicate = (error) => {
+  if (error?.code !== 11000) return false;
+  if (error?.keyPattern?.order && error?.keyPattern?.transactionType) return true;
+  return /order_1_transactionType_1/i.test(String(error?.message || ''));
+};
+
+const reservationValidationErrors = (error) => {
+  if (!error?.errors || typeof error.errors !== 'object') return undefined;
+  return Object.fromEntries(
+    Object.entries(error.errors).map(([field, detail]) => [field, detail?.message || String(detail)])
+  );
+};
+
+const logReservationPaymentCreateError = (error, payload) => {
+  const validationErrors = reservationValidationErrors(error);
+  const failingField = Object.keys(error?.keyPattern || validationErrors || {})[0] || null;
+  const safeErrorMessage = String(error?.message || error)
+    .replace(/dup key:\s*\{[^}]*\}/gi, 'dup key: [value redacted]');
+  console.error('[RESERVATION_PAYMENT_CREATE_ERROR]', {
+    error: {
+      name: error?.name || 'Error',
+      message: safeErrorMessage,
+      code: error?.code || null,
+    },
+    validationErrors,
+    failingField,
+    bookingId: String(payload.order || ''),
+    customerId: String(payload.customer || ''),
+    transactionPayload: {
+      invoiceId: payload.invoiceId,
+      order: String(payload.order || ''),
+      customer: String(payload.customer || ''),
+      vehicle: payload.vehicle ? String(payload.vehicle) : null,
+      service: payload.service ? String(payload.service) : null,
+      amount: payload.amount,
+      amountSubmitted: payload.amountSubmitted,
+      amountVerified: payload.amountVerified,
+      status: payload.status,
+      transactionType: payload.transactionType,
+      method: payload.method,
+      provider: payload.provider,
+      hasPaymentReference: Boolean(payload.paymentReference),
+      hasProofImage: Boolean(payload.proofImage),
+      proofImageLength: typeof payload.proofImage === 'string' ? payload.proofImage.length : 0,
+    },
+  });
+};
+
 /**
  * One reservation transaction per booking. Retries update that record instead
  * of creating duplicates, while statusHistory retains every prior submission.
@@ -74,44 +122,46 @@ export async function ensurePendingReservationPayment({
   let payment = await Payment.findOne(query, null, options);
 
   if (!payment) {
-    try {
-      payment = await Payment.create([{
-        invoiceId: reservationInvoiceId(order),
-        order: order._id,
-        customer: order.customer,
-        vehicle: order.vehicle || null,
-        service: order.serviceId || null,
-        amount: submittedAmount,
-        amountSubmitted: submittedAmount,
-        amountVerified: null,
+    const paymentPayload = {
+      invoiceId: reservationInvoiceId(order),
+      order: order._id,
+      customer: order.customer,
+      vehicle: order.vehicle || null,
+      service: order.serviceId || null,
+      amount: submittedAmount,
+      amountSubmitted: submittedAmount,
+      amountVerified: null,
+      status: 'pending',
+      transactionType: 'reservation_fee',
+      method: paymentMethod,
+      provider: 'customer_proof',
+      ...(paymentReference ? { paymentReference } : {}),
+      proofImage,
+      submittedAt: new Date(),
+      metadata: {
+        bookingId: String(order._id),
+        bookingReference: order.bookingReference || order.orderNumber,
+        submittedBy: submittedBy ? String(submittedBy) : null,
+      },
+      statusHistory: [{
         status: 'pending',
-        transactionType: 'reservation_fee',
-        method: paymentMethod,
-        provider: 'customer_proof',
-        paymentReference: paymentReference || null,
+        amountSubmitted: submittedAmount,
         proofImage,
-        submittedAt: new Date(),
-        metadata: {
-          bookingId: String(order._id),
-          bookingReference: order.bookingReference || order.orderNumber,
-          submittedBy: submittedBy ? String(submittedBy) : null,
-        },
-        statusHistory: [{
-          status: 'pending',
-          amountSubmitted: submittedAmount,
-          proofImage,
-          changedAt: new Date(),
-          changedBy: submittedBy || null,
-        }],
-      }], options).then((rows) => rows[0]);
+        changedAt: new Date(),
+        changedBy: submittedBy || null,
+      }],
+    };
+    try {
+      payment = await Payment.create([paymentPayload], options).then((rows) => rows[0]);
       return payment;
     } catch (error) {
-      if (error?.code !== 11000) throw error;
+      logReservationPaymentCreateError(error, paymentPayload);
+      if (!isReservationPaymentDuplicate(error)) throw error;
       payment = await Payment.findOne(query, null, options);
+      if (!payment) throw error;
     }
   }
 
-  if (!payment) throw new Error('Unable to create reservation transaction.');
   if (payment.status === 'succeeded') return payment;
 
   payment.amount = submittedAmount;

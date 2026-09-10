@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, CalendarDays, Car, CheckCircle2, Clock3, ShieldCheck, Users } from 'lucide-react';
 import api from '@/lib/api';
 import { formatRelativeTime, type PublicTrackerSummary } from '@/components/chat/chat-utils';
+import { isCustomerTrackerMediaStageReleased } from '@/lib/customer-tracker-stage-media';
 
 const TRACKER_STEPS = [
     { key: 'confirmed', label: 'Confirmed' },
@@ -57,8 +58,10 @@ export default function PublicTrackerPage() {
     );
 
     const media = useMemo(
-        () => (tracker?.trackerStageMedia || []).filter(item => item.photoUrl).slice(0, 8),
-        [tracker?.trackerStageMedia]
+        () => (tracker?.trackerStageMedia || [])
+            .filter(item => item.photoUrl && isCustomerTrackerMediaStageReleased(tracker, item.stage as any))
+            .slice(0, 8),
+        [tracker]
     );
 
     const teamLabel = useMemo(() => {

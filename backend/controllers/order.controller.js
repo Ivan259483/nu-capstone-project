@@ -101,6 +101,7 @@ import {
   assertBookingsEnabled,
   runTrackedSystemMutation,
 } from '../middleware/systemLifecycle.middleware.js';
+import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
 
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
@@ -129,6 +130,61 @@ async function runReservationDecisionTransaction(work) {
     if (!isMongoTransactionUnavailable(error)) throw error;
     console.warn('[payments] MongoDB transactions unavailable; using guarded standalone decision flow.');
     return work(null);
+  } finally {
+    await session.endSession();
+  }
+}
+
+/** Booking + reservation payment commit together on Atlas; standalone Mongo gets explicit cleanup. */
+export async function persistBookingWithReservationPayment({
+  orderPayload,
+  reservationPayment,
+}) {
+  const persist = async (session) => {
+    const order = new Order(orderPayload);
+    let orderWasSaved = false;
+    try {
+      await order.save(session ? { session } : undefined);
+      orderWasSaved = true;
+      const payment = reservationPayment
+        ? await ensurePendingReservationPayment({
+            order,
+            ...reservationPayment,
+            session,
+          })
+        : null;
+      return { order, payment };
+    } catch (error) {
+      if (!session && orderWasSaved) {
+        try {
+          // Delete the financial child first. If that cleanup fails, retain the
+          // booking so the system never creates Booking-without-Transaction state.
+          await Payment.deleteMany({ order: order._id });
+          await Order.deleteOne({ _id: order._id });
+        } catch (rollbackError) {
+          console.error('[BOOKING_PAYMENT_ROLLBACK_ERROR]', {
+            errorName: rollbackError?.name || 'Error',
+            errorMessage: rollbackError?.message || String(rollbackError),
+            bookingId: String(order._id),
+            customerId: String(order.customer || ''),
+          });
+        }
+      }
+      throw error;
+    }
+  };
+
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => {
+      result = await persist(session);
+    });
+    return result;
+  } catch (error) {
+    if (!isMongoTransactionUnavailable(error)) throw error;
+    console.warn('[bookings] MongoDB transactions unavailable; using guarded booking/payment cleanup flow.');
+    return persist(null);
   } finally {
     await session.endSession();
   }
@@ -245,7 +301,7 @@ const emitCustomerStatusUpdate = (order) => {
       // Live tracking fields (QC-controlled)
       serviceTrackingStage: order.serviceTrackingStage || null,
       serviceStaffAssignments: order.serviceStaffAssignments || [],
-      trackerStageMedia: order.trackerStageMedia || [],
+      trackerStageMedia: getCustomerVisibleTrackerStageMedia(order),
       updatedAt: order.customerStatusUpdatedAt || new Date().toISOString(),
     });
   } catch (error) {
@@ -477,6 +533,17 @@ const getOrderIdentity = (order) => ({
     ? (order.customer?._id?.toString?.() || order.customer?.id)
     : (order.customer?.toString?.() || order.customer),
 });
+
+function sanitizeCustomerTrackerMediaForResponse(orderDoc, reqUser) {
+  if (!orderDoc || !isCustomerRole(reqUser?.role)) return orderDoc;
+  const order = typeof orderDoc.toObject === 'function'
+    ? orderDoc.toObject({ virtuals: true })
+    : { ...orderDoc };
+  return {
+    ...order,
+    trackerStageMedia: getCustomerVisibleTrackerStageMedia(order),
+  };
+}
 
 const formatBookingDto = (orderDoc) => {
   if (!orderDoc) return null;
@@ -1384,6 +1451,10 @@ export const getOrderTrackerMedia = async (req, res, next) => {
       });
     }
 
+    const trackerStageMedia = isCustomerRole(req.user.role)
+      ? getCustomerVisibleTrackerStageMedia(order)
+      : (Array.isArray(order.trackerStageMedia) ? order.trackerStageMedia : []);
+
     res.json({
       success: true,
       data: {
@@ -1392,7 +1463,7 @@ export const getOrderTrackerMedia = async (req, res, next) => {
         paymentStatus: order.paymentStatus || null,
         serviceTrackingStage: order.serviceTrackingStage || null,
         serviceStaffAssignments: order.serviceStaffAssignments || [],
-        trackerStageMedia: Array.isArray(order.trackerStageMedia) ? order.trackerStageMedia : [],
+        trackerStageMedia,
         updatedAt: order.updatedAt || null,
       },
     });
@@ -1429,9 +1500,14 @@ export const getOrderById = async (req, res, next) => {
       order.toObject({ virtuals: true }),
     ]);
 
+    const data = formatBookingDto(orderWithReceipt);
+    if (isCustomerRole(req.user.role)) {
+      data.trackerStageMedia = getCustomerVisibleTrackerStageMedia(orderWithReceipt);
+    }
+
     res.json({
       success: true,
-      data: formatBookingDto(orderWithReceipt),
+      data,
     });
   } catch (error) {
     next(error);
@@ -1527,8 +1603,8 @@ export const getOrderGcashProofFields = async (req, res, next) => {
  */
 export const createOrder = async (req, res, next) => {
   let reservedSlot = null;
-  let createdOrder = null;
   let conciergeSourceConversationId = '';
+  let bookingRequestId = '';
   let pricingContextVehicle = null;
   try {
     await assertBookingsEnabled(req.systemState);
@@ -1565,6 +1641,7 @@ export const createOrder = async (req, res, next) => {
       downpaymentProof: downpaymentProofInput,
       paymentProofUrl: paymentProofUrlInput,
       reservationPaymentAmount: reservationPaymentAmountInput,
+      bookingRequestId: bookingRequestIdInput,
       sourceConversationId: sourceConversationIdInput,
       vehicleType: vehicleTypeInput,
       vehiclePricingCategory: vehiclePricingCategoryInput,
@@ -1577,6 +1654,15 @@ export const createOrder = async (req, res, next) => {
       ? sourceConversationIdInput.trim()
       : '';
     conciergeSourceConversationId = sourceConversationId;
+    const requestIdInput = bookingRequestIdInput || req.get('idempotency-key');
+    bookingRequestId = typeof requestIdInput === 'string' ? requestIdInput.trim() : '';
+    if (bookingRequestId && !/^[A-Za-z0-9._:-]{8,128}$/.test(bookingRequestId)) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'INVALID_BOOKING_REQUEST_ID',
+        message: 'The booking request identifier is invalid.',
+      });
+    }
     const isConciergeSalesBooking = req.user.role === 'sales' && Boolean(sourceConversationId);
     if (!isCustomerRole(req.user.role) && isWalkIn !== true && !isConciergeSalesBooking) {
       return res.status(403).json({
@@ -1935,6 +2021,43 @@ export const createOrder = async (req, res, next) => {
         )
       : null;
 
+    if (bookingRequestId) {
+      const existingBooking = await Order.findOne({
+        customer: resolvedCustomerId,
+        bookingRequestId,
+      });
+      if (existingBooking) {
+        const requestMatchesExisting = (
+          String(existingBooking.vehicle || '') === String(vehicleId || '')
+          && String(existingBooking.serviceId || '') === String(resolvedServiceId || '')
+          && existingBooking.bookingDate === normalizeBookingDate(bookingDate)
+          && existingBooking.bookingTime === normalizeBookingTime(bookingTime)
+        );
+        if (!requestMatchesExisting) {
+          return res.status(409).json({
+            success: false,
+            errorCode: 'BOOKING_REQUEST_REUSED',
+            message: 'This booking request identifier was already used for different booking details.',
+          });
+        }
+        if (resolvedPaymentProof) {
+          await ensurePendingReservationPayment({
+            order: existingBooking,
+            amount: submittedReservationAmount,
+            proofImage: resolvedPaymentProof,
+            paymentMethod: 'gcash',
+            submittedBy: req.user.id,
+          });
+        }
+        return res.status(200).json({
+          success: true,
+          message: 'Existing booking returned for this request.',
+          idempotent: true,
+          data: formatBookingDto(existingBooking),
+        });
+      }
+    }
+
     const bookingDateWasProvided = bookingDate !== undefined && bookingDate !== null && bookingDate !== '';
     const bookingTimeWasProvided = bookingTime !== undefined && bookingTime !== null && bookingTime !== '';
     if (
@@ -1999,7 +2122,7 @@ export const createOrder = async (req, res, next) => {
     }
 
     // ── Create Order ──────────────────────────────────────────────────
-    const order = new Order({
+    const orderPayload = {
       orderNumber: `ORD-${Date.now()}-${randomUUID().slice(0, 8).toUpperCase()}`,
       bookingReference: generateBookingReference(),
       customer: resolvedCustomerId,
@@ -2019,30 +2142,30 @@ export const createOrder = async (req, res, next) => {
       bookingDate: canonicalBookingDate,
       bookingTime: canonicalBookingTime,
       sourceConversationId: sourceConversationId || undefined,
+      bookingRequestId: bookingRequestId || undefined,
       isWalkIn: isAuthorizedWalkIn,
       downpaymentProof: resolvedPaymentProof,
       paymentProofUrl: resolvedPaymentProof,
       paymentMethod: resolvedPaymentProof ? 'gcash' : undefined,
-    });
+    };
 
     const checklist = generateOperationsChecklist(finalServiceType);
-    order.operationsChecklist = checklist;
+    orderPayload.operationsChecklist = checklist;
     // ⚠️ Technician assignment is intentionally deferred until Sales APPROVES the booking.
     // Auto-assign was removed to prevent unconfirmed bookings entering the service queue.
 
-    await order.save();
-    createdOrder = order;
-    if (resolvedPaymentProof) {
-      await ensurePendingReservationPayment({
-        order,
-        amount: submittedReservationAmount,
-        proofImage: resolvedPaymentProof,
-        paymentMethod: 'gcash',
-        submittedBy: req.user.id,
-      });
-    }
+    const { order } = resolvedPaymentProof
+      ? await persistBookingWithReservationPayment({
+          orderPayload,
+          reservationPayment: {
+            amount: submittedReservationAmount,
+            proofImage: resolvedPaymentProof,
+            paymentMethod: 'gcash',
+            submittedBy: req.user.id,
+          },
+        })
+      : { order: await Order.create(orderPayload) };
     reservedSlot = null;
-    createdOrder = null;
     emitOrderCapacityChange(null, order, 'appointment_created');
 
     if (resolvedPaymentProof) {
@@ -2191,18 +2314,31 @@ export const createOrder = async (req, res, next) => {
       });
     });
   } catch (error) {
-    if (createdOrder?._id) {
-      try {
-        await Order.deleteOne({ _id: createdOrder._id });
-      } catch (rollbackError) {
-        console.error('[PAYMENT_ROLLBACK_ERROR] Failed to remove booking after reservation transaction failure:', rollbackError.message);
-      }
-    }
     if (reservedSlot) {
       try {
         await releaseBookingReservation(reservedSlot);
       } catch (releaseError) {
         console.error('[SLOT_RELEASE_ERROR] Failed to release slot after createOrder failure:', releaseError.message);
+      }
+    }
+    if (error?.code === 11000 && bookingRequestId) {
+      const existingBooking = await Order.findOne({
+        customer: req.user?.id,
+        bookingRequestId,
+      }).lean();
+      if (existingBooking) {
+        const reservationPayment = await Payment.exists({
+          order: existingBooking._id,
+          transactionType: 'reservation_fee',
+        });
+        if (reservationPayment) {
+          return res.status(200).json({
+            success: true,
+            message: 'Existing booking returned for this request.',
+            idempotent: true,
+            data: formatBookingDto(existingBooking),
+          });
+        }
       }
     }
     if (error?.code === 11000 && conciergeSourceConversationId) {
@@ -2339,7 +2475,7 @@ export const signWaiver = async (req, res, next) => {
       console.error('Failed to notify waiver signature:', notifyError.message);
     }
 
-    res.json({ success: true, data: order });
+    res.json({ success: true, data: sanitizeCustomerTrackerMediaForResponse(order, req.user) });
   } catch (error) {
     next(error);
   }
@@ -2898,7 +3034,7 @@ export const updateOrder = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Order updated successfully',
-      data: order,
+      data: sanitizeCustomerTrackerMediaForResponse(order, req.user),
     });
   } catch (error) {
     if (reservedSlot) {
@@ -3697,7 +3833,7 @@ export const submitRating = async (req, res, next) => {
     res.json({ 
       success: true, 
       message: 'Thank you for your feedback!',
-      data: order 
+      data: sanitizeCustomerTrackerMediaForResponse(order, req.user)
     });
   } catch (error) {
     next(error);
@@ -4812,7 +4948,11 @@ export const uploadPaymentProof = async (req, res, next) => {
           paymentMethod: 'gcash',
           submittedBy: req.user.id,
         });
-        return res.status(200).json({ success: true, data: current, idempotent: true });
+        return res.status(200).json({
+          success: true,
+          data: sanitizeCustomerTrackerMediaForResponse(current, req.user),
+          idempotent: true,
+        });
       }
       return res.status(409).json({
         success: false,
@@ -4887,7 +5027,7 @@ export const uploadPaymentProof = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: order,
+      data: sanitizeCustomerTrackerMediaForResponse(order, req.user),
     });
   } catch (error) {
     if (reservedSlot) {
