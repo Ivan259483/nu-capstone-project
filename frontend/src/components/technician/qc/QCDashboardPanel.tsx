@@ -19,9 +19,7 @@ import { useQCData } from '@/hooks/useQCData';
 import { useQualityNotifications } from '@/hooks/useQualityNotifications';
 import type { SystemNotification } from '@/lib/notification-service';
 
-import QCPOSQueueView from './QCPaymentHandoff';
-
-type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker' | 'pos-queue';
+type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker';
 
 // ─── AI Detection View — types ────────────────────────────────────────────────
 interface ScanDmg {
@@ -453,7 +451,7 @@ function AIDetectionView({ jobs: _jobs }: { jobs: unknown[] }) {
 
 // ─── Main QCDashboardPanel ────────────────────────────────────────────────────
 const QC_VIEW_KEY = 'autospf_qc_active_view';
-const VALID_QC_VIEWS: QCView[] = ['dashboard', 'jobs', 'job-detail', 'ai-detection', 'live-tracker', 'pos-queue'];
+const VALID_QC_VIEWS: QCView[] = ['dashboard', 'jobs', 'job-detail', 'ai-detection', 'live-tracker'];
 
 export default function QCDashboardPanel() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -628,9 +626,6 @@ export default function QCDashboardPanel() {
           />
         );
 
-      case 'pos-queue':
-        return <QCPOSQueueView jobs={jobs} onOpenJob={handleOpenJobInLiveTracker} onBack={() => navigateTo('dashboard')} />;
-
       case 'jobs':
         return (
           <div className="space-y-5">
@@ -690,7 +685,6 @@ export default function QCDashboardPanel() {
       case 'live-tracker':
         return (
           <QCLiveTrackerView
-            onOpenPosQueue={() => navigateTo('pos-queue')}
             jobs={jobs}
             searchQuery={globalSearch}
             // Only block the whole view before the first /qc/jobs payload — refetches stay silent (no pulse skeleton).

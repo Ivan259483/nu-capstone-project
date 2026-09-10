@@ -23,7 +23,7 @@ import { normalizeStaffGateSlot, requiredSlotsCountForGate } from '@/lib/tracker
 import { QCPaymentHandoff } from './QCPaymentHandoff';
 import { serviceHandoffState } from '@/lib/service-handoff';
 
-type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker' | 'pos-queue';
+type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker';
 type DashboardStage = 'received' | 'in_progress' | 'quality_check' | 'ready_pickup' | 'completed';
 type ActiveStage = Exclude<DashboardStage, 'completed'>;
 
@@ -336,7 +336,6 @@ export default function QCDashboardView({ onNavigate, onSelectJob, statsLoading,
       <section className="qc-command-panel rounded-2xl bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><h2 className="text-base font-semibold text-slate-950">Pickup &amp; Sales Handoff</h2><p className="mt-1 text-sm text-slate-500">{handoffJobs.filter((job) => serviceHandoffState(job) === 'payment').length} with Sales/POS · {handoffJobs.filter((job) => serviceHandoffState(job) === 'handover').length} ready for customer handover</p></div>
-          <button type="button" onClick={() => onNavigate('pos-queue')} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700 focus:outline-none focus:ring-4 focus:ring-slate-200">Open POS Payment Queue <ArrowRight size={16} /></button>
         </div>
         {handoffJobs.length > 0 ? <div className="mt-4 grid gap-4 xl:grid-cols-2">{handoffJobs.slice(0, 2).map((job) => <article key={job.id}><button type="button" onClick={() => openJob(job)} className="mb-3 text-left text-sm font-semibold text-slate-900 hover:text-blue-700">{job.customerName || job.customer}<span className="mt-1 block font-normal text-slate-500">{vehicleLabel(job)} · {job.plate}</span></button><QCPaymentHandoff job={job} /></article>)}</div> : <p className="mt-4 text-sm text-slate-500">Payment tasks appear automatically after the final QC gate is complete.</p>}
       </section>

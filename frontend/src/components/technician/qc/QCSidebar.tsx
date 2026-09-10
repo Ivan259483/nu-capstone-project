@@ -9,12 +9,12 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 
-type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker' | 'pos-queue';
+type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker';
 type NavItem = { id: QCView; label: string; icon: React.ElementType; badgeKey?: 'pending' | 'ai'; live?: boolean };
 
 const navGroups: Array<{ label: string; items: NavItem[] }> = [
   { label: 'Main', items: [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
-  { label: 'Operations', items: [{ id: 'live-tracker', label: 'Live Tracker', icon: Radio, live: true }, { id: 'pos-queue', label: 'POS Payment Queue', icon: ClipboardList }] },
+  { label: 'Operations', items: [{ id: 'live-tracker', label: 'Live Tracker', icon: Radio, live: true }] },
   {
     label: 'Quality Control',
     items: [
