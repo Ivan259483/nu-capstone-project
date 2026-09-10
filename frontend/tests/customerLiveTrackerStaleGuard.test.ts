@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  bookingHasCompletedCustomerHandover,
+  bookingShowsCustomerLiveTracker,
   isForwardTrackerStageTransition,
+  pickCustomerLiveTrackerBooking,
   trackerStageRankOf,
 } from '../src/lib/customer-live-tracker-pick.ts';
 import { getTrackerPipelineProgressPct } from '../src/lib/tracker-pipeline-progress.ts';
@@ -79,4 +82,44 @@ test('full 4-gate pipeline progression is monotonic and matches the 25/50/75/100
     assert.equal(getTrackerPipelineProgressPct(incoming), expectedPct[index]);
     previous = incoming;
   });
+});
+
+test('paid Ready for Pickup remains live until QC completes customer handover', () => {
+  const awaitingHandover = {
+    id: 'paid-awaiting-handover',
+    status: 'ready_for_payment',
+    paymentStatus: 'paid',
+    serviceTrackingStage: 'ready_pickup',
+  };
+
+  assert.equal(bookingHasCompletedCustomerHandover(awaitingHandover), false);
+  assert.equal(bookingShowsCustomerLiveTracker(awaitingHandover), true);
+  assert.equal(pickCustomerLiveTrackerBooking([awaitingHandover])?.id, awaitingHandover.id);
+});
+
+test('paid and released booking disappears from customer Live Tracker selection', () => {
+  const released = {
+    id: 'paid-and-released',
+    status: 'released',
+    paymentStatus: 'paid',
+    serviceTrackingStage: 'released',
+  };
+
+  assert.equal(bookingHasCompletedCustomerHandover(released), true);
+  assert.equal(bookingShowsCustomerLiveTracker(released), false);
+  assert.equal(pickCustomerLiveTrackerBooking([released]), undefined);
+});
+
+test('legacy completed handover is terminal only after payment is confirmed', () => {
+  const awaitingPayment = {
+    status: 'completed',
+    paymentStatus: 'pending',
+    serviceTrackingStage: 'completed',
+  };
+  const paidAndCompleted = { ...awaitingPayment, paymentStatus: 'paid' };
+
+  assert.equal(bookingHasCompletedCustomerHandover(awaitingPayment), false);
+  assert.equal(bookingShowsCustomerLiveTracker(awaitingPayment), true);
+  assert.equal(bookingHasCompletedCustomerHandover(paidAndCompleted), true);
+  assert.equal(bookingShowsCustomerLiveTracker(paidAndCompleted), false);
 });

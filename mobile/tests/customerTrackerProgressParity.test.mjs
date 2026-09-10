@@ -6,8 +6,16 @@ import { getTrackerPipelineProgressPct as getWebProgress } from '../../frontend/
 import { getTrackerPipelineProgressPct as getMobileProgress } from '../src/utils/tracker-pipeline-progress.ts';
 import { isCustomerTrackerMediaStageReleased as isWebEvidenceReleased } from '../../frontend/src/lib/customer-tracker-evidence-release.ts';
 import { isCustomerTrackerMediaStageReleased as isMobileEvidenceReleased } from '../src/utils/customer-tracker-evidence-release.ts';
-import { isForwardTrackerStageTransition as isWebForwardTransition } from '../../frontend/src/lib/customer-live-tracker-pick.ts';
-import { isForwardTrackerStageTransition as isMobileForwardTransition } from '../src/utils/customer-live-tracker-pick.ts';
+import {
+  bookingHasCompletedCustomerHandover as webHandoverComplete,
+  bookingShowsCustomerLiveTracker as webShowsTracker,
+  isForwardTrackerStageTransition as isWebForwardTransition,
+} from '../../frontend/src/lib/customer-live-tracker-pick.ts';
+import {
+  bookingHasCompletedCustomerHandover as mobileHandoverComplete,
+  bookingShowsCustomerLiveTracker as mobileShowsTracker,
+  isForwardTrackerStageTransition as isMobileForwardTransition,
+} from '../src/utils/customer-live-tracker-pick.ts';
 import {
   resolveCustomerTrackerStage as resolveWebStage,
   customerStepForOperationalGate as webStepForGate,
@@ -126,6 +134,29 @@ test('Web and Mobile realtime patches never downgrade an already-advanced tracke
     assert.equal(isForward(alreadyInProgress, {}), true);
     // No prior booking (first hydration) always accepts.
     assert.equal(isForward(null, { serviceTrackingStage: 'received' }), true);
+  }
+});
+
+test('Web and Mobile keep paid pickup visible, then hide it after customer handover', () => {
+  const paidAwaitingHandover = {
+    status: 'ready_for_payment',
+    paymentStatus: 'paid',
+    serviceTrackingStage: 'ready_pickup',
+  };
+  const released = {
+    ...paidAwaitingHandover,
+    status: 'released',
+    serviceTrackingStage: 'released',
+  };
+
+  for (const [handoverComplete, showsTracker] of [
+    [webHandoverComplete, webShowsTracker],
+    [mobileHandoverComplete, mobileShowsTracker],
+  ]) {
+    assert.equal(handoverComplete(paidAwaitingHandover), false);
+    assert.equal(showsTracker(paidAwaitingHandover), true);
+    assert.equal(handoverComplete(released), true);
+    assert.equal(showsTracker(released), false);
   }
 });
 

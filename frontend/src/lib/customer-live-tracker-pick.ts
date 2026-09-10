@@ -25,9 +25,10 @@ export const CUSTOMER_TRACKER_STATUS_SET = new Set([
   'in-progress',
   'ready_for_payment',
   'completed',
+  'paid',
 ]);
 
-export const CUSTOMER_TRACKER_FINAL_STATUS_SET = new Set(['paid', 'released', 'cancelled', 'failed', 'rejected']);
+export const CUSTOMER_TRACKER_FINAL_STATUS_SET = new Set(['released', 'cancelled', 'failed', 'rejected']);
 
 /** Prefer fine-grained QC stage when ranking which booking to show. */
 export const CUSTOMER_TRACKER_STAGE_RANK: Record<string, number> = {
@@ -54,11 +55,27 @@ export const CUSTOMER_TRACKER_STATUS_FALLBACK_RANK: Record<string, number> = {
   done: 6,
 };
 
-/** True when this booking should surface the technician/QC live tracker (excludes fully paid / receipt issued). */
+/**
+ * True only after customer handover is complete. Payment by itself is not terminal:
+ * a paid vehicle waiting for QC to hand it back must remain visible in Live Tracker.
+ */
+export function bookingHasCompletedCustomerHandover(b: unknown): boolean {
+  const row = b as Record<string, unknown> | null | undefined;
+  if (!row) return false;
+  const status = normTrackerStr(row.status);
+  const stage = normTrackerStr(row.serviceTrackingStage);
+  const paymentStatus = normTrackerStr(row.paymentStatus);
+
+  if (status === 'released' || stage === 'released') return true;
+  return paymentStatus === 'paid' && (status === 'completed' || stage === 'completed');
+}
+
+/** True when this booking should surface the technician/QC live tracker. */
 export function bookingShowsCustomerLiveTracker(b: unknown): boolean {
   const row = b as Record<string, unknown> | null | undefined;
   if (!row) return false;
   const status = normTrackerStr(row.status);
+  if (bookingHasCompletedCustomerHandover(row)) return false;
   if (CUSTOMER_TRACKER_FINAL_STATUS_SET.has(status)) return false;
   return CUSTOMER_TRACKER_STATUS_SET.has(status);
 }

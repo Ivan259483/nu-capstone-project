@@ -2664,10 +2664,17 @@ export default function CustomerDashboard() {
   }, [myBookings, targetTrackerBookingId]);
   const stableTrackerBookingRef = useRef<any | undefined>(undefined);
   useEffect(() => {
-    if (activeTrackerBooking) stableTrackerBookingRef.current = activeTrackerBooking;
-  }, [activeTrackerBooking]);
+    if (activeTrackerBooking) {
+      stableTrackerBookingRef.current = activeTrackerBooking;
+    } else if (customerBookingsLoadedOnce && !myBookingsLoading) {
+      stableTrackerBookingRef.current = undefined;
+    }
+  }, [activeTrackerBooking, customerBookingsLoadedOnce, myBookingsLoading]);
   // Keep last known tracker booking during refetch/remount so sidebar + tracker section do not flicker.
-  const displayedTrackerBooking = activeTrackerBooking ?? stableTrackerBookingRef.current;
+  // Once a completed fetch confirms there is no trackable job, never revive the released booking.
+  const displayedTrackerBooking = activeTrackerBooking ?? (
+    !customerBookingsLoadedOnce || myBookingsLoading ? stableTrackerBookingRef.current : undefined
+  );
   const displayedTrackerBookingId = bookingRowId(displayedTrackerBooking);
   const hasActiveTrackerBooking = Boolean(
     displayedTrackerBooking && bookingShowsCustomerLiveTracker(displayedTrackerBooking)

@@ -32,14 +32,18 @@ import {
 } from '@/lib/customer-tracker-stage-media';
 import { getLiveTrackerStepIndex } from '@/lib/customer-live-tracker-step';
 import { resolveCustomerTrackerStage } from '@/lib/customer-tracker-stage';
-import { isForwardTrackerStageTransition, trackerStageRankOf } from '@/lib/customer-live-tracker-pick';
+import {
+  bookingHasCompletedCustomerHandover,
+  bookingShowsCustomerLiveTracker,
+  isForwardTrackerStageTransition,
+  trackerStageRankOf,
+} from '@/lib/customer-live-tracker-pick';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '@/lib/cloudinary-delivery-url';
 import { resolveProfileImage } from '@/lib/profile-image';
 
 const BRAND_ORANGE = '#F97316';
 const LUXURY_EASE = [0.22, 1, 0.36, 1] as const;
 const LIVE_STATUS_CUSTOMER_STATES = new Set(['washing', 'detailing', 'finishing', 'ready', 'in-progress']);
-const LIVE_STATUS_BOOKING_STATES = new Set(['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'in-progress', 'completed', 'paid']);
 
 /** Keep in sync with CustomerDashboard.tsx — when false, scan / AI Inspection entry is disabled (Soon). */
 const AI_INSPECTION_HISTORY_ENABLED = false;
@@ -196,10 +200,10 @@ function isBookingMine(booking: Booking, user: User) {
 }
 
 function isLiveTrackableBooking(booking: Booking) {
-  const status = String(booking.status || '').toLowerCase();
   const customerStatus = String(booking.customerStatus || '').toLowerCase();
 
-  return LIVE_STATUS_BOOKING_STATES.has(status) || LIVE_STATUS_CUSTOMER_STATES.has(customerStatus);
+  if (bookingHasCompletedCustomerHandover(booking)) return false;
+  return bookingShowsCustomerLiveTracker(booking) || LIVE_STATUS_CUSTOMER_STATES.has(customerStatus);
 }
 
 /** Ranks by the same canonical serviceTrackingStage-aware rank as the Dashboard picker — never by `status` alone (see customer-live-tracker-pick.ts). */
@@ -636,7 +640,7 @@ export default function CustomerLiveTrackerPage() {
           serviceTrackingStage: event.serviceTrackingStage,
           status: event.status,
         });
-        return {
+        const nextBooking = {
           ...prev,
           ...(allowStagePatch && event.serviceTrackingStage !== undefined
             ? { serviceTrackingStage: event.serviceTrackingStage }
@@ -652,6 +656,11 @@ export default function CustomerLiveTrackerPage() {
           ...(event.invoiceId !== undefined ? { invoiceId: event.invoiceId } : {}),
           ...(event.updatedAt ? { updatedAt: event.updatedAt } : {}),
         } as Booking;
+        if (bookingHasCompletedCustomerHandover(nextBooking)) {
+          activeBookingIdRef.current = null;
+          return null;
+        }
+        return nextBooking;
       });
 
       return true;
