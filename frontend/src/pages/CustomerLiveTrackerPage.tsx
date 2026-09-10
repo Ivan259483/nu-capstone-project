@@ -32,7 +32,7 @@ import {
 } from '@/lib/customer-tracker-stage-media';
 import { getLiveTrackerStepIndex } from '@/lib/customer-live-tracker-step';
 import { getTrackerPipelineProgressPct } from '@/lib/tracker-pipeline-progress';
-import { isForwardTrackerStageTransition } from '@/lib/customer-live-tracker-pick';
+import { isForwardTrackerStageTransition, trackerStageRankOf } from '@/lib/customer-live-tracker-pick';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '@/lib/cloudinary-delivery-url';
 import { resolveProfileImage } from '@/lib/profile-image';
 
@@ -70,17 +70,6 @@ const TRACKER_STEPS: TrackerStep[] = [
   { id: 'completed', title: 'Quality Check' },
   { id: 'paid', title: 'Ready for Pickup' },
 ];
-
-const STATUS_PRIORITY: Record<string, number> = {
-  paid: 6,
-  completed: 5,
-  in_progress: 4,
-  'in-progress': 4,
-  received: 3,
-  confirmed: 2,
-  assigned: 2,
-  approved: 1,
-};
 
 const navButtonClass = (active = false) =>
   `w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${active ? 'bg-white/[0.08] text-zinc-50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]' : 'text-zinc-400 hover:text-zinc-50 hover:bg-white/[0.05]'
@@ -213,13 +202,12 @@ function isLiveTrackableBooking(booking: Booking) {
   return LIVE_STATUS_BOOKING_STATES.has(status) || LIVE_STATUS_CUSTOMER_STATES.has(customerStatus);
 }
 
+/** Ranks by the same canonical serviceTrackingStage-aware rank as the Dashboard picker — never by `status` alone (see customer-live-tracker-pick.ts). */
 function sortByLivePriority(a: Booking, b: Booking) {
-  const statusA = String(a.status || '').toLowerCase();
-  const statusB = String(b.status || '').toLowerCase();
-  const priorityA = STATUS_PRIORITY[statusA] ?? 0;
-  const priorityB = STATUS_PRIORITY[statusB] ?? 0;
+  const rankA = trackerStageRankOf(a as any);
+  const rankB = trackerStageRankOf(b as any);
 
-  if (priorityA !== priorityB) return priorityB - priorityA;
+  if (rankA !== rankB) return rankB - rankA;
 
   return (
     new Date(b.updatedAt || b.createdAt || 0).getTime()
@@ -246,11 +234,17 @@ function mergeTrackerMediaPayload<T extends Booking | null>(
   payload: any
 ): T {
   if (!booking || !payload) return booking;
+  // This payload comes from a plain GET (tracker media hydration) that can resolve after a
+  // newer `booking:status` socket event already advanced the stage — never regress it.
+  const allowStagePatch = isForwardTrackerStageTransition(booking, {
+    serviceTrackingStage: payload.serviceTrackingStage,
+    status: payload.status,
+  });
   return {
     ...booking,
-    ...(payload.status !== undefined ? { status: payload.status } : {}),
+    ...(allowStagePatch && payload.status !== undefined ? { status: payload.status } : {}),
     ...(payload.paymentStatus !== undefined ? { paymentStatus: payload.paymentStatus } : {}),
-    ...(payload.serviceTrackingStage !== undefined ? { serviceTrackingStage: payload.serviceTrackingStage } : {}),
+    ...(allowStagePatch && payload.serviceTrackingStage !== undefined ? { serviceTrackingStage: payload.serviceTrackingStage } : {}),
     ...(payload.serviceStaffAssignments !== undefined ? { serviceStaffAssignments: payload.serviceStaffAssignments || [] } : {}),
     ...(hasTrackerStageMediaField(payload)
       ? { trackerStageMedia: Array.isArray(payload.trackerStageMedia) ? payload.trackerStageMedia : [] }
@@ -264,15 +258,21 @@ function preserveExistingTrackerMedia(previous: Booking | null, incoming: Bookin
   if (String(previous.id || '') !== String(incoming.id || '')) return incoming;
   const previousMedia = Array.isArray(previous.trackerStageMedia) ? previous.trackerStageMedia : [];
   const incomingMedia = Array.isArray(incoming.trackerStageMedia) ? incoming.trackerStageMedia : [];
+  // A slow/backup GET (initial load, 60s poll, visibility refetch) can resolve after a newer
+  // `booking:status` socket event already advanced the stage — never let it regress back.
+  const stagePatch = isForwardTrackerStageTransition(previous, incoming)
+    ? null
+    : { serviceTrackingStage: previous.serviceTrackingStage, status: previous.status };
   if (
     !hasTrackerStageMediaField(previous) ||
     (hasTrackerStageMediaField(incoming) && (incomingMedia.length > 0 || previousMedia.length === 0))
   ) {
-    return incoming;
+    return stagePatch ? { ...incoming, ...stagePatch } : incoming;
   }
   return {
     ...incoming,
     trackerStageMedia: previousMedia,
+    ...stagePatch,
   };
 }
 

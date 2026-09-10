@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  isForwardTrackerStageTransition,
+  trackerStageRankOf,
+} from '../src/lib/customer-live-tracker-pick.ts';
+import { getTrackerPipelineProgressPct } from '../src/lib/tracker-pipeline-progress.ts';
+
+// Regression coverage for the QC gate advance <-> customer live tracker sync bug:
+// a slow/backup HTTP GET (initial load, 60s poll, or `orderUpdated`-triggered silent
+// refetch) can resolve *after* the `booking:status` socket event already advanced the
+// customer's local state. CustomerDashboard.tsx / CustomerLiveTrackerPage.tsx's fetch-merge
+// helpers must apply the same `isForwardTrackerStageTransition` guard the socket-patch
+// path already used, or the stale response silently regresses the tracker.
+
+test('QC advance to Service In Progress (in_progress) is a forward transition from Vehicle Arrived (received)', () => {
+  const current = { serviceTrackingStage: 'received', status: 'received' };
+  const incoming = { serviceTrackingStage: 'in_progress', status: 'in_progress' };
+
+  assert.equal(isForwardTrackerStageTransition(current, incoming), true);
+  assert.equal(getTrackerPipelineProgressPct(current), 25);
+  assert.equal(getTrackerPipelineProgressPct(incoming), 50);
+});
+
+test('a stale GET resolving after the socket update must not regress the merged stage', () => {
+  // Simulates the exact race: the socket event already moved local state to in_progress,
+  // then an in-flight GET issued *before* the QC write resolves late with old data.
+  const current = { serviceTrackingStage: 'in_progress', status: 'in_progress' };
+  const staleFetched = { serviceTrackingStage: 'received', status: 'received' };
+
+  assert.equal(isForwardTrackerStageTransition(current, staleFetched), false);
+
+  // This is the exact guard shape used in mergeBookingsPreservingTrackerMedia /
+  // preserveExistingTrackerMedia / mergeTrackerMediaPayload after the fix.
+  const stagePatch = isForwardTrackerStageTransition(current, staleFetched)
+    ? null
+    : { serviceTrackingStage: current.serviceTrackingStage, status: current.status };
+  const merged = { ...staleFetched, ...stagePatch };
+
+  assert.equal(merged.serviceTrackingStage, 'in_progress');
+  assert.equal(merged.status, 'in_progress');
+  assert.equal(getTrackerPipelineProgressPct(merged), 50);
+});
+
+test('a fresh GET that legitimately reflects further QC progress is still applied', () => {
+  const current = { serviceTrackingStage: 'in_progress', status: 'in_progress' };
+  const fresh = { serviceTrackingStage: 'quality_check', status: 'in_progress' };
+
+  assert.equal(isForwardTrackerStageTransition(current, fresh), true);
+  const stagePatch = isForwardTrackerStageTransition(current, fresh)
+    ? null
+    : { serviceTrackingStage: current.serviceTrackingStage, status: current.status };
+  const merged = { ...fresh, ...stagePatch };
+
+  assert.equal(merged.serviceTrackingStage, 'quality_check');
+  assert.equal(getTrackerPipelineProgressPct(merged), 75);
+});
+
+test('trackerStageRankOf prefers serviceTrackingStage over status for booking-selection ranking', () => {
+  // CustomerLiveTrackerPage's sortByLivePriority now ranks on this — same source the
+  // Dashboard's pickCustomerLiveTrackerBooking already used — so both screens agree.
+  const vehicleArrived = { serviceTrackingStage: 'received', status: 'received' };
+  const serviceInProgress = { serviceTrackingStage: 'in_progress', status: 'in_progress' };
+
+  assert.ok(trackerStageRankOf(serviceInProgress) > trackerStageRankOf(vehicleArrived));
+});
+
+test('full 4-gate pipeline progression is monotonic and matches the 25/50/75/100 mapping', () => {
+  const stages = ['received', 'in_progress', 'quality_check', 'ready_pickup'];
+  const expectedPct = [25, 50, 75, 100];
+  let previous: { serviceTrackingStage?: string; status?: string } | null = null;
+
+  stages.forEach((stage, index) => {
+    const incoming = { serviceTrackingStage: stage, status: stage === 'ready_pickup' ? 'ready_for_payment' : stage };
+    if (previous) {
+      assert.equal(isForwardTrackerStageTransition(previous, incoming), true, `${previous.serviceTrackingStage} -> ${stage} must be forward`);
+    }
+    assert.equal(getTrackerPipelineProgressPct(incoming), expectedPct[index]);
+    previous = incoming;
+  });
+});

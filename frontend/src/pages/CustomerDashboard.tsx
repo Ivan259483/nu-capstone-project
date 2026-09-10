@@ -544,11 +544,17 @@ function mergeTrackerMediaPayload<T extends Record<string, any> | null | undefin
   payload: any
 ): T {
   if (!booking || !payload) return booking;
+  // This payload comes from a plain GET (tracker media hydration) that can resolve after a
+  // newer `booking:status` socket event already advanced the stage — never regress it.
+  const allowStagePatch = isForwardTrackerStageTransition(booking, {
+    serviceTrackingStage: payload.serviceTrackingStage,
+    status: payload.status,
+  });
   return {
     ...booking,
-    ...(payload.status !== undefined ? { status: payload.status } : {}),
+    ...(allowStagePatch && payload.status !== undefined ? { status: payload.status } : {}),
     ...(payload.paymentStatus !== undefined ? { paymentStatus: payload.paymentStatus } : {}),
-    ...(payload.serviceTrackingStage !== undefined ? { serviceTrackingStage: payload.serviceTrackingStage } : {}),
+    ...(allowStagePatch && payload.serviceTrackingStage !== undefined ? { serviceTrackingStage: payload.serviceTrackingStage } : {}),
     ...(payload.serviceStaffAssignments !== undefined ? { serviceStaffAssignments: payload.serviceStaffAssignments || [] } : {}),
     ...(hasTrackerStageMediaField(payload)
       ? { trackerStageMedia: Array.isArray(payload.trackerStageMedia) ? payload.trackerStageMedia : [] }
@@ -568,16 +574,22 @@ function mergeBookingsPreservingTrackerMedia(previous: any[], incoming: any[]): 
     const incomingMedia = Array.isArray(booking?.trackerStageMedia)
       ? booking.trackerStageMedia
       : [];
+    // A slow/backup GET can resolve after a newer `booking:status` socket event already
+    // advanced this booking's stage — never let it regress serviceTrackingStage/status back.
+    const stagePatch = previousBooking && !isForwardTrackerStageTransition(previousBooking, booking)
+      ? { serviceTrackingStage: previousBooking.serviceTrackingStage, status: previousBooking.status }
+      : null;
     if (
       !previousBooking ||
       !hasTrackerStageMediaField(previousBooking) ||
       (hasTrackerStageMediaField(booking) && (incomingMedia.length > 0 || previousMedia.length === 0))
     ) {
-      return booking;
+      return stagePatch ? { ...booking, ...stagePatch } : booking;
     }
     return {
       ...booking,
       trackerStageMedia: previousMedia,
+      ...stagePatch,
     };
   });
 }
