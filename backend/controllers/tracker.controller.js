@@ -33,6 +33,7 @@ import {
 import { runTrackedSystemMutation } from '../middleware/systemLifecycle.middleware.js';
 import { registerCloudinaryManagedAsset } from '../services/managedAsset.service.js';
 import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
+import { timeOperation } from '../utils/performance.utils.js';
 
 /** Same coarse stages as QC `service-status`; `confirmed` is optional text-only for customers. */
 const TRACKER_MEDIA_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'];
@@ -444,7 +445,10 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
       });
     }
 
-    const order = await Order.findById(id);
+    const order = await timeOperation(
+      { req, res, kind: 'db', name: 'stagePhoto.order.findById' },
+      () => Order.findById(id)
+    );
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
     const occupancyBefore = captureOrderSlotOccupancy(order);
 
@@ -473,10 +477,13 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
         storage = 'inline_fast';
       } else {
         try {
-          const assets = await uploadVehicleScanImages([req.file], {
-            folder: 'live-tracker-stages',
-            returnMetadata: true,
-          });
+          const assets = await timeOperation(
+            { req, res, kind: 'external', name: 'stagePhoto.cloudinary.upload' },
+            () => uploadVehicleScanImages([req.file], {
+              folder: 'live-tracker-stages',
+              returnMetadata: true,
+            })
+          );
           uploadedAsset = assets[0] || null;
           photoUrl = uploadedAsset?.secureUrl || '';
           storage = photoUrl ? 'cloudinary' : 'none';
@@ -531,12 +538,21 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
       await applyPickupGateCompleteSideEffects(order);
     }
 
-    await saveOrderWithSlotTransition(order, occupancyBefore, { validateBeforeSave: false });
-    emitTrackerStageMediaUpdate(order);
+    await timeOperation(
+      { req, res, kind: 'db', name: 'stagePhoto.order.save' },
+      () => saveOrderWithSlotTransition(order, occupancyBefore, { validateBeforeSave: false })
+    );
+    await timeOperation(
+      { req, res, kind: 'socket', name: 'stagePhoto.emitTrackerStageMediaUpdate' },
+      () => { emitTrackerStageMediaUpdate(order); }
+    );
 
     if (isGateStage(stage)) {
       try {
-        await syncQualityEvidenceAttention(order, stage);
+        await timeOperation(
+          { req, res, kind: 'notify', name: 'stagePhoto.syncQualityEvidenceAttention' },
+          () => syncQualityEvidenceAttention(order, stage)
+        );
       } catch (ne) {
         console.warn('[tracker] Failed to synchronize Quality evidence notifications:', ne.message);
       }
@@ -551,7 +567,10 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
     }
     if (photoUrl) {
       try {
-        await createCustomerStageMediaNotification(order, stage);
+        await timeOperation(
+          { req, res, kind: 'notify', name: 'stagePhoto.createCustomerStageMediaNotification' },
+          () => createCustomerStageMediaNotification(order, stage)
+        );
       } catch (ne) {
         console.warn('[tracker] Failed to create stage media notification:', ne.message);
       }

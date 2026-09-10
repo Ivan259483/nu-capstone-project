@@ -22,6 +22,7 @@ import mongoose from 'mongoose';
 import connectDB from './config/database.js';
 import errorHandler from './middleware/errorHandler.middleware.js';
 import { initializeMailer } from './utils/mail.utils.js'; // Import mailer
+import { isCloudinaryConfigured, getCloudinaryMissingConfigMessage, getCloudinaryRuntimeDiagnostics } from './utils/cloudinaryStorage.utils.js';
 import { migrateLegacyUserRoles } from './utils/migrateLegacyUserRoles.utils.js';
 import { initSocket, initChangeStreams } from './utils/socket.utils.js';
 import { cleanupExpiredReservations } from './utils/inventory.utils.js';
@@ -352,6 +353,30 @@ const startServer = async () => {
         console.error('   OTP delivery will fail closed until the provider recovers.\n');
       }
     })();
+
+    // Cloudinary is required for permanent QC/tracker photo storage. When it is
+    // unusable, uploads silently fall back to embedding base64 image data
+    // directly in Order documents — this is the historical root cause of
+    // multi-second tracker-media/stage-photo latency, so surface it loudly at
+    // boot instead of letting it fail silently on every upload.
+    if (!isCloudinaryConfigured()) {
+      console.error(`❌ Cloudinary is not configured: ${getCloudinaryMissingConfigMessage()}`);
+      console.error('   Tracker/QC photo uploads will fall back to inline base64 storage in MongoDB until this is fixed.\n');
+    } else {
+      const diag = getCloudinaryRuntimeDiagnostics();
+      console.log(
+        `☁️  Cloudinary configured: cloudName=${diag.cloudName} uploadMode=${diag.uploadMode} ` +
+        `(auth fields: ${diag.authFieldNames.join(', ')})`
+      );
+      if (diag.uploadMode === 'unsigned') {
+        console.warn(
+          '⚠️  Cloudinary is running in UNSIGNED mode (CLOUDINARY_UPLOAD_PRESET only, no CLOUDINARY_API_SECRET).\n' +
+          '   This requires that preset to exist in the Cloudinary dashboard as an UNSIGNED upload preset.\n' +
+          '   If uploads fail with "Upload preset not found", either create that preset as unsigned in Cloudinary,\n' +
+          '   or set CLOUDINARY_API_SECRET to switch to signed uploads (recommended — no preset needed).'
+        );
+      }
+    }
 
     // Connect to MongoDB Atlas
     await connectDB();

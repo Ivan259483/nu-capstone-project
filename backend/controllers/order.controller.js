@@ -1451,9 +1451,30 @@ export const getOrderTrackerMedia = async (req, res, next) => {
       });
     }
 
-    const trackerStageMedia = isCustomerRole(req.user.role)
-      ? getCustomerVisibleTrackerStageMedia(order)
-      : (Array.isArray(order.trackerStageMedia) ? order.trackerStageMedia : []);
+    const trackerStageMedia = await timeOperation(
+      { req, res, kind: 'cpu', name: 'trackerMedia.customerVisibilityFilter' },
+      () => (isCustomerRole(req.user.role)
+        ? getCustomerVisibleTrackerStageMedia(order)
+        : (Array.isArray(order.trackerStageMedia) ? order.trackerStageMedia : []))
+    );
+
+    // Diagnostic only (no image bytes logged): how much of this response is
+    // still inline base64 pending a Cloudinary upload. This is the metric that
+    // explains multi-second findById/serialization times on bloated orders —
+    // see PHASE 3 of the perf audit report for the root cause.
+    let inlineBase64Bytes = 0;
+    let inlineBase64Count = 0;
+    for (const entry of trackerStageMedia) {
+      const url = entry?.photoUrl;
+      if (typeof url === 'string' && url.startsWith('data:')) {
+        inlineBase64Bytes += url.length;
+        inlineBase64Count += 1;
+      }
+    }
+    console.info(
+      `[PERF] kind=media operation=trackerMedia.payload method=${req.method} path=${req.originalUrl} ` +
+      `mediaCount=${trackerStageMedia.length} inlineBase64Count=${inlineBase64Count} inlineBase64KB=${(inlineBase64Bytes / 1024).toFixed(1)}`
+    );
 
     res.json({
       success: true,
@@ -3760,30 +3781,37 @@ export const updateCustomerStatus = async (req, res, next) => {
  */
 export const getDetailerOrders = async (req, res, next) => {
   try {
-    console.log('📋 [DETAILER_ORDERS] Fetching for detailer:', req.user.id, req.user.name || req.user.email);
-
     // Only return jobs explicitly assigned to this detailer
     // Jobs must be in actionable states: assigned, received, in_progress, completed
-    const orders = await Order.find({
-      archived: { $ne: true },
-      assignedDetailer: req.user.id,
-      status: { $in: ['assigned', 'received', 'in_progress', 'completed'] },
-    })
-      .populate('customer', 'name email phone avatar')
-      .populate('assignedDetailer', 'name email')
-      .sort({ createdAt: -1 })
-      .lean();
+    // Projected to the same lightweight list fields as getAllOrders — this query
+    // previously ran with no .select() at all, so every matching order (including
+    // its full trackerStageMedia array, which can hold multi-hundred-KB inline
+    // base64 photos pending Cloudinary backfill) was hydrated and serialized in
+    // full. That was the root cause of this endpoint's ~14s response time.
+    const orders = await timeOperation(
+      { req, res, kind: 'db', name: 'detailerOrders.order.find' },
+      () => Order.find({
+        archived: { $ne: true },
+        assignedDetailer: req.user.id,
+        status: { $in: ['assigned', 'received', 'in_progress', 'completed'] },
+      })
+        .select(`${ORDER_LIST_SELECT_FIELDS} serviceSteps operationsChecklist`)
+        .populate('customer', 'name email phone avatar')
+        .populate('assignedDetailer', 'name email')
+        .sort({ createdAt: -1 })
+        .lean()
+    );
 
-    console.log('📋 [DETAILER_ORDERS] Total orders returned:', orders.length);
-    console.log('📋 [DETAILER_ORDERS] Breakdown:', {
-      assigned: orders.filter(o => o.status === 'assigned').length,
-      received: orders.filter(o => o.status === 'received').length,
-      in_progress: orders.filter(o => o.status === 'in_progress').length,
-      completed: orders.filter(o => o.status === 'completed').length,
-      statuses: [...new Set(orders.map(o => o.status))],
-    });
+    const dto = await timeOperation(
+      { req, res, kind: 'map', name: 'detailerOrders.formatBookingListDto' },
+      () => orders.map((o) => ({
+        ...formatBookingListDto(o),
+        serviceSteps: o.serviceSteps || [],
+        operationsChecklist: o.operationsChecklist || null,
+      }))
+    );
 
-    res.json({ success: true, data: orders.map(o => formatBookingDto(o)) });
+    res.json({ success: true, data: dto });
   } catch (error) {
     console.error('❌ [DETAILER_ORDERS] Error:', error.message);
     next(error);

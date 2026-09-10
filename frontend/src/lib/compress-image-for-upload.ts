@@ -120,10 +120,17 @@ export async function compressImageForUpload(file: File, options?: CompressImage
   return fileFromJpegBlob(file, blob);
 }
 
+/**
+ * Longest edge and JPEG quality here are a deliberate quality/speed tradeoff for
+ * QC evidence: damage detail (scratches, swirls) must stay legible, while the
+ * output must still land under the backend's FAST_INLINE_STAGE_PHOTO_MAX_BYTES
+ * (1MB raw) so the upload takes the fast inline-then-background-Cloudinary-backfill
+ * path instead of blocking on a synchronous Cloudinary round trip.
+ */
 async function compressImageForLiveTrackerFast(file: File): Promise<File> {
   if (!file.type.startsWith('image/')) return file;
   if (file.type === 'image/gif') return file;
-  if (file.size < 75 * 1024) return file;
+  if (file.size < 150 * 1024) return file;
 
   let bitmap: ImageBitmap | null = null;
   let htmlImg: HTMLImageElement | null = null;
@@ -149,7 +156,11 @@ async function compressImageForLiveTrackerFast(file: File): Promise<File> {
     return file;
   }
 
-  const maxEdgePx = 720;
+  // 1600px longest edge preserves scratch/swirl/damage detail (matches the
+  // manual compressImageForUpload default); the previous 720px target here was
+  // over-compressing QC evidence for the sake of upload speed the fast-inline
+  // path didn't actually need.
+  const maxEdgePx = 1600;
   const scale = Math.min(1, maxEdgePx / Math.max(srcW, srcH));
   const w = Math.max(1, Math.round(srcW * scale));
   const h = Math.max(1, Math.round(srcH * scale));
@@ -166,7 +177,7 @@ async function compressImageForLiveTrackerFast(file: File): Promise<File> {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, w, h);
   ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'low';
+  ctx.imageSmoothingQuality = 'medium';
   if (bitmap) {
     ctx.drawImage(bitmap, 0, 0, w, h);
     bitmap.close();
@@ -174,9 +185,13 @@ async function compressImageForLiveTrackerFast(file: File): Promise<File> {
     ctx.drawImage(htmlImg!, 0, 0, w, h);
   }
 
-  let blob = await canvasToJpegBlob(canvas, 0.56);
-  if (blob && blob.size > 180 * 1024) {
-    blob = await canvasToJpegBlob(canvas, 0.42);
+  // Stay safely under FAST_INLINE_STAGE_PHOTO_MAX_BYTES (1MB raw) so this still
+  // takes the fast inline path on the backend.
+  let quality = 0.82;
+  let blob = await canvasToJpegBlob(canvas, quality);
+  while (blob && blob.size > 700 * 1024 && quality > 0.55) {
+    quality -= 0.08;
+    blob = await canvasToJpegBlob(canvas, quality);
   }
 
   if (!blob || blob.size >= file.size) return file;
