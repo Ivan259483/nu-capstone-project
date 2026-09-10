@@ -6,6 +6,19 @@
 
 import type { BookingRecord } from '@/services/api/types';
 import { normTrackerStr } from '@/utils/customer-live-tracker-pick';
+import {
+  canonicalStageFromValue,
+  type CustomerTrackerStage,
+} from '@/utils/customer-tracker-stage';
+
+/** Canonical customer stage → index on this 8-step Home rail. */
+const CANONICAL_STAGE_TO_RAIL_STEP: Record<CustomerTrackerStage, number> = {
+  confirmed: 1,
+  received: 3,
+  in_progress: 4,
+  quality_check: 5,
+  ready_pickup: 6,
+};
 
 export const CUSTOMER_HOME_RAIL_LABELS = [
   'Booked',
@@ -57,16 +70,15 @@ export function resolveCustomerHomeRailStep(booking: BookingRecord | null | unde
     return 6;
   }
 
-  if (ts === 'confirmed') return 1;
-  if (ts === 'received') return 3;
-  if (ts === 'in_progress') return 4;
-  if (ts === 'quality_check') return 5;
-  if (ts === 'ready_pickup') {
-    const s = payPaid && (st === 'released' || st === 'completed') ? 7 : 6;
-    return s;
-  }
-  if (ts === 'completed' || ts === 'released') {
-    return 7;
+  // The five canonical customer stages map onto this 8-step rail here and nowhere else, so
+  // the rail can never disagree with the Track screen about the same booking.
+  if (ts === 'completed' || ts === 'released') return 7;
+  const canonical = canonicalStageFromValue(ts);
+  if (canonical) {
+    if (canonical === 'ready_pickup') {
+      return payPaid && (st === 'released' || st === 'completed') ? 7 : 6;
+    }
+    return CANONICAL_STAGE_TO_RAIL_STEP[canonical];
   }
 
   if (['pending', 'pending_confirmation'].includes(st)) return 0;

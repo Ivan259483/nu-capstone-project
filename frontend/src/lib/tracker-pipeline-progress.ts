@@ -16,6 +16,26 @@ export function getCompletedGateIndexFromServiceStage(stage: string | null | und
   return idx >= 0 ? idx : -1;
 }
 
+/**
+ * Index of the gate the shop is CURRENTLY working — the gate that owns the evidence being
+ * collected right now.
+ *
+ * `serviceTrackingStage` names that open gate, not a finished one: the backend only lets a job
+ * advance INTO stage X once gate X-1's photos are complete (see
+ * `gatePhotoStageToValidateForAdvance`), so a job sitting at `in_progress` is being worked in
+ * the Service In Progress gate, and one at `quality_check` is under inspection.
+ *
+ * A job that has not reached a gate yet (`confirmed`, or no stage) is waiting on the first gate,
+ * Vehicle Arrive.
+ */
+export function getActiveGateIndexFromServiceStage(stage: string | null | undefined): number {
+  const s = String(stage ?? '').trim().toLowerCase().replace(/-/g, '_');
+  if (!s || s === 'confirmed' || s === 'approved' || s === 'assigned') return 0;
+  if (s === 'completed' || s === 'released') return TRACKER_PIPELINE_GATE_STAGES.length - 1;
+  const idx = TRACKER_PIPELINE_GATE_STAGES.indexOf(s as (typeof TRACKER_PIPELINE_GATE_STAGES)[number]);
+  return idx >= 0 ? idx : 0;
+}
+
 export type TrackerPipelineProgressInput = {
   serviceTrackingStage?: string | null;
   /** QC jobs: `orderStatus`. Customer bookings: `status`. */

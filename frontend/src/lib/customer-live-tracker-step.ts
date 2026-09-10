@@ -1,4 +1,11 @@
 import type { Booking } from '@/types';
+import {
+  resolveCustomerTrackerStage,
+  type CustomerTrackerStage,
+} from './customer-tracker-stage.ts';
+import { normTrackerStr } from './customer-live-tracker-pick.ts';
+
+const PRE_CHECK_IN_STATUSES = new Set(['pending', 'pending_confirmation', 'approved']);
 
 /**
  * Same pipeline as `TRACKER_STEPS` in CustomerLiveTrackerPage — keep indices in sync.
@@ -14,68 +21,28 @@ export const LIVE_TRACKER_PROGRESS_LABELS = [
 ] as const;
 
 /**
+ * The Live Tracker page shows one extra pre-arrival row ("Waiting for Your Vehicle to Arrive")
+ * ahead of the five canonical customer stages, so its row index is the canonical customer step
+ * — never the operational QC gate index.
+ */
+const STAGE_TO_LIVE_TRACKER_INDEX: Record<CustomerTrackerStage, number> = {
+  confirmed: 1,
+  received: 2,
+  in_progress: 3,
+  quality_check: 4,
+  ready_pickup: 5,
+};
+
+/**
  * Current milestone index for the customer-facing live tracker (0–5).
- * Duplicates CustomerLiveTrackerPage `getCurrentStepIndex` logic — update both if pipeline changes.
+ * Derived from the single canonical stage resolver so the row highlighted here can never
+ * disagree with the stage label, step number or progress percentage shown elsewhere.
  */
 export function getLiveTrackerStepIndex(booking: Booking | null | undefined): number {
   if (!booking) return 0;
-
-  const trackingStage = (booking as { serviceTrackingStage?: string }).serviceTrackingStage;
-  const status = String(booking.status || '').toLowerCase();
-  const customerStatus = String(booking.customerStatus || '').toLowerCase();
-
-  let idx: number;
-
-  if (trackingStage && typeof trackingStage === 'string') {
-    const tsKey = trackingStage.trim().toLowerCase().replace(/-/g, '_');
-    const stageMap: Record<string, number> = {
-      confirmed: 1,
-      received: 2,
-      in_progress: 3,
-      quality_check: 4,
-      ready_pickup: 5,
-      completed: 5,
-    };
-    if (stageMap[tsKey] !== undefined) {
-      idx = stageMap[tsKey];
-    } else if (status === 'paid' || customerStatus === 'ready') {
-      idx = 5;
-    } else if (status === 'completed' || customerStatus === 'finishing') {
-      idx = 4;
-    } else if (
-      status === 'in_progress'
-      || status === 'in-progress'
-      || customerStatus === 'washing'
-      || customerStatus === 'detailing'
-      || customerStatus === 'in-progress'
-    ) {
-      idx = 3;
-    } else if (status === 'received') {
-      idx = 2;
-    } else if (status === 'confirmed' || status === 'assigned') {
-      idx = 1;
-    } else {
-      idx = 0;
-    }
-  } else if (status === 'paid' || customerStatus === 'ready') {
-    idx = 5;
-  } else if (status === 'completed' || customerStatus === 'finishing') {
-    idx = 4;
-  } else if (
-    status === 'in_progress'
-    || status === 'in-progress'
-    || customerStatus === 'washing'
-    || customerStatus === 'detailing'
-    || customerStatus === 'in-progress'
-  ) {
-    idx = 3;
-  } else if (status === 'received') {
-    idx = 2;
-  } else if (status === 'confirmed' || status === 'assigned') {
-    idx = 1;
-  } else {
-    idx = 0;
-  }
-
-  return idx;
+  const { stage } = resolveCustomerTrackerStage(booking as any);
+  // Row 0 is the pre-arrival row: a booking that is only approved / awaiting confirmation has
+  // no shop-floor stage yet, so it never occupies the "Vehicle Check-In" row.
+  if (stage === 'confirmed' && PRE_CHECK_IN_STATUSES.has(normTrackerStr(booking.status))) return 0;
+  return STAGE_TO_LIVE_TRACKER_INDEX[stage];
 }

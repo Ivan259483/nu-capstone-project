@@ -31,7 +31,7 @@ import {
   getCustomerStageSlotPhotos,
 } from '@/lib/customer-tracker-stage-media';
 import { getLiveTrackerStepIndex } from '@/lib/customer-live-tracker-step';
-import { getTrackerPipelineProgressPct } from '@/lib/tracker-pipeline-progress';
+import { resolveCustomerTrackerStage } from '@/lib/customer-tracker-stage';
 import { isForwardTrackerStageTransition, trackerStageRankOf } from '@/lib/customer-live-tracker-pick';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '@/lib/cloudinary-delivery-url';
 import { resolveProfileImage } from '@/lib/profile-image';
@@ -810,12 +810,9 @@ export default function CustomerLiveTrackerPage() {
   const vehicleLabel = getVehicleLabel(activeBooking);
   const bayAssignment = getBayAssignment(activeBooking);
   const currentStageTitle = resolvedSteps.find((step) => step.state === 'active')?.title || TRACKER_STEPS[0].title;
-  const trackerProgress = activeBooking
-    ? getTrackerPipelineProgressPct({
-        serviceTrackingStage: (activeBooking as { serviceTrackingStage?: string }).serviceTrackingStage,
-        status: activeBooking.status,
-      })
-    : 0;
+  // Percentage comes from the same canonical stage as the highlighted timeline row, so
+  // "Quality Check" can never render next to 50%.
+  const trackerProgress = activeBooking ? resolveCustomerTrackerStage(activeBooking as any).progress : 0;
   const isAwaitingVehicle = activeBooking && ['approved', 'confirmed', 'assigned'].includes(String(activeBooking.status || '').toLowerCase());
   const liveStatusMeta = isLoading
     ? {

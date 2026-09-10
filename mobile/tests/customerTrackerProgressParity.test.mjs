@@ -8,6 +8,14 @@ import { isCustomerTrackerMediaStageReleased as isWebEvidenceReleased } from '..
 import { isCustomerTrackerMediaStageReleased as isMobileEvidenceReleased } from '../src/utils/customer-tracker-evidence-release.ts';
 import { isForwardTrackerStageTransition as isWebForwardTransition } from '../../frontend/src/lib/customer-live-tracker-pick.ts';
 import { isForwardTrackerStageTransition as isMobileForwardTransition } from '../src/utils/customer-live-tracker-pick.ts';
+import {
+  resolveCustomerTrackerStage as resolveWebStage,
+  customerStepForOperationalGate as webStepForGate,
+} from '../../frontend/src/lib/customer-tracker-stage.ts';
+import {
+  resolveCustomerTrackerStage as resolveMobileStage,
+  customerStepForOperationalGate as mobileStepForGate,
+} from '../src/utils/customer-tracker-stage.ts';
 
 const canonicalCases = [
   { label: 'Appointment Confirmed', input: { serviceTrackingStage: 'confirmed', status: 'confirmed' }, expected: 0 },
@@ -52,7 +60,8 @@ test('Mobile tracker does not impose a 20% floor on canonical progress', async (
   );
 
   assert.doesNotMatch(trackerSource, /Math\.max\(pipelinePct,\s*20\)/);
-  assert.match(trackerSource, /getTrackerPipelineProgressPct\(\{/);
+  // Progress now comes from the canonical stage resolver, which owns the 0/25/50/75/100 mapping.
+  assert.match(trackerSource, /resolveCustomerTrackerStage\(booking\)\.progress/);
 });
 
 test('Mobile ring has no fixed decorative progress arc and explicitly hides zero-length arcs', async () => {
@@ -136,4 +145,43 @@ test('customer trackers no longer advance stages from photo existence', async ()
   for (const source of [webMedia, mobileMedia]) {
     assert.match(source, /!isCustomerTrackerMediaStageReleased\(booking, stage\)/);
   }
+});
+
+
+// ── Canonical customer stage parity ──────────────────────────────────────────
+// The label, the "step X of 5" and the percentage must be identical on Web and Mobile,
+// and must all come from the same stage — a booking in Quality Check reads
+// "Quality Check / step 4 of 5 / 75%" on every customer surface.
+const canonicalStageCases = [
+  { stage: 'confirmed', label: 'Appointment Confirmed', step: 1, progress: 0 },
+  { stage: 'received', label: 'Vehicle Arrived', step: 2, progress: 25 },
+  { stage: 'in_progress', label: 'Service In Progress', step: 3, progress: 50 },
+  { stage: 'quality_check', label: 'Quality Check', step: 4, progress: 75 },
+  { stage: 'ready_pickup', label: 'Ready for Pickup', step: 5, progress: 100 },
+];
+
+for (const { stage, label, step, progress } of canonicalStageCases) {
+  test(`${label} resolves identically on Web and Mobile`, () => {
+    const input = { serviceTrackingStage: stage, status: 'in_progress' };
+    const web = resolveWebStage(input);
+    const mobile = resolveMobileStage(input);
+
+    assert.deepEqual(
+      { stage: web.stage, label: web.label, step: web.customerStep, progress: web.progress },
+      { stage, label, step, progress }
+    );
+    assert.deepEqual(
+      { stage: mobile.stage, label: mobile.label, step: mobile.customerStep, progress: mobile.progress },
+      { stage, label, step, progress }
+    );
+  });
+}
+
+test('the QC gate index is translated the same way on both platforms', () => {
+  for (const gate of ['received', 'in_progress', 'quality_check', 'ready_pickup']) {
+    assert.equal(webStepForGate(gate), mobileStepForGate(gate));
+  }
+  // QC gate 3 of 4 is customer step 4 of 5 — never customer step 3.
+  assert.equal(webStepForGate('quality_check'), 4);
+  assert.equal(mobileStepForGate('quality_check'), 4);
 });

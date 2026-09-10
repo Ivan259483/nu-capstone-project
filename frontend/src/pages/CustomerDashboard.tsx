@@ -34,7 +34,7 @@ import {
   getCustomerStageSlotPhotos,
   resolveTrackerStageDescription,
 } from '../lib/customer-tracker-stage-media';
-import { getTrackerPipelineProgressPct } from '../lib/tracker-pipeline-progress';
+import { resolveCustomerTrackerStage } from '../lib/customer-tracker-stage';
 import {
   bookingShowsCustomerLiveTracker,
   isForwardTrackerStageTransition,
@@ -4756,37 +4756,11 @@ export default function CustomerDashboard() {
                 const activeBooking = displayedTrackerBooking;
                 const TRACKER_STEPS = CUSTOMER_LIVE_TRACKER_HORIZONTAL_STEPS;
                 // Match premium dashboard tracker: QC `serviceTrackingStage` drives substeps; status is fallback.
-                const trackingStage = (activeBooking as any)?.serviceTrackingStage;
-                const tsKey = normTrackerStr(trackingStage);
-                const stageMap: Record<string, number> = {
-                  confirmed: 0,
-                  received: 1,
-                  in_progress: 2,
-                  quality_check: 3,
-                  ready_pickup: 4,
-                  completed: 4,
-                  released: 4,
-                };
-                const status = activeBooking ? String(activeBooking.status || '').toLowerCase() : '';
-                const statusFallback: Record<string, number> = {
-                  approved: 0,
-                  confirmed: 0,
-                  assigned: 0,
-                  received: 1,
-                  in_progress: 2,
-                  'in-progress': 2,
-                  ready_for_payment: 4,
-                  completed: 4,
-                  paid: 4,
-                  released: 4,
-                  done: 4,
-                };
-                const rawStep = activeBooking
-                  ? (trackingStage
-                    ? (stageMap[tsKey] ?? 0)
-                    : (statusFallback[status] ?? 0))
+                // Same canonical resolver as the home tracker card — one stage drives the
+                // highlighted step everywhere, so the two surfaces can never disagree.
+                const currentStep = activeBooking
+                  ? resolveCustomerTrackerStage(activeBooking as any).stageIndex
                   : -1;
-                const currentStep = rawStep;
 
                 return (
                   <div className="customer-content-fade-in min-w-0 w-full flex-1 space-y-6 pb-12">
@@ -5634,26 +5608,10 @@ export default function CustomerDashboard() {
                   const postPayComplete =
                     paymentPaid &&
                     (status === 'completed' || status === 'released' || tsKey === 'released');
-                  const stageMap: Record<string, number> = {
-                    'confirmed': 0,
-                    'received': 1,
-                    'in_progress': 2,
-                    'quality_check': 3,
-                    'ready_pickup': 4,
-                    'completed':     4,
-                    'released':      4,
-                  };
-                  const statusFallback: Record<string, number> = {
-                    'approved': 0, 'confirmed': 0, 'assigned': 0,
-                    'received': 1,
-                    'in_progress': 2, 'in-progress': 2,
-                    'ready_for_payment': 4,
-                    'completed': 4,
-                    'paid': 4, 'released': 4, 'done': 4
-                  };
-                  const currentStepIdx = trackingStage
-                    ? (stageMap[tsKey] ?? 0)
-                    : (statusFallback[status] ?? 0);
+                  // Label, step and percentage all come from ONE canonical stage so a card can
+                  // never render e.g. "Quality Check + 50%" or "Service In Progress + step 4/5".
+                  const canonicalStage = resolveCustomerTrackerStage(activeBooking as any);
+                  const currentStepIdx = canonicalStage.stageIndex;
 
                   const isFullyComplete = status === 'completed' || status === 'paid' || status === 'released'
                     || tsKey === 'ready_pickup' || tsKey === 'completed';
@@ -5667,12 +5625,7 @@ export default function CustomerDashboard() {
 
                   const displayStepIdx = currentStepIdx;
                   const activeIdx = Math.min(Math.max(displayStepIdx, 0), STEPS.length - 1);
-                  const pct = postPayComplete
-                    ? 100
-                    : getTrackerPipelineProgressPct({
-                        serviceTrackingStage: trackingStage,
-                        status: activeBooking?.status,
-                      });
+                  const pct = postPayComplete ? 100 : canonicalStage.progress;
                   const activeStep = STEPS[activeIdx] || STEPS[0];
                   const nextStep = postPayComplete || isFullyComplete || activeIdx >= STEPS.length - 1
                     ? null

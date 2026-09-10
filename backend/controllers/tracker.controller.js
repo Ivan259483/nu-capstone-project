@@ -35,6 +35,7 @@ import { registerCloudinaryManagedAsset } from '../services/managedAsset.service
 import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
 import { timeOperation } from '../utils/performance.utils.js';
 
+import { buildCustomerStagePayload } from '../utils/customerTrackerStage.utils.js';
 /** Same coarse stages as QC `service-status`; `confirmed` is optional text-only for customers. */
 const TRACKER_MEDIA_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'];
 const INLINE_STAGE_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
@@ -198,6 +199,7 @@ function emitTrackerStageMediaUpdate(order) {
       orderId: order._id.toString(),
       status: order.status,
       serviceTrackingStage: order.serviceTrackingStage || null,
+      ...buildCustomerStagePayload(order),
       paymentStatus: order.paymentStatus || null,
         posQueueStatus: order.posQueueStatus || null,
         readyForPickupEvidenceComplete: Boolean(order.readyForPickupEvidenceComplete),
@@ -217,6 +219,7 @@ function emitTrackerStageMediaUpdate(order) {
         bookingId: order._id.toString(),
         status: order.status,
         serviceTrackingStage: order.serviceTrackingStage || null,
+        ...buildCustomerStagePayload(order),
         paymentStatus: order.paymentStatus || null,
         posQueueStatus: order.posQueueStatus || null,
         readyForPickupEvidenceComplete: Boolean(order.readyForPickupEvidenceComplete),

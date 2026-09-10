@@ -1,3 +1,5 @@
+import { resolveCustomerTrackerStage } from './customer-tracker-stage.ts';
+
 export const CUSTOMER_SERVICE_JOURNEY_STEPS = [
   'Confirmed',
   'Arrived',
@@ -106,29 +108,17 @@ function paymentStateLabel(
   return 'Payment pending';
 }
 
+/**
+ * The five journey steps are the five canonical customer stages, so the index comes straight
+ * from the shared resolver rather than a private alias table that could drift away from the
+ * live tracker's idea of the same booking.
+ */
 function journeyProgressIndex(booking: CustomerBookingJourneyInput, bookingStatus: string): number {
-  const stage = normalizeState(booking.serviceTrackingStage || bookingStatus);
-  const indexes: Record<string, number> = {
-    approved: 0,
-    confirmed: 0,
-    assigned: 0,
-    queued: 0,
-    received: 1,
-    checked_in: 1,
-    active: 2,
-    in_service: 2,
-    in_progress: 2,
-    processing: 2,
-    quality_check: 3,
-    ready_for_payment: 4,
-    ready_pickup: 4,
-    completed: 4,
-    released: 4,
-    done: 4,
-    delivered: 4,
-    paid: 4,
-  };
-  return Math.max(0, Math.min(CUSTOMER_SERVICE_JOURNEY_STEPS.length - 1, indexes[stage] ?? 0));
+  const { stageIndex } = resolveCustomerTrackerStage({
+    serviceTrackingStage: booking.serviceTrackingStage,
+    status: booking.status ?? bookingStatus,
+  });
+  return Math.max(0, Math.min(CUSTOMER_SERVICE_JOURNEY_STEPS.length - 1, stageIndex));
 }
 
 /**

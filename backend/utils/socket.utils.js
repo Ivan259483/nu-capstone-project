@@ -21,6 +21,7 @@ import {
   globalSessionEpochMatches,
 } from './authVersion.utils.js';
 import { isConfiguredCorsOriginAllowed } from './origin.utils.js';
+import { buildCustomerStagePayload } from './customerTrackerStage.utils.js';
 import {
   getSystemState,
   isProtectedAdministrator,
@@ -111,6 +112,9 @@ function prepareOrderDocumentForSocket(doc) {
     serviceTrackingStage: doc.serviceTrackingStage || null,
     serviceTrackingUpdatedAt: doc.serviceTrackingUpdatedAt || null,
     serviceTrackingUpdatedBy: doc.serviceTrackingUpdatedBy || null,
+    // Canonical customer stage travels with every realtime row so customer clients patch the
+    // tracker directly instead of inferring Quality Check from `status: in_progress`.
+    ...buildCustomerStagePayload(doc),
     serviceStaffAssignments: Array.isArray(doc.serviceStaffAssignments)
       ? doc.serviceStaffAssignments
       : [],

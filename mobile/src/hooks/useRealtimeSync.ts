@@ -38,6 +38,13 @@ const ORDER_REALTIME_PATCH_FIELDS = [
   'reservationPayment',
   'balancePayment',
   'serviceTrackingStage',
+  // Canonical customer stage block emitted alongside every stage change.
+  'customerStage',
+  'customerStageLabel',
+  'customerStageStep',
+  'customerStageTotalSteps',
+  'customerStageProgress',
+  'customerStageRank',
   'serviceTrackingUpdatedAt',
   'serviceStaffAssignments',
   'trackerStageMedia',
@@ -82,6 +89,18 @@ function normalizeOrderRealtimePayload(payload: any): Record<string, any> | null
   return patch;
 }
 
+/** Fields a stale event must not write — they all describe the same tracker position. */
+const STAGE_PATCH_FIELDS = new Set<string>([
+  'status',
+  'serviceTrackingStage',
+  'customerStage',
+  'customerStageLabel',
+  'customerStageStep',
+  'customerStageTotalSteps',
+  'customerStageProgress',
+  'customerStageRank',
+]);
+
 function orderIdsMatch(current: any, patch: Record<string, any>): boolean {
   const patchId = toIdString(patch.id || patch._id);
   const currentId = toIdString(current?.id || current?._id || current?.bookingId || current?.orderId);
@@ -99,7 +118,7 @@ function mergeOrderRealtimePatch<T>(current: T, patch: Record<string, any>): T {
   const next: Record<string, any> = { ...(current as Record<string, any>) };
   for (const field of ORDER_REALTIME_PATCH_FIELDS) {
     if (patch[field] === undefined) continue;
-    if (!allowStagePatch && (field === 'status' || field === 'serviceTrackingStage')) continue;
+    if (!allowStagePatch && STAGE_PATCH_FIELDS.has(field)) continue;
     next[field] = patch[field];
   }
   next.id = next.id || patch.id;

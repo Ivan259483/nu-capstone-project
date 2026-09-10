@@ -66,7 +66,7 @@ import {
   resolveTrackerStageDescription,
   type TrackerMediaStage,
 } from '@/utils/customer-tracker-stage-media';
-import { getTrackerPipelineProgressPct } from '@/utils/tracker-pipeline-progress';
+import { resolveCustomerTrackerStage } from '@/utils/customer-tracker-stage';
 import { resolveCustomerPaymentState } from '@/utils/customer-payment-state';
 import {
   PAYMENT_PROOF_PICKER_OPTIONS,
@@ -131,38 +131,11 @@ const TRACKER_STEPS = [
   },
 ] as const;
 
-// ── serviceTrackingStage → 5-step index ──────────────────────────────────────
-// Source: QCServiceControlPanel STAGE_ORDER + QCLiveTrackerView STAGES
-// Backend stageToStatus: quality_check → 'in_progress', ready_pickup → 'in_progress'
-// So order.status alone CANNOT distinguish Step 4 from Step 5 — must use serviceTrackingStage.
-const STAGE_TO_STEP: Record<string, number> = {
-  // Step 1 – Appointment Confirmed
-  confirmed: 0,
-  // Step 2 – Vehicle Arrive
-  received: 1,
-  // Step 3 – Service In Progress
-  in_progress: 2,
-  // Step 4 – Quality Check (order.status stays 'in_progress' here!)
-  quality_check: 3,
-  // Step 5 – Ready for Pickup (order.status stays 'in_progress' here too!)
-  ready_pickup: 4,
-  // 'released' maps to 4 so that an already-released booking on open shows all steps complete
-  released: 4, completed: 4,
-};
-
-// ── order.status → 5-step index (fallback only — cannot distinguish QC from Ready) ──
-const STATUS_TO_STEP: Record<string, number> = {
-  // Step 1
-  pending: 0, approved: 0, confirmed: 0, assigned: 0,
-  // Step 2
-  received: 1,
-  // Step 3 (quality_check and ready_pickup both produce 'in_progress' on backend)
-  in_progress: 2, 'in-progress': 2,
-  // Step 5
-  ready_for_payment: 4, 'ready-for-payment': 4, completed: 4, paid: 4, done: 4,
-  // released → 4 for static display (live transition is handled by forceStepIdx)
-  released: 4,
-};
+// ── Canonical stage → 5-step index ───────────────────────────────────────────
+// The customer pipeline is five steps; the QC gate pipeline is four. An operational gate
+// index is never reused as a customer step index — `resolveCustomerTrackerStage` owns that
+// translation, and web + mobile both read it, so a job in Quality Check is customer step 4
+// of 5 at 75% on every surface.
 
 function trackerKey(value: unknown): string {
   return String(value ?? '').trim().toLowerCase().replace(/-/g, '_');
@@ -172,21 +145,7 @@ function resolveStep(booking: any): number {
   const s = trackerKey(booking?.status);
   if (['cancelled', 'failed'].includes(s)) return -1;
   if (bookingIsReadyForPickup(booking)) return 4;
-
-  // 1. serviceTrackingStage is the ONLY reliable field that separates:
-  //    Step 4 (quality_check) from Step 5 (ready_pickup) because the backend
-  //    maps both to order.status = 'in_progress'.
-  const ts = trackerKey(booking?.serviceTrackingStage);
-  if (ts && STAGE_TO_STEP[ts] !== undefined) return STAGE_TO_STEP[ts];
-
-  // 2. customerStatus — fine-grained live status during active service
-  //    (web: LIVE_STATUS_CUSTOMER_STATES)
-  const cs = trackerKey(booking?.customerStatus);
-  if (['washing', 'detailing', 'finishing', 'in_progress'].includes(cs)) return 2;
-  if (cs === 'ready') return 4; // "ready" customerStatus = Ready for Pickup (Step 5)
-
-  // 3. order.status — last resort; cannot distinguish quality_check from ready_pickup
-  return STATUS_TO_STEP[s] ?? 0;
+  return resolveCustomerTrackerStage(booking).stageIndex;
 }
 
 function isPostPaymentCompleteDisplay(booking: BookingRecord | null | undefined): boolean {
@@ -1582,13 +1541,12 @@ export default function TrackScreen() {
     stepIdx <= 0 &&
     !readyForPickupComplete &&
     !postPayComplete;
+  // Percentage comes from the same canonical stage as the highlighted step, never from a
+  // separate calculation, so Quality Check always reads 75% here and on web.
   const pct = useMemo(() => {
     if (!booking) return 0;
     if (postPayComplete || readyForPickupComplete) return 100;
-    return getTrackerPipelineProgressPct({
-      serviceTrackingStage: booking.serviceTrackingStage,
-      status: booking.status,
-    });
+    return resolveCustomerTrackerStage(booking).progress;
   }, [booking, postPayComplete, readyForPickupComplete]);
   const hasActive =
     !!booking &&

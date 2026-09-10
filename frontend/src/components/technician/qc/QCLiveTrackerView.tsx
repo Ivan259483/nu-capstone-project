@@ -57,7 +57,7 @@ import { pauseQcJobsRefetchForUpload } from '@/hooks/useQCData';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSafeUserRole, STAFF_QC_ROLE } from '@/lib/roles';
 import {
-  getCompletedGateIndexFromServiceStage,
+  getActiveGateIndexFromServiceStage,
   getTrackerPipelineProgressPct,
 } from '@/lib/tracker-pipeline-progress';
 import { filterQCJobsBySearch } from '@/lib/qc-job-search';
@@ -529,13 +529,21 @@ function getTrackerState(job: QCJob) {
   const normalizedStage = rawStage === 'released' || rawStage === 'completed' ? 'ready_pickup' : rawStage;
   const statusComplete = rawStatus === 'completed' || rawStatus === 'released';
   const stageComplete = rawStage === 'ready_pickup' || rawStage === 'completed' || rawStage === 'released';
-  const completedIndex = Math.max(
-    getCompletedGateIndexFromServiceStage(normalizedStage ?? undefined),
-    statusComplete ? TRACKER_GATES.length - 1 : -1
-  );
-  const isComplete = stageComplete || statusComplete || completedIndex >= TRACKER_GATES.length - 1;
+  const isComplete = stageComplete || statusComplete;
   const isReleased = ['completed', 'released'].includes(String(rawStage || '')) || ['completed', 'released'].includes(rawStatus);
-  const activeIndex = isComplete ? TRACKER_GATES.length - 1 : Math.min(Math.max(completedIndex + 1, 0), TRACKER_GATES.length - 1);
+  // `serviceTrackingStage` names the gate that is OPEN, not one already finished: the backend
+  // only accepts an advance into stage X once gate X-1's photos are complete
+  // (`gatePhotoStageToValidateForAdvance`). Reading it as a completed gate ran this workspace
+  // one gate ahead of the persisted stage — a job stored as `in_progress` rendered here as
+  // "Quality Check" while every customer surface (correctly) rendered Service In Progress.
+  // That off-by-one is the QC <-> customer live tracker desync.
+  const activeIndex = isComplete
+    ? TRACKER_GATES.length - 1
+    : Math.min(
+        Math.max(getActiveGateIndexFromServiceStage(normalizedStage ?? undefined), 0),
+        TRACKER_GATES.length - 1
+      );
+  const completedIndex = isComplete ? TRACKER_GATES.length - 1 : activeIndex - 1;
   const progressPct = getTrackerPipelineProgressPct({
     serviceTrackingStage: (job as any).serviceTrackingStage,
     status: (job as any).orderStatus,

@@ -47,6 +47,12 @@ import {
   syncOrderFinancialSnapshot,
 } from '../services/financialLedger.service.js';
 import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
+import {
+  buildCustomerStagePayload,
+  customerStageRank,
+  isForwardCustomerStageTransition,
+  normalizeBookingStage,
+} from '../utils/customerTrackerStage.utils.js';
 
 const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'paid', 'completed', 'released'];
 const QC_APPROVED_ORDER_STATUSES = ['completed', 'released'];
@@ -1118,6 +1124,23 @@ export const updateServiceStatus = async (req, res, next) => {
 
     const previousStatus = order.status;
     const previousTrackingStage = order.serviceTrackingStage || order.status;
+
+    // Stage progression is monotonic for an active service lifecycle. A retried request or a
+    // stale client that still believes the job is in Service In Progress must never pull a
+    // vehicle back out of Quality Check; a genuine rollback has to be explicit.
+    const allowRollback = req.body?.allowRollback === true;
+    if (!allowRollback && !isForwardCustomerStageTransition(order, stage)) {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot move this job back from ${normalizeBookingStage(order)} to ${stage}.`,
+        error: 'stage_regression_blocked',
+        currentStage: order.serviceTrackingStage || null,
+        currentStageRank: customerStageRank(normalizeBookingStage(order)),
+        requestedStage: stage,
+        requestedStageRank: customerStageRank(stage),
+      });
+    }
+
     const gateMediaStages = new Set(TRACKER_GATE_STAGES);
     const actorRole = normalizeToCanonical(req.user?.role);
     if (gateMediaStages.has(stage)) {
@@ -1202,6 +1225,7 @@ export const updateServiceStatus = async (req, res, next) => {
         orderId: order._id,
         status: order.status,
         serviceTrackingStage: stage,
+        ...buildCustomerStagePayload(order),
         serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || new Date(),
         paymentStatus: order.paymentStatus || null,
         posQueueStatus: order.posQueueStatus || null,
@@ -1221,6 +1245,9 @@ export const updateServiceStatus = async (req, res, next) => {
           bookingId: order._id.toString(),
           status: order.status,
           serviceTrackingStage: stage,
+          // Canonical customer stage (label / step / progress) so the web and mobile trackers
+          // patch this exact booking without re-deriving Quality Check from `status`.
+          ...buildCustomerStagePayload(order),
           serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || new Date(),
           paymentStatus: order.paymentStatus || null,
           posQueueStatus: order.posQueueStatus || null,
@@ -1254,7 +1281,12 @@ export const updateServiceStatus = async (req, res, next) => {
     res.json({
       success: true,
       message: `Service stage updated to: ${stage}`,
-      data: { id: order._id, status: order.status, serviceTrackingStage: stage },
+      data: {
+        id: order._id,
+        status: order.status,
+        serviceTrackingStage: stage,
+        ...buildCustomerStagePayload(order),
+      },
     });
   } catch (error) {
     next(error);

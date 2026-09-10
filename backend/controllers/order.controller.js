@@ -103,6 +103,7 @@ import {
 } from '../middleware/systemLifecycle.middleware.js';
 import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
 
+import { buildCustomerStagePayload } from '../utils/customerTrackerStage.utils.js';
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
   { name: 'Surface Decontamination', status: 'pending' },
@@ -300,6 +301,7 @@ const emitCustomerStatusUpdate = (order) => {
       rejectionReason: order.rejectionReason || null,
       // Live tracking fields (QC-controlled)
       serviceTrackingStage: order.serviceTrackingStage || null,
+      ...buildCustomerStagePayload(order),
       serviceStaffAssignments: order.serviceStaffAssignments || [],
       trackerStageMedia: getCustomerVisibleTrackerStageMedia(order),
       updatedAt: order.customerStatusUpdatedAt || new Date().toISOString(),
@@ -617,6 +619,8 @@ const formatBookingDto = (orderDoc) => {
     serviceTrackingStage: order.serviceTrackingStage || null,
     serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || null,
     serviceTrackingUpdatedBy: order.serviceTrackingUpdatedBy || null,
+    // Canonical customer stage: label, step X of 5 and progress % resolved server-side.
+    ...buildCustomerStagePayload(order),
     serviceStaffAssignments: order.serviceStaffAssignments || [],
     trackerStageMedia: Array.isArray(order.trackerStageMedia) ? order.trackerStageMedia : [],
     // Also decrypt legal compliance fields if present
@@ -729,6 +733,7 @@ const formatBookingListDto = (orderDoc) => {
     serviceTrackingStage: order.serviceTrackingStage || null,
     serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || null,
     serviceTrackingUpdatedBy: order.serviceTrackingUpdatedBy || null,
+    ...buildCustomerStagePayload(order),
     serviceStaffAssignments: order.serviceStaffAssignments || [],
     latestPayment: order.latestPayment || null,
     reservationPayment: order.reservationPayment || null,
@@ -1483,6 +1488,7 @@ export const getOrderTrackerMedia = async (req, res, next) => {
         status: order.status,
         paymentStatus: order.paymentStatus || null,
         serviceTrackingStage: order.serviceTrackingStage || null,
+        ...buildCustomerStagePayload(order),
         serviceStaffAssignments: order.serviceStaffAssignments || [],
         trackerStageMedia,
         updatedAt: order.updatedAt || null,
