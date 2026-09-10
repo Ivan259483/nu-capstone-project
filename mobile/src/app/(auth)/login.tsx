@@ -14,10 +14,19 @@ import {
   ViewStyle,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  interpolateColor,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { useAuth } from '@/context/AuthContext';
 import { Validation } from '@/utils/validation';
 import PremiumButton from '@/components/ui/PremiumButton';
@@ -52,6 +61,7 @@ function getKeyboardOpenContentTop(viewportHeight: number, contentHeight: number
 export default function LoginScreen() {
   const { signIn } = useAuth();
   const insets = useSafeAreaInsets();
+  const reduceMotion = useReducedMotion();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -83,6 +93,42 @@ export default function LoginScreen() {
   const compactMode = keyboardVisible;
   const emailFocused = focusedField === 'email';
   const passwordFocused = focusedField === 'password';
+  const emailFocusProgress = useSharedValue(0);
+  const passwordFocusProgress = useSharedValue(0);
+
+  useEffect(() => {
+    emailFocusProgress.value = withTiming(emailFocused ? 1 : 0, { duration: reduceMotion ? 0 : 190 });
+  }, [emailFocusProgress, emailFocused, reduceMotion]);
+
+  useEffect(() => {
+    passwordFocusProgress.value = withTiming(passwordFocused ? 1 : 0, { duration: reduceMotion ? 0 : 190 });
+  }, [passwordFocusProgress, passwordFocused, reduceMotion]);
+
+  const emailFocusStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(
+      emailFocusProgress.value,
+      [0, 1],
+      ['rgba(255,255,255,0.18)', 'rgba(255,122,0,0.76)'],
+    ),
+    backgroundColor: interpolateColor(
+      emailFocusProgress.value,
+      [0, 1],
+      ['rgba(24,24,24,0.88)', 'rgba(32,24,19,0.92)'],
+    ),
+  }));
+
+  const passwordFocusStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(
+      passwordFocusProgress.value,
+      [0, 1],
+      ['rgba(255,255,255,0.18)', 'rgba(255,122,0,0.76)'],
+    ),
+    backgroundColor: interpolateColor(
+      passwordFocusProgress.value,
+      [0, 1],
+      ['rgba(24,24,24,0.88)', 'rgba(32,24,19,0.92)'],
+    ),
+  }));
 
   const handleFieldFocus = useCallback((field: Exclude<FocusedField, null>) => {
     setFocusedField(field);
@@ -346,6 +392,24 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <Image
+        source={require('../../../assets/images/login-cinematic-bg.png')}
+        style={styles.backgroundArtwork}
+        contentFit="cover"
+        contentPosition="top center"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      />
+      <LinearGradient
+        colors={[
+          'rgba(5,5,5,0.28)',
+          'rgba(5,5,5,0.44)',
+          'rgba(5,5,5,0.82)',
+          '#050505',
+        ]}
+        locations={[0, 0.28, 0.49, 0.72]}
+        style={styles.backgroundScrim}
+      />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardAvoidingView}
@@ -373,182 +437,204 @@ export default function LoginScreen() {
               ? { paddingTop: compactContentTop }
               : null,
           ]}>
-          {/* Card */}
-          <Animated.View
-            entering={FadeIn.duration(400)}
-            style={styles.card}
-            onLayout={handleCompactContentLayout}
-          >
-
-            {/* Logo + Header */}
-            <Animated.View
-              entering={FadeInDown.delay(80).duration(350)}
-              style={[
+            <View style={styles.contentColumn} onLayout={handleCompactContentLayout}>
+              <View style={[
                 styles.headerBlock,
                 compactMode && styles.headerBlockCompact,
-              ]}
-            >
-              <Image
-                source={require('../../../assets/images/autospf-logo.png')}
-                style={[
-                  styles.logo,
-                  compactMode && styles.logoCompact,
-                ]}
-                contentFit="contain"
-                accessibilityLabel="AutoSPF+ Logo"
-              />
-              <Text style={[
-                styles.brandLabel,
-                compactMode && styles.brandLabelCompact,
               ]}>
-                Premium Automotive Care Platform
-              </Text>
-              <Text style={[styles.heading, compactMode && styles.headingCompact]}>Welcome back</Text>
-              <Text style={[styles.subheading, compactMode && styles.subheadingCompact]}>
-                Sign in to continue to your account
-              </Text>
-            </Animated.View>
-
-            {/* Persistent security status / single feedback slot */}
-            {!compactMode && displayedFeedback ? (
-              <AuthFeedback
-                {...displayedFeedback}
-                style={styles.feedbackCard}
-                testID="login-auth-feedback"
-              />
-            ) : null}
-
-            {/* Form */}
-            <Animated.View entering={FadeInDown.delay(160).duration(350)}>
-
-              {/* Email — label text only as placeholder inside field */}
-              <View style={[
-                styles.inputWrap,
-                styles.inputWrapFirst,
-                compactMode && styles.inputWrapCompact,
-                emailFocused && !emailError ? styles.inputWrapFocused : null,
-                emailError ? styles.inputWrapError : null,
-              ]}>
-                <TextInput
-                  ref={emailInputRef}
-                  style={styles.input}
-                  placeholder="Email address"
-                  placeholderTextColor="rgba(255,255,255,0.28)"
-                  value={email}
-                  onChangeText={t => {
-                    setEmail(t);
-                    setEmailError('');
-                    setPasswordError('');
-                    clearAttemptState();
-                  }}
-                  onFocus={() => handleFieldFocus('email')}
-                  onBlur={() => handleFieldBlur('email')}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  autoCorrect={false}
-                  returnKeyType="next"
-                  submitBehavior="submit"
-                  onSubmitEditing={() => passwordInputRef.current?.focus()}
-                  autoComplete="email"
-                  textContentType="emailAddress"
-                  accessibilityLabel="Email address"
-                />
-              </View>
-              {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
-
-              {/* Password */}
-              <View style={[
-                styles.inputWrap,
-                styles.inputWrapSpaced,
-                compactMode && styles.inputWrapSpacedCompact,
-                compactMode && styles.inputWrapCompact,
-                passwordFocused && !passwordError && !credentialsRejected ? styles.inputWrapFocused : null,
-                passwordError || credentialsRejected ? styles.inputWrapError : null,
-              ]}>
-                <TextInput
-                  ref={passwordInputRef}
-                  style={[styles.input, { flex: 1 }]}
-                  placeholder="Password"
-                  placeholderTextColor="rgba(255,255,255,0.28)"
-                  value={password}
-                  onChangeText={t => {
-                    setPassword(t);
-                    setPasswordError('');
-                    setCredentialsRejected(false);
-                    setFeedback(null);
-                  }}
-                  onFocus={() => handleFieldFocus('password')}
-                  onBlur={() => handleFieldBlur('password')}
-                  secureTextEntry={!showPassword}
-                  returnKeyType="done"
-                  submitBehavior="blurAndSubmit"
-                  onSubmitEditing={Keyboard.dismiss}
-                  autoComplete="current-password"
-                  textContentType="password"
-                  accessibilityLabel="Password"
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                  style={styles.eyeBtn}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                <Animated.View
+                  entering={reduceMotion ? undefined : FadeInDown.duration(360)}
+                  style={styles.brandBlock}
                 >
-                  <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={18} color="rgba(255,255,255,0.40)" />
-                </TouchableOpacity>
-              </View>
-              <View style={[
-                styles.forgotOnlyRow,
-                compactMode && styles.forgotOnlyRowCompact,
-              ]}>
-                <TouchableOpacity onPress={() => router.push('/(auth)/forgot-password')}>
-                  <Text style={styles.forgotLink}>Forgot password?</Text>
-                </TouchableOpacity>
-              </View>
-              {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
-
-              {/* Keep signed in */}
-              <TouchableOpacity
-                style={[styles.checkRow, compactMode && styles.checkRowCompact]}
-                onPress={() => { Haptics.selection(); setKeepSignedIn(!keepSignedIn); }}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.checkbox, keepSignedIn && styles.checkboxOn]}>
-                  {keepSignedIn && <Ionicons name="checkmark" size={12} color="#FFF" />}
-                </View>
-                <Text style={styles.checkLabel}>Keep me signed in</Text>
-              </TouchableOpacity>
-
-              {/* Sign In */}
-              <PremiumButton
-                title={isSigningIn ? 'Signing in…' : isLocked ? `Locked — ${lockCountdown}` : 'Sign in'}
-                icon={isSigningIn || isLocked ? undefined : 'arrow-forward'}
-                onPress={handleLogin}
-                disabled={isLocked}
-                loading={isSigningIn}
-                success={buttonState === 'success'}
-                successTitle="Verified"
-                premiumAuth
-                style={styles.signInBtn}
-              />
-              {!compactMode ? (
-                <Animated.View entering={FadeIn.duration(180)} style={styles.trustRow}>
-                  <Ionicons name="lock-closed" size={13} color="rgba(255,255,255,0.42)" />
-                  <Text style={styles.trustText}>Secure authentication powered by AutoSPF+</Text>
+                  <Image
+                    source={require('../../../assets/images/autospf-logo.png')}
+                    style={[
+                      styles.logo,
+                      compactMode && styles.logoCompact,
+                    ]}
+                    contentFit="contain"
+                    accessibilityLabel="AutoSPF+ Logo"
+                  />
+                  <Text style={[
+                    styles.brandLabel,
+                    compactMode && styles.brandLabelCompact,
+                  ]}>
+                    Premium Automotive Care Platform
+                  </Text>
                 </Animated.View>
+                <Animated.View entering={reduceMotion ? undefined : FadeIn.delay(110).duration(330)}>
+                  <Text style={[styles.heading, compactMode && styles.headingCompact]}>Welcome back</Text>
+                  <Text style={[styles.subheading, compactMode && styles.subheadingCompact]}>
+                    Sign in to continue to your account
+                  </Text>
+                </Animated.View>
+              </View>
+
+              {!compactMode && displayedFeedback ? (
+                <AuthFeedback
+                  {...displayedFeedback}
+                  style={styles.feedbackCard}
+                  testID="login-auth-feedback"
+                />
               ) : null}
 
-            </Animated.View>
+              <Animated.View entering={reduceMotion ? undefined : FadeInDown.delay(170).duration(360)}>
 
-            {/* Footer */}
-            {!compactMode ? (
-              <Animated.View entering={FadeInDown.duration(250)} style={styles.footer}>
-                <Text style={styles.footerText}>New to AutoSPF+? </Text>
-                <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
-                  <Text style={styles.footerLink}>Create an account</Text>
-                </TouchableOpacity>
+                <Animated.View style={[
+                  styles.inputWrap,
+                  styles.inputWrapFirst,
+                  compactMode && styles.inputWrapCompact,
+                  emailFocusStyle,
+                  emailFocused && !emailError ? styles.inputWrapFocused : null,
+                  emailError ? styles.inputWrapError : null,
+                ]}>
+                  <Ionicons
+                    name="mail-outline"
+                    size={compactMode ? 17 : 19}
+                    color={emailFocused ? '#FF8A2A' : 'rgba(255,255,255,0.50)'}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    ref={emailInputRef}
+                    style={styles.input}
+                    placeholder="Email address"
+                    placeholderTextColor="rgba(255,255,255,0.42)"
+                    value={email}
+                    onChangeText={t => {
+                      setEmail(t);
+                      setEmailError('');
+                      setPasswordError('');
+                      clearAttemptState();
+                    }}
+                    onFocus={() => handleFieldFocus('email')}
+                    onBlur={() => handleFieldBlur('email')}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    autoCorrect={false}
+                    returnKeyType="next"
+                    submitBehavior="submit"
+                    onSubmitEditing={() => passwordInputRef.current?.focus()}
+                    autoComplete="email"
+                    textContentType="emailAddress"
+                    accessibilityLabel="Email address"
+                  />
+                </Animated.View>
+                {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
+
+                <Animated.View style={[
+                  styles.inputWrap,
+                  styles.inputWrapSpaced,
+                  compactMode && styles.inputWrapSpacedCompact,
+                  compactMode && styles.inputWrapCompact,
+                  passwordFocusStyle,
+                  passwordFocused && !passwordError && !credentialsRejected ? styles.inputWrapFocused : null,
+                  passwordError || credentialsRejected ? styles.inputWrapError : null,
+                ]}>
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={compactMode ? 17 : 19}
+                    color={passwordFocused ? '#FF8A2A' : 'rgba(255,255,255,0.50)'}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    ref={passwordInputRef}
+                    style={styles.input}
+                    placeholder="Password"
+                    placeholderTextColor="rgba(255,255,255,0.42)"
+                    value={password}
+                    onChangeText={t => {
+                      setPassword(t);
+                      setPasswordError('');
+                      setCredentialsRejected(false);
+                      setFeedback(null);
+                    }}
+                    onFocus={() => handleFieldFocus('password')}
+                    onBlur={() => handleFieldBlur('password')}
+                    secureTextEntry={!showPassword}
+                    returnKeyType="done"
+                    submitBehavior="blurAndSubmit"
+                    onSubmitEditing={Keyboard.dismiss}
+                    autoComplete="current-password"
+                    textContentType="password"
+                    accessibilityLabel="Password"
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                      size={19}
+                      color={passwordFocused ? 'rgba(255,255,255,0.74)' : 'rgba(255,255,255,0.48)'}
+                    />
+                  </TouchableOpacity>
+                </Animated.View>
+                {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
+                <View style={[
+                  styles.authOptionsRow,
+                  compactMode && styles.authOptionsRowCompact,
+                ]}>
+                  <TouchableOpacity
+                    style={styles.checkRow}
+                    onPress={() => { Haptics.selection(); setKeepSignedIn(!keepSignedIn); }}
+                    activeOpacity={0.82}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: keepSignedIn }}
+                    accessibilityLabel="Remember me"
+                  >
+                    <View style={[styles.checkbox, keepSignedIn && styles.checkboxOn]}>
+                      {keepSignedIn && <Ionicons name="checkmark" size={17} color="#FFF" />}
+                    </View>
+                    <Text style={styles.checkLabel}>Remember me</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => router.push('/(auth)/forgot-password')}
+                    style={styles.forgotHitbox}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.forgotLink}>Forgot password?</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <PremiumButton
+                  title={isSigningIn ? 'Signing in…' : isLocked ? `Locked — ${lockCountdown}` : 'Sign in'}
+                  icon={isSigningIn || isLocked ? undefined : 'arrow-forward'}
+                  onPress={handleLogin}
+                  disabled={isLocked}
+                  loading={isSigningIn}
+                  success={buttonState === 'success'}
+                  successTitle="Verified"
+                  premiumAuth
+                  style={styles.signInBtn}
+                />
+                {!compactMode ? (
+                  <Animated.View entering={reduceMotion ? undefined : FadeIn.delay(260).duration(240)} style={styles.trustRow}>
+                    <Ionicons name="lock-closed" size={14} color="rgba(255,255,255,0.43)" />
+                    <Text style={styles.trustText}>Secure authentication powered by AutoSPF+</Text>
+                  </Animated.View>
+                ) : null}
               </Animated.View>
-            ) : null}
 
-          </Animated.View>
+              {!compactMode ? (
+                <Animated.View entering={reduceMotion ? undefined : FadeIn.delay(300).duration(260)} style={styles.footer}>
+                  <View style={styles.footerDivider} />
+                  <View style={styles.footerCopy}>
+                    <Text style={styles.footerText}>New to AutoSPF+?</Text>
+                    <TouchableOpacity
+                      onPress={() => router.push('/(auth)/signup')}
+                      style={styles.footerLinkHitbox}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.footerLink}>Create an account</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.footerDivider} />
+                </Animated.View>
+              ) : null}
+            </View>
           </View>
           </ScrollView>
         </View>
@@ -560,7 +646,22 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: '#050505',
+  },
+  backgroundArtwork: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  backgroundScrim: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    pointerEvents: 'none',
   },
   keyboardAvoidingView: {
     flex: 1,
@@ -570,7 +671,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 28,
+    paddingHorizontal: 24,
   },
   scrollContentCompact: {
     paddingBottom: 12,
@@ -579,7 +680,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     width: '100%',
-    paddingVertical: 24,
+    paddingVertical: 26,
   },
   centeredContentCompact: {
     // The measured session padding overrides this fallback once the keyboard
@@ -588,58 +689,68 @@ const styles = StyleSheet.create({
     paddingTop: MIN_COMPACT_TOP_SPACING,
     paddingBottom: 0,
   },
-  card: {
+  contentColumn: {
     width: '100%',
+    maxWidth: 430,
+    alignSelf: 'center',
   },
 
   // Header
   headerBlock: {
-    marginBottom: 28,
+    marginBottom: 24,
   },
   headerBlockCompact: {
     marginBottom: 6,
   },
+  brandBlock: {
+    alignItems: 'center',
+  },
   logo: {
-    width: 140,
+    width: 166,
     aspectRatio: 604 / 413,
     alignSelf: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   logoCompact: {
-    width: 72,
-    marginBottom: 1,
+    width: 84,
+    marginBottom: 0,
   },
   brandLabel: {
-    color: 'rgba(255,255,255,0.44)',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.4,
-    lineHeight: 14,
-    marginBottom: 18,
+    color: 'rgba(255,255,255,0.50)',
+    fontSize: 10.5,
+    fontWeight: '600',
+    letterSpacing: 2.25,
+    lineHeight: 15,
+    marginBottom: 22,
     textAlign: 'center',
     textTransform: 'uppercase',
   },
   brandLabelCompact: {
-    marginBottom: 3,
+    fontSize: 8,
+    lineHeight: 11,
+    letterSpacing: 1.25,
+    marginBottom: 4,
   },
   heading: {
-    fontSize: 32,
+    fontSize: 42,
+    lineHeight: 48,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#FAFAFA',
     textAlign: 'center',
-    letterSpacing: 0,
-    marginBottom: 6,
+    letterSpacing: -1.25,
+    marginBottom: 7,
   },
   headingCompact: {
-    fontSize: 26,
-    lineHeight: 30,
+    fontSize: 27,
+    lineHeight: 31,
+    letterSpacing: -0.55,
     marginBottom: 1,
   },
   subheading: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.50)',
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.52)',
     fontWeight: '400',
-    lineHeight: 20,
+    lineHeight: 22,
     textAlign: 'center',
   },
   subheadingCompact: {
@@ -654,101 +765,119 @@ const styles = StyleSheet.create({
 
   // Form
   inputWrapFirst: {
-    marginTop: 4,
+    marginTop: 0,
   },
   inputWrapSpaced: {
-    marginTop: 18,
+    marginTop: 14,
   },
   inputWrapSpacedCompact: {
     marginTop: 6,
   },
-  forgotOnlyRow: {
+  authOptionsRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 4,
+    minHeight: 44,
+    marginTop: 5,
+    marginBottom: 18,
   },
-  forgotOnlyRowCompact: {
-    marginTop: 4,
-    marginBottom: 1,
+  authOptionsRowCompact: {
+    marginTop: 2,
+    marginBottom: 8,
   },
   forgotLink: {
-    fontSize: 13,
-    color: '#F97316',
-    fontWeight: '500',
+    fontSize: 14,
+    lineHeight: 19,
+    color: '#FF790F',
+    fontWeight: '600',
+  },
+  forgotHitbox: {
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingLeft: 12,
   },
   inputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2a2a2a',
-    borderRadius: 12,
+    borderColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 14,
     paddingHorizontal: 14,
     height: 50,
-    backgroundColor: '#111111',
+    backgroundColor: 'rgba(24,24,24,0.88)',
   },
   inputWrapCompact: {
-    height: 46,
+    height: 44,
+    borderRadius: 13,
+    paddingHorizontal: 13,
   },
   inputWrapFocused: {
-    borderColor: '#FF7A1A',
-    backgroundColor: 'rgba(255,122,26,0.06)',
-    boxShadow: '0 0 0 1px rgba(255,122,26,0.85), 0 0 24px rgba(255,122,26,0.20)',
+    boxShadow: '0 0 14px rgba(255,107,0,0.12)',
   } as ViewStyle,
   inputWrapError: {
-    borderColor: 'rgba(239,68,68,0.70)',
-    backgroundColor: 'rgba(239,68,68,0.06)',
+    borderColor: 'rgba(239,112,99,0.78)',
+    backgroundColor: 'rgba(35,22,21,0.92)',
+  },
+  inputIcon: {
+    width: 22,
+    marginRight: 8,
   },
   input: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14.5,
     color: '#FFFFFF',
     fontWeight: '400',
+    paddingVertical: 0,
   },
   eyeBtn: {
     minWidth: 44,
     minHeight: 44,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: -8,
+    marginRight: -9,
   },
   errorText: {
-    fontSize: 12,
-    color: '#EF4444',
-    marginTop: 4,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: '#F08A7A',
+    marginTop: 5,
+    marginLeft: 4,
     fontWeight: '500',
   },
   // Checkbox
   checkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 14,
-    marginBottom: 22,
-  },
-  checkRowCompact: {
-    marginTop: 6,
-    marginBottom: 8,
+    justifyContent: 'flex-start',
+    minHeight: 44,
+    paddingRight: 12,
+    flexShrink: 1,
   },
   checkbox: {
-    width: 19,
-    height: 19,
-    borderRadius: 5,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.20)',
-    backgroundColor: 'transparent',
+    width: 25,
+    height: 25,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.26)',
+    backgroundColor: 'rgba(20,20,20,0.82)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 9,
+    flexShrink: 0,
+    marginRight: 12,
   },
   checkboxOn: {
-    backgroundColor: '#F97316',
-    borderColor: '#F97316',
+    backgroundColor: '#FF6B00',
+    borderColor: '#FF6B00',
+    boxShadow: '0 3px 8px rgba(255,107,0,0.18)',
   },
   checkLabel: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.70)',
+    fontSize: 15,
+    lineHeight: 20,
+    color: 'rgba(255,255,255,0.79)',
     fontWeight: '500',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   // Sign In Button — premium orange
   signInBtn: {
@@ -758,13 +887,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    marginTop: 12,
+    gap: 7,
+    marginTop: 15,
   },
   trustText: {
-    color: 'rgba(255,255,255,0.42)',
-    fontSize: 11,
+    color: 'rgba(255,255,255,0.44)',
+    fontSize: 11.5,
     fontWeight: '500',
+    letterSpacing: 0.05,
   },
 
   // Footer
@@ -772,8 +902,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 25,
+    minHeight: 44,
   },
-  footerText: { fontSize: 13, color: 'rgba(255,255,255,0.40)' },
-  footerLink: { fontSize: 13, color: '#F97316', fontWeight: '700' },
+  footerDivider: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    maxWidth: 54,
+    backgroundColor: 'rgba(255,255,255,0.36)',
+  },
+  footerCopy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 12,
+  },
+  footerText: {
+    fontSize: 13.5,
+    color: 'rgba(255,255,255,0.47)',
+  },
+  footerLinkHitbox: {
+    minHeight: 44,
+    justifyContent: 'center',
+    marginVertical: -12,
+    paddingLeft: 6,
+  },
+  footerLink: {
+    fontSize: 13.5,
+    color: '#FF790F',
+    fontWeight: '700',
+  },
 });

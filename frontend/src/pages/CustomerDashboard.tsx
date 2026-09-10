@@ -35,6 +35,12 @@ import {
   resolveTrackerStageDescription,
 } from '../lib/customer-tracker-stage-media';
 import { getTrackerPipelineProgressPct } from '../lib/tracker-pipeline-progress';
+import {
+  bookingShowsCustomerLiveTracker,
+  isForwardTrackerStageTransition,
+  normTrackerStr,
+  pickCustomerLiveTrackerBooking,
+} from '../lib/customer-live-tracker-pick';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '../lib/cloudinary-delivery-url';
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
 import { CustomerDashboardOverviewStrip } from '../components/customer/CustomerDashboardOverviewStrip';
@@ -289,49 +295,6 @@ const formatPlateDisplay = (value: unknown, fallback = '—') => {
   return formatted || fallback;
 };
 
-/** Bookings that may appear on the customer live tracker (dashboard + tracker tab). */
-const CUSTOMER_TRACKER_STATUS_SET = new Set([
-  'approved',
-  'confirmed',
-  'assigned',
-  'received',
-  'in_progress',
-  'in-progress',
-  'ready_for_payment',
-  'completed',
-]);
-
-const CUSTOMER_TRACKER_FINAL_STATUS_SET = new Set(['paid', 'released', 'cancelled', 'failed', 'rejected']);
-
-/** Prefer fine-grained QC stage when ranking which booking to show. */
-const CUSTOMER_TRACKER_STAGE_RANK: Record<string, number> = {
-  confirmed: 0,
-  received: 1,
-  in_progress: 2,
-  quality_check: 3,
-  ready_pickup: 4,
-  completed: 5,
-  released: 6,
-};
-
-const CUSTOMER_TRACKER_STATUS_FALLBACK_RANK: Record<string, number> = {
-  approved: 0,
-  confirmed: 0,
-  assigned: 0,
-  received: 1,
-  in_progress: 2,
-  'in-progress': 2,
-  ready_for_payment: 4,
-  completed: 5,
-  paid: 5,
-  released: 6,
-  done: 6,
-};
-
-function normTrackerStr(s: unknown) {
-  return String(s ?? '').trim().toLowerCase().replace(/-/g, '_');
-}
-
 function normalizeTrackerDeepLinkStage(value: unknown) {
   const stage = normTrackerStr(value);
   const aliases: Record<string, string> = {
@@ -341,43 +304,6 @@ function normalizeTrackerDeepLinkStage(value: unknown) {
     ready_for_payment: 'payment_due',
   };
   return aliases[stage] || stage;
-}
-
-/** True when this booking should surface the technician/QC live tracker (excludes fully paid / receipt issued). */
-function bookingShowsCustomerLiveTracker(b: unknown): boolean {
-  const row = b as Record<string, unknown> | null | undefined;
-  if (!row) return false;
-  const status = normTrackerStr(row.status);
-  if (CUSTOMER_TRACKER_FINAL_STATUS_SET.has(status)) return false;
-  return CUSTOMER_TRACKER_STATUS_SET.has(status);
-}
-
-/**
- * Pick the booking furthest along the live pipeline. `myBookings` is sorted newest-first;
- * a plain `find()` often returned a newer `approved` row instead of the older in-shop job
- * that QC advanced to `quality_check` / `ready_pickup`.
- */
-function pickCustomerLiveTrackerBooking(bookings: unknown[] | null | undefined): any | undefined {
-  if (!bookings?.length) return undefined;
-  const candidates = (bookings as any[]).filter(bookingShowsCustomerLiveTracker);
-  if (!candidates.length) return undefined;
-  const rankOf = (b: any) => {
-    const ts = normTrackerStr(b?.serviceTrackingStage);
-    if (ts && CUSTOMER_TRACKER_STAGE_RANK[ts] !== undefined) {
-      return CUSTOMER_TRACKER_STAGE_RANK[ts] + 0.001;
-    }
-    return CUSTOMER_TRACKER_STATUS_FALLBACK_RANK[normTrackerStr(b?.status)] ?? 0;
-  };
-  const sorted = [...candidates].sort((a, b) => {
-    const d = rankOf(b) - rankOf(a);
-    if (d !== 0) return d;
-    const tb = new Date(b?.serviceTrackingUpdatedAt || b?.updatedAt || b?.createdAt || 0).getTime();
-    const ta = new Date(a?.serviceTrackingUpdatedAt || a?.updatedAt || a?.createdAt || 0).getTime();
-    return tb - ta;
-  });
-  const best = sorted[0];
-
-  return best;
 }
 
 function parseClockTimeToMinutes(value: unknown): number | null {
@@ -893,10 +819,13 @@ export default function CustomerDashboard() {
         const id = String(b.id ?? b._id ?? '');
         const bid = String(bookingId ?? '');
         if (id !== bid) return b;
+        // Realtime events can arrive out of order (reconnects, retries). Never let a stale
+        // `arrived` event downgrade a tracker that already reached `service_in_progress` or later.
+        const allowStagePatch = isForwardTrackerStageTransition(b, { serviceTrackingStage, status });
         return {
           ...b,
-          ...(serviceTrackingStage !== undefined ? { serviceTrackingStage } : {}),
-          ...(status !== undefined ? { status } : {}),
+          ...(allowStagePatch && serviceTrackingStage !== undefined ? { serviceTrackingStage } : {}),
+          ...(allowStagePatch && status !== undefined ? { status } : {}),
           ...(paymentStatus !== undefined ? { paymentStatus } : {}),
           ...(invoiceId !== undefined ? { invoiceId } : {}),
           ...(serviceStaffAssignments?.length ? { serviceStaffAssignments } : {}),

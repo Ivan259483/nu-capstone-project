@@ -11,6 +11,7 @@
         "bootstrap:administrator": "node scripts/bootstrap-administrator.js",
         "initialize:system-management": "node scripts/initialize-system-management.js",
         "migrate:protected-administrator": "node scripts/migrate-protected-administrator.js",
+        "reconcile:stale-administrator-binding": "node scripts/reconcile-stale-administrator-binding.js",
         "migrate:vehicle-pricing-categories": "node scripts/migrate-vehicle-pricing-categories.js",
         "migrate:vehicle-colors": "node scripts/migrate-vehicle-colors.js",
         "migrate:booking-payment-indexes": "node scripts/migrate-booking-payment-indexes.js",

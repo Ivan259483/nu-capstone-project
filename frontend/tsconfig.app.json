@@ -1,6 +1,5 @@
 {
     "compilerOptions": {
-        "ignoreDeprecations": "6.0",
         "target": "ES2020",
         "useDefineForClassFields": true,
         "lib": [
@@ -21,7 +20,6 @@
         "noUnusedParameters": false,
         "noImplicitAny": false,
         "noFallthroughCasesInSwitch": false,
-        "baseUrl": ".",
         "paths": {
             "@/*": [
                 "./src/*"

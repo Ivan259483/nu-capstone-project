@@ -3,7 +3,7 @@
  * Premium full-screen modal with animated inputs and backend sync
  */
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   ScrollView,
+  LayoutChangeEvent,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,11 +23,12 @@ import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
 import { authService } from '@/services/api/authService';
 import { getApiErrorMessage } from '@/services/api/client';
-import { Palette, BorderRadius } from '@/constants/theme';
+import { Palette } from '@/constants/theme';
 import PremiumInput from '@/components/ui/PremiumInput';
 import PremiumButton from '@/components/ui/PremiumButton';
+import PasswordRequirementsCard from '@/components/ui/PasswordRequirementsCard';
 import { Toast } from '@/components/ui/PremiumToast';
-import { Validation } from '@/utils/validation';
+import { isPasswordValid, getPasswordRequirementsMessage, passwordsMatch } from '@/utils/validation';
 
 const SURFACE = '#111114';
 const BORDER = '#2A2A30';
@@ -41,6 +43,7 @@ export default function ChangePasswordScreen() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [newFocused, setNewFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
@@ -49,42 +52,73 @@ export default function ChangePasswordScreen() {
   const [newError, setNewError] = useState('');
   const [confirmError, setConfirmError] = useState('');
 
+  // Derived, live validation state (single source of truth shared by the
+  // requirements card, the field states below, and the submit guard).
+  const newPasswordValid = isPasswordValid(newPassword);
+  // Only flag a mismatch once a typed character actually diverges from the
+  // new password, rather than on every keystroke of a still-correct prefix —
+  // catches real typos immediately without nagging mid-entry.
+  const confirmIsValidPrefix = newPassword.startsWith(confirmPassword);
+  const confirmMismatch = confirmPassword.length > 0 && !confirmIsValidPrefix;
+  const confirmMatches = confirmPassword.length > 0 && confirmPassword === newPassword;
+  const showRequirementsCard = newFocused || (newPassword.length > 0 && !newPasswordValid);
+  const confirmDisplayError = confirmError || (confirmMismatch ? "Passwords don't match." : '');
+  const canSubmit = currentPassword.length > 0 && newPasswordValid && confirmMatches && !loading;
+
+  // Scroll-into-view targets for the three fields, captured on layout so an
+  // invalid submit can bring the first offending field into view. These refs
+  // are only ever written from the onLayout event (after render) and read
+  // from the submit handler — never during render itself.
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldOffsets = useRef({ current: 0, new: 0, confirm: 0 });
+  const captureOffset = (field: keyof typeof fieldOffsets.current) => (e: LayoutChangeEvent) => {
+    // eslint-disable-next-line react-hooks/refs -- write happens inside the onLayout event, not during render
+    fieldOffsets.current[field] = e.nativeEvent.layout.y;
+  };
+  const scrollToField = (field: keyof typeof fieldOffsets.current) => {
+    scrollRef.current?.scrollTo({ y: Math.max(fieldOffsets.current[field] - 24, 0), animated: true });
+  };
+
   const validateForm = (): boolean => {
-    let hasError = false;
     setCurrentError('');
     setNewError('');
     setConfirmError('');
 
+    let firstInvalidField: keyof typeof fieldOffsets.current | null = null;
+
     if (!currentPassword) {
       setCurrentError('Current password is required');
-      hasError = true;
+      firstInvalidField = 'current';
     }
 
     if (!newPassword) {
       setNewError('New password is required');
-      hasError = true;
-    } else if (newPassword.length < 8) {
-      setNewError('Must be at least 8 characters');
-      hasError = true;
-    } else if (!Validation.isStrongPassword(newPassword)) {
-      setNewError('Must contain uppercase, lowercase, number, and special character');
-      hasError = true;
+      firstInvalidField = firstInvalidField ?? 'new';
+    } else if (!newPasswordValid) {
+      setNewError(getPasswordRequirementsMessage(newPassword));
+      firstInvalidField = firstInvalidField ?? 'new';
+    } else if (currentPassword && currentPassword === newPassword) {
+      setNewError('New password must be different from your current password');
+      firstInvalidField = firstInvalidField ?? 'new';
     }
 
     if (!confirmPassword) {
       setConfirmError('Please confirm your new password');
-      hasError = true;
-    } else if (newPassword !== confirmPassword) {
-      setConfirmError('Passwords do not match');
-      hasError = true;
+      firstInvalidField = firstInvalidField ?? 'confirm';
+    } else if (!passwordsMatch(newPassword, confirmPassword)) {
+      setConfirmError("Passwords don't match.");
+      firstInvalidField = firstInvalidField ?? 'confirm';
     }
 
-    if (currentPassword && newPassword && currentPassword === newPassword) {
-      setNewError('New password must be different from current');
-      hasError = true;
+    if (firstInvalidField) {
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      }
+      scrollToField(firstInvalidField);
+      return false;
     }
 
-    return !hasError;
+    return true;
   };
 
   const handleChangePassword = async () => {
@@ -175,6 +209,7 @@ export default function ChangePasswordScreen() {
         style={{ flex: 1 }}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -192,7 +227,7 @@ export default function ChangePasswordScreen() {
             </LinearGradient>
             <Text style={styles.descTitle}>Update Your Password</Text>
             <Text style={styles.descSub}>
-              Secure your account with a new password. It must be at least 8 characters with uppercase, lowercase, and numbers.
+              Secure your account with a new password. It must be at least 8 characters and include uppercase, lowercase, a number, and a special character.
             </Text>
           </Animated.View>
 
@@ -213,7 +248,10 @@ export default function ChangePasswordScreen() {
           ) : (
             /* Form */
             <View style={styles.formContainer}>
-              <Animated.View entering={FadeInUp.delay(200).duration(200)}>
+              <Animated.View
+                entering={FadeInUp.delay(200).duration(200)}
+                onLayout={captureOffset('current')}
+              >
                 <PremiumInput
                   label="CURRENT PASSWORD"
                   iconName="lock-closed-outline"
@@ -228,7 +266,10 @@ export default function ChangePasswordScreen() {
                 />
               </Animated.View>
 
-              <Animated.View entering={FadeInUp.delay(300).duration(200)}>
+              <Animated.View
+                entering={FadeInUp.delay(300).duration(200)}
+                onLayout={captureOffset('new')}
+              >
                 <PremiumInput
                   label="NEW PASSWORD"
                   iconName="key-outline"
@@ -238,12 +279,24 @@ export default function ChangePasswordScreen() {
                     setNewPassword(t);
                     setNewError('');
                   }}
+                  onFocus={() => setNewFocused(true)}
+                  onBlur={() => {
+                    setNewFocused(false);
+                    if (newPassword.length > 0 && !newPasswordValid) {
+                      setNewError(getPasswordRequirementsMessage(newPassword));
+                    }
+                  }}
                   isPassword
                   error={newError}
+                  containerStyle={showRequirementsCard ? { marginBottom: 8 } : undefined}
                 />
+                {showRequirementsCard ? <PasswordRequirementsCard password={newPassword} /> : null}
               </Animated.View>
 
-              <Animated.View entering={FadeInUp.delay(400).duration(200)}>
+              <Animated.View
+                entering={FadeInUp.delay(400).duration(200)}
+                onLayout={captureOffset('confirm')}
+              >
                 <PremiumInput
                   label="CONFIRM NEW PASSWORD"
                   iconName="checkmark-circle-outline"
@@ -254,8 +307,15 @@ export default function ChangePasswordScreen() {
                     setConfirmError('');
                   }}
                   isPassword
-                  error={confirmError}
+                  error={confirmDisplayError}
+                  containerStyle={confirmMatches ? { marginBottom: 4 } : undefined}
                 />
+                {confirmMatches ? (
+                  <Animated.View entering={FadeInDown.duration(160)} style={styles.matchRow}>
+                    <Ionicons name="checkmark-circle" size={14} color={Palette.success} />
+                    <Text style={styles.matchText}>Passwords match</Text>
+                  </Animated.View>
+                ) : null}
               </Animated.View>
 
               <Animated.View
@@ -266,7 +326,7 @@ export default function ChangePasswordScreen() {
                   title={loading ? 'UPDATING...' : 'UPDATE PASSWORD'}
                   icon={loading ? undefined : 'shield-checkmark-outline'}
                   onPress={handleChangePassword}
-                  disabled={loading}
+                  disabled={!canSubmit}
                   loading={loading}
                 />
               </Animated.View>
@@ -278,7 +338,7 @@ export default function ChangePasswordScreen() {
               >
                 <Ionicons name="information-circle" size={16} color="#555" />
                 <Text style={styles.tipText}>
-                  For security, you'll need to re-authenticate with your current password before changing it.
+                  For security, you’ll need to re-authenticate with your current password before changing it.
                 </Text>
               </Animated.View>
             </View>
@@ -350,6 +410,18 @@ const styles = StyleSheet.create({
   },
 
   formContainer: { width: '100%' },
+  matchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 16,
+    marginLeft: 4,
+  },
+  matchText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.success,
+  },
 
   // Tip
   tipContainer: {

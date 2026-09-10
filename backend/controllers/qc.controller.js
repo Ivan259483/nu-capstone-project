@@ -126,6 +126,7 @@ const QC_JOBS_PROJECTION = [
   'serviceStaffAssignments',
   'trackerStageMedia.stage',
   'trackerStageMedia.slot',
+  'trackerStageMedia.photoUrl',
   'trackerStageMedia.description',
   'trackerStageMedia.uploadedAt',
   'trackerStageMedia.uploadedBy',
@@ -140,19 +141,31 @@ const QC_JOBS_PROJECTION = [
   'warrantyAndReceipt.existingFwsAndShade',
 ].join(' ');
 
+/**
+ * Slim projection for the QC jobs list — keeps the list payload light by dropping
+ * inline base64 `data:` photos (pending Cloudinary backfill, can be ~100s of KB each),
+ * but always reports `hasPhoto` from the real persisted photoUrl so the jobs list never
+ * claims a photo exists ("Photo saved") without one, and never hides one that does.
+ */
 function buildSlimTrackerStageMedia(media) {
   return (Array.isArray(media) ? media : [])
     .filter(Boolean)
-    .map((entry) => ({
-      stage: entry.stage,
-      ...(entry.slot ? { slot: entry.slot } : {}),
-      ...(typeof entry.description === 'string' && entry.description.trim()
-        ? { description: entry.description.trim() }
-        : {}),
-      ...(entry.uploadedAt ? { uploadedAt: entry.uploadedAt } : {}),
-      ...(entry.uploadedBy ? { uploadedBy: entry.uploadedBy } : {}),
-      hasPhoto: entry.stage !== 'confirmed',
-    }));
+    .map((entry) => {
+      const rawUrl = String(entry.photoUrl || '').trim();
+      const isInlineDataUrl = rawUrl.startsWith('data:');
+      return {
+        stage: entry.stage,
+        ...(entry.slot ? { slot: entry.slot } : {}),
+        ...(rawUrl && !isInlineDataUrl ? { photoUrl: rawUrl } : {}),
+        ...(typeof entry.description === 'string' && entry.description.trim()
+          ? { description: entry.description.trim() }
+          : {}),
+        ...(entry.uploadedAt ? { uploadedAt: entry.uploadedAt } : {}),
+        ...(entry.uploadedBy ? { uploadedBy: entry.uploadedBy } : {}),
+        hasPhoto: Boolean(rawUrl),
+        ...(isInlineDataUrl ? { photoPending: true } : {}),
+      };
+    });
 }
 
 const getQCApprovedOutcomeConditions = () => [

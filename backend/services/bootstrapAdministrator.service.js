@@ -402,7 +402,13 @@ export async function inspectBootstrapAdministrator({
   const common = {
     mode: requestedMode,
     targetEmail: normalizedTarget,
-    sourceEmail: normalizedSource,
+    // Only carry sourceEmail into the plan (and therefore the confirmation
+    // fingerprint) when it is actually relevant to the resolved mode. An
+    // 'auto' inspection with a leftover BOOTSTRAP_ADMIN_MIGRATE_FROM_EMAIL
+    // that resolves to 'provision' must fingerprint identically to a direct
+    // { mode: 'provision' } call (which never receives sourceEmail), or the
+    // confirmation token printed by inspect can never match provisioning.
+    sourceEmail: requestedMode === 'migrate' ? normalizedSource : null,
     administrators,
     targetOwner,
     operation,

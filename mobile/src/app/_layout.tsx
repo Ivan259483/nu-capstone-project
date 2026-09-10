@@ -38,8 +38,9 @@ import SystemStatusGate from '@/components/SystemStatusGate';
 import { FullScreenLoader } from '@/components/ui/loading';
 import { Motion } from '@/constants/motion';
 
-// Prevent the native splash from auto-hiding until our custom one is ready.
-SplashScreen.preventAutoHideAsync();
+// Keep the native splash visible while AuthContext restores and validates the
+// persisted session. Failure is non-fatal: Expo can continue with auto-hide.
+void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // ── Role-Based Route Resolver ──────────────────────────────────────────
 // Lives in @/utils/routeResolver — imported above.
@@ -60,8 +61,9 @@ function InnerLayout() {
 
   useEffect(() => {
     if (!initialized) return;
-    // Hide native splash once we know auth state
-    SplashScreen.hideAsync();
+    // AuthContext always reaches `initialized`, including its recovery paths,
+    // so a failed session restore cannot leave the native splash stuck.
+    void SplashScreen.hideAsync().catch(() => {});
   }, [initialized]);
 
   useEffect(() => {

@@ -106,6 +106,7 @@ export default function PremiumInput({
           style={styles.input}
           placeholderTextColor="rgba(255,255,255,0.28)"
           secureTextEntry={isPassword && !showPassword}
+          {...props}
           onFocus={(e) => {
             setIsFocused(true);
             if (props.onFocus) props.onFocus(e);
@@ -114,7 +115,6 @@ export default function PremiumInput({
             setIsFocused(false);
             if (props.onBlur) props.onBlur(e);
           }}
-          {...props}
         />
         
         {isPassword && (

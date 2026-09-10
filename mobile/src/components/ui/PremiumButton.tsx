@@ -34,6 +34,7 @@ interface PremiumButtonProps {
   successTitle?: string;
   onSuccessAnimationComplete?: () => void;
   premiumAuth?: boolean;
+  premiumAuthLarge?: boolean;
   style?: StyleProp<ViewStyle>;
   fullWidth?: boolean;
 }
@@ -51,6 +52,7 @@ export default function PremiumButton({
   successTitle = 'Verified',
   onSuccessAnimationComplete,
   premiumAuth = false,
+  premiumAuthLarge = false,
   style,
   fullWidth = true,
 }: PremiumButtonProps) {
@@ -61,6 +63,7 @@ export default function PremiumButton({
   const reduceMotion = useReducedMotion();
   const successCompletionSent = useRef(false);
   const isDisabled = disabled || loading || success;
+  const isLargeAuthButton = premiumAuth && premiumAuthLarge;
 
   useEffect(() => {
     if (!success) {
@@ -115,7 +118,7 @@ export default function PremiumButton({
   const btnColor = isDanger ? Palette.danger : Palette.accent;
 
   const containerStyle: ViewStyle = {
-    borderRadius: BorderRadius.lg,
+    borderRadius: isLargeAuthButton ? 24 : BorderRadius.lg,
     overflow: premiumAuth ? 'visible' : 'hidden',
     opacity: isDisabled && variant !== 'primary' ? 0.5 : 1,
     width: fullWidth ? '100%' : undefined,
@@ -137,7 +140,7 @@ export default function PremiumButton({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: isLargeAuthButton ? 17 : 14,
     paddingHorizontal: 24,
     gap: 8,
     backgroundColor:
@@ -148,12 +151,12 @@ export default function PremiumButton({
         : undefined,
     borderWidth: isOutline || isDanger ? 1.5 : 0,
     borderColor: btnColor,
-    borderRadius: BorderRadius.lg,
+    borderRadius: isLargeAuthButton ? 24 : BorderRadius.lg,
   };
 
   const textStyle: TextStyle = {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: isLargeAuthButton ? 18 : 15,
+    fontWeight: isLargeAuthButton ? '800' : '700',
     color: isOutline || isDanger || isGhost
       ? btnColor
       : '#FFFFFF',
@@ -237,7 +240,7 @@ export default function PremiumButton({
             {
               borderWidth: premiumAuth ? 1 : 0,
               borderColor: premiumAuth ? premiumBorderColor : 'transparent',
-              minHeight: premiumAuth ? 52 : undefined,
+              minHeight: isLargeAuthButton ? 64 : premiumAuth ? 52 : undefined,
             },
           ]}
         >
@@ -272,7 +275,7 @@ export default function PremiumButton({
                   {icon ? (
                     <Ionicons
                       name={icon}
-                      size={18}
+                      size={isLargeAuthButton ? 22 : 18}
                       color={isDisabled ? 'rgba(255,255,255,0.28)' : '#fff'}
                     />
                   ) : null}

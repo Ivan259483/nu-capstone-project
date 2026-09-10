@@ -6,6 +6,7 @@ import { authStorage } from '@/services/storage/authStorage';
 import { API_BASE_URL } from '@/config/env';
 import { invalidateCache } from '@/services/api/client';
 import { isAdminDashboardRole, isServiceStaffRole } from '@/services/api/roles';
+import { isForwardTrackerStageTransition } from '@/utils/customer-live-tracker-pick';
 
 // ── Collection → query key matching ──────────────────────────────────
 const COLLECTION_QUERY_MAP: Record<string, string[]> = {
@@ -91,11 +92,15 @@ function mergeOrderRealtimePatch<T>(current: T, patch: Record<string, any>): T {
   if (!current || typeof current !== 'object') return current;
   if (!orderIdsMatch(current, patch)) return current;
 
+  // Realtime events can arrive out of order (retries, reconnects, slow sockets). Never let a
+  // stale `status`/`serviceTrackingStage` patch regress a tracker that already advanced further.
+  const allowStagePatch = isForwardTrackerStageTransition(current as Record<string, any>, patch);
+
   const next: Record<string, any> = { ...(current as Record<string, any>) };
   for (const field of ORDER_REALTIME_PATCH_FIELDS) {
-    if (patch[field] !== undefined) {
-      next[field] = patch[field];
-    }
+    if (patch[field] === undefined) continue;
+    if (!allowStagePatch && (field === 'status' || field === 'serviceTrackingStage')) continue;
+    next[field] = patch[field];
   }
   next.id = next.id || patch.id;
   next._id = next._id || patch._id;

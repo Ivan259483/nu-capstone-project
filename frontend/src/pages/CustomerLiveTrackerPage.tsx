@@ -32,6 +32,7 @@ import {
 } from '@/lib/customer-tracker-stage-media';
 import { getLiveTrackerStepIndex } from '@/lib/customer-live-tracker-step';
 import { getTrackerPipelineProgressPct } from '@/lib/tracker-pipeline-progress';
+import { isForwardTrackerStageTransition } from '@/lib/customer-live-tracker-pick';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '@/lib/cloudinary-delivery-url';
 import { resolveProfileImage } from '@/lib/profile-image';
 
@@ -629,9 +630,15 @@ export default function CustomerLiveTrackerPage() {
         if (!prev) return prev;
         const prevId = String(prev.id || (prev as any)._id || '').trim();
         if (prevId !== targetId) return prev;
+        // Realtime events can arrive out of order (reconnects, retries). Never let a stale
+        // `arrived` event downgrade a tracker that already reached `service_in_progress` or later.
+        const allowStagePatch = isForwardTrackerStageTransition(prev, {
+          serviceTrackingStage: event.serviceTrackingStage,
+          status: event.status,
+        });
         return {
           ...prev,
-          ...(event.serviceTrackingStage !== undefined
+          ...(allowStagePatch && event.serviceTrackingStage !== undefined
             ? { serviceTrackingStage: event.serviceTrackingStage }
             : {}),
           ...(event.serviceStaffAssignments !== undefined
@@ -640,7 +647,7 @@ export default function CustomerLiveTrackerPage() {
           ...(event.trackerStageMedia !== undefined
             ? { trackerStageMedia: event.trackerStageMedia }
             : {}),
-          ...(event.status !== undefined ? { status: event.status } : {}),
+          ...(allowStagePatch && event.status !== undefined ? { status: event.status } : {}),
           ...(event.paymentStatus !== undefined ? { paymentStatus: event.paymentStatus } : {}),
           ...(event.invoiceId !== undefined ? { invoiceId: event.invoiceId } : {}),
           ...(event.updatedAt ? { updatedAt: event.updatedAt } : {}),

@@ -1,12 +1,12 @@
 /**
- * Keep in sync with frontend/src/pages/CustomerDashboard.tsx
+ * Canonical customer live-tracker booking selection + stage ranking.
+ * Keep in sync with mobile/src/utils/customer-live-tracker-pick.ts
  * (CUSTOMER_TRACKER_* + pickCustomerLiveTrackerBooking + bookingShowsCustomerLiveTracker).
  *
- * Used so the Home hero shows the same “primary” in-shop job as the web customer live tracker,
- * not only the newest row in a loose active filter.
+ * Both the Web dashboard widget and the full Web live tracker page import from here so the
+ * "which booking is the active job" and "how far along is it" rules never drift between screens
+ * — the backend's `serviceTrackingStage` (falling back to `status`) is the single source of truth.
  */
-
-import type { BookingRecord } from '@/services/api/types';
 
 export function normTrackerStr(s: unknown): string {
   return String(s ?? '')
@@ -16,7 +16,7 @@ export function normTrackerStr(s: unknown): string {
 }
 
 /** Bookings that may appear on the customer live tracker (dashboard + tracker tab). */
-const CUSTOMER_TRACKER_STATUS_SET = new Set([
+export const CUSTOMER_TRACKER_STATUS_SET = new Set([
   'approved',
   'confirmed',
   'assigned',
@@ -27,10 +27,10 @@ const CUSTOMER_TRACKER_STATUS_SET = new Set([
   'completed',
 ]);
 
-const CUSTOMER_TRACKER_FINAL_STATUS_SET = new Set(['paid', 'released', 'cancelled', 'failed', 'rejected']);
+export const CUSTOMER_TRACKER_FINAL_STATUS_SET = new Set(['paid', 'released', 'cancelled', 'failed', 'rejected']);
 
 /** Prefer fine-grained QC stage when ranking which booking to show. */
-const CUSTOMER_TRACKER_STAGE_RANK: Record<string, number> = {
+export const CUSTOMER_TRACKER_STAGE_RANK: Record<string, number> = {
   confirmed: 0,
   received: 1,
   in_progress: 2,
@@ -40,7 +40,7 @@ const CUSTOMER_TRACKER_STAGE_RANK: Record<string, number> = {
   released: 6,
 };
 
-const CUSTOMER_TRACKER_STATUS_FALLBACK_RANK: Record<string, number> = {
+export const CUSTOMER_TRACKER_STATUS_FALLBACK_RANK: Record<string, number> = {
   approved: 0,
   confirmed: 0,
   assigned: 0,
@@ -67,13 +67,12 @@ export function bookingShowsCustomerLiveTracker(b: unknown): boolean {
  * Authoritative customer-facing Ready for Pickup decision shared by Home and Tracker.
  * A present workflow stage wins; evidence existence never advances lifecycle state.
  */
-export function bookingIsReadyForPickup(
-  booking: BookingRecord | null | undefined
-): boolean {
-  if (!booking) return false;
-  const status = normTrackerStr(booking.status);
-  const stage = normTrackerStr(booking.serviceTrackingStage);
-  const customerStatus = normTrackerStr(booking.customerStatus);
+export function bookingIsReadyForPickup(booking: unknown): boolean {
+  const row = booking as Record<string, unknown> | null | undefined;
+  if (!row) return false;
+  const status = normTrackerStr(row.status);
+  const stage = normTrackerStr(row.serviceTrackingStage);
+  const customerStatus = normTrackerStr(row.customerStatus);
   if (stage) return ['ready_pickup', 'completed', 'released'].includes(stage);
   return (
     ['ready_for_payment', 'completed', 'paid', 'released', 'done'].includes(status) ||
@@ -84,7 +83,7 @@ export function bookingIsReadyForPickup(
 /**
  * Canonical rank of a booking's current tracker position. Fine-grained `serviceTrackingStage`
  * wins when present; `status` is a fallback for bookings QC hasn't advanced via the fine stage yet.
- * Keep in sync with frontend/src/lib/customer-live-tracker-pick.ts.
+ * Keep in sync with mobile/src/utils/customer-live-tracker-pick.ts.
  */
 export function trackerStageRankOf(input: {
   serviceTrackingStage?: unknown;
@@ -102,7 +101,7 @@ export function trackerStageRankOf(input: {
  * tracker stage. Realtime events (sockets, out-of-order HTTP responses) can arrive after a
  * newer stage was already applied — this guard makes stage progression monotonic so a stale
  * `arrived` event can never downgrade a tracker that already reached `service_in_progress` (or later).
- * Keep in sync with frontend/src/lib/customer-live-tracker-pick.ts.
+ * Keep in sync with mobile/src/utils/customer-live-tracker-pick.ts.
  */
 export function isForwardTrackerStageTransition(
   current: { serviceTrackingStage?: unknown; status?: unknown } | null | undefined,
@@ -125,12 +124,12 @@ export function isForwardTrackerStageTransition(
  * a plain `active[0]` often returns a newer `approved` row instead of the older in-shop job.
  */
 export function pickCustomerLiveTrackerBooking(
-  bookings: BookingRecord[] | null | undefined
-): BookingRecord | undefined {
+  bookings: unknown[] | null | undefined
+): any | undefined {
   if (!bookings?.length) return undefined;
-  const candidates = bookings.filter((b) => bookingShowsCustomerLiveTracker(b));
+  const candidates = (bookings as any[]).filter(bookingShowsCustomerLiveTracker);
   if (!candidates.length) return undefined;
-  const rankOf = (b: BookingRecord) => {
+  const rankOf = (b: any) => {
     const ts = normTrackerStr(b?.serviceTrackingStage);
     if (ts && CUSTOMER_TRACKER_STAGE_RANK[ts] !== undefined) {
       return CUSTOMER_TRACKER_STAGE_RANK[ts] + 0.001;
@@ -140,12 +139,8 @@ export function pickCustomerLiveTrackerBooking(
   const sorted = [...candidates].sort((a, b) => {
     const d = rankOf(b) - rankOf(a);
     if (d !== 0) return d;
-    const tb = new Date(
-      (b as any)?.serviceTrackingUpdatedAt || b?.updatedAt || b?.createdAt || 0
-    ).getTime();
-    const ta = new Date(
-      (a as any)?.serviceTrackingUpdatedAt || a?.updatedAt || a?.createdAt || 0
-    ).getTime();
+    const tb = new Date(b?.serviceTrackingUpdatedAt || b?.updatedAt || b?.createdAt || 0).getTime();
+    const ta = new Date(a?.serviceTrackingUpdatedAt || a?.updatedAt || a?.createdAt || 0).getTime();
     return tb - ta;
   });
   return sorted[0];

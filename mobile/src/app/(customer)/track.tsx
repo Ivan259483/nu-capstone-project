@@ -1467,10 +1467,15 @@ export default function TrackScreen() {
   );
 
   useFocusEffect(useCallback(() => {
+    // `refetch()` bypasses the query's `enabled` gate, so this must not fire
+    // until auth has finished restoring — otherwise a focus event during
+    // hydration (or a session invalidation in-flight) sends this protected
+    // request with no/stale token.
+    if (!profile) return undefined;
     if (routeBookingId) void refetchSpecificBooking();
     if (trackerMediaBookingId) void refetchTrackerMedia();
     return undefined;
-  }, [refetchSpecificBooking, refetchTrackerMedia, routeBookingId, trackerMediaBookingId]));
+  }, [profile, refetchSpecificBooking, refetchTrackerMedia, routeBookingId, trackerMediaBookingId]));
 
   const isLoading =
     isBookingsQueryLoading || (!!routeBookingId && isSpecificBookingLoading);
@@ -1656,6 +1661,7 @@ export default function TrackScreen() {
 
   const onRefresh = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!profile) return;
     await Promise.all([
       refreshBookings(),
       routeBookingId ? refetchSpecificBooking() : Promise.resolve(),

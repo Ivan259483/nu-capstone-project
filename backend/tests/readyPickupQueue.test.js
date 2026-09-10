@@ -367,3 +367,43 @@ test('prepaid service retains pickup evidence readiness after final QC completio
   assert.notEqual(saved.status, 'completed');
   assert.notEqual(saved.status, 'released');
 });
+
+test('GET /api/qc/jobs returns a real saved photoUrl and never claims a photo without one', async () => {
+  // Regression test for the "Photo saved" placeholder bug: the QC jobs-list
+  // projection used to omit trackerStageMedia.photoUrl entirely, so any
+  // already-uploaded evidence photo would vanish from the QC dashboard/modal
+  // on the next refetch (mount, realtime refresh, modal reopen) even though it
+  // was correctly persisted in MongoDB.
+  const qc = await seedUser('staff_quality_checker');
+  const qcHeaders = { Authorization: `Bearer ${tokenFor(qc)}` };
+  const { order } = await seedEligibleOrder({
+    order: {
+      status: 'received',
+      serviceTrackingStage: 'received',
+      trackerStageMedia: [
+        { stage: 'received', slot: 'front', photoUrl: 'https://media.example.test/arrival-front.jpg' },
+        // Inline base64 preview persisted while awaiting Cloudinary backfill — real photo,
+        // just too heavy to include in the paginated jobs-list payload.
+        { stage: 'received', slot: 'rear', photoUrl: 'data:image/jpeg;base64,AAAA' },
+        { stage: 'confirmed', photoUrl: '' },
+      ],
+    },
+  });
+
+  const qcJobs = await requestJson(`/api/qc/jobs?scope=all&orderId=${order._id}`, { headers: qcHeaders });
+  assert.equal(qcJobs.response.status, 200);
+  const job = qcJobs.body.jobs[0];
+  const media = job.trackerStageMedia;
+
+  const front = media.find((m) => m.stage === 'received' && m.slot === 'front');
+  assert.equal(front.photoUrl, 'https://media.example.test/arrival-front.jpg');
+  assert.equal(front.hasPhoto, true);
+
+  const rear = media.find((m) => m.stage === 'received' && m.slot === 'rear');
+  assert.equal(rear.hasPhoto, true, 'a pending inline photo must still be reported as present');
+  assert.equal(rear.photoUrl, undefined, 'inline base64 photos stay out of the list payload for size');
+  assert.equal(rear.photoPending, true);
+
+  const confirmedRow = media.find((m) => m.stage === 'confirmed');
+  assert.equal(confirmedRow.hasPhoto, false, 'hasPhoto must reflect a real photoUrl, not just the stage');
+});

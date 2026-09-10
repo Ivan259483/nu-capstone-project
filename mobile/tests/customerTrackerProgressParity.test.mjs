@@ -6,6 +6,8 @@ import { getTrackerPipelineProgressPct as getWebProgress } from '../../frontend/
 import { getTrackerPipelineProgressPct as getMobileProgress } from '../src/utils/tracker-pipeline-progress.ts';
 import { isCustomerTrackerMediaStageReleased as isWebEvidenceReleased } from '../../frontend/src/lib/customer-tracker-evidence-release.ts';
 import { isCustomerTrackerMediaStageReleased as isMobileEvidenceReleased } from '../src/utils/customer-tracker-evidence-release.ts';
+import { isForwardTrackerStageTransition as isWebForwardTransition } from '../../frontend/src/lib/customer-live-tracker-pick.ts';
+import { isForwardTrackerStageTransition as isMobileForwardTransition } from '../src/utils/customer-live-tracker-pick.ts';
 
 const canonicalCases = [
   { label: 'Appointment Confirmed', input: { serviceTrackingStage: 'confirmed', status: 'confirmed' }, expected: 0 },
@@ -91,6 +93,30 @@ test('Web and Mobile expose released evidence and keep future-stage uploads hidd
   for (const isReleased of [isWebEvidenceReleased, isMobileEvidenceReleased]) {
     assert.equal(isReleased(currentArrivalGate, 'received'), true);
     assert.equal(isReleased(currentArrivalGate, 'in_progress'), false);
+  }
+});
+
+test('Web and Mobile realtime patches never downgrade an already-advanced tracker stage', () => {
+  const alreadyInProgress = { serviceTrackingStage: 'in_progress', status: 'in_progress' };
+
+  for (const isForward of [isWebForwardTransition, isMobileForwardTransition]) {
+    // A stale `arrived` event (older realtime message, or an out-of-order retry) must be rejected.
+    assert.equal(isForward(alreadyInProgress, { serviceTrackingStage: 'received' }), false);
+    // `status` alone regressing while `serviceTrackingStage` stays put doesn't change the
+    // effective displayed stage (stage always wins over status), so it is not a regression.
+    assert.equal(isForward(alreadyInProgress, { status: 'received' }), true);
+    // But a stale event carrying *both* fields backwards together must still be rejected.
+    assert.equal(
+      isForward(alreadyInProgress, { serviceTrackingStage: 'received', status: 'received' }),
+      false
+    );
+    // A genuine forward advance (or a repeat of the same stage) is always accepted.
+    assert.equal(isForward(alreadyInProgress, { serviceTrackingStage: 'quality_check' }), true);
+    assert.equal(isForward(alreadyInProgress, { serviceTrackingStage: 'in_progress' }), true);
+    // Patches that don't touch stage/status (media, staff assignments) are never blocked.
+    assert.equal(isForward(alreadyInProgress, {}), true);
+    // No prior booking (first hydration) always accepts.
+    assert.equal(isForward(null, { serviceTrackingStage: 'received' }), true);
   }
 });
 

@@ -15,6 +15,8 @@ export type QCTrackerStageMedia = {
   uploadedAt?: string;
   uploadedBy?: string;
   hasPhoto?: boolean;
+  /** Photo is an inline base64 preview persisted pending Cloudinary backfill — real, not yet permanent. */
+  photoPending?: boolean;
 };
 
 export type QCStagePhotoUploadResult = {
@@ -190,13 +192,19 @@ function normalizeQcTrackerMediaEntry(entry: any): QCTrackerStageMedia | null {
   if (!stage) return null;
 
   const rawPhotoUrl = String(entry?.photoUrl || '').trim();
-  const photoUrl = rawPhotoUrl && !rawPhotoUrl.startsWith('data:') ? rawPhotoUrl : undefined;
+  // Inline `data:image/` previews are a real, renderable, backend-persisted photo pending
+  // Cloudinary backfill — only reject non-image data URIs (unexpected/malformed) and keep
+  // everything else (https, relative paths, inline image data) so the UI never has to fall
+  // back to a "Photo saved" placeholder for a photo that actually exists.
+  const isRejectedDataUrl = rawPhotoUrl.startsWith('data:') && !rawPhotoUrl.startsWith('data:image/');
+  const photoUrl = rawPhotoUrl && !isRejectedDataUrl ? rawPhotoUrl : undefined;
   const slot = String(entry?.slot || '').trim() || undefined;
 
   return {
     stage,
     ...(slot ? { slot } : {}),
     ...(photoUrl ? { photoUrl } : {}),
+    ...(photoUrl?.startsWith('data:') ? { photoPending: true } : {}),
     ...(typeof entry?.description === 'string' && entry.description.trim()
       ? { description: entry.description.trim() }
       : {}),

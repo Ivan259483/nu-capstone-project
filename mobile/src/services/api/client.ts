@@ -235,6 +235,14 @@ apiClient.interceptors.response.use(
             : 'tunnel likely not pointing at Express (e.g. `ngrok http 3000` where 3000 is your API port). Set EXPO_PUBLIC_API_URL to that HTTPS origin so routes like /api/bookings and /api/ai/scan exist.';
           console.warn(`[API] WARN 404 ${url} — ${hint}`);
         }
+      } else if (status === 401) {
+        // A 401 on a protected route is an expected outcome of a missing,
+        // expired, or invalid session — the calling code (and the
+        // auth-invalid flow above, when applicable) already handles it.
+        // console.error would trip Expo's fatal red-screen LogBox overlay
+        // for a condition that isn't a programming bug; console.warn keeps
+        // it visible in the dev console without doing that.
+        console.warn(`[API] AUTH 401 ${config?.method?.toUpperCase()} ${url} \u2014 ${message}`);
       } else {
         console.error(`[API] ERROR ${status || 'NETWORK'} ${config?.method?.toUpperCase()} ${url} \u2014 ${message}`);
       }

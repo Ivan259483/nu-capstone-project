@@ -46,11 +46,10 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#F97316",
-          "android": {
-            "image": "./assets/images/splash-icon.png",
-            "imageWidth": 76
-          }
+          "image": "./assets/images/autospf-logo.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#050505"
         }
       ],
       "expo-font",
@@ -59,7 +58,8 @@
       "expo-notifications",
       "expo-image",
       "expo-status-bar",
-      "expo-video"
+      "expo-video",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

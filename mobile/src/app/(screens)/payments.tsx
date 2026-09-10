@@ -1,6 +1,11 @@
 /**
  * Payment History — customer view aligned with web CustomerDashboard
  * (`activeSection === 'payments'`): per-booking cards, reservation fee + full payment, totals.
+ *
+ * Mirrors the web Payment History's information hierarchy (summary → search/filter →
+ * transactions) as a native card list rather than a shrunk table. Every figure below is
+ * read from the same `/payments/my` ledger the web app reads — nothing here is computed
+ * from booking status/price, and unpaid future balances never enter these totals.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -9,234 +14,262 @@ import {
   Text,
   FlatList,
   TouchableOpacity,
+  TextInput,
+  ScrollView,
   StyleSheet,
-  Platform,
   RefreshControl,
-  Image,
+  Platform,
   useWindowDimensions,
-  Share,
-  Linking,
+  Clipboard,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { PageSkeleton, PremiumLoader } from '@/components/ui/loading';
 import { MotionModal } from '@/components/ui/MotionOverlay';
+import MotionPressable from '@/components/ui/MotionPressable';
+import { Toast } from '@/components/ui/PremiumToast';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
-import { WebView } from 'react-native-webview';
-import { cacheDirectory, deleteAsync, getContentUriAsync } from 'expo-file-system/legacy';
+import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '@/hooks/useThemeContext';
 import { Palette, BorderRadius } from '@/constants/theme';
-import { Toast } from '@/components/ui/PremiumToast';
-import { bookingService } from '@/services/api/bookingService';
 import { getApiErrorMessage } from '@/services/api/client';
 import type { BookingRecord } from '@/services/api/types';
 import {
-  CUSTOMER_PAYMENT_RESERVATION_FEE,
-  countPaymentHistoryBookings,
-  filterBookingsForPaymentHistory,
-  sortBookingsNewestFirst,
-  sumFullPaymentsDisplayed,
-  sumReservationFeesDisplayed,
+  matchesPaymentSearch,
+  paymentDateFilterCutoff,
+  paymentDisplayAmount,
+  paymentEffectiveDate,
+  paymentFilterGroup,
+  paymentMethodLabel,
+  paymentStatusLabel,
+  paymentTypeLabel,
+  receiptAvailabilityMessage,
+  sortPaymentsNewestFirst,
+  summarizePaymentHistory,
+  type PaymentDateFilter,
+  type PaymentFilterGroup,
 } from '@/utils/customer-payment-history';
-import { resolveCustomerPaymentState } from '@/utils/customer-payment-state';
 import { useCustomerBookings } from '@/hooks/useCustomerBookings';
+import { paymentService, type PaymentReceipt, type PaymentRecord } from '@/services/api/paymentService';
+import { OfficialPaymentReceipt } from '@/components/payments/OfficialPaymentReceipt';
+import { buildMobileReceiptHtml, mobileReceiptFileName } from '@/lib/receipt-html';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+
+type ThemeColors = ReturnType<typeof useTheme>['colors'];
+
+const GREEN = '#059669';
+const GREEN_DARK = '#34D399';
+const AMBER = '#D97706';
+const AMBER_DARK = '#FBBF24';
+const RED = '#DC2626';
+const RED_DARK = '#F87171';
+const PURPLE = '#6D6293';
+const PURPLE_DARK = '#A99FD6';
 
 const formatCurrency = (amount: number) =>
-  `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const formatDate = (dateStr: string | undefined) => {
-  if (!dateStr) return '—';
+  if (!dateStr) return 'Not recorded';
   const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return '—';
+  if (Number.isNaN(d.getTime())) return 'Not recorded';
   return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
-function BookingPaymentCard({
-  booking,
+/** Bank-app-style partial reveal for a long reference. Copy still uses the full value. */
+const maskReference = (value: string) => {
+  if (!value || value.length <= 14) return value;
+  return `${value.slice(0, 8)}••••${value.slice(-6)}`;
+};
+
+const monoFont = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
+
+const TYPE_FILTERS: { key: 'all' | PaymentFilterGroup; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'reservation', label: 'Reservation' },
+  { key: 'service', label: 'Service' },
+  { key: 'refund', label: 'Refunds' },
+];
+
+const DATE_FILTERS: { key: PaymentDateFilter; label: string }[] = [
+  { key: 'all', label: 'All time' },
+  { key: '30', label: 'Last 30 days' },
+  { key: '365', label: 'Last 12 months' },
+];
+
+function FilterChip({
+  label,
+  active,
+  onPress,
   colors,
   isDark,
-  cardWidth,
-  onViewProof,
-  onViewReceipt,
-  receiptLoading,
 }: {
-  booking: BookingRecord;
-  colors: ReturnType<typeof useTheme>['colors'];
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  colors: ThemeColors;
   isDark: boolean;
-  cardWidth: number;
-  onViewProof: (url: string) => void;
-  onViewReceipt: (orderId: string) => void;
-  receiptLoading: boolean;
 }) {
-  const orderId = booking.id || booking._id || '';
-  const paymentState = resolveCustomerPaymentState(booking);
-  const total = paymentState.totalAmount;
-  const remaining = paymentState.remainingAmount;
-  const vehicle =
-    [booking.vehicleYear, booking.vehicleMake, booking.vehicleModel].filter(Boolean).join(' ') ||
-    (booking as { vehicleInfo?: string }).vehicleInfo ||
-    '—';
-  const dateStr = booking.date || booking.bookingDate || booking.createdAt;
-  const raw = booking as Record<string, unknown>;
-  const proofUrl =
-    (typeof raw.paymentProofUrl === 'string' && raw.paymentProofUrl) ||
-    (typeof raw.downpaymentProof === 'string' && raw.downpaymentProof) ||
-    null;
-  const orderLabel =
-    (booking.orderNumber != null && String(booking.orderNumber)) ||
-    (typeof raw.bookingReference === 'string' && raw.bookingReference) ||
-    String(orderId).slice(-8);
-
-  const border = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.12)';
-  const headerBg = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(248,250,252,0.95)';
-  const indigo = '#6366F1';
-  const emerald = '#059669';
-  const emeraldBg = isDark ? 'rgba(16,185,129,0.15)' : 'rgba(16,185,129,0.12)';
-  const amber = isDark ? '#FBBF24' : '#D97706';
-  const red = '#DC2626';
-  const neutral = isDark ? '#A1A1AA' : '#64748B';
-  const reservationPresentation = paymentState.reservation === 'paid'
-    ? { label: 'Paid', sub: 'Paid via GCash', color: emerald, bg: emeraldBg }
-    : paymentState.reservation === 'verifying'
-      ? { label: 'Verifying', sub: 'GCash receipt submitted', color: amber, bg: isDark ? 'rgba(245,158,11,0.18)' : 'rgba(245,158,11,0.12)' }
-      : paymentState.reservation === 'action_required'
-        ? { label: 'Action Required', sub: 'Payment could not be verified', color: red, bg: isDark ? 'rgba(239,68,68,0.18)' : 'rgba(239,68,68,0.10)' }
-        : { label: 'Payment Required', sub: 'GCash receipt required', color: neutral, bg: isDark ? 'rgba(161,161,170,0.14)' : 'rgba(100,116,139,0.10)' };
-  const fullPaymentPresentation = paymentState.fullPayment === 'paid'
-    ? { label: 'Paid', sub: paymentState.fullPaymentMethod ? `Paid via ${paymentState.fullPaymentMethod.toUpperCase()}` : 'Payment verified', color: emerald, bg: emeraldBg }
-    : paymentState.fullPayment === 'verifying'
-      ? { label: 'Verifying', sub: 'Payment submitted and awaiting verification', color: amber, bg: isDark ? 'rgba(245,158,11,0.18)' : 'rgba(245,158,11,0.12)' }
-      : paymentState.fullPayment === 'due'
-        ? { label: 'Payment Due', sub: 'Your remaining balance is now due', color: Palette.accent, bg: isDark ? 'rgba(249,115,22,0.16)' : 'rgba(249,115,22,0.10)' }
-        : { label: 'Not Due Yet', sub: 'Payable upon service completion', color: neutral, bg: isDark ? 'rgba(161,161,170,0.14)' : 'rgba(100,116,139,0.10)' };
-
+  const activeBg = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.08)';
   return (
-    <View
+    <MotionPressable
+      haptic="selection"
+      onPress={onPress}
       style={[
-        styles.bookingCard,
+        styles.chip,
         {
-          width: cardWidth,
-          backgroundColor: colors.card,
-          borderColor: border,
+          borderColor: active ? colors.text : colors.border,
+          backgroundColor: active ? activeBg : 'transparent',
         },
       ]}
     >
-      <View style={[styles.cardHeader, { backgroundColor: headerBg, borderBottomColor: border }]}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[styles.orderId, { color: colors.textMuted }]} numberOfLines={1}>
-            {orderLabel}
-          </Text>
-          <View style={styles.titleRow}>
-            <Ionicons name="card-outline" size={14} color={indigo} style={{ marginRight: 6 }} />
-            <Text style={[styles.serviceTitle, { color: colors.text }]} numberOfLines={2}>
-              {booking.serviceName || booking.serviceType || 'Service'}
-            </Text>
-          </View>
-        </View>
-        <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
-          <Text style={[styles.metaDate, { color: colors.textMuted }]}>{formatDate(dateStr)}</Text>
-          <Text style={[styles.metaVehicle, { color: colors.text }]} numberOfLines={1}>
-            {vehicle}
-          </Text>
-        </View>
-      </View>
+      <Text style={[styles.chipText, { color: active ? colors.text : colors.textSecondary }]}>{label}</Text>
+    </MotionPressable>
+  );
+}
 
-      <View style={[styles.payRow, { borderBottomColor: border }]}>
-        <View style={[styles.payIconWrap, { backgroundColor: reservationPresentation.bg }]}>
-          <Ionicons name="lock-closed-outline" size={16} color={reservationPresentation.color} />
-        </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[styles.payTitle, { color: colors.text }]}>Reservation Fee</Text>
-          <Text style={[styles.paySub, { color: colors.textMuted }]}>{reservationPresentation.sub}</Text>
-        </View>
-        <View style={styles.payRight}>
-          {proofUrl ? (
-            <TouchableOpacity onPress={() => onViewProof(proofUrl)} style={styles.linkBtn}>
-              <Ionicons name="images-outline" size={12} color={indigo} />
-              <Text style={[styles.linkBtnTxt, { color: indigo }]}>View proof</Text>
-            </TouchableOpacity>
-          ) : null}
-          <View
-            style={[
-              styles.badge,
-              { backgroundColor: reservationPresentation.bg },
-            ]}
-          >
-            <Text
-              style={[
-                styles.badgeTxt,
-                { color: reservationPresentation.color },
-              ]}
-            >
-              {reservationPresentation.label}
-            </Text>
-          </View>
-          <Text style={[styles.payAmount, { color: colors.text }]}>
-            {formatCurrency(paymentState.reservationAmount || CUSTOMER_PAYMENT_RESERVATION_FEE)}
-          </Text>
-        </View>
-      </View>
+function CopyIdButton({ value, colors }: { value: string; colors: ThemeColors }) {
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-      <View style={[styles.payRow, { borderBottomWidth: 0 }]}>
-        <View style={[styles.payIconWrap, { backgroundColor: fullPaymentPresentation.bg }]}>
-          <Ionicons name="wallet-outline" size={16} color={fullPaymentPresentation.color} />
-        </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[styles.payTitle, { color: colors.text }]}>Full Payment</Text>
-          <Text style={[styles.paySub, { color: colors.textMuted }]}>
-            {fullPaymentPresentation.sub}
-          </Text>
-        </View>
-        <View style={styles.payRight}>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6 }}>
-            <View
-              style={[
-                styles.badge,
-                { backgroundColor: fullPaymentPresentation.bg },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.badgeTxt,
-                  { color: fullPaymentPresentation.color },
-                ]}
-              >
-                {fullPaymentPresentation.label}
-              </Text>
-            </View>
-            {paymentState.fullPayment === 'paid' ? (
-              <TouchableOpacity
-                onPress={() => onViewReceipt(String(orderId))}
-                disabled={receiptLoading}
-                style={[
-                  styles.receiptBtn,
-                  { borderColor: isDark ? 'rgba(16,185,129,0.35)' : 'rgba(5,150,105,0.35)' },
-                ]}
-              >
-                {receiptLoading ? (
-                  <PremiumLoader size="small" tone="success" accessibilityLabel="Preparing receipt" />
-                ) : (
-                  <>
-                    <Ionicons name="document-text-outline" size={12} color={emerald} />
-                    <Text style={[styles.receiptBtnTxt, { color: emerald }]}>View receipt</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            ) : null}
-          </View>
-          <Text style={[styles.payAmount, { color: colors.text }]}>
-            {remaining > 0 ? formatCurrency(remaining) : '—'}
-          </Text>
-        </View>
-      </View>
+  useEffect(() => () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+  }, []);
 
-      <View style={[styles.totalRow, { backgroundColor: headerBg, borderTopColor: border }]}>
-        <Text style={[styles.totalLabel, { color: colors.textMuted }]}>TOTAL</Text>
-        <Text style={[styles.totalValue, { color: colors.text }]}>
-          {total > 0 ? formatCurrency(total) : '—'}
+  const handlePress = () => {
+    if (!value) return;
+    Clipboard.setString(value);
+    Toast.show('Transaction ID copied', 'success');
+    setCopied(true);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setCopied(false), 1600);
+  };
+
+  return (
+    <MotionPressable
+      haptic="selection"
+      onPress={handlePress}
+      style={[styles.copyBtn, { borderColor: colors.border }]}
+      accessibilityLabel="Copy transaction ID"
+    >
+      <Animated.View key={copied ? 'copied' : 'idle'} entering={FadeIn.duration(120)} style={styles.copyBtnInner}>
+        <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={12} color={copied ? GREEN : colors.textMuted} />
+        <Text style={[styles.copyBtnText, { color: copied ? GREEN : colors.textMuted }]}>
+          {copied ? 'Copied' : 'Copy'}
+        </Text>
+      </Animated.View>
+    </MotionPressable>
+  );
+}
+
+function TransactionCard({
+  payment,
+  booking,
+  colors,
+  isDark,
+  onViewReceipt,
+  receiptLoading,
+}: {
+  payment: PaymentRecord;
+  booking?: BookingRecord;
+  colors: ThemeColors;
+  isDark: boolean;
+  onViewReceipt: (paymentId: string) => void;
+  receiptLoading: boolean;
+}) {
+  const vehicle =
+    payment.vehicleInfo ||
+    [booking?.vehicleYear, booking?.vehicleMake, booking?.vehicleModel].filter(Boolean).join(' ') ||
+    'Vehicle not recorded';
+  const dateStr = paymentEffectiveDate(payment);
+  const serviceLabel =
+    payment.services.map((service) => service.name).filter(Boolean).join(', ') ||
+    booking?.serviceName ||
+    booking?.serviceType ||
+    'Service payment';
+  const refunded = payment.transactionType === 'refund';
+  const paid = payment.paymentStatus === 'succeeded' && !refunded;
+  const statusColor = refunded
+    ? isDark ? PURPLE_DARK : PURPLE
+    : paid
+    ? isDark ? GREEN_DARK : GREEN
+    : payment.paymentStatus === 'pending'
+    ? isDark ? AMBER_DARK : AMBER
+    : ['failed', 'rejected'].includes(payment.paymentStatus)
+    ? isDark ? RED_DARK : RED
+    : colors.textMuted;
+  const receiptLabel = payment.transactionType === 'reservation_fee' ? 'View Reservation Receipt' : 'View Receipt';
+  const referenceId = payment.receiptNumber || payment.transactionId || '';
+  const receiptLinkColor = isDark ? '#7AA9F0' : '#2563EB';
+  const border = colors.border;
+
+  return (
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: border }]}>
+      <Text style={[styles.serviceTitle, { color: colors.text }]} numberOfLines={2}>
+        {serviceLabel}
+      </Text>
+      <Text style={[styles.vehicleText, { color: colors.textSecondary }]}>{vehicle}</Text>
+      <Text style={[styles.dateText, { color: colors.textMuted }]}>{formatDate(dateStr)}</Text>
+
+      <View style={styles.line}>
+        <Text style={[styles.typeLabel, { color: colors.text }]}>{paymentTypeLabel(payment.transactionType)}</Text>
+        <Text style={[styles.amountText, { color: colors.text }]}>
+          {formatCurrency(paymentDisplayAmount(payment))}
         </Text>
       </View>
+      <View style={styles.line}>
+        <Text style={[styles.methodText, { color: colors.textSecondary }]} numberOfLines={1}>
+          {payment.method ? `Paid via ${paymentMethodLabel(payment.method)}` : 'Payment method not recorded'}
+        </Text>
+        <View style={styles.statusRow}>
+          <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+          <Text style={[styles.statusText, { color: statusColor }]}>{paymentStatusLabel(payment)}</Text>
+        </View>
+      </View>
+
+      {payment.receiptAvailable ? (
+        <MotionPressable
+          haptic="light"
+          onPress={() => onViewReceipt(payment.paymentId)}
+          disabled={receiptLoading}
+          style={styles.receiptCta}
+        >
+          {receiptLoading ? (
+            <PremiumLoader size="small" tone="accent" accessibilityLabel="Preparing receipt" />
+          ) : (
+            <>
+              <Text style={[styles.receiptCtaText, { color: receiptLinkColor }]}>{receiptLabel}</Text>
+              <Ionicons name="arrow-forward" size={13} color={receiptLinkColor} />
+            </>
+          )}
+        </MotionPressable>
+      ) : (
+        <View style={styles.unavailableWrap}>
+          <Text style={[styles.unavailableTitle, { color: colors.textSecondary }]}>
+            {receiptAvailabilityMessage(payment).title}
+          </Text>
+          <Text style={[styles.unavailableDetail, { color: colors.textMuted }]}>
+            {receiptAvailabilityMessage(payment).detail}
+          </Text>
+        </View>
+      )}
+
+      {referenceId ? (
+        <>
+          <View style={[styles.txnDivider, { backgroundColor: border }]} />
+          <View style={styles.txnRow}>
+            <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+              <Text style={[styles.txnLabel, { color: colors.textMuted }]}>Transaction ID</Text>
+              <Text style={[styles.txnValue, { color: colors.textSecondary }]} numberOfLines={1}>
+                {maskReference(referenceId)}
+              </Text>
+            </View>
+            <CopyIdButton value={referenceId} colors={colors} />
+          </View>
+        </>
+      ) : null}
     </View>
   );
 }
@@ -244,132 +277,183 @@ function BookingPaymentCard({
 export default function PaymentsScreen() {
   const { colors, isDark } = useTheme();
   const router = useRouter();
-  const { orderId: routeOrderId, openReceipt: routeOpenReceipt } = useLocalSearchParams<{
-    orderId?: string;
-    openReceipt?: string;
-  }>();
   const insets = useSafeAreaInsets();
   const { width: windowW } = useWindowDimensions();
   const cardWidth = Math.min(windowW - 32, 560);
 
-  const [proofModalUrl, setProofModalUrl] = useState<string | null>(null);
-  const [pdfFileUri, setPdfFileUri] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | PaymentFilterGroup>('all');
+  const [dateFilter, setDateFilter] = useState<PaymentDateFilter>('all');
+
   const [receiptLoadingId, setReceiptLoadingId] = useState<string | null>(null);
-  const [receiptModalOrderId, setReceiptModalOrderId] = useState<string | null>(null);
+  const [receiptModalPaymentId, setReceiptModalPaymentId] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<PaymentReceipt | null>(null);
   const [receiptError, setReceiptError] = useState<string | null>(null);
-  const handledRouteKey = useRef<string | null>(null);
+  const [isExportingReceiptPdf, setIsExportingReceiptPdf] = useState(false);
+  const [isPrintingReceipt, setIsPrintingReceipt] = useState(false);
   const receiptRequestRef = useRef(0);
 
   const {
     data: bookings = [],
+    refreshBookings,
+  } = useCustomerBookings(true);
+  const {
+    data: paymentHistory,
     isLoading: loading,
     isRefetching,
     isError,
-    error: bookingsError,
-    refreshBookings,
-  } = useCustomerBookings(true);
+    error: paymentError,
+    refetch: refreshPayments,
+  } = useQuery({
+    queryKey: ['payments', 'customer-history'],
+    queryFn: () => paymentService.getMyPayments(100),
+    refetchInterval: 60_000,
+  });
+  const payments = useMemo(() => paymentHistory?.payments || [], [paymentHistory?.payments]);
   const error = isError
-    ? getApiErrorMessage(bookingsError, 'Failed to load payment history')
+    ? getApiErrorMessage(paymentError, 'Failed to load payment history')
     : null;
 
-  const visible = useMemo(() => {
-    const sorted = sortBookingsNewestFirst(filterBookingsForPaymentHistory(bookings));
-    const selectedOrderId = String(routeOrderId || '').trim();
-    if (!selectedOrderId) return sorted;
-    return [...sorted].sort((left, right) => {
-      const leftSelected = String(left.id || left._id) === selectedOrderId;
-      const rightSelected = String(right.id || right._id) === selectedOrderId;
-      return Number(rightSelected) - Number(leftSelected);
+  const sorted = useMemo(() => sortPaymentsNewestFirst(payments), [payments]);
+  const filtered = useMemo(() => {
+    const cutoff = paymentDateFilterCutoff(dateFilter);
+    return sorted.filter((payment) => {
+      const matchesType = typeFilter === 'all' || paymentFilterGroup(payment) === typeFilter;
+      const matchesDate = !cutoff || new Date(paymentEffectiveDate(payment)).getTime() >= cutoff;
+      return matchesType && matchesDate && matchesPaymentSearch(payment, query);
     });
-  }, [bookings, routeOrderId]);
-  const bookingCount = countPaymentHistoryBookings(bookings);
-  const resvSum = sumReservationFeesDisplayed(bookings);
-  const fullSum = sumFullPaymentsDisplayed(bookings);
+  }, [sorted, typeFilter, dateFilter, query]);
 
-  const openReceipt = useCallback(async (orderId: string) => {
+  const summary = useMemo(
+    () => summarizePaymentHistory(payments, paymentHistory?.totalSpent || 0),
+    [payments, paymentHistory?.totalSpent],
+  );
+  const grossPayments = summary.reservationTotal + summary.servicePaymentTotal;
+  const receiptCount = useMemo(() => payments.filter((payment) => payment.receiptAvailable).length, [payments]);
+  const filtersActive = Boolean(query || typeFilter !== 'all' || dateFilter !== 'all');
+
+  const clearFilters = useCallback(() => {
+    setQuery('');
+    setTypeFilter('all');
+    setDateFilter('all');
+  }, []);
+
+  const bookingForPayment = useCallback((payment: PaymentRecord) =>
+    bookings.find((booking) => String(booking.id || booking._id) === payment.orderId),
+  [bookings]);
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refreshPayments(), refreshBookings()]);
+  }, [refreshBookings, refreshPayments]);
+
+  useFocusEffect(useCallback(() => {
+    void refreshAll();
+    return undefined;
+  }, [refreshAll]));
+
+  const openReceipt = useCallback(async (paymentId: string) => {
     const request = ++receiptRequestRef.current;
-    const previousUri = pdfFileUri;
-    setReceiptModalOrderId(orderId);
-    setReceiptLoadingId(orderId);
+    setReceiptModalPaymentId(paymentId);
+    setReceiptLoadingId(paymentId);
     setReceiptError(null);
-    setPdfFileUri(null);
-    if (previousUri) void deleteAsync(previousUri, { idempotent: true }).catch(() => undefined);
+    setReceipt(null);
     try {
-      const fileUri = await bookingService.saveOrderReceiptPdfToCache(orderId);
+      const data = await paymentService.getMyPaymentReceipt(paymentId);
       if (receiptRequestRef.current !== request) {
-        void deleteAsync(fileUri, { idempotent: true }).catch(() => undefined);
         return;
       }
-      setPdfFileUri(fileUri);
+      setReceipt(data);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Could not open receipt';
       if (receiptRequestRef.current === request) setReceiptError(msg);
     } finally {
       if (receiptRequestRef.current === request) setReceiptLoadingId(null);
     }
-  }, [pdfFileUri]);
+  }, []);
 
-  useEffect(() => {
-    const orderId = String(routeOrderId || '').trim();
-    const routeKey = `${orderId}:${routeOpenReceipt || ''}`;
-    if (!orderId || routeOpenReceipt !== '1' || handledRouteKey.current === routeKey) return;
-    handledRouteKey.current = routeKey;
-    void openReceipt(orderId);
-  }, [openReceipt, routeOpenReceipt, routeOrderId]);
-
-  const closePdfModal = useCallback(() => {
+  const closeReceiptModal = useCallback(() => {
     receiptRequestRef.current += 1;
-    const uri = pdfFileUri;
-    setReceiptModalOrderId(null);
+    setReceiptModalPaymentId(null);
     setReceiptLoadingId(null);
     setReceiptError(null);
-    setPdfFileUri(null);
-    if (uri) void deleteAsync(uri, { idempotent: true }).catch(() => undefined);
-  }, [pdfFileUri]);
+    setReceipt(null);
+  }, []);
 
-  const sharePdfReceipt = useCallback(async () => {
-    if (!pdfFileUri) return;
+  const downloadReceiptPdf = useCallback(async () => {
+    if (!receipt || isExportingReceiptPdf) return;
+    setIsExportingReceiptPdf(true);
     try {
-      if (Platform.OS === 'android') {
-        const contentUri = await getContentUriAsync(pdfFileUri);
-        await Linking.openURL(contentUri);
-        return;
+      const html = buildMobileReceiptHtml(receipt);
+      const { uri } = await Print.printToFileAsync({ html, base64: false });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: mobileReceiptFileName(receipt.receiptNumber),
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        Toast.show('Saving files is not supported on this device.', 'error');
       }
-      await Share.share({
-        url: pdfFileUri,
-        title: 'Payment receipt',
-      });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Could not open receipt';
-      Toast.show(msg, 'error');
+    } catch {
+      Toast.show('The PDF could not be prepared. Please try again.', 'error');
+    } finally {
+      setIsExportingReceiptPdf(false);
     }
-  }, [pdfFileUri]);
+  }, [receipt, isExportingReceiptPdf]);
 
-  const renderEmpty = () => (
-    <Animated.View entering={FadeIn.delay(200)} style={styles.emptyContainer}>
+  const printReceipt = useCallback(async () => {
+    if (!receipt || isPrintingReceipt) return;
+    setIsPrintingReceipt(true);
+    try {
+      await Print.printAsync({ html: buildMobileReceiptHtml(receipt) });
+    } catch {
+      Toast.show('The receipt could not be opened for printing.', 'error');
+    } finally {
+      setIsPrintingReceipt(false);
+    }
+  }, [receipt, isPrintingReceipt]);
+
+  const renderEmptyNoPayments = () => (
+    <Animated.View entering={FadeIn.delay(150)} style={styles.emptyContainer}>
       <View style={[styles.emptyIconWrap, { backgroundColor: colors.cardAlt }]}>
-        <Ionicons name="card-outline" size={48} color={colors.textMuted} />
+        <Ionicons name="card-outline" size={34} color={colors.textMuted} />
       </View>
-      <Text style={[styles.emptyTitle, { color: colors.text }]}>No payment records yet</Text>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>No payments yet</Text>
       <Text style={[styles.emptySub, { color: colors.textMuted }]}>
-        Book a service to see your payment history here.
+        Completed payments and official receipts will appear here.
       </Text>
     </Animated.View>
   );
 
-  const renderError = () => (
-    <Animated.View entering={FadeIn.delay(200)} style={styles.emptyContainer}>
-      <View style={[styles.emptyIconWrap, { backgroundColor: 'rgba(239,68,68,0.1)' }]}>
-        <Ionicons name="cloud-offline-outline" size={48} color={Palette.danger} />
+  const renderEmptyNoResults = () => (
+    <Animated.View entering={FadeIn.delay(100)} style={styles.emptyContainer}>
+      <View style={[styles.emptyIconWrap, { backgroundColor: colors.cardAlt }]}>
+        <Ionicons name="search-outline" size={30} color={colors.textMuted} />
       </View>
-      <Text style={[styles.emptyTitle, { color: colors.text }]}>Unable to Load</Text>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>No matching transactions</Text>
+      <Text style={[styles.emptySub, { color: colors.textMuted }]}>
+        Try a different search or clear your filters.
+      </Text>
+      <TouchableOpacity style={[styles.clearBtn, { borderColor: colors.border }]} onPress={clearFilters}>
+        <Text style={[styles.clearBtnText, { color: colors.text }]}>Clear filters</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+
+  const renderError = () => (
+    <Animated.View entering={FadeIn.delay(150)} style={styles.emptyContainer}>
+      <View style={[styles.emptyIconWrap, { backgroundColor: colors.cardAlt }]}>
+        <Ionicons name="cloud-offline-outline" size={34} color={colors.textMuted} />
+      </View>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>Unable to load</Text>
       <Text style={[styles.emptySub, { color: colors.textMuted }]}>{error}</Text>
       <TouchableOpacity
-        style={[styles.retryBtn, { borderColor: Palette.accent }]}
-        onPress={() => void refreshBookings()}
+        style={[styles.retryBtn, { borderColor: colors.border }]}
+        onPress={() => void refreshAll()}
       >
-        <Ionicons name="refresh" size={16} color={Palette.accent} />
-        <Text style={[styles.retryText, { color: Palette.accent }]}>Retry</Text>
+        <Ionicons name="refresh" size={14} color={colors.text} />
+        <Text style={[styles.retryText, { color: colors.text }]}>Retry</Text>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -381,7 +465,7 @@ export default function PaymentsScreen() {
           styles.backHeader,
           {
             paddingTop: insets.top + 8,
-            backgroundColor: colors.card,
+            backgroundColor: colors.background,
             borderBottomColor: colors.border,
           },
         ]}
@@ -398,7 +482,7 @@ export default function PaymentsScreen() {
 
       {loading ? (
         <PageSkeleton preset="list" rows={4} />
-      ) : error && bookings.length === 0 ? (
+      ) : error && payments.length === 0 ? (
         renderError()
       ) : (
         <FlatList
@@ -407,177 +491,228 @@ export default function PaymentsScreen() {
             styles.content,
             { paddingBottom: insets.bottom + 40, alignItems: 'center' },
           ]}
-          data={visible}
-          keyExtractor={(item, index) => item.id || String(item._id ?? '') || `booking-${index}`}
+          data={filtered}
+          keyExtractor={(item) => item.paymentId}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
               refreshing={isRefetching && !loading}
-              onRefresh={() => void refreshBookings()}
+              onRefresh={() => void refreshAll()}
               tintColor={Palette.accent}
               colors={[Palette.accent]}
             />
           }
           ListHeaderComponent={
-            <View style={{ width: cardWidth, marginBottom: 16 }}>
-              <View style={styles.headerRow}>
-                <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text style={[styles.pageTitle, { color: colors.text }]}>Payment History</Text>
-                  <Text style={[styles.pageSub, { color: colors.textMuted }]}>
-                    All reservation fees and full payments per booking.
-                  </Text>
-                </View>
-                <View style={[styles.countPill, { borderColor: colors.border, backgroundColor: colors.cardAlt }]}>
-                  <Text style={[styles.countPillTxt, { color: colors.textSecondary }]}>
-                    {bookingCount} booking{bookingCount !== 1 ? 's' : ''}
-                  </Text>
+            <View style={{ width: cardWidth, marginBottom: 8 }}>
+              <Text style={[styles.pageSub, { color: colors.textMuted }]}>
+                Review your payments and official receipts.
+              </Text>
+
+              <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.summaryTotalLabel, { color: colors.textSecondary }]}>Total Paid</Text>
+                <Text style={[styles.summaryTotalValue, { color: colors.text }]}>
+                  {formatCurrency(summary.totalPaid)}
+                </Text>
+                <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
+                <View style={styles.summaryRow}>
+                  <View style={styles.summaryCol}>
+                    <Text style={[styles.summaryColLabel, { color: colors.textMuted }]}>Payments</Text>
+                    <Text style={[styles.summaryColValue, { color: colors.text }]}>
+                      {formatCurrency(grossPayments)}
+                    </Text>
+                  </View>
+                  <View style={[styles.summaryColDivider, { backgroundColor: colors.border }]} />
+                  <View style={styles.summaryCol}>
+                    <Text style={[styles.summaryColLabel, { color: colors.textMuted }]}>Refunds</Text>
+                    <Text
+                      style={[
+                        styles.summaryColValue,
+                        { color: summary.refunds > 0 ? (isDark ? PURPLE_DARK : PURPLE) : colors.textMuted },
+                      ]}
+                    >
+                      {formatCurrency(summary.refunds)}
+                    </Text>
+                  </View>
                 </View>
               </View>
 
-              <View style={styles.summaryGrid}>
-                <View style={[styles.summaryCell, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>TOTAL BOOKINGS</Text>
-                  <Text style={[styles.summaryValue, { color: colors.text }]}>{bookingCount}</Text>
-                </View>
-                <View style={[styles.summaryCell, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>PAID RESERVATION FEES</Text>
-                  <Text style={[styles.summaryValue, { color: indigo }]}>{formatCurrency(resvSum)}</Text>
-                </View>
-                <View
-                  style={[
-                    styles.summaryCell,
-                    styles.summaryWide,
-                    { backgroundColor: colors.card, borderColor: colors.border },
-                  ]}
-                >
-                  <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>PAID FULL PAYMENTS</Text>
-                  <Text style={[styles.summaryValue, { color: emerald }]}>{formatCurrency(fullSum)}</Text>
-                </View>
+              <View style={[styles.searchWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Ionicons name="search" size={16} color={colors.textMuted} />
+                <TextInput
+                  style={[styles.searchInput, { color: colors.text }]}
+                  placeholder="Search payments or receipts"
+                  placeholderTextColor={colors.textMuted}
+                  value={query}
+                  onChangeText={setQuery}
+                  returnKeyType="search"
+                  autoCorrect={false}
+                />
+                {query ? (
+                  <TouchableOpacity onPress={() => setQuery('')} hitSlop={8}>
+                    <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
-              <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>YOUR BOOKINGS</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipRow}
+              >
+                {TYPE_FILTERS.map((filter) => (
+                  <FilterChip
+                    key={filter.key}
+                    label={filter.label}
+                    active={typeFilter === filter.key}
+                    onPress={() => setTypeFilter(filter.key)}
+                    colors={colors}
+                    isDark={isDark}
+                  />
+                ))}
+                <View style={[styles.chipSeparator, { backgroundColor: colors.border }]} />
+                {DATE_FILTERS.map((filter) => (
+                  <FilterChip
+                    key={filter.key}
+                    label={filter.label}
+                    active={dateFilter === filter.key}
+                    onPress={() => setDateFilter(filter.key)}
+                    colors={colors}
+                    isDark={isDark}
+                  />
+                ))}
+              </ScrollView>
+
+              {filtersActive ? (
+                <View style={styles.filterSummaryRow}>
+                  <Text style={[styles.filterSummaryText, { color: colors.textMuted }]}>
+                    {filtered.length} matching {filtered.length === 1 ? 'transaction' : 'transactions'}
+                  </Text>
+                  <TouchableOpacity onPress={clearFilters}>
+                    <Text style={[styles.filterClearText, { color: colors.text }]}>Clear filters</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
+              <View style={styles.sectionHeaderRow}>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Transactions</Text>
+                <View style={[styles.countBadge, { backgroundColor: colors.cardAlt }]}>
+                  <Text style={[styles.countBadgeText, { color: colors.textSecondary }]}>{payments.length}</Text>
+                </View>
+              </View>
+              {payments.length > 0 ? (
+                <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
+                  {receiptCount} {receiptCount === 1 ? 'receipt' : 'receipts'} available
+                </Text>
+              ) : null}
             </View>
           }
           renderItem={({ item, index }) => (
             <Animated.View
-              entering={FadeInDown.delay(80 + index * 50).duration(200)}
-              style={{ marginBottom: 14, width: cardWidth }}
+              entering={FadeInDown.delay(60 + index * 40).duration(200)}
+              style={{ marginBottom: 12, width: cardWidth }}
             >
-              <BookingPaymentCard
-                booking={item}
+              <TransactionCard
+                payment={item}
+                booking={bookingForPayment(item)}
                 colors={colors}
                 isDark={isDark}
-                cardWidth={cardWidth}
-                onViewProof={(url) => setProofModalUrl(url)}
                 onViewReceipt={openReceipt}
-                receiptLoading={receiptLoadingId === (item.id || item._id)}
+                receiptLoading={receiptLoadingId === item.paymentId}
               />
             </Animated.View>
           )}
-          ListEmptyComponent={visible.length === 0 && !loading ? renderEmpty : null}
+          ListEmptyComponent={
+            payments.length === 0 ? renderEmptyNoPayments : filtered.length === 0 ? renderEmptyNoResults : null
+          }
         />
       )}
 
       <MotionModal
-        visible={Boolean(proofModalUrl)}
-        onClose={() => setProofModalUrl(null)}
-        contentStyle={styles.modalInner}
-        accessibilityLabel="Payment proof"
-      >
-            <TouchableOpacity style={styles.modalClose} onPress={() => setProofModalUrl(null)}>
-              <Text style={styles.modalCloseTxt}>Close</Text>
-            </TouchableOpacity>
-            {proofModalUrl ? (
-              <Image source={{ uri: proofModalUrl }} style={styles.proofImage} resizeMode="contain" />
-            ) : null}
-      </MotionModal>
-
-      <MotionModal
-        visible={Boolean(receiptModalOrderId)}
-        onClose={closePdfModal}
+        visible={Boolean(receiptModalPaymentId)}
+        onClose={closeReceiptModal}
         dismissOnBackdrop={false}
         fullScreen
         contentStyle={[styles.pdfSheet, { paddingTop: insets.top, backgroundColor: colors.background }]}
-        accessibilityLabel="Payment receipt"
+        accessibilityLabel="Official payment receipt"
       >
-          <View style={[styles.pdfToolbar, { borderBottomColor: colors.border }]}>
-            <Text style={[styles.pdfTitle, { color: colors.text }]}>Payment receipt</Text>
-            <View style={styles.pdfToolbarActions}>
-              {pdfFileUri ? (
-                <TouchableOpacity onPress={() => void sharePdfReceipt()} style={styles.pdfToolbarBtn}>
-                  <Ionicons name="share-outline" size={18} color={Palette.accent} />
-                  <Text style={[styles.pdfToolbarBtnTxt, { color: Palette.accent }]}>Open / Share</Text>
-                </TouchableOpacity>
-              ) : null}
-              <TouchableOpacity onPress={closePdfModal}>
-                <Text style={[styles.pdfCloseTxt, { color: colors.text }]}>Close</Text>
+          <View style={[styles.receiptHeaderArea, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+            <View style={styles.receiptHeaderTopRow}>
+              <Text style={[styles.receiptEyebrow, { color: Palette.accent }]}>BILLING &amp; RECEIPTS</Text>
+              <TouchableOpacity
+                onPress={closeReceiptModal}
+                style={[styles.receiptCloseBtn, { backgroundColor: colors.cardAlt, borderColor: colors.border }]}
+              >
+                <Ionicons name="close" size={16} color={colors.text} />
               </TouchableOpacity>
             </View>
+            <Text style={[styles.receiptHeaderTitle, { color: colors.text }]}>Receipt Details</Text>
+            <Text style={[styles.receiptHeaderSub, { color: colors.textMuted }]}>
+              {receipt?.receiptKind === 'reservation_payment'
+                ? "Your AutoSPF+ reservation payment acknowledgement."
+                : 'Your official AutoSPF+ service receipt.'}
+            </Text>
+            {receipt ? (
+              <View style={styles.receiptActionsRow}>
+                <TouchableOpacity
+                  style={[styles.receiptActionBtn, styles.receiptActionPrimary, isExportingReceiptPdf && styles.receiptActionDisabled]}
+                  onPress={downloadReceiptPdf}
+                  disabled={isExportingReceiptPdf}
+                >
+                  {isExportingReceiptPdf ? (
+                    <PremiumLoader size="small" tone="light" accessibilityLabel="Preparing PDF" />
+                  ) : (
+                    <Ionicons name="download-outline" size={15} color="#fff" />
+                  )}
+                  <Text style={styles.receiptActionPrimaryTxt}>{isExportingReceiptPdf ? 'Preparing…' : 'Download PDF'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.receiptActionBtn,
+                    styles.receiptActionOutline,
+                    { borderColor: colors.border, backgroundColor: colors.card },
+                    isPrintingReceipt && styles.receiptActionDisabled,
+                  ]}
+                  onPress={printReceipt}
+                  disabled={isPrintingReceipt}
+                >
+                  {isPrintingReceipt ? (
+                    <PremiumLoader size="small" accessibilityLabel="Preparing print" />
+                  ) : (
+                    <Ionicons name="print-outline" size={15} color={colors.text} />
+                  )}
+                  <Text style={[styles.receiptActionOutlineTxt, { color: colors.text }]}>
+                    {isPrintingReceipt ? 'Preparing…' : 'Print Receipt'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
           {receiptLoadingId ? (
             <View style={styles.receiptPreparing}>
               <PremiumLoader accessibilityLabel="Preparing payment receipt" />
               <Text style={[styles.pdfFallbackTitle, { color: colors.text }]}>Preparing receipt</Text>
-              <Text style={[styles.pdfFallbackBody, { color: colors.textMuted }]}>The receipt viewer is already open. Your PDF will appear here when it is ready.</Text>
+              <Text style={[styles.pdfFallbackBody, { color: colors.textMuted }]}>Loading the official receipt from your verified payment record.</Text>
             </View>
           ) : receiptError ? (
             <View style={styles.receiptPreparing}>
               <Ionicons name="cloud-offline-outline" size={48} color={Palette.accent} />
               <Text style={[styles.pdfFallbackTitle, { color: colors.text }]}>Receipt unavailable</Text>
               <Text style={[styles.pdfFallbackBody, { color: colors.textMuted }]}>{receiptError}</Text>
-              {receiptModalOrderId ? (
-                <TouchableOpacity onPress={() => void openReceipt(receiptModalOrderId)} style={[styles.pdfFallbackCta, { backgroundColor: Palette.accent }]}>
+              {receiptModalPaymentId ? (
+                <TouchableOpacity onPress={() => void openReceipt(receiptModalPaymentId)} style={[styles.pdfFallbackCta, { backgroundColor: Palette.accent }]}>
                   <Ionicons name="refresh" size={20} color="#fff" />
                   <Text style={styles.pdfFallbackCtaTxt}>Try Again</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
-          ) : pdfFileUri ? (
-            Platform.OS === 'android' ? (
-              <View style={[styles.pdfFallback, { paddingHorizontal: 24 }]}>
-                <Ionicons name="document-text-outline" size={56} color={colors.textMuted} />
-                <Text style={[styles.pdfFallbackTitle, { color: colors.text }]}>
-                  Receipt ready
-                </Text>
-                  <Text style={[styles.pdfFallbackBody, { color: colors.textMuted }]}>
-                  Tap{' '}
-                  <Text style={{ fontWeight: '800', color: colors.text }}>Open / Share</Text> to open
-                  this PDF in your viewer (no extra native modules required).
-                </Text>
-                <TouchableOpacity
-                  onPress={() => void sharePdfReceipt()}
-                  style={[styles.pdfFallbackCta, { backgroundColor: Palette.accent }]}
-                >
-                  <Ionicons name="share-outline" size={20} color="#fff" />
-                  <Text style={styles.pdfFallbackCtaTxt}>Open / Share PDF</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <WebView
-                source={{ uri: pdfFileUri }}
-                style={styles.pdfWeb}
-                originWhitelist={['file://', 'http://*', 'https://*', '*']}
-                allowFileAccess
-                allowingReadAccessToURL={
-                  cacheDirectory ? cacheDirectory : undefined
-                }
-                javaScriptEnabled={false}
-                domStorageEnabled={false}
-                startInLoadingState
-                nestedScrollEnabled
-                onError={() => {
-                  Toast.show('Preview failed — use Open / Share to view the PDF', 'error');
-                }}
-              />
-            )
+          ) : receipt ? (
+            <OfficialPaymentReceipt receipt={receipt} />
           ) : null}
       </MotionModal>
     </View>
   );
 }
-
-const indigo = '#6366F1';
-const emerald = '#059669';
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
@@ -602,128 +737,97 @@ const styles = StyleSheet.create({
   },
   backTitle: { fontSize: 17, fontWeight: '700', flex: 1, textAlign: 'center' },
 
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  pageTitle: { fontSize: 22, fontWeight: '700', letterSpacing: -0.3 },
-  pageSub: { fontSize: 13, marginTop: 4, lineHeight: 18 },
-  countPill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  countPillTxt: { fontSize: 11, fontWeight: '700' },
+  pageSub: { fontSize: 13, lineHeight: 18, marginBottom: 16 },
 
-  summaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 18,
-  },
-  summaryCell: {
-    flexGrow: 1,
-    flexBasis: '47%',
+  summaryCard: {
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
-    padding: 14,
+    padding: 20,
+    marginBottom: 16,
   },
-  summaryWide: {
-    flexBasis: '100%',
-    width: '100%',
-  },
-  summaryLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    marginBottom: 6,
-  },
-  summaryValue: { fontSize: 22, fontWeight: '800' },
+  summaryTotalLabel: { fontSize: 12, fontWeight: '600', marginBottom: 6 },
+  summaryTotalValue: { fontSize: 32, fontWeight: '800', letterSpacing: -0.6, fontVariant: ['tabular-nums'] },
+  summaryDivider: { height: 1, marginVertical: 16 },
+  summaryRow: { flexDirection: 'row', alignItems: 'stretch' },
+  summaryCol: { flex: 1 },
+  summaryColDivider: { width: 1, marginHorizontal: 16 },
+  summaryColLabel: { fontSize: 11, fontWeight: '600', marginBottom: 5 },
+  summaryColValue: { fontSize: 17, fontWeight: '700', fontVariant: ['tabular-nums'] },
 
-  sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 10 },
-
-  bookingCard: {
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-  },
-  orderId: { fontSize: 10, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' },
-  titleRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-  serviceTitle: { fontSize: 14, fontWeight: '700', flex: 1 },
-  metaDate: { fontSize: 10 },
-  metaVehicle: { fontSize: 12, fontWeight: '700', marginTop: 4, maxWidth: 140 },
-
-  payRow: {
+  searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    gap: 12,
-  },
-  payIconWrap: {
-    width: 36,
-    height: 36,
+    gap: 8,
+    borderWidth: 1,
     borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+    height: 42,
+    paddingHorizontal: 12,
+    marginBottom: 10,
   },
-  payTitle: { fontSize: 13, fontWeight: '700' },
-  paySub: { fontSize: 11, marginTop: 2 },
-  payRight: {
-    alignItems: 'flex-end',
-    gap: 6,
-    maxWidth: '42%',
-  },
-  payAmount: { fontSize: 14, fontWeight: '800' },
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  badgeTxt: { fontSize: 10, fontWeight: '800' },
-  linkBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  linkBtnTxt: { fontSize: 10, fontWeight: '700', textDecorationLine: 'underline' },
-  receiptBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  receiptBtnTxt: { fontSize: 10, fontWeight: '800' },
+  searchInput: { flex: 1, fontSize: 13, padding: 0 },
 
-  totalRow: {
+  chipRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2, paddingBottom: 4 },
+  chip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  chipText: { fontSize: 12, fontWeight: '600' },
+  chipSeparator: { width: 1, height: 18, marginHorizontal: 2 },
+
+  filterSummaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
+    marginTop: 10,
   },
-  totalLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2 },
-  totalValue: { fontSize: 17, fontWeight: '800' },
+  filterSummaryText: { fontSize: 11.5 },
+  filterClearText: { fontSize: 11.5, fontWeight: '700', textDecorationLine: 'underline' },
 
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 16,
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 22, marginBottom: 4 },
+  sectionTitle: { fontSize: 15, fontWeight: '700' },
+  countBadge: { minWidth: 22, height: 20, borderRadius: 6, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  countBadgeText: { fontSize: 11, fontWeight: '700' },
+  sectionSubtitle: { fontSize: 12, marginBottom: 12 },
+
+  card: {
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    padding: 18,
   },
-  loadingText: { fontSize: 14, fontWeight: '500' },
+  serviceTitle: { fontSize: 15, fontWeight: '700', lineHeight: 20 },
+  vehicleText: { fontSize: 13, marginTop: 3 },
+  dateText: { fontSize: 11.5, marginTop: 3, marginBottom: 14 },
+
+  line: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    gap: 10,
+  },
+  typeLabel: { fontSize: 13, fontWeight: '600', flexShrink: 1 },
+  amountText: { fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  methodText: { fontSize: 12, flexShrink: 1, marginRight: 8 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  statusDot: { width: 5, height: 5, borderRadius: 3 },
+  statusText: { fontSize: 11.5, fontWeight: '700' },
+
+  receiptCta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 14, alignSelf: 'flex-start' },
+  receiptCtaText: { fontSize: 12.5, fontWeight: '700' },
+
+  unavailableWrap: { marginTop: 14 },
+  unavailableTitle: { fontSize: 11.5, fontWeight: '600' },
+  unavailableDetail: { fontSize: 10.5, marginTop: 2, lineHeight: 14 },
+
+  txnDivider: { height: StyleSheet.hairlineWidth, marginTop: 16, marginBottom: 12 },
+  txnRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  txnLabel: { fontSize: 10.5, marginBottom: 3 },
+  txnValue: { fontSize: 11.5, fontFamily: monoFont },
+  copyBtn: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 5 },
+  copyBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  copyBtnText: { fontSize: 10.5, fontWeight: '700' },
 
   emptyContainer: {
     flexGrow: 1,
@@ -734,31 +838,34 @@ const styles = StyleSheet.create({
     minHeight: 280,
   },
   emptyIconWrap: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
-  emptyTitle: { fontSize: 20, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
-  emptySub: { fontSize: 14, textAlign: 'center', lineHeight: 22 },
+  emptyTitle: { fontSize: 17, fontWeight: '700', marginBottom: 6, textAlign: 'center' },
+  emptySub: { fontSize: 13, textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+  clearBtn: {
+    marginTop: 20,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  clearBtnText: { fontSize: 13, fontWeight: '600' },
   retryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 24,
-    borderWidth: 1.5,
-    borderRadius: 12,
-    paddingHorizontal: 20,
+    marginTop: 20,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 18,
     paddingVertical: 10,
   },
-  retryText: { fontSize: 14, fontWeight: '600' },
-
-  modalInner: { borderRadius: 16, overflow: 'hidden', maxHeight: '88%', backgroundColor: '#111' },
-  modalClose: { alignSelf: 'flex-end', padding: 8, marginBottom: 8 },
-  modalCloseTxt: { fontSize: 14, fontWeight: '700', color: '#fff' },
-  proofImage: { width: '100%', height: 420, backgroundColor: '#111' },
+  retryText: { fontSize: 13, fontWeight: '600' },
 
   pdfSheet: { flex: 1 },
   receiptPreparing: {
@@ -769,28 +876,41 @@ const styles = StyleSheet.create({
     paddingBottom: 48,
     gap: 12,
   },
-  pdfToolbar: {
+  receiptHeaderArea: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  receiptHeaderTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  receiptEyebrow: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.4 },
+  receiptCloseBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  receiptHeaderTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4, marginTop: 4 },
+  receiptHeaderSub: { fontSize: 13, lineHeight: 18, marginTop: 4, marginBottom: 14 },
+  receiptActionsRow: { flexDirection: 'row', gap: 8 },
+  receiptActionBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 8,
-  },
-  pdfToolbarActions: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  pdfToolbarBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  pdfToolbarBtnTxt: { fontSize: 14, fontWeight: '700' },
-  pdfTitle: { fontSize: 16, fontWeight: '800', flex: 1 },
-  pdfCloseTxt: { fontSize: 14, fontWeight: '700' },
-  pdfWeb: { flex: 1, backgroundColor: '#1a1a1a' },
-  pdfFallback: {
-    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    paddingBottom: 48,
-    gap: 12,
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
+  receiptActionPrimary: { backgroundColor: Palette.accent },
+  receiptActionPrimaryTxt: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  receiptActionOutline: { borderWidth: 1 },
+  receiptActionOutlineTxt: { fontSize: 13, fontWeight: '700' },
+  receiptActionDisabled: { opacity: 0.6 },
   pdfFallbackTitle: { fontSize: 20, fontWeight: '800', marginTop: 8 },
   pdfFallbackBody: { fontSize: 14, lineHeight: 22, textAlign: 'center', maxWidth: 340 },
   pdfFallbackCta: {

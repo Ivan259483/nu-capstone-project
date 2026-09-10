@@ -70,6 +70,8 @@ type TrackerMedia = {
   uploadedAt?: string;
   uploadedBy?: string;
   hasPhoto?: boolean;
+  /** Photo is persisted as an inline base64 preview pending Cloudinary backfill — real, but not yet permanent. */
+  photoPending?: boolean;
 };
 
 function mediaHasRenderablePhotoUrl(media?: { photoUrl?: string } | null): boolean {
@@ -83,10 +85,23 @@ function mediaRepresentsSavedPhoto(media?: TrackerMedia | null): boolean {
   return Boolean(media.stage && media.stage !== 'confirmed');
 }
 
-/** Accept only local previews, relative paths, and HTTPS server media. */
+/**
+ * Canonical resolver for a QC evidence tile's displayable image: the live local
+ * preview (while a picked file is uploading) always wins, otherwise the persisted
+ * photoUrl (remote https URL or inline `data:image/` awaiting Cloudinary backfill).
+ * Returns '' when there is genuinely no valid image to show — never a placeholder guess.
+ */
+function resolveEvidenceImageUrl(media: TrackerMedia | undefined | null, previewUrl?: string): string {
+  if (previewUrl) return previewUrl;
+  return String(media?.photoUrl || '').trim();
+}
+
+/** Accept local previews, relative paths, inline image data URIs, and HTTPS server media. */
 function sanitizeInlineTrackerPhotoUrl(url: unknown): string {
   const trimmed = String(url ?? '').trim();
-  if (!trimmed || trimmed.startsWith('data:')) return '';
+  if (!trimmed) return '';
+  if (trimmed.startsWith('data:image/')) return trimmed;
+  if (trimmed.startsWith('data:')) return '';
   if (trimmed.startsWith('blob:') || trimmed.startsWith('/')) return trimmed;
   try {
     const parsed = new URL(trimmed);
@@ -102,7 +117,13 @@ function sanitizeInlineTrackerPhotoUrl(url: unknown): string {
 
 function sanitizeTrackerMediaEntry(entry: TrackerMedia): TrackerMedia {
   const photoUrl = sanitizeInlineTrackerPhotoUrl(entry.photoUrl);
-  if (photoUrl) return { ...entry, photoUrl };
+  if (photoUrl) {
+    return {
+      ...entry,
+      photoUrl,
+      ...(photoUrl.startsWith('data:') ? { photoPending: true } : {}),
+    };
+  }
   if (String(entry.photoUrl || '').startsWith('data:')) {
     return { ...entry, photoUrl: undefined, hasPhoto: entry.hasPhoto ?? true };
   }
@@ -445,7 +466,13 @@ function matchesStageSlotRow(item: TrackerMedia, media: TrackerMedia): boolean {
   return false;
 }
 
-/** Keep in-memory blob previews until a remote https URL is available (avoid swapping in heavy base64). */
+/**
+ * Keep in-memory blob previews until a remote https URL is available (avoid swapping in heavy base64),
+ * and — critically — never let an incoming entry with no renderable URL (e.g. the slim `/qc/jobs`
+ * projection, which omits `photoUrl` for list-payload size reasons) blank out a photo we already
+ * know is saved. A real removal is expressed by the entry disappearing from the list entirely
+ * (see mergeTrackerStageMediaLists), not by a matched row silently losing its URL.
+ */
 function preferTrackerPhotoMerge(existing: TrackerMedia | undefined, incoming: TrackerMedia): TrackerMedia {
   const existingUrl = String(existing?.photoUrl || '').trim();
   const incomingUrl = String(incoming?.photoUrl || '').trim();
@@ -455,6 +482,9 @@ function preferTrackerPhotoMerge(existing: TrackerMedia | undefined, incoming: T
       return { ...incoming, photoUrl: incomingUrl };
     }
     return existing ?? incoming;
+  }
+  if (existingUrl && !incomingUrl) {
+    return { ...incoming, photoUrl: existingUrl, hasPhoto: true, photoPending: existing?.photoPending };
   }
   return incoming;
 }
@@ -1035,7 +1065,7 @@ function CompletedGateEvidenceCard({
           const isChecklist = slot === TRACKER_PREASSESSMENT_SLOT_KEY;
           const isQcForm = slot === TRACKER_QC_FORM_SLOT_KEY;
           const entry = getMediaForSlot(mediaList, gate.id, slot);
-          const photoUrl = String(entry?.photoUrl || '').trim();
+          const photoUrl = resolveEvidenceImageUrl(entry);
           const saved = mediaRepresentsSavedPhoto(entry);
           const label = isChecklist
             ? PREASSESSMENT_SLOT_SHORT
@@ -1584,6 +1614,10 @@ function CurrentGateCard({
   const [uploadingSlots, setUploadingSlots] = useState<Partial<Record<string, boolean>>>({});
   const [removingSlots, setRemovingSlots] = useState<Partial<Record<string, boolean>>>({});
   const [successfulSlots, setSuccessfulSlots] = useState<Partial<Record<string, boolean>>>({});
+  const [failedSlots, setFailedSlots] = useState<Partial<Record<string, boolean>>>({});
+  const [brokenImageSlots, setBrokenImageSlots] = useState<Partial<Record<string, boolean>>>({});
+  const [imgReloadNonce, setImgReloadNonce] = useState<Partial<Record<string, number>>>({});
+  const failedFilesRef = useRef<Partial<Record<string, File>>>({});
 
   const tracker = getTrackerState(job);
   const mediaList = getMediaList(job);
@@ -1642,8 +1676,11 @@ function CurrentGateCard({
     previewUrlsRef.current = {};
     inFlightSlotsRef.current = {};
     pendingSlotRef.current = null;
+    failedFilesRef.current = {};
     setPreviewUrls({});
     setUploadingSlots({});
+    setFailedSlots({});
+    setBrokenImageSlots({});
     setPendingSlot(null);
     clearFilePickerFallback();
     endUploadInteraction();
@@ -1669,6 +1706,16 @@ function CurrentGateCard({
     if (timer) clearTimeout(timer);
     delete successTimersRef.current[slot];
     setSuccessfulSlots((current) => {
+      if (!current[slot]) return current;
+      const next = { ...current };
+      delete next[slot];
+      return next;
+    });
+  };
+
+  const clearSlotFailure = (slot: StaffGateSlotKey) => {
+    delete failedFilesRef.current[slot];
+    setFailedSlots((current) => {
       if (!current[slot]) return current;
       const next = { ...current };
       delete next[slot];
@@ -1709,6 +1756,60 @@ function CurrentGateCard({
     requestAnimationFrame(() => inputRef.current?.click());
   };
 
+  /**
+   * Shared by the file picker and Retry: fires an immediate local preview so the tile
+   * never sits empty, uploads in the background, and on failure keeps that preview up
+   * with a Retry affordance instead of silently reverting to "Photo saved"/empty.
+   */
+  const runSlotUpload = useCallback(
+    async (slot: StaffGateSlotKey, file: File) => {
+      if (inFlightSlotsRef.current[slot]) return;
+      clearSlotFailure(slot);
+      setBrokenImageSlots((current) => {
+        if (!current[slot]) return current;
+        const next = { ...current };
+        delete next[slot];
+        return next;
+      });
+
+      const previewUrl = URL.createObjectURL(file);
+      inFlightSlotsRef.current[slot] = true;
+      failedFilesRef.current[slot] = file;
+      setSlotPreview(slot, previewUrl);
+      setUploadingSlots((current) => ({ ...current, [slot]: true }));
+
+      let result: QCStagePhotoUploadResult = { success: false };
+      try {
+        await waitForNextPaint();
+        result = await onUploadStagePhoto(
+          job.id,
+          { stage: currentStage, slot, file },
+          { skipJobsRefresh: true }
+        );
+      } catch {
+        result = { success: false };
+      } finally {
+        delete inFlightSlotsRef.current[slot];
+        setUploadingSlots((current) => {
+          const next = { ...current };
+          delete next[slot];
+          return next;
+        });
+      }
+
+      if (!result.success) {
+        // Keep the local preview visible — the user's picked photo stays on screen
+        // with a Retry action rather than reverting to an empty/"Photo saved" state.
+        setFailedSlots((current) => ({ ...current, [slot]: true }));
+        return;
+      }
+
+      delete failedFilesRef.current[slot];
+      markSlotSuccess(slot);
+    },
+    [currentStage, job.id, onUploadStagePhoto]
+  );
+
   const handlePhotoSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     clearFilePickerFallback();
     const file = event.target.files?.[0];
@@ -1720,46 +1821,33 @@ function CurrentGateCard({
       endUploadInteraction();
       return;
     }
-    if (inFlightSlotsRef.current[slot]) {
-      endUploadInteraction();
-      return;
-    }
-
-    const previewUrl = URL.createObjectURL(file);
-    inFlightSlotsRef.current[slot] = true;
-    setSlotPreview(slot, previewUrl);
-    setUploadingSlots((current) => ({ ...current, [slot]: true }));
-
-    let result: QCStagePhotoUploadResult = { success: false };
     try {
-      await waitForNextPaint();
-      result = await onUploadStagePhoto(
-        job.id,
-        { stage: currentStage, slot, file },
-        { skipJobsRefresh: true }
-      );
-    } catch {
-      result = { success: false };
+      await runSlotUpload(slot, file);
     } finally {
-      delete inFlightSlotsRef.current[slot];
-      setUploadingSlots((current) => {
-        const next = { ...current };
-        delete next[slot];
-        return next;
-      });
       endUploadInteraction();
     }
+  };
 
-    if (!result.success) {
-      setSlotPreview(slot);
-      return;
-    }
+  const retrySlotUpload = (slot: StaffGateSlotKey) => {
+    const file = failedFilesRef.current[slot];
+    if (!file || inFlightSlotsRef.current[slot]) return;
+    void runSlotUpload(slot, file);
+  };
 
-    markSlotSuccess(slot);
+  /** A saved photoUrl exists but the browser failed to load it — force one fresh attempt. */
+  const retryImageLoad = (slot: StaffGateSlotKey) => {
+    setBrokenImageSlots((current) => {
+      if (!current[slot]) return current;
+      const next = { ...current };
+      delete next[slot];
+      return next;
+    });
+    setImgReloadNonce((current) => ({ ...current, [slot]: (current[slot] || 0) + 1 }));
   };
 
   const removeSlot = async (slot: StaffGateSlotKey) => {
     clearSlotSuccess(slot);
+    clearSlotFailure(slot);
     setRemovingSlots((current) => ({ ...current, [slot]: true }));
     try {
       const ok = await onDeleteTrackerStagePhoto(job.id, { stage: currentStage, slot });
@@ -1859,12 +1947,15 @@ function CurrentGateCard({
           const entry = getMediaForSlot(mediaList, currentStage, slot);
           const filled = mediaRepresentsSavedPhoto(entry);
           const previewUrl = previewUrls[slot];
-          const displayUrl = previewUrl || String(entry?.photoUrl || '').trim();
+          const displayUrl = resolveEvidenceImageUrl(entry, previewUrl);
+          const failed = !!failedSlots[slot];
+          const brokenImage = !!brokenImageSlots[slot] && !failed;
           const canRenderImage = Boolean(displayUrl);
-          const hasVisual = filled || Boolean(previewUrl);
+          const hasVisual = filled || Boolean(previewUrl) || failed;
           const uploading = !!uploadingSlots[slot];
           const removing = !!removingSlots[slot];
           const saved = !!successfulSlots[slot];
+          const pending = !previewUrl && !failed && Boolean(entry?.photoPending) && displayUrl.startsWith('data:');
           const busy = uploading || removing;
           const prompt = slotPromptForStaffGateSlot(currentStage, slot);
           const shortLabel = isChecklist
@@ -1914,7 +2005,21 @@ function CurrentGateCard({
               {hasVisual ? (
                 <div className="relative aspect-[4/3] w-full">
                   {canRenderImage ? (
-                    <img src={displayUrl} alt="" className="h-full w-full object-cover" />
+                    <img
+                      key={`${slot}-${imgReloadNonce[slot] || 0}`}
+                      src={displayUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      onError={() => setBrokenImageSlots((current) => ({ ...current, [slot]: true }))}
+                      onLoad={() =>
+                        setBrokenImageSlots((current) => {
+                          if (!current[slot]) return current;
+                          const next = { ...current };
+                          delete next[slot];
+                          return next;
+                        })
+                      }
+                    />
                   ) : (
                     <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-50 px-3 text-center text-slate-500">
                       {detailsLoading ? (
@@ -1932,13 +2037,37 @@ function CurrentGateCard({
                       <Loader2 className="h-6 w-6 animate-spin" />
                     </div>
                   ) : null}
-                  {saved ? (
+                  {!uploading && (failed || brokenImage) ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-slate-950/60 px-3 text-center text-white">
+                      <AlertTriangle className="h-5 w-5" strokeWidth={2} />
+                      <span className="text-[10px] font-bold leading-snug">
+                        {failed ? 'Upload failed' : 'Unable to load photo'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => (failed ? retrySlotUpload(slot) : retryImageLoad(slot))}
+                        className="rounded-full bg-white px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-slate-900"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : null}
+                  {saved && !failed && !brokenImage ? (
                     <div
                       className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-white shadow-[0_8px_18px_-8px_rgba(16,185,129,0.8)]"
                       aria-live="polite"
                     >
                       <CheckCircle2 className="h-3 w-3" strokeWidth={2.5} />
                       Saved
+                    </div>
+                  ) : null}
+                  {pending && !uploading && !failed && !brokenImage ? (
+                    <div
+                      className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-amber-500 px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-white shadow-[0_8px_18px_-8px_rgba(245,158,11,0.7)]"
+                      aria-live="polite"
+                    >
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Processing
                     </div>
                   ) : null}
                 </div>
