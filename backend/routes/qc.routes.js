@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate, authorize } from '../middleware/auth.middleware.js';
 import {
   getQCJobs,
+  getQCJobDetail,
   approveJob,
   returnJob,
   updateQCChecklist,
@@ -29,6 +30,13 @@ const QC_ALLOWED_ROLES = ['staff_quality_checker', 'administrator', 'office_admi
  * @access  QC Checker, Admin
  */
 router.get('/jobs', authorize(...QC_ALLOWED_ROLES), getQCJobs);
+
+/**
+ * @route   GET /api/qc/jobs/:id/detail
+ * @desc    Lightweight background hydration for one visible QC job
+ * @access  QC Checker, Admin
+ */
+router.get('/jobs/:id/detail', authorize(...QC_ALLOWED_ROLES), getQCJobDetail);
 
 /**
  * @route   GET /api/qc/dashboard/stats

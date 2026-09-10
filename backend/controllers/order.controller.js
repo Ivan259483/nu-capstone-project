@@ -1591,9 +1591,29 @@ export const getOrderApprovalPreview = async (req, res, next) => {
  */
 export const getOrderGcashProofFields = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id)
-      .select('customer assignedDetailer downpaymentProof paymentProofUrl status archived')
-      .lean();
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Order id is invalid' });
+    }
+
+    const [order] = await Order.aggregate([
+      { $match: { _id: new mongoose.Types.ObjectId(req.params.id) } },
+      {
+        $project: {
+          customer: 1,
+          assignedDetailer: 1,
+          status: 1,
+          archived: 1,
+          proofImage: {
+            $cond: [
+              { $gt: [{ $strLenCP: { $ifNull: ['$paymentProofUrl', ''] } }, 0] },
+              '$paymentProofUrl',
+              '$downpaymentProof',
+            ],
+          },
+        },
+      },
+      { $limit: 1 },
+    ]).option({ maxTimeMS: 5_000 });
 
     if (!order) {
       return res.status(404).json({
@@ -1609,16 +1629,20 @@ export const getOrderGcashProofFields = async (req, res, next) => {
       });
     }
 
-    const reservationPayment = await Payment.findOne({
-      order: order._id,
-      transactionType: 'reservation_fee',
-    }).select('proofImage').lean();
-    const downpaymentProof = order.downpaymentProof || reservationPayment?.proofImage || null;
-    const paymentProofUrl = order.paymentProofUrl || reservationPayment?.proofImage || null;
+    let paymentProofUrl = order.proofImage || null;
+    if (!paymentProofUrl) {
+      const reservationPayment = await Payment.findOne({
+        order: order._id,
+        transactionType: 'reservation_fee',
+      }).select('proofImage').lean();
+      paymentProofUrl = reservationPayment?.proofImage || null;
+    }
 
     res.json({
       success: true,
-      data: { downpaymentProof, paymentProofUrl },
+      // Return one canonical copy. Older responses duplicated the same base64
+      // string in both fields, doubling JSON parsing and transfer work.
+      data: { paymentProofUrl },
     });
   } catch (error) {
     next(error);

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ScanSearch, AlertTriangle, CheckCircle2, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
+import { getQCThumbnailUrl } from '@/lib/qc-image';
 
 interface AIDetection {
   id: string;
@@ -75,7 +76,7 @@ export default function QCAIDetectionCard({ detection }: { detection: AIDetectio
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="relative rounded-xl overflow-hidden bg-slate-100 ring-1 ring-slate-200/60">
               {detection.imageUrl ? (
-                <img src={detection.imageUrl} alt={detection.imageAlt} className="w-full h-44 object-cover" />
+                <img src={getQCThumbnailUrl(detection.imageUrl)} alt={detection.imageAlt} loading="lazy" decoding="async" fetchPriority="low" className="w-full h-44 object-cover" />
               ) : (
                 <div className="w-full h-44 flex items-center justify-center">
                   <ScanSearch size={28} className="text-slate-300" />

@@ -635,6 +635,11 @@ orderSchema.index({
   updatedAt: -1,
 }); // Sales balance/pickup queue by stage
 orderSchema.index({ archived: 1, status: 1, createdAt: -1 }); // Active QC jobs by archive flag + recency
+// QC queue equivalents: `_id` is MongoDB's built-in orderId index, `customer`
+// is the persisted customerId, and serviceTrackingStage/qcCompletedAt are the
+// authoritative serviceStage/qcStatus fields used by this schema.
+orderSchema.index({ assignedDetailer: 1, archived: 1, status: 1, createdAt: -1 }); // Scoped QC queue
+orderSchema.index({ archived: 1, serviceTrackingStage: 1, qcCompletedAt: -1, updatedAt: -1 }); // QC stage/outcome reads
 orderSchema.index({ status: 1, archived: 1, createdAt: -1 }); // Admin status + recency (getAllOrders)
 orderSchema.index({ bookingDate: 1, bookingTime: 1, status: 1 }); // Available slots lookup
 // Slot service filters { status: $in, bookingDate: $in } — prefix { bookingDate: 1 } is used; kept explicit for Atlas/SRV planners

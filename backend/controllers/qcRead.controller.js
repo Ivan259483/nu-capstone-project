@@ -375,16 +375,20 @@ const buildStatsData = async (scopeMatch, range) => {
   };
 };
 
+export const readQCStats = async (req, rangeDays = 14) => {
+  const range = resolveTrendRange(rangeDays);
+  const scopeMatch = resolveQcScopeFilter(req);
+  const cacheKey = `qc:stats:${getScopeCacheKey(scopeMatch)}:days:${range.safeDays}`;
+  return getOrSetResponseCache(
+    cacheKey,
+    QC_STATS_CACHE_TTL_MS,
+    () => buildStatsData(scopeMatch, range)
+  );
+};
+
 export const getQCStatsOptimized = async (req, res, next) => {
   try {
-    const range = resolveTrendRange(req.query.rangeDays || req.query.days || 14);
-    const scopeMatch = resolveQcScopeFilter(req);
-    const cacheKey = `qc:stats:${getScopeCacheKey(scopeMatch)}:days:${range.safeDays}`;
-    const cached = await getOrSetResponseCache(
-      cacheKey,
-      QC_STATS_CACHE_TTL_MS,
-      () => buildStatsData(scopeMatch, range)
-    );
+    const cached = await readQCStats(req, req.query.rangeDays || req.query.days || 14);
     res.setHeader?.('X-Response-Cache', cached.status);
     return res.json({ success: true, data: cached.value });
   } catch (error) {
@@ -409,101 +413,108 @@ const decodeActivityCursor = (value) => {
   }
 };
 
-export const getQCActivityOptimized = async (req, res, next) => {
-  try {
-    const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 20, 1), 50);
-    const rawCursor = String(req.query.cursor || '').trim();
-    const cursor = decodeActivityCursor(rawCursor);
-    if (rawCursor && !cursor) {
-      return res.status(400).json({ success: false, message: 'Invalid activity cursor.' });
+export const readQCActivity = async (req, options = {}) => {
+  const limit = Math.min(Math.max(Number.parseInt(options.limit, 10) || 20, 1), 50);
+  const rawCursor = String(options.cursor || '').trim();
+  const cursor = decodeActivityCursor(rawCursor);
+  if (rawCursor && !cursor) return null;
+
+  const scopeMatch = resolveQcScopeFilter(req);
+  const cacheKey = `qc:activity:${getScopeCacheKey(scopeMatch)}:limit:${limit}:cursor:${rawCursor || 'first'}`;
+  return getOrSetResponseCache(cacheKey, QC_ACTIVITY_CACHE_TTL_MS, async () => {
+    const filters = [
+      { archived: false },
+      scopeMatch,
+      {
+        $or: [
+          { qcCompletedAt: { $exists: true, $ne: null } },
+          { serviceTrackingStage: { $in: QC_APPROVED_TRACKER_STAGES } },
+          { status: { $in: QC_APPROVED_ORDER_STATUSES } },
+          { 'staffNotes.content': RETURN_NOTE_PATTERN },
+        ],
+      },
+    ];
+    if (cursor) {
+      filters.push({
+        $or: [
+          { updatedAt: { $lt: cursor.updatedAt } },
+          { updatedAt: cursor.updatedAt, _id: { $lt: cursor.id } },
+        ],
+      });
     }
 
-    const scopeMatch = resolveQcScopeFilter(req);
-    const cacheKey = `qc:activity:${getScopeCacheKey(scopeMatch)}:limit:${limit}:cursor:${rawCursor || 'first'}`;
-    const cached = await getOrSetResponseCache(cacheKey, QC_ACTIVITY_CACHE_TTL_MS, async () => {
-      const filters = [
-        { archived: false },
-        scopeMatch,
-        {
-          $or: [
-            { qcCompletedAt: { $exists: true, $ne: null } },
-            { serviceTrackingStage: { $in: QC_APPROVED_TRACKER_STAGES } },
-            { status: { $in: QC_APPROVED_ORDER_STATUSES } },
-            { 'staffNotes.content': RETURN_NOTE_PATTERN },
-          ],
-        },
-      ];
-      if (cursor) {
-        filters.push({
-          $or: [
-            { updatedAt: { $lt: cursor.updatedAt } },
-            { updatedAt: cursor.updatedAt, _id: { $lt: cursor.id } },
-          ],
-        });
-      }
+    const rows = await Order.find({ $and: filters })
+      .select([
+        'orderNumber',
+        'bookingReference',
+        'customerName',
+        'vehicleYear',
+        'vehicleMake',
+        'vehicleModel',
+        'serviceType',
+        'staffNotes.content',
+        'staffNotes.detailerName',
+        'staffNotes.createdAt',
+        'qcCompletedAt',
+        'serviceTrackingStage',
+        'serviceTrackingUpdatedAt',
+        'updatedAt',
+      ].join(' '))
+      .sort({ updatedAt: -1, _id: -1 })
+      .limit(limit + 1)
+      .maxTimeMS(5_000)
+      .lean();
 
-      const rows = await Order.find({ $and: filters })
-        .select([
-          'orderNumber',
-          'bookingReference',
-          'customerName',
-          'vehicleYear',
-          'vehicleMake',
-          'vehicleModel',
-          'serviceType',
-          'staffNotes.content',
-          'staffNotes.detailerName',
-          'staffNotes.createdAt',
-          'qcCompletedAt',
-          'serviceTrackingStage',
-          'serviceTrackingUpdatedAt',
-          'updatedAt',
-        ].join(' '))
-        .sort({ updatedAt: -1, _id: -1 })
-        .limit(limit + 1)
-        .maxTimeMS(5_000)
-        .lean();
-
-      const hasMore = rows.length > limit;
-      const pageRows = hasMore ? rows.slice(0, limit) : rows;
-      const data = pageRows.map((order) => {
-        const returnNote = [...(order.staffNotes || [])]
-          .reverse()
-          .find((note) => RETURN_NOTE_PATTERN.test(String(note.content || '')));
-        const approvalTimestamp = order.qcCompletedAt
-          || (QC_APPROVED_TRACKER_STAGES.includes(order.serviceTrackingStage)
-            ? order.serviceTrackingUpdatedAt || order.updatedAt
-            : order.updatedAt);
-
-        return {
-          id: String(order._id),
-          jobId: order.orderNumber || order.bookingReference || String(order._id),
-          type: returnNote ? 'returned' : 'approved',
-          customer: order.customerName || 'Unknown',
-          vehicle: [order.vehicleYear, order.vehicleMake, order.vehicleModel]
-            .filter(Boolean)
-            .join(' ') || 'Unknown Vehicle',
-          service: order.serviceType || 'Service',
-          actor: returnNote?.detailerName || 'QC Checker',
-          timestamp: new Date(returnNote?.createdAt || approvalTimestamp || order.updatedAt).toISOString(),
-          note: returnNote
-            ? String(returnNote.content || '').replace(/^\[QC_RETURN\]\s*/i, '')
-            : null,
-        };
-      });
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const data = pageRows.map((order) => {
+      const returnNote = [...(order.staffNotes || [])]
+        .reverse()
+        .find((note) => RETURN_NOTE_PATTERN.test(String(note.content || '')));
+      const approvalTimestamp = order.qcCompletedAt
+        || (QC_APPROVED_TRACKER_STAGES.includes(order.serviceTrackingStage)
+          ? order.serviceTrackingUpdatedAt || order.updatedAt
+          : order.updatedAt);
 
       return {
-        data,
-        pagination: {
-          limit,
-          hasMore,
-          nextCursor: hasMore && pageRows.length
-            ? encodeActivityCursor(pageRows[pageRows.length - 1])
-            : null,
-        },
+        id: String(order._id),
+        jobId: order.orderNumber || order.bookingReference || String(order._id),
+        type: returnNote ? 'returned' : 'approved',
+        customer: order.customerName || 'Unknown',
+        vehicle: [order.vehicleYear, order.vehicleMake, order.vehicleModel]
+          .filter(Boolean)
+          .join(' ') || 'Unknown Vehicle',
+        service: order.serviceType || 'Service',
+        actor: returnNote?.detailerName || 'QC Checker',
+        timestamp: new Date(returnNote?.createdAt || approvalTimestamp || order.updatedAt).toISOString(),
+        note: returnNote
+          ? String(returnNote.content || '').replace(/^\[QC_RETURN\]\s*/i, '')
+          : null,
       };
     });
 
+    return {
+      data,
+      pagination: {
+        limit,
+        hasMore,
+        nextCursor: hasMore && pageRows.length
+          ? encodeActivityCursor(pageRows[pageRows.length - 1])
+          : null,
+      },
+    };
+  });
+};
+
+export const getQCActivityOptimized = async (req, res, next) => {
+  try {
+    const cached = await readQCActivity(req, {
+      limit: req.query.limit,
+      cursor: req.query.cursor,
+    });
+    if (!cached) {
+      return res.status(400).json({ success: false, message: 'Invalid activity cursor.' });
+    }
     res.setHeader?.('X-Response-Cache', cached.status);
     return res.json({ success: true, ...cached.value });
   } catch (error) {

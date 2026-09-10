@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { ArrowLeft, AlertTriangle, CheckCircle2, RotateCcw, User, Wrench, Camera, Clock, Car, Radio, ShieldCheck } from 'lucide-react';
 import QCStatusBadge from './QCStatusBadge';
 import QCImageComparisonSlider from './QCImageComparisonSlider';
@@ -14,17 +14,29 @@ interface Props {
   onApprove: (id: string) => Promise<boolean>;
   onReturn: (id: string, reason: string) => Promise<boolean>;
   onOpenLiveTracker?: () => void;
+  onLoadDetails?: (id: string) => Promise<QCJob | null>;
 }
 
-export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onReturn, onOpenLiveTracker }: Props) {
+export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onReturn, onOpenLiveTracker, onLoadDetails }: Props) {
   const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
 
   // Find the job from the live jobs list
   const job = useMemo(() => jobs.find((j) => j.id === jobId), [jobs, jobId]);
   const rawCustomerNote = job?.customerNotes || job?.notes || '';
   const customerNoteText = formatBookingNoteForDisplay(rawCustomerNote);
   const customerNoteUnavailable = Boolean(rawCustomerNote.trim()) && !customerNoteText;
+
+  useEffect(() => {
+    if (!jobId || !onLoadDetails) return;
+    let active = true;
+    setDetailsLoading(true);
+    void onLoadDetails(jobId).finally(() => {
+      if (active) setDetailsLoading(false);
+    });
+    return () => { active = false; };
+  }, [jobId, onLoadDetails]);
 
   // Fallback: job not found
   if (!job) {
@@ -177,6 +189,8 @@ export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onRetu
                 afterSrc={afterSrc}
                 afterAlt={`${job.vehicle} after`}
               />
+            ) : detailsLoading ? (
+              <div className="h-[380px] animate-pulse bg-slate-100" aria-label="Loading QC photo thumbnails" />
             ) : (
               <div className="flex flex-col items-center justify-center py-14 text-center text-slate-400 bg-slate-50">
                 <Camera size={32} className="mb-3 opacity-30" />

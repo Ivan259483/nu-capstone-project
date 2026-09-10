@@ -490,6 +490,7 @@ export default function QCDashboardPanel() {
     saveQCHandoffSheet,
     addStaffNote,
     ensureJobLoaded,
+    loadJobDetails,
   } = useQCData({
     loadSummary: loadQcSummary,
     statsRangeDays,
@@ -679,6 +680,7 @@ export default function QCDashboardPanel() {
             onApprove={approveJob}
             onReturn={returnJob}
             onOpenLiveTracker={() => selectedJobId && handleOpenJobInLiveTracker(selectedJobId)}
+            onLoadDetails={loadJobDetails}
           />
         );
 
@@ -699,6 +701,7 @@ export default function QCDashboardPanel() {
             onAddStaffNote={addStaffNote}
             onSaveQCHandoffSheet={saveQCHandoffSheet}
             onPersistQcChecklist={(orderId, items) => updateChecklist(orderId, items, { quiet: true })}
+            onLoadJobDetails={loadJobDetails}
           />
         );
 

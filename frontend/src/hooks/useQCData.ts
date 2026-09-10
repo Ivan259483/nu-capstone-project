@@ -31,6 +31,7 @@ export interface QCJob {
   jobId: string;
   orderStatus?: string;
   serviceTrackingStage?: string | null;
+  serviceTrackingUpdatedAt?: string | null;
   posQueueStatus?: string | null;
   readyForPickupEvidenceComplete?: boolean;
   readyForPaymentAt?: string | null;
@@ -142,6 +143,7 @@ const REQUEST_DEDUPE_MS = 5_000;
 const STATS_CACHE_MAX_AGE_MS = 30_000;
 const ACTIVITY_CACHE_MAX_AGE_MS = 10_000;
 const TECHNICIAN_CACHE_MAX_AGE_MS = 60_000;
+const QC_SLOW_SYNC_NOTICE_MS = 5_000;
 /** After stage-photo upload, skip socket-driven /qc/jobs refetch to avoid modal remount/flicker. */
 let qcSocketJobsRefetchPausedUntil = 0;
 
@@ -158,6 +160,14 @@ type CacheEntry<T> = {
   data?: T;
   inFlight?: Promise<T>;
   updatedAt: number;
+};
+
+type QCJobsRead = {
+  jobs: QCJob[];
+  summary?: {
+    stats?: QCStats;
+    activity?: QCActivityItem[];
+  };
 };
 
 const qcRequestCache = new Map<string, CacheEntry<any>>();
@@ -575,17 +585,53 @@ export function useQCData({
     const blockingUi = !silent && !qcJobsHydratedRef.current;
     const shouldResolveInitialLoading = !qcJobsHydratedRef.current;
     if (blockingUi) setJobsLoading(true);
+    const includeSummary = loadSummary && !silent;
+    let slowSyncTimer: ReturnType<typeof setTimeout> | null = null;
+    if (!silent) {
+      slowSyncTimer = setTimeout(() => {
+        toast.info('QC data is still syncing. You may continue reviewing.', {
+          id: 'qc-data-still-syncing',
+          duration: 6000,
+        });
+      }, QC_SLOW_SYNC_NOTICE_MS);
+    }
 
     try {
-      const nextJobs = await dedupedRequest<QCJob[]>(jobsRequestKey, async () => {
-        const res = await api.get('/qc/jobs', {
-          params: { page: 1, limit: QC_JOBS_LIMIT, scope: requestScope },
-          meta: { suppressErrorToast: true, suppressCancelLog: true },
-        } as any);
-        return res.data?.success ? (res.data.jobs ?? res.data.data ?? []) : [];
-      });
+      const read = await dedupedRequest<QCJobsRead>(
+        `${jobsRequestKey}:summary=${includeSummary ? normalizedRangeDays : 'none'}`,
+        async () => {
+          const res = await api.get('/qc/jobs', {
+            params: {
+              page: 1,
+              limit: QC_JOBS_LIMIT,
+              scope: requestScope,
+              includeSummary,
+              rangeDays: normalizedRangeDays,
+            },
+            meta: { suppressErrorToast: true, suppressCancelLog: true },
+          } as any);
+          return {
+            jobs: res.data?.success ? (res.data.jobs ?? res.data.data ?? []) : [],
+            summary: res.data?.summary,
+          };
+        }
+      );
+      const nextJobs = read.jobs;
+
+      if (read.summary?.stats) setStats(read.summary.stats);
+      if (Array.isArray(read.summary?.activity)) setActivity(read.summary.activity);
+      if (includeSummary) {
+        setStatsLoading(false);
+        setActivityLoading(false);
+      }
 
       if (nextJobs.length > 0) {
+        // Keep the warm-start key independent from the optional summary payload.
+        // Subsequent mounts can paint cached jobs immediately while revalidating.
+        qcRequestCache.set(jobsRequestKey, {
+          data: nextJobs,
+          updatedAt: Date.now(),
+        });
         rememberNonEmptyQcJobs(nextJobs);
         jobsRef.current = nextJobs;
         setJobs(nextJobs);
@@ -593,6 +639,10 @@ export function useQCData({
         // Silent upload/socket refreshes can transiently return empty while the backend settles.
         // Keep the current live lane visible until a non-silent fetch confirms true emptiness.
       } else {
+        qcRequestCache.set(jobsRequestKey, {
+          data: [],
+          updatedAt: Date.now(),
+        });
         lastKnownNonEmptyQcJobs = [];
         clearPersistedQcJobsSnapshot();
         jobsRef.current = [];
@@ -603,11 +653,16 @@ export function useQCData({
       if (isCanceledRequest(err)) return;
       if (!silent) console.error('[QC] Failed to fetch jobs:', err.message);
     } finally {
+      if (slowSyncTimer) clearTimeout(slowSyncTimer);
+      if (includeSummary) {
+        setStatsLoading(false);
+        setActivityLoading(false);
+      }
       if (blockingUi || shouldResolveInitialLoading) {
         setJobsLoading(false);
       }
     }
-  }, [jobsRequestKey, requestScope]);
+  }, [jobsRequestKey, loadSummary, normalizedRangeDays, requestScope]);
 
   const ensureJobLoaded = useCallback(async (orderId: string): Promise<boolean> => {
     const id = String(orderId || '').trim();
@@ -635,6 +690,50 @@ export function useQCData({
       return true;
     } catch (error) {
       return false;
+    }
+  }, []);
+
+  const loadJobDetails = useCallback(async (orderId: string): Promise<QCJob | null> => {
+    const id = String(orderId || '').trim();
+    if (!id) return null;
+    let slowSyncTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      toast.info('QC data is still syncing. You may continue reviewing.', {
+        id: 'qc-data-still-syncing',
+        duration: 6000,
+      });
+    }, QC_SLOW_SYNC_NOTICE_MS);
+
+    try {
+      const detail = await dedupedRequest<Partial<QCJob> | null>(
+        `qc-job-detail:${id}`,
+        async () => {
+          const response = await api.get(`/qc/jobs/${encodeURIComponent(id)}/detail`, {
+            meta: { suppressErrorToast: true, suppressCancelLog: true },
+          } as any);
+          return response.data?.success ? response.data.data : null;
+        },
+        15_000
+      );
+      if (!detail) return null;
+
+      const base = jobsRef.current.find((job) => String(job.id) === id);
+      if (!base) return detail as QCJob;
+      const merged = { ...base, ...detail } as QCJob;
+      setJobs((current) => {
+        const next = current.map((job) => String(job.id) === id ? merged : job);
+        jobsRef.current = next;
+        rememberNonEmptyQcJobs(next);
+        return next;
+      });
+      return merged;
+    } catch (error: any) {
+      if (!isCanceledRequest(error)) {
+        console.error('[QC] Failed to hydrate job details:', error?.message || error);
+      }
+      return null;
+    } finally {
+      if (slowSyncTimer) clearTimeout(slowSyncTimer);
+      slowSyncTimer = null;
     }
   }, []);
 
@@ -735,7 +834,8 @@ export function useQCData({
       return;
     }
 
-    refetchSummary(false);
+    // The first jobs request carries stats + activity in one bootstrap payload.
+    // Polls stay split and silent so a slow summary refresh never holds the queue.
     resetSummaryPoll();
 
     return () => {
@@ -908,7 +1008,8 @@ export function useQCData({
           } as any);
           const postData = postRes?.data?.data;
           let trackerStageMedia = normalizeQcTrackerMediaList(postData?.trackerStageMedia);
-          let savedMedia = findSavedTrackerMedia(trackerStageMedia, payload.stage, payload.slot);
+          let savedMedia = normalizeQcTrackerMediaEntry(postData?.savedMedia)
+            || findSavedTrackerMedia(trackerStageMedia, payload.stage, payload.slot);
 
           if (!savedMedia) {
             try {
@@ -930,6 +1031,7 @@ export function useQCData({
             patchJobTrackerMedia(orderId, nextMedia);
             trackerStageMedia = nextMedia;
           }
+          qcRequestCache.delete(`qc-job-detail:${orderId}`);
 
           console.log('[QC Upload Debug] Stage photo upload succeeds', {
             orderId,
@@ -1100,5 +1202,6 @@ export function useQCData({
     assignServiceStaff,
     saveQCHandoffSheet,
     addStaffNote,
+    loadJobDetails,
   };
 }

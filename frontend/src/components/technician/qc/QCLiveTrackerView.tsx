@@ -33,7 +33,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { QCJob, QCStagePhotoUploadResult } from '@/hooks/useQCData';
-import { OrderService } from '@/lib/order-service';
 import type { ServiceStage } from './QCServiceControlPanel';
 import {
   TRACKER_PHOTO_SLOT_SHORT,
@@ -61,6 +60,7 @@ import {
   getTrackerPipelineProgressPct,
 } from '@/lib/tracker-pipeline-progress';
 import { filterQCJobsBySearch } from '@/lib/qc-job-search';
+import { getQCThumbnailUrl } from '@/lib/qc-image';
 
 type TrackerMedia = {
   stage?: string;
@@ -821,9 +821,12 @@ function EvidenceThumbnail({ job, compact = false }: { job: QCJob; compact?: boo
 
   return (
     <img
-      src={photoUrl}
+      src={getQCThumbnailUrl(photoUrl)}
       alt={`Latest evidence for ${formatVehicle(job)}`}
       onError={() => setFailed(true)}
+      loading="lazy"
+      decoding="async"
+      fetchPriority="low"
       className={`qc-live-evidence-media rounded-xl object-cover ${compact ? 'h-16 w-24 shrink-0' : 'aspect-[16/7] w-full'}`}
     />
   );
@@ -1625,6 +1628,7 @@ function CurrentGateCard({
   const [failedSlots, setFailedSlots] = useState<Partial<Record<string, boolean>>>({});
   const [brokenImageSlots, setBrokenImageSlots] = useState<Partial<Record<string, boolean>>>({});
   const [imgReloadNonce, setImgReloadNonce] = useState<Partial<Record<string, number>>>({});
+  const [fullImage, setFullImage] = useState<{ src: string; label: string } | null>(null);
   const failedFilesRef = useRef<Partial<Record<string, File>>>({});
 
   const tracker = getTrackerState(job);
@@ -1708,6 +1712,15 @@ function CurrentGateCard({
       endUploadInteraction();
     };
   }, [clearFilePickerFallback, endUploadInteraction]);
+
+  useEffect(() => {
+    if (!fullImage) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFullImage(null);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [fullImage]);
 
   const clearSlotSuccess = (slot: StaffGateSlotKey) => {
     const timer = successTimersRef.current[slot];
@@ -1813,6 +1826,11 @@ function CurrentGateCard({
       }
 
       delete failedFilesRef.current[slot];
+      const persistedUrl = String(result.savedMedia?.photoUrl || result.photoUrl || '').trim();
+      if (persistedUrl && !persistedUrl.startsWith('data:')) {
+        // Hand rendering back to the cached thumbnail once permanent storage is confirmed.
+        setSlotPreview(slot);
+      }
       markSlotSuccess(slot);
     },
     [currentStage, job.id, onUploadStagePhoto]
@@ -1873,6 +1891,7 @@ function CurrentGateCard({
   };
 
   return (
+    <>
     <section className="qc-live-panel rounded-[32px] bg-white/95 p-5 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
       {!readOnly ? (
         <input
@@ -2013,21 +2032,31 @@ function CurrentGateCard({
               {hasVisual ? (
                 <div className="relative aspect-[4/3] w-full">
                   {canRenderImage ? (
-                    <img
-                      key={`${slot}-${imgReloadNonce[slot] || 0}`}
-                      src={displayUrl}
-                      alt=""
-                      className="h-full w-full object-cover"
-                      onError={() => setBrokenImageSlots((current) => ({ ...current, [slot]: true }))}
-                      onLoad={() =>
-                        setBrokenImageSlots((current) => {
-                          if (!current[slot]) return current;
-                          const next = { ...current };
-                          delete next[slot];
-                          return next;
-                        })
-                      }
-                    />
+                    <button
+                      type="button"
+                      className="h-full w-full"
+                      onClick={() => setFullImage({ src: displayUrl, label: `${shortLabel} evidence` })}
+                      aria-label={`Open full-resolution ${shortLabel} evidence`}
+                    >
+                      <img
+                        key={`${slot}-${imgReloadNonce[slot] || 0}`}
+                        src={getQCThumbnailUrl(displayUrl)}
+                        alt=""
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                        fetchPriority="low"
+                        onError={() => setBrokenImageSlots((current) => ({ ...current, [slot]: true }))}
+                        onLoad={() =>
+                          setBrokenImageSlots((current) => {
+                            if (!current[slot]) return current;
+                            const next = { ...current };
+                            delete next[slot];
+                            return next;
+                          })
+                        }
+                      />
+                    </button>
                   ) : (
                     <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-50 px-3 text-center text-slate-500">
                       {detailsLoading ? (
@@ -2041,8 +2070,9 @@ function CurrentGateCard({
                     </div>
                   )}
                   {uploading ? (
-                    <div className="absolute inset-0 flex items-center justify-center bg-slate-950/35 text-white">
+                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/35 text-white" aria-live="polite">
                       <Loader2 className="h-6 w-6 animate-spin" />
+                      <span className="text-[10px] font-black uppercase tracking-[0.1em]">Uploading...</span>
                     </div>
                   ) : null}
                   {!uploading && (failed || brokenImage) ? (
@@ -2060,13 +2090,13 @@ function CurrentGateCard({
                       </button>
                     </div>
                   ) : null}
-                  {saved && !failed && !brokenImage ? (
+                  {(saved || (filled && !entry?.photoPending)) && !uploading && !failed && !brokenImage ? (
                     <div
                       className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-white shadow-[0_8px_18px_-8px_rgba(16,185,129,0.8)]"
                       aria-live="polite"
                     >
                       <CheckCircle2 className="h-3 w-3" strokeWidth={2.5} />
-                      Saved
+                      Verified
                     </div>
                   ) : null}
                   {pending && !uploading && !failed && !brokenImage ? (
@@ -2137,6 +2167,34 @@ function CurrentGateCard({
         </p>
       </div>
     </section>
+    {fullImage && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-label={fullImage.label}
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setFullImage(null);
+            }}
+          >
+            <div className="relative max-h-[92vh] max-w-[92vw] overflow-hidden rounded-2xl bg-slate-950 shadow-2xl">
+              <button
+                type="button"
+                onClick={() => setFullImage(null)}
+                autoFocus
+                className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-slate-900 shadow-lg"
+                aria-label="Close full-resolution photo"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <img src={fullImage.src} alt={fullImage.label} className="max-h-[92vh] max-w-[92vw] object-contain" decoding="async" />
+            </div>
+          </div>,
+          document.body
+        )
+      : null}
+    </>
   );
 }
 
@@ -2731,6 +2789,7 @@ export default function QCLiveTrackerView({
   onAddStaffNote,
   onSaveQCHandoffSheet,
   onPersistQcChecklist,
+  onLoadJobDetails,
 }: {
   jobs: QCJob[];
   searchQuery?: string;
@@ -2753,6 +2812,7 @@ export default function QCLiveTrackerView({
     orderId: string,
     items: { item: string; passed: boolean; note?: string }[]
   ) => Promise<boolean>;
+  onLoadJobDetails: (orderId: string) => Promise<QCJob | null>;
 }) {
   const { user } = useAuth();
   const viewerIsQualityChecker = getSafeUserRole(user?.role) === STAFF_QC_ROLE;
@@ -3062,8 +3122,7 @@ export default function QCLiveTrackerView({
     if (!silent) setSelectedOrderDetailsLoading(true);
 
     try {
-      const response = await OrderService.getOrderById(id);
-      const detail = response?.success ? response.data : null;
+      const detail = await onLoadJobDetails(id);
       if (!detail) return false;
 
       if (isUploadInteractionActiveRef.current || requestId !== selectedDetailRequestRef.current) {
@@ -3105,6 +3164,8 @@ export default function QCLiveTrackerView({
             bookingDate: (detail as any).bookingDate ?? (job as any).bookingDate,
             bookingTime: (detail as any).bookingTime ?? (job as any).bookingTime,
             customerName: (detail as any).customerName ?? job.customerName ?? job.customer,
+            customerPhone: (detail as any).customerPhone ?? job.customerPhone,
+            customerEmail: (detail as any).customerEmail ?? job.customerEmail,
             qcHandoffSheet: (detail as any).qcHandoffSheet ?? (job as any).qcHandoffSheet,
             vehicleYear: (detail as any).vehicleYear ?? job.vehicleYear,
             vehicleMake: (detail as any).vehicleMake ?? job.vehicleMake,
@@ -3128,7 +3189,7 @@ export default function QCLiveTrackerView({
         setSelectedOrderDetailsLoading(false);
       }
     }
-  }, []);
+  }, [onLoadJobDetails]);
 
   const updateLocalStage = useCallback((id: string, stage: ServiceStage) => {
     setLocalJobs((current) =>

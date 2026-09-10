@@ -33,7 +33,7 @@ import {
 import { runTrackedSystemMutation } from '../middleware/systemLifecycle.middleware.js';
 import { registerCloudinaryManagedAsset } from '../services/managedAsset.service.js';
 import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
-import { timeOperation } from '../utils/performance.utils.js';
+import { runInBackground, timeOperation } from '../utils/performance.utils.js';
 
 import { buildCustomerStagePayload } from '../utils/customerTrackerStage.utils.js';
 /** Same coarse stages as QC `service-status`; `confirmed` is optional text-only for customers. */
@@ -105,6 +105,24 @@ function gateSlotInvalidMessage(stage, forQuery = false) {
 function wantsFastInlineUpload(req) {
   const value = String(req.body?.fastInline || req.body?.preferInline || '').trim().toLowerCase();
   return ['1', 'true', 'yes', 'fast'].includes(value);
+}
+
+/** Never serialize inline base64 blobs into QC list/socket/upload responses. */
+export function buildResponsiveTrackerMedia(media) {
+  return (Array.isArray(media) ? media : []).filter(Boolean).map((entry) => {
+    const photoUrl = String(entry.photoUrl || '').trim();
+    const inlinePending = photoUrl.startsWith('data:');
+    return {
+      stage: entry.stage,
+      ...(entry.slot ? { slot: entry.slot } : {}),
+      ...(photoUrl && !inlinePending ? { photoUrl } : {}),
+      ...(entry.description ? { description: entry.description } : {}),
+      ...(entry.uploadedAt ? { uploadedAt: entry.uploadedAt } : {}),
+      ...(entry.uploadedBy ? { uploadedBy: entry.uploadedBy } : {}),
+      hasPhoto: Boolean(photoUrl),
+      ...(inlinePending ? { photoPending: true } : {}),
+    };
+  });
 }
 
 /** Index of row to update for (stage, slot), or merge legacy slotless row into `front`. */
@@ -193,8 +211,8 @@ function upsertTrackerStageMediaConfirmed(order, { stage, photoUrl, description,
 function emitTrackerStageMediaUpdate(order) {
   try {
     const io = getIO();
-    const media = order.trackerStageMedia || [];
-    const customerMedia = getCustomerVisibleTrackerStageMedia(order);
+    const media = buildResponsiveTrackerMedia(order.trackerStageMedia);
+    const customerMedia = buildResponsiveTrackerMedia(getCustomerVisibleTrackerStageMedia(order));
     const payload = {
       orderId: order._id.toString(),
       status: order.status,
@@ -508,16 +526,6 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Provide a photo or a description for confirmed stage' });
     }
 
-    if (uploadedAsset) {
-      await registerCloudinaryManagedAsset({
-        ...uploadedAsset,
-        ownerCollection: 'Order',
-        ownerId: order._id,
-        fieldPath: `trackerStageMedia.${stage}.${slot || 'default'}`,
-        byteSize: uploadedAsset.bytes,
-      });
-    }
-
     if (isGateStage(stage)) {
       upsertTrackerStageMediaGate(order, {
         stage,
@@ -550,35 +558,6 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
       () => { emitTrackerStageMediaUpdate(order); }
     );
 
-    if (isGateStage(stage)) {
-      try {
-        await timeOperation(
-          { req, res, kind: 'notify', name: 'stagePhoto.syncQualityEvidenceAttention' },
-          () => syncQualityEvidenceAttention(order, stage)
-        );
-      } catch (ne) {
-        console.warn('[tracker] Failed to synchronize Quality evidence notifications:', ne.message);
-      }
-    }
-
-    if (stage === 'ready_pickup') {
-      try {
-        await notifyReadyForPickupIfGateComplete(order);
-      } catch (ne) {
-        console.warn('[tracker] Failed to create ready_pickup notification:', ne.message);
-      }
-    }
-    if (photoUrl) {
-      try {
-        await timeOperation(
-          { req, res, kind: 'notify', name: 'stagePhoto.createCustomerStageMediaNotification' },
-          () => createCustomerStageMediaNotification(order, stage)
-        );
-      } catch (ne) {
-        console.warn('[tracker] Failed to create stage media notification:', ne.message);
-      }
-    }
-
     if (storage === 'inline_fast') {
       queueCloudinaryStagePhotoBackfill({
         orderId: order._id,
@@ -592,22 +571,57 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
       });
     }
 
-    logActivity({
-      req,
-      type: 'booking_updated',
-      module: 'Service',
-      action: 'Stage photo uploaded',
-      description: `${req.user?.name || 'Staff'} uploaded tracker stage media (${stage}) for order ${order.orderNumber || id}.`,
-      status: 'success',
-      referenceId: order._id,
-      metadata: { stage, slot, storage },
-    });
+    const responsiveMedia = buildResponsiveTrackerMedia(order.trackerStageMedia);
+    const savedMedia = [...responsiveMedia].reverse().find((entry) => (
+      entry.stage === stage
+      && (!slot || normalizePhotoSlot(entry.slot, entry.stage) === slot)
+    ));
 
     res.json({
       success: true,
       message: 'Stage photo uploaded',
-      data: { id: order._id, photoUrl, photoStorage: storage, trackerStageMedia: order.trackerStageMedia },
+      data: {
+        id: order._id,
+        photoUrl: savedMedia?.photoUrl,
+        photoStorage: storage,
+        savedMedia,
+        trackerStageMedia: responsiveMedia,
+        verificationStatus: storage === 'inline_fast' ? 'processing' : 'verified',
+      },
     });
+
+    // Notifications, metadata/audit work, and customer-facing sync are important
+    // but are not part of the upload acknowledgement. Run them after the DB has
+    // confirmed the photo so they can never freeze the QC workspace.
+    void runInBackground(
+      { req, kind: 'background', name: 'stagePhoto.postUploadProcessing' },
+      async () => {
+        const operations = [];
+        if (uploadedAsset) operations.push(registerCloudinaryManagedAsset({
+          ...uploadedAsset,
+          ownerCollection: 'Order',
+          ownerId: order._id,
+          fieldPath: `trackerStageMedia.${stage}.${slot || 'default'}`,
+          byteSize: uploadedAsset.bytes,
+        }));
+        if (isGateStage(stage)) operations.push(syncQualityEvidenceAttention(order, stage));
+        if (stage === 'ready_pickup') operations.push(notifyReadyForPickupIfGateComplete(order));
+        if (photoUrl) operations.push(createCustomerStageMediaNotification(order, stage));
+        operations.push(logActivity({
+          req,
+          type: 'booking_updated',
+          module: 'Service',
+          action: 'Stage photo uploaded',
+          description: `${req.user?.name || 'Staff'} uploaded tracker stage media (${stage}) for order ${order.orderNumber || id}.`,
+          status: 'success',
+          referenceId: order._id,
+          metadata: { stage, slot, storage },
+        }));
+        const outcomes = await Promise.allSettled(operations);
+        const rejected = outcomes.find((outcome) => outcome.status === 'rejected');
+        if (rejected?.status === 'rejected') throw rejected.reason;
+      }
+    );
   } catch (error) {
     if (error?.statusCode) {
       return res.status(error.statusCode).json({ success: false, message: error.message });

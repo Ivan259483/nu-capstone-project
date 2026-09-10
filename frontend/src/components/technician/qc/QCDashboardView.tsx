@@ -17,6 +17,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { QCActivityItem, QCJob, QCStats, QCTrackerStageMedia } from '@/hooks/useQCData';
+import { getQCThumbnailUrl } from '@/lib/qc-image';
 import { normalizeStaffGateSlot, requiredSlotsCountForGate } from '@/lib/tracker-gate-photo-slots';
 
 import { QCPaymentHandoff } from './QCPaymentHandoff';
@@ -245,7 +246,7 @@ function PriorityThumbnail({ job }: { job: QCJob }) {
   const src = latestVehicleImage(job);
   return (
     <div className="qc-command-thumbnail flex h-[66px] w-[108px] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100">
-      {src ? <img src={src} alt={vehicleLabel(job)} className="h-full w-full object-cover" /> : <Car size={28} strokeWidth={1.4} className="text-slate-400" aria-hidden />}
+      {src ? <img src={getQCThumbnailUrl(src)} alt={vehicleLabel(job)} loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover" /> : <Car size={28} strokeWidth={1.4} className="text-slate-400" aria-hidden />}
     </div>
   );
 }

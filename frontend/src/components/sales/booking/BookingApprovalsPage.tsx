@@ -37,6 +37,10 @@ import { isEncryptedPlateToken } from '@/lib/salesData';
 import { isLikelyInternalVehiclePlate } from '@/lib/vehicle-display';
 import SalesStatCard from '@/components/sales/ui/SalesStatCard';
 import { SALES_ACCENTS } from '@/components/sales/ui/salesTheme';
+import {
+  isInlinePaymentProof,
+  paymentProofDataUrlToBlob,
+} from '@/lib/sales-payment-proof';
 
 const DOWNPAYMENT = 500;
 const moneyFormatter = new Intl.NumberFormat('en-PH', {
@@ -376,7 +380,9 @@ function ProofViewer({ proofUrl, loading, error, onRetry, onReadyChange }: {
   const [rotation, setRotation] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [imageState, setImageState] = useState<ProofLoadState>(proofUrl ? 'loading' : 'idle');
+  const [displayUrl, setDisplayUrl] = useState(() => isInlinePaymentProof(proofUrl) ? '' : proofUrl);
   const [retryKey, setRetryKey] = useState(0);
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
 
@@ -385,7 +391,65 @@ function ProofViewer({ proofUrl, loading, error, onRetry, onReadyChange }: {
     setRotation(0);
     setImageState(proofUrl ? 'loading' : 'idle');
     onReadyChange?.(false);
-  }, [proofUrl, onReadyChange]);
+
+    if (!proofUrl) {
+      setDisplayUrl('');
+      return undefined;
+    }
+
+    if (!isInlinePaymentProof(proofUrl)) {
+      setDisplayUrl(proofUrl);
+      return undefined;
+    }
+
+    const blob = paymentProofDataUrlToBlob(proofUrl);
+    if (!blob) {
+      setDisplayUrl('');
+      setImageState('error');
+      return undefined;
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+    setDisplayUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [proofUrl, retryKey, onReadyChange]);
+
+  useEffect(() => {
+    if (!displayUrl) return undefined;
+    const image = imageRef.current;
+    if (!image) return undefined;
+
+    let active = true;
+    const markLoaded = () => {
+      if (!active) return;
+      setImageState('loaded');
+      onReadyChange?.(true);
+    };
+    const markFailed = () => {
+      if (!active) return;
+      setImageState('error');
+      onReadyChange?.(false);
+    };
+
+    if (image.complete) {
+      if (image.naturalWidth > 0) markLoaded();
+      else markFailed();
+    } else if (typeof image.decode === 'function') {
+      void image.decode().then(markLoaded).catch(() => {
+        // Keep the native load/error handlers as a fallback for Safari.
+      });
+    }
+
+    const timeout = window.setTimeout(() => {
+      if (image.complete && image.naturalWidth > 0) markLoaded();
+      else markFailed();
+    }, 8_000);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [displayUrl, retryKey, onReadyChange]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -414,7 +478,8 @@ function ProofViewer({ proofUrl, loading, error, onRetry, onReadyChange }: {
   };
 
   const failed = Boolean(error) || imageState === 'error';
-  const isLoading = Boolean(loading) || (Boolean(proofUrl) && imageState === 'loading');
+  const isLoading = (!proofUrl && Boolean(loading))
+    || (Boolean(proofUrl) && imageState === 'loading');
 
   const viewer = (isExpanded: boolean) => (
     <div className={isExpanded
@@ -486,12 +551,15 @@ function ProofViewer({ proofUrl, loading, error, onRetry, onReadyChange }: {
             className="relative flex min-h-full min-w-full items-center justify-center p-4 pt-16 sm:p-6 sm:pt-16"
             style={{ width: `${Math.max(1, zoom) * 100}%`, height: `${Math.max(1, zoom) * 100}%` }}
           >
-            {proofUrl ? (
+            {displayUrl ? (
               <img
+                ref={imageRef}
                 key={`${proofUrl.slice(-32)}-${retryKey}`}
-                src={proofUrl}
+                src={displayUrl}
                 alt="Uploaded GCash payment proof"
                 draggable={false}
+                decoding="async"
+                fetchPriority="high"
                 onLoad={() => {
                   setImageState('loaded');
                   onReadyChange?.(true);
@@ -500,7 +568,7 @@ function ProofViewer({ proofUrl, loading, error, onRetry, onReadyChange }: {
                   setImageState('error');
                   onReadyChange?.(false);
                 }}
-                className={`h-full w-full select-none object-contain transition-opacity duration-200 ${imageState === 'loaded' && !loading ? 'opacity-100' : 'opacity-0'}`}
+                className={`h-full w-full select-none object-contain transition-opacity duration-200 ${imageState === 'loaded' ? 'opacity-100' : 'opacity-0'}`}
                 style={{ transform: `rotate(${rotation}deg) scale(${zoom < 1 ? zoom : 1})` }}
               />
             ) : null}

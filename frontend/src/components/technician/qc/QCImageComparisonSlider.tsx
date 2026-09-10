@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { ZoomIn, ZoomOut } from 'lucide-react';
+import { getQCThumbnailUrl } from '@/lib/qc-image';
 
 interface ImageComparisonSliderProps {
   beforeSrc: string;
@@ -17,6 +18,7 @@ export default function QCImageComparisonSlider({
   const [position, setPosition] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [useFullResolution, setUseFullResolution] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const updatePosition = useCallback((clientX: number) => {
@@ -27,6 +29,7 @@ export default function QCImageComparisonSlider({
   }, []);
 
   const onMouseDown = (e: React.MouseEvent) => {
+    setUseFullResolution(true);
     setIsDragging(true);
     updatePosition(e.clientX);
   };
@@ -42,6 +45,7 @@ export default function QCImageComparisonSlider({
   const onMouseUp = () => setIsDragging(false);
 
   const onTouchStart = (e: React.TouchEvent) => {
+    setUseFullResolution(true);
     setIsDragging(true);
     updatePosition(e.touches[0].clientX);
   };
@@ -56,7 +60,7 @@ export default function QCImageComparisonSlider({
       {/* Zoom Controls */}
       <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5 bg-white/90 backdrop-blur-sm border border-slate-200 rounded-lg p-1 shadow-sm">
         <button
-          onClick={() => setZoom(Math.min(2, zoom + 0.25))}
+          onClick={() => { setUseFullResolution(true); setZoom(Math.min(2, zoom + 0.25)); }}
           className="w-7 h-7 flex items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 transition-colors"
           title="Zoom in"
         >
@@ -103,8 +107,10 @@ export default function QCImageComparisonSlider({
         {/* Before image (full width) */}
         <div className="absolute inset-0 overflow-hidden">
           <img
-            src={beforeSrc}
+            src={useFullResolution ? beforeSrc : getQCThumbnailUrl(beforeSrc)}
             alt={beforeAlt}
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover transition-transform duration-200"
             style={{ transform: `scale(${zoom})`, transformOrigin: 'center center' }}
             draggable={false}
@@ -117,8 +123,10 @@ export default function QCImageComparisonSlider({
           style={{ clipPath: `inset(0 ${100 - position}% 0 0)` }}
         >
           <img
-            src={afterSrc}
+            src={useFullResolution ? afterSrc : getQCThumbnailUrl(afterSrc)}
             alt={afterAlt}
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover transition-transform duration-200"
             style={{ transform: `scale(${zoom})`, transformOrigin: 'center center' }}
             draggable={false}

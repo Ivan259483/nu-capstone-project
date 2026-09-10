@@ -345,7 +345,7 @@ after(async () => {
   if (mongo) await mongo.stop();
 });
 
-test('GCash screenshot data remains byte-for-byte intact through booking storage and staff retrieval', async () => {
+test('GCash screenshot remains intact while staff retrieval returns one canonical proof copy', async () => {
   await setMondayAvailability({ capacity: 1 });
   const { customer, administrator, vehicle, service } = await seedBookingActors();
   const proof =
@@ -371,8 +371,8 @@ test('GCash screenshot data remains byte-for-byte intact through booking storage
     headers: { Authorization: `Bearer ${tokenFor(administrator)}` },
   });
   assert.equal(staffView.response.status, 200);
-  assert.equal(staffView.body.data.downpaymentProof, proof);
   assert.equal(staffView.body.data.paymentProofUrl, proof);
+  assert.equal(Object.hasOwn(staffView.body.data, 'downpaymentProof'), false);
 });
 
 test('mobile booking request id creates one booking and one pending reservation payment across retries', async () => {

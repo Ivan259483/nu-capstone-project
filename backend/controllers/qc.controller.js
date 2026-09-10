@@ -53,6 +53,7 @@ import {
   isForwardCustomerStageTransition,
   normalizeBookingStage,
 } from '../utils/customerTrackerStage.utils.js';
+import { readQCActivity, readQCStats } from './qcRead.controller.js';
 
 const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'paid', 'completed', 'released'];
 const QC_APPROVED_ORDER_STATUSES = ['completed', 'released'];
@@ -111,6 +112,7 @@ const QC_JOBS_PROJECTION = [
   'customerName',
   'serviceType',
   'status',
+  'archived',
   'createdAt',
   'updatedAt',
   'assignedDetailer',
@@ -120,8 +122,6 @@ const QC_JOBS_PROJECTION = [
   'vehicleColor',
   'vehiclePlate',
   'notes',
-  'photos.before',
-  'photos.after',
   'staffNotes.content',
   'serviceProper.completedAt',
   'qcCompletedAt',
@@ -147,6 +147,80 @@ const QC_JOBS_PROJECTION = [
   'warrantyAndReceipt.existingFwsAndShade',
 ].join(' ');
 
+const QC_JOB_DETAIL_PROJECTION = [
+  ...QC_JOBS_PROJECTION.split(/\s+/).filter(Boolean),
+  'customer',
+  'customerPhone',
+  'photos.before',
+  'photos.after',
+  'damageAnnotations',
+  'technicianNotes',
+];
+
+const QC_JOBS_AGGREGATION_PROJECT = Object.fromEntries(
+  QC_JOBS_PROJECTION
+    .split(/\s+/)
+    .filter((path) => path && !path.startsWith('trackerStageMedia.'))
+    .map((path) => [path, 1])
+);
+QC_JOBS_AGGREGATION_PROJECT.trackerStageMedia = {
+  $map: {
+    input: { $ifNull: ['$trackerStageMedia', []] },
+    as: 'media',
+    in: {
+      stage: '$$media.stage',
+      slot: '$$media.slot',
+      description: '$$media.description',
+      uploadedAt: '$$media.uploadedAt',
+      uploadedBy: '$$media.uploadedBy',
+      hasPhoto: { $gt: [{ $strLenCP: { $ifNull: ['$$media.photoUrl', ''] } }, 0] },
+      photoPending: {
+        $regexMatch: { input: { $ifNull: ['$$media.photoUrl', ''] }, regex: /^data:/ },
+      },
+      photoUrl: {
+        $cond: [
+          { $regexMatch: { input: { $ifNull: ['$$media.photoUrl', ''] }, regex: /^data:/ } },
+          '',
+          '$$media.photoUrl',
+        ],
+      },
+    },
+  },
+};
+
+const QC_JOB_DETAIL_AGGREGATION_PROJECT = {
+  ...Object.fromEntries(
+    QC_JOB_DETAIL_PROJECTION
+      .filter((path) => !path.startsWith('trackerStageMedia.') && !path.startsWith('photos.'))
+      .map((path) => [path, 1])
+  ),
+  trackerStageMedia: QC_JOBS_AGGREGATION_PROJECT.trackerStageMedia,
+  photos: {
+    before: {
+      $filter: {
+        input: { $ifNull: ['$photos.before', []] },
+        as: 'photo',
+        cond: { $not: [{ $regexMatch: { input: '$$photo', regex: /^data:/ } }] },
+      },
+    },
+    after: {
+      $filter: {
+        input: { $ifNull: ['$photos.after', []] },
+        as: 'photo',
+        cond: { $not: [{ $regexMatch: { input: '$$photo', regex: /^data:/ } }] },
+      },
+    },
+  },
+};
+
+const isTruthyQuery = (value) => ['1', 'true', 'yes'].includes(String(value || '').toLowerCase());
+
+function buildSlimPhotoList(photos) {
+  return (Array.isArray(photos) ? photos : [])
+    .map((value) => String(value || '').trim())
+    .filter((value) => value && !value.startsWith('data:'));
+}
+
 /**
  * Slim projection for the QC jobs list — keeps the list payload light by dropping
  * inline base64 `data:` photos (pending Cloudinary backfill, can be ~100s of KB each),
@@ -168,8 +242,8 @@ function buildSlimTrackerStageMedia(media) {
           : {}),
         ...(entry.uploadedAt ? { uploadedAt: entry.uploadedAt } : {}),
         ...(entry.uploadedBy ? { uploadedBy: entry.uploadedBy } : {}),
-        hasPhoto: Boolean(rawUrl),
-        ...(isInlineDataUrl ? { photoPending: true } : {}),
+        hasPhoto: Boolean(entry.hasPhoto || rawUrl),
+        ...(isInlineDataUrl || entry.photoPending ? { photoPending: true } : {}),
       };
     });
 }
@@ -326,13 +400,21 @@ export const getQCJobs = async (req, res, next) => {
       filter._id = new mongoose.Types.ObjectId(requestedOrderId);
     }
 
-    const rows = await Order.find(filter)
-      .select(QC_JOBS_PROJECTION)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit + 1)
-      .maxTimeMS(5000)
-      .lean();
+    const includeSummary = isTruthyQuery(req.query.includeSummary);
+    const rowsPromise = Order.aggregate([
+      { $match: filter },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit + 1 },
+      { $project: QC_JOBS_AGGREGATION_PROJECT },
+    ]).option({ maxTimeMS: 5000 });
+    const summaryPromise = includeSummary
+      ? Promise.all([
+          readQCStats(req, req.query.rangeDays || 7),
+          readQCActivity(req, { limit: 15 }),
+        ])
+      : Promise.resolve(null);
+    const [rows, summaryReads] = await Promise.all([rowsPromise, summaryPromise]);
     const hasNextPage = rows.length > limit;
     const orders = hasNextPage ? rows.slice(0, limit) : rows;
 
@@ -414,7 +496,8 @@ export const getQCJobs = async (req, res, next) => {
         aiFlag,
         priority: elapsedMinutes > 120 ? 'high' : elapsedMinutes > 60 ? 'medium' : 'normal',
         // Raw order data for detail view
-        photos: o.photos || { before: [], after: [] },
+        // Heavy legacy before/after arrays are fetched only when a job is opened.
+        photos: { before: [], after: [] },
         staffNotes: o.staffNotes || [],
         qcChecklist: o.qcChecklist || [],
         damageAnnotations: [],
@@ -453,6 +536,13 @@ export const getQCJobs = async (req, res, next) => {
     const total = skip + jobs.length + (hasNextPage ? 1 : 0);
     const totalPages = page + (hasNextPage ? 1 : 0);
 
+    const summary = summaryReads
+      ? {
+          stats: summaryReads[0]?.value || null,
+          activity: summaryReads[1]?.value?.data || [],
+        }
+      : undefined;
+
     res.json({
       success: true,
       data: jobs,
@@ -469,9 +559,75 @@ export const getQCJobs = async (req, res, next) => {
         total,
         totalPages,
       },
+      ...(summary ? { summary } : {}),
     });
   } catch (error) {
     next(error);
+  }
+};
+
+/**
+ * GET /api/qc/jobs/:id/detail
+ * Lean detail hydration for an already visible QC job. This deliberately skips
+ * billing/receipt joins and strips inline base64 media from JSON; media bytes are
+ * delivered by the image host only when the UI requests a thumbnail/full image.
+ */
+export const getQCJobDetail = async (req, res, next) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: 'Job id is invalid' });
+    }
+
+    const [order] = await Order.aggregate([
+      { $match: { _id: new mongoose.Types.ObjectId(id) } },
+      { $project: QC_JOB_DETAIL_AGGREGATION_PROJECT },
+      { $limit: 1 },
+    ]).option({ maxTimeMS: 5000 });
+    if (!order || order.archived === true) {
+      return res.status(404).json({ success: false, message: 'QC job not found' });
+    }
+
+    const plainNotes = safeDecryptOrderField(order.notes, 'notes');
+    const platePlain = resolvePlainVehiclePlate(order.vehiclePlate);
+
+    return res.json({
+      success: true,
+      data: {
+        id: String(order._id),
+        customer: order.customerName || 'Unknown',
+        customerName: order.customerName || 'Unknown',
+        customerPhone: order.customerPhone || '',
+        customerEmail: '',
+        customerNotes: plainNotes,
+        notes: plainNotes,
+        plate: platePlain,
+        technician: order.serviceStaffAssignments?.[0]?.name || 'Unassigned',
+        technicianNotes: String(order.technicianNotes || ''),
+        trackerStageMedia: buildSlimTrackerStageMedia(order.trackerStageMedia),
+        photos: {
+          before: buildSlimPhotoList(order.photos?.before),
+          after: buildSlimPhotoList(order.photos?.after),
+        },
+        staffNotes: order.staffNotes || [],
+        qcChecklist: order.qcChecklist || [],
+        damageAnnotations: order.damageAnnotations || [],
+        serviceTrackingStage: order.serviceTrackingStage || null,
+        serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || null,
+        serviceStaffAssignments: order.serviceStaffAssignments || [],
+        orderStatus: order.status,
+        paymentStatus: order.paymentStatus || 'unpaid',
+        invoiceId: order.invoiceId || null,
+        posQueueStatus: order.posQueueStatus || null,
+        readyForPickupEvidenceComplete: Boolean(order.readyForPickupEvidenceComplete),
+        readyForPaymentAt: order.readyForPaymentAt || null,
+        bookingDate: order.bookingDate || '',
+        bookingTime: order.bookingTime || '',
+        qcHandoffSheet: order.qcHandoffSheet || {},
+      },
+    });
+  } catch (error) {
+    return next(error);
   }
 };
 
