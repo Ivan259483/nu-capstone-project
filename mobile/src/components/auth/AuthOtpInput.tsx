@@ -42,7 +42,10 @@ function AuthOtpInput(
   const { width: windowWidth } = useWindowDimensions();
   const inputRef = useRef<TextInput | null>(null);
   const [focused, setFocused] = React.useState(false);
-  const previousLengthRef = useRef(0);
+  // The last full code handed to onComplete. Comparing against the code itself
+  // (rather than its length) also fires for a code corrected in place or
+  // pasted over an already-full set, which a length transition would miss.
+  const lastCompletedRef = useRef('');
 
   useImperativeHandle(ref, () => ({
     focus: () => inputRef.current?.focus(),
@@ -56,10 +59,13 @@ function AuthOtpInput(
   const handleChangeText = (text: string) => {
     const digits = text.replace(/[^0-9]/g, '').slice(0, length);
     onChangeText(digits);
-    if (previousLengthRef.current < length && digits.length === length) {
-      onComplete?.(digits);
+    if (digits.length < length) {
+      lastCompletedRef.current = '';
+      return;
     }
-    previousLengthRef.current = digits.length;
+    if (lastCompletedRef.current === digits) return;
+    lastCompletedRef.current = digits;
+    onComplete?.(digits);
   };
 
   return (

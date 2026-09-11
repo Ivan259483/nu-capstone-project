@@ -13,7 +13,7 @@ import {
   type LayoutChangeEvent,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
@@ -61,6 +61,7 @@ export default function LoginScreen() {
   const [buttonState, setButtonState] = useState<AuthButtonState>('idle');
   const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
   const [feedback, setFeedback] = useState<AuthStatusData | null>(null);
+  const { reason } = useLocalSearchParams<{ reason?: string | string[] }>();
   const emailInputRef = useRef<TextInput>(null);
   const passwordInputRef = useRef<TextInput>(null);
   const requestInFlightRef = useRef(false);
@@ -250,6 +251,17 @@ export default function LoginScreen() {
     setCredentialsRejected(false);
     setFeedback(null);
   }
+
+  useEffect(() => {
+    const value = Array.isArray(reason) ? reason[0] : reason;
+    if (value !== 'challenge-expired') return;
+    setFeedback({
+      type: 'error',
+      title: 'Verification session expired',
+      message: 'Your code was not confirmed in time. Sign in again to get a new one.',
+    });
+    router.setParams({ reason: undefined });
+  }, [reason]);
 
   async function handleLogin() {
     Keyboard.dismiss();

@@ -919,6 +919,7 @@ export const verifyOtp = async (req, res, next) => {
       logOtpDebug('verify.expired', { record: otpRecordLogMeta(otpRecord) });
       return res.status(400).json({
         success: false,
+        code: 'OTP_EXPIRED',
         message: 'OTP has expired. Please request a new OTP.',
       });
     }
@@ -929,6 +930,7 @@ export const verifyOtp = async (req, res, next) => {
       logOtpDebug('verify.max_attempts', { record: otpRecordLogMeta(otpRecord) });
       return res.status(400).json({
         success: false,
+        code: 'OTP_MAX_ATTEMPTS',
         message: 'Maximum OTP attempts exceeded. Please request a new OTP.',
       });
     }
@@ -953,9 +955,12 @@ export const verifyOtp = async (req, res, next) => {
       );
       const currentAttempts = Number(updatedOtp?.attempts ?? otpRecord.maxAttempts);
 
+      const remainingAttempts = Math.max(0, otpRecord.maxAttempts - currentAttempts);
       return res.status(400).json({
         success: false,
-        message: `Invalid OTP. Attempts remaining: ${Math.max(0, otpRecord.maxAttempts - currentAttempts)}`,
+        code: remainingAttempts > 0 ? 'OTP_INVALID' : 'OTP_MAX_ATTEMPTS',
+        message: `Invalid OTP. Attempts remaining: ${remainingAttempts}`,
+        data: { remainingAttempts },
       });
     }
 
@@ -1068,6 +1073,11 @@ export const verifyOtp = async (req, res, next) => {
         },
       });
     }
+
+    // The activation session is a real session, so it carries the same live-role
+    // gate as login and verifyLoginOtp. A Mobile request may only ever leave here
+    // holding a Customer session.
+    if (!enforceMobileCustomer(req, res, user)) return;
 
     // Preserve the existing customer activation experience: verified customers
     // receive their normal session immediately after registration verification.

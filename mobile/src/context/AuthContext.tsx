@@ -40,6 +40,10 @@ type AuthResult = {
   resendAvailableAt?: number;
   /** Backend requires password reset before login. */
   requiresPasswordChange?: boolean;
+  /** Signup OTP verified ownership but no account exists yet — continue to /auth/register. */
+  verifiedWithoutSession?: boolean;
+  /** Machine-readable backend failure reason (OTP_INVALID, OTP_EXPIRED, ...). */
+  code?: string;
   /** Structured data from the backend (e.g., remaining login attempts, lock info) */
   data?: {
     remainingAttempts?: number;
@@ -62,6 +66,7 @@ type AuthContextType = {
   loginOtpVerified: boolean;
   signIn: (email: string, password: string) => Promise<AuthResult>;
   completeLoginOtp: (userId: string, challengeToken: string, otp: string) => Promise<AuthResult>;
+  completeSignupOtp: (email: string, otp: string) => Promise<AuthResult>;
   resendLoginOtp: (userId: string, challengeToken: string) => Promise<AuthResult>;
   clearPendingLoginOtp: () => Promise<void>;
   signInWithGoogle: (idToken: string) => Promise<AuthResult>;
@@ -82,6 +87,7 @@ const AuthContext = createContext<AuthContextType>({
   loginOtpVerified: false,
   signIn: async () => ({ success: false }),
   completeLoginOtp: async () => ({ success: false }),
+  completeSignupOtp: async () => ({ success: false }),
   resendLoginOtp: async () => ({ success: false }),
   clearPendingLoginOtp: async () => {},
   signInWithGoogle: async () => ({ success: false }),
@@ -351,6 +357,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return {
         success: false,
         message: getApiErrorMessage(error, 'Verification failed. Please try again.'),
+        code: error?.response?.data?.code,
+        data: error?.response?.data?.data,
+      };
+    }
+  };
+
+  /**
+   * Signup / email-verification OTP. The backend activates the customer account
+   * and returns the session in the same response, so a correct code lands the
+   * user in the app — no return trip through the sign-in screen for a second code.
+   */
+  const completeSignupOtp = async (email: string, otp: string): Promise<AuthResult> => {
+    try {
+      const result = await authService.verifyOtp(email, otp);
+      if (!result.success) {
+        return { success: false, message: result.message };
+      }
+      if (!result.session) {
+        // Ownership proven before the account exists (send-otp -> verify-otp -> register).
+        return { success: true, verifiedWithoutSession: true, message: result.message };
+      }
+      // Mirrors completeLoginOtp: without this flag the session-restore effect
+      // refuses to rehydrate the stored token on the next cold start.
+      await authStorage.setLoginOtpVerified(true);
+      setLoginOtpVerified(true);
+      await authStorage.clearPendingLoginOtp();
+      setPendingLoginOtp(null);
+      applyState(null, result.session.token, result.session.backendUser);
+      void import('@/hooks/useRealtimeSync')
+        .then(({ refreshRealtimeSocketAuth }) => refreshRealtimeSocketAuth())
+        .catch(() => {});
+      return { success: true };
+    } catch (error: any) {
+      if (error?.response?.data?.code === 'MOBILE_CUSTOMER_ONLY') {
+        await authService.clearLocalSession().catch(() => {});
+        await clearQueue().catch(() => {});
+        setLoginOtpVerified(false);
+        applyState(null, null, null);
+      }
+      return {
+        success: false,
+        message: getApiErrorMessage(error, 'Verification failed. Please try again.'),
+        code: error?.response?.data?.code,
         data: error?.response?.data?.data,
       };
     }
@@ -527,6 +576,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loginOtpVerified,
         signIn,
         completeLoginOtp,
+        completeSignupOtp,
         resendLoginOtp,
         clearPendingLoginOtp,
         signInWithGoogle,

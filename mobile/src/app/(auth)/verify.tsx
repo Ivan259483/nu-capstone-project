@@ -13,7 +13,13 @@ import {
 } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated, {
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient, getApiErrorMessage } from '@/services/api/client';
@@ -51,6 +57,7 @@ export default function VerifyScreen() {
   const {
     pendingLoginOtp,
     completeLoginOtp,
+    completeSignupOtp,
     resendLoginOtp,
     clearPendingLoginOtp,
   } = useAuth();
@@ -77,8 +84,11 @@ export default function VerifyScreen() {
         }
       : null
   ));
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const restingWindowHeightRef = useRef(windowHeight);
   const otpInputRef = useRef<AuthOtpInputHandle | null>(null);
+  const shakeOffset = useSharedValue(0);
+  const shakeStyle = useAnimatedStyle(() => ({ transform: [{ translateX: shakeOffset.value }] }));
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -145,6 +155,18 @@ export default function VerifyScreen() {
   const codeSeconds = isLoginOtp && pendingLoginOtp
     ? Math.max(0, Math.ceil((pendingLoginOtp.codeExpiresAt - now) / 1000))
     : 0;
+  const lockSeconds = lockedUntil ? Math.max(0, Math.ceil((lockedUntil - now) / 1000)) : 0;
+  const isLocked = lockSeconds > 0;
+
+  // Spec: an expired challenge (and nothing else) sends the user back to sign in,
+  // carrying the reason so the login screen can explain why.
+  useEffect(() => {
+    if (!challengeExpired) return;
+    void (async () => {
+      await clearPendingLoginOtp();
+      router.replace({ pathname: '/(auth)/login', params: { reason: 'challenge-expired' } });
+    })();
+  }, [challengeExpired, clearPendingLoginOtp]);
 
   useEffect(() => {
     if (codeExpired && !challengeExpired) {
@@ -161,8 +183,68 @@ export default function VerifyScreen() {
     otpInputRef.current?.focus();
   };
 
-  async function handleVerifyOtp() {
-    const token = otp;
+  const runShake = () => {
+    try {
+      shakeOffset.value = withSequence(
+        withTiming(-8, { duration: 55 }),
+        withTiming(8, { duration: 55 }),
+        withTiming(-5, { duration: 55 }),
+        withTiming(0, { duration: 55 }),
+      );
+    } catch {
+      // Decoration only. A missing animation must never hide the error text.
+    }
+  };
+
+  /**
+   * Distinct terminal states, driven by the backend `code` rather than by
+   * matching message text. The boxes deliberately keep their digits on a wrong
+   * code so a single mistyped digit can be corrected in place.
+   */
+  function showVerifyFailure(failure: {
+    message?: string;
+    code?: string;
+    data?: { remainingAttempts?: number; remainingMinutes?: number; locked?: boolean };
+  }) {
+    const { message, code, data } = failure;
+    Haptics.formSubmitError();
+    const remainingMinutes = Number(data?.remainingMinutes) || 0;
+
+    if (data?.locked || remainingMinutes > 0 || code === 'OTP_MAX_ATTEMPTS') {
+      if (remainingMinutes > 0) setLockedUntil(Date.now() + remainingMinutes * 60_000);
+      setFeedback({
+        type: 'error',
+        title: 'Too many attempts',
+        message: remainingMinutes > 0
+          ? 'This account is locked for a few minutes.'
+          : message || 'Request a new code to continue.',
+      });
+      return;
+    }
+
+    if (code === 'OTP_EXPIRED' || /expired/i.test(message || '')) {
+      setFeedback({
+        type: 'error',
+        title: 'Verification code expired',
+        message: 'Request a new code to continue.',
+      });
+      return;
+    }
+
+    const remainingAttempts = Number(data?.remainingAttempts);
+    setFeedback({
+      type: 'error',
+      title: 'Incorrect code',
+      message: Number.isFinite(remainingAttempts) && remainingAttempts > 0
+        ? `Check the code and try again. ${remainingAttempts} attempt(s) remaining.`
+        : message || 'Check the code and try again.',
+    });
+    runShake();
+  }
+
+  async function handleVerifyOtp(submittedOtp?: string) {
+    if (busyAction) return;
+    const token = (submittedOtp ?? otp).replace(/[^0-9]/g, '').slice(0, OTP_LENGTH);
     setFeedback(null);
 
     if (token.length !== OTP_LENGTH) {
@@ -174,12 +256,21 @@ export default function VerifyScreen() {
       });
       return;
     }
+    if (isLocked) {
+      Haptics.formSubmitError();
+      setFeedback({
+        type: 'error',
+        title: 'Too many attempts',
+        message: 'Wait for the cooldown to finish before trying again.',
+      });
+      return;
+    }
     if (isLoginOtp && (!pendingLoginOtp || challengeExpired)) {
       Haptics.formSubmitError();
       setFeedback({
         type: 'error',
         title: 'Verification session expired',
-        message: 'Change account and sign in again.',
+        message: 'Sign in again to receive a new code.',
       });
       return;
     }
@@ -204,54 +295,43 @@ export default function VerifyScreen() {
 
     setBusyAction('verify');
     try {
-      if (isLoginOtp && pendingLoginOtp) {
-        const result = await completeLoginOtp(
-          pendingLoginOtp.userId,
-          pendingLoginOtp.challengeToken,
-          token,
-        );
-        if (!result.success) {
-          throw new Error(result.message || 'Verification failed. Please try again.');
-        }
-        setFeedback({
-          type: 'success',
-          title: 'Email verified',
-          message: 'Signing you in securely.',
-        });
-        router.replace('/');
+      // Both branches end at a real session. Neither one returns to sign-in.
+      const result = isLoginOtp && pendingLoginOtp
+        ? await completeLoginOtp(
+            pendingLoginOtp.userId,
+            pendingLoginOtp.challengeToken,
+            token,
+          )
+        : await completeSignupOtp(email, token);
+
+      if (!result.success) {
+        showVerifyFailure(result);
         return;
       }
 
-      const response = await apiClient.post('/auth/verify-otp', { email, otp: token });
-      if (!response.data?.success) {
-        throw new Error(response.data?.message || 'Verification failed.');
+      if (result.verifiedWithoutSession) {
+        // Ownership proven before the account exists. Only registration can
+        // finish this; sending the user to sign in would strand them.
+        setFeedback({
+          type: 'success',
+          title: 'Email verified',
+          message: 'Finish creating your account to continue.',
+        });
+        router.replace('/(auth)/signup');
+        return;
       }
+
       setFeedback({
         type: 'success',
         title: 'Email verified',
-        message: 'You can now sign in to your account.',
+        message: 'Signing you in securely.',
       });
-      router.replace('/(auth)/login');
+      // replace, not push — sign-in and this screen leave the back stack.
+      router.replace('/');
     } catch (error) {
-      const message = getApiErrorMessage(error, 'Verification failed. Please try again.');
-      const friendlyMessage = /expired/i.test(message)
-        ? 'Verification code expired. Request a new code.'
-        : /too many|locked|attempt/i.test(message)
-          ? message
-          : /invalid|incorrect/i.test(message)
-            ? 'Invalid verification code.'
-            : message;
-      Haptics.formSubmitError();
-      setFeedback({
-        type: 'error',
-        title: /expired/i.test(friendlyMessage)
-          ? 'Verification code expired'
-          : /too many|locked|attempt/i.test(friendlyMessage)
-            ? 'Unable to verify code'
-            : 'Incorrect verification code',
-        message: friendlyMessage,
+      showVerifyFailure({
+        message: getApiErrorMessage(error, 'Verification failed. Please try again.'),
       });
-      resetOtpInput();
     } finally {
       setBusyAction(null);
     }
@@ -284,6 +364,7 @@ export default function VerifyScreen() {
         const response = await apiClient.post('/auth/resend-otp', { email });
         if (!response.data?.success) throw new Error(response.data?.message || 'Unable to resend code.');
         setSignupResendAvailableAt(Date.now() + 60_000);
+        setLockedUntil(null);
         resetOtpInput();
         setFeedback({
           type: 'success',
@@ -324,6 +405,7 @@ export default function VerifyScreen() {
         pendingLoginOtp.challengeToken,
       );
       if (!result.success) throw new Error(result.message || 'Unable to resend code.');
+      setLockedUntil(null);
       resetOtpInput();
       setFeedback({
         type: 'success',
@@ -432,13 +514,16 @@ export default function VerifyScreen() {
               keyboardVisible && { marginTop: keyboardLayout.formGap },
             ]}
           >
-            <AuthOtpInput
-              ref={otpInputRef}
-              value={otp}
-              onChangeText={handleOtpChange}
-              error={feedback?.type === 'error'}
-              disabled={Boolean(busyAction) || challengeExpired}
-            />
+            <Animated.View style={shakeStyle}>
+              <AuthOtpInput
+                ref={otpInputRef}
+                value={otp}
+                onChangeText={handleOtpChange}
+                onComplete={(code) => { void handleVerifyOtp(code); }}
+                error={feedback?.type === 'error'}
+                disabled={Boolean(busyAction) || challengeExpired || isLocked}
+              />
+            </Animated.View>
 
             <View
               style={[
@@ -450,7 +535,12 @@ export default function VerifyScreen() {
               ]}
             >
               {feedback ? (
-                <AuthStatusCard {...feedback} />
+                <>
+                  <AuthStatusCard {...feedback} />
+                  {isLocked ? (
+                    <Text style={styles.expiryText}>Try again in {formatClock(lockSeconds)}</Text>
+                  ) : null}
+                </>
               ) : isLoginOtp && !codeExpired ? (
                 <Text style={styles.expiryText}>Code expires in {formatClock(codeSeconds)}</Text>
               ) : null}
@@ -458,9 +548,15 @@ export default function VerifyScreen() {
 
             <AuthButton
               title={busyAction === 'verify' ? 'Verifying…' : 'Verify & sign in'}
-              onPress={handleVerifyOtp}
+              onPress={() => { void handleVerifyOtp(); }}
               loading={busyAction === 'verify'}
-              disabled={Boolean(busyAction) || challengeExpired || codeExpired || otp.length !== OTP_LENGTH}
+              disabled={
+                Boolean(busyAction)
+                || challengeExpired
+                || codeExpired
+                || isLocked
+                || otp.length !== OTP_LENGTH
+              }
             />
 
             <View
@@ -474,6 +570,8 @@ export default function VerifyScreen() {
             >
               {challengeExpired ? (
                 <Text style={styles.resendCountdown}>Verification session expired</Text>
+              ) : isLocked ? (
+                <Text style={styles.resendCountdown}>Locked for {formatClock(lockSeconds)}</Text>
               ) : resendSeconds > 0 ? (
                 <Text style={styles.resendCountdown}>Resend code in {resendSeconds}s</Text>
               ) : (

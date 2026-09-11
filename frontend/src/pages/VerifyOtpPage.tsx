@@ -30,7 +30,13 @@ export default function VerifyOtpPage() {
     const [isVerifying, setIsVerifying] = useState(false);
     const [isResending, setIsResending] = useState(false);
     const [shake, setShake] = useState(false);
+    const [error, setError] = useState("");
+    const [codeExpired, setCodeExpired] = useState(false);
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+    // The last code this screen auto-submitted. Comparing against it submits a
+    // corrected code once, and never resubmits the same one twice — which also
+    // absorbs React 18's development double-invoke.
+    const autoSubmitRef = useRef("");
 
     /* ── countdown ── */
     useEffect(() => {
@@ -64,6 +70,7 @@ export default function VerifyOtpPage() {
         const ch = normalized.slice(-1);
         next[i] = ch;
         setDigits(next);
+        setError("");
         if (ch && i < OTP_LENGTH - 1) inputRefs.current[i + 1]?.focus();
     };
 
@@ -105,13 +112,35 @@ export default function VerifyOtpPage() {
             });
             const data = await res.json();
             if (!res.ok || !data.success) {
+                const code = data.code as string | undefined;
+                const remaining = data.data?.remainingAttempts as number | undefined;
+
+                if (code === "OTP_EXPIRED") {
+                    setCodeExpired(true);
+                    setResendSec(0);
+                    setError("That code has expired. Request a new one below.");
+                    return;
+                }
+                if (code === "OTP_MAX_ATTEMPTS") {
+                    setCodeExpired(true);
+                    setResendSec(0);
+                    setError("Too many incorrect attempts. Request a new code below.");
+                    return;
+                }
+
+                // Wrong code: shake, but keep the digits so a single mistyped
+                // character can be corrected in place.
                 setShake(true);
                 setTimeout(() => setShake(false), 600);
-                setDigits(Array(OTP_LENGTH).fill(""));
-                inputRefs.current[0]?.focus();
-                toast.error(data.message || "Invalid or expired OTP.");
+                inputRefs.current[OTP_LENGTH - 1]?.focus();
+                setError(
+                    typeof remaining === "number" && remaining > 0
+                        ? `Incorrect code. ${remaining} attempt(s) remaining.`
+                        : data.message || "Incorrect code."
+                );
                 return;
             }
+            setError("");
 
             const backendToken = data.data?.token as string | undefined;
             const backendUser = data.data?.user as Record<string, unknown> | undefined;
@@ -157,11 +186,16 @@ export default function VerifyOtpPage() {
         }
     }, [digits, email, isVerifying, navigate, redirectParamTo, setAuthUser]);
 
-    /* ── auto-submit when all digits filled ── */
+    /* ── auto-submit the moment the 6th digit lands ── */
     useEffect(() => {
-        if (digits.every((d) => d !== "")) handleSubmit();
+        if (isVerifying) return;
+        if (!digits.every((d) => d !== "")) return;
+        const code = digits.join("");
+        if (autoSubmitRef.current === code) return;
+        autoSubmitRef.current = code;
+        void handleSubmit();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [digits]);
+    }, [digits, isVerifying]);
 
     /* ── resend ── */
     const handleResend = async () => {
@@ -188,6 +222,9 @@ export default function VerifyOtpPage() {
             setDigits(Array(OTP_LENGTH).fill(""));
             setSeconds(typeof data.data?.expiresIn === "number" ? data.data.expiresIn : OTP_SECONDS);
             setResendSec(RESEND_COOLDOWN_SEC);
+            setError("");
+            setCodeExpired(false);
+            autoSubmitRef.current = "";
             inputRefs.current[0]?.focus();
             toast.success("A new verification code was sent to your email.");
         } catch {
@@ -270,6 +307,15 @@ export default function VerifyOtpPage() {
                     gap: .5rem; font-size: .8rem; color: #6b7280; margin-bottom: 1.25rem;
                 }
                 .verify-timer.expiring { color: #ef4444; }
+                .verify-error {
+                    border: 1px solid rgba(239,68,68,0.25);
+                    background: rgba(239,68,68,0.08);
+                    border-radius: 12px;
+                    padding: .625rem .75rem;
+                    margin-bottom: .875rem;
+                    color: #fca5a5; font-size: .8rem; line-height: 1.4;
+                    text-align: center;
+                }
                 .btn-verify {
                     width: 100%; padding: .875rem 1rem;
                     background: linear-gradient(135deg, #fbbf24, #d97706);
@@ -317,6 +363,7 @@ export default function VerifyOtpPage() {
                             ref={(el) => { inputRefs.current[i] = el; }}
                             type="text"
                             inputMode="numeric"
+                            autoComplete={i === 0 ? "one-time-code" : "off"}
                             maxLength={1}
                             value={d}
                             className="otp-box"
@@ -329,8 +376,14 @@ export default function VerifyOtpPage() {
                     ))}
                 </div>
 
-                <div className={`verify-timer ${seconds <= 60 ? "expiring" : ""}`}>
-                    <span>Code expires in {formatTime(seconds)}</span>
+                {error ? (
+                    <div className="verify-error" role="alert">{error}</div>
+                ) : null}
+
+                <div className={`verify-timer ${seconds <= 60 || codeExpired ? "expiring" : ""}`}>
+                    <span>
+                        {codeExpired ? "Code expired" : `Code expires in ${formatTime(seconds)}`}
+                    </span>
                 </div>
 
                 <button

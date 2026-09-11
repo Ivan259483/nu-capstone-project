@@ -359,12 +359,40 @@ export const authService = {
     return response.data;
   },
 
-  async verifyOtp(email: string, otp: string): Promise<{ success: boolean; message: string }> {
+  /**
+   * Signup / email-verification OTP.
+   *
+   * When the customer account already exists, the backend activates it and
+   * returns a full session in the same response. Consuming it here is what
+   * removes the old second round trip through the sign-in screen.
+   *
+   * When the account does not exist yet (send-otp -> verify-otp -> register),
+   * the backend deliberately returns no session; `session` is null and the
+   * caller continues to /auth/register.
+   */
+  async verifyOtp(email: string, otp: string): Promise<{
+    success: boolean;
+    message: string;
+    session: { token: string; backendUser: BackendUser } | null;
+  }> {
     const response = await apiClient.post('/auth/verify-otp', {
       email: normalizeEmail(email),
       otp: normalizeOtp(otp),
     });
-    return response.data;
+    const body = response.data;
+
+    if (!body?.data?.token || !body?.data?.user) {
+      return { success: Boolean(body?.success), message: body?.message, session: null };
+    }
+
+    const { token, user } = getAuthPayload(response);
+    await persistSession(token, user);
+    const authorized = await restoreStoredSession();
+    return {
+      success: true,
+      message: body.message,
+      session: { token: authorized.token, backendUser: authorized.user },
+    };
   },
 
   /**

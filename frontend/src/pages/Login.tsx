@@ -253,6 +253,10 @@ export default function Login() {
     const [pendingLoginChallenge, setPendingLoginChallenge] = useState("");
     const [loginMaskedEmail, setLoginMaskedEmail] = useState("");
     const [loginOtpError, setLoginOtpError] = useState("");
+    const [loginOtpLockSec, setLoginOtpLockSec] = useState(0);
+    // The last code this screen auto-submitted. Comparing against it submits a
+    // corrected code once, and never resubmits the same one twice.
+    const loginOtpAutoSubmitRef = useRef("");
     const loginOtpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
     /* ── Tab ── */
@@ -341,6 +345,13 @@ export default function Login() {
         const timer = setInterval(() => setLoginOtpExpiry((c) => c - 1), 1000);
         return () => clearInterval(timer);
     }, [loginOtpExpiry]);
+
+    /* ── Login OTP attempt-lock cooldown ── */
+    useEffect(() => {
+        if (loginOtpLockSec <= 0) return;
+        const t = setInterval(() => setLoginOtpLockSec((v) => Math.max(0, v - 1)), 1000);
+        return () => clearInterval(t);
+    }, [loginOtpLockSec]);
 
     /* ── Login OTP resend cooldown (60 s) ── */
     useEffect(() => {
@@ -679,6 +690,17 @@ export default function Login() {
         }
     };
 
+    /* ── Login OTP: auto-submit the moment the 6th digit lands ── */
+    useEffect(() => {
+        if (loginOtpStep !== "otp" || loginOtpVerifying || loginOtpLockSec > 0) return;
+        if (!loginOtpDigits.every((d) => d)) return;
+        const code = loginOtpDigits.join("");
+        if (loginOtpAutoSubmitRef.current === code) return;
+        loginOtpAutoSubmitRef.current = code;
+        void handleVerifyLoginOtp();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loginOtpDigits, loginOtpStep, loginOtpVerifying, loginOtpLockSec]);
+
     /* ── Login OTP: verify ── */
     const handleVerifyLoginOtp = async () => {
         const code = loginOtpDigits.join("");
@@ -703,20 +725,47 @@ export default function Login() {
             const json = await resp.json();
 
             if (!resp.ok || !json.success) {
-                // Shake animation
-                setLoginOtpShake(true);
-                setTimeout(() => setLoginOtpShake(false), 600);
-                setLoginOtpDigits(["", "", "", "", "", ""]);
-                setTimeout(() => loginOtpInputRefs.current[0]?.focus(), 50);
+                // The opaque challenge itself is gone — a resend cannot help, so
+                // return to the sign-in form and say why.
+                if (json?.code === "LOGIN_CHALLENGE_EXPIRED") {
+                    clearStoredLoginOtpSession();
+                    setLoginOtpStep("form");
+                    setLoginOtpDigits(["", "", "", "", "", ""]);
+                    setPendingUserId("");
+                    setPendingLoginChallenge("");
+                    setLoginOtpError("");
+                    setLoginOtpLockSec(0);
+                    toast.error(t("auth.verifySessionExpired"));
+                    return;
+                }
+
+                // The code expired but the challenge is still valid — offer a
+                // resend in place instead of sending the user back to login.
+                if (json?.code === "OTP_EXPIRED" || json?.code === "LOGIN_OTP_EXPIRED") {
+                    setLoginOtpExpiry(0);
+                    setLoginOtpResend(0);
+                    setLoginOtpError(json.message || t("auth.codeExpiredResend"));
+                    return;
+                }
 
                 if (resp.status === 429) {
+                    const remainingMinutes = Number(json?.data?.remainingMinutes) || 0;
+                    if (remainingMinutes > 0) setLoginOtpLockSec(remainingMinutes * 60);
                     setLoginOtpError(json.message || t("auth.tooManyAttempts"));
-                } else {
-                    setLoginOtpError(json.message || t("auth.invalidCode"));
+                    return;
                 }
-                if (json?.code === "OTP_EXPIRED" || json?.code === "LOGIN_OTP_EXPIRED") {
-                    clearStoredLoginOtpSession();
-                }
+
+                // Wrong code: shake, but keep the digits so one mistyped
+                // character can be corrected in place.
+                setLoginOtpShake(true);
+                setTimeout(() => setLoginOtpShake(false), 600);
+                setTimeout(() => loginOtpInputRefs.current[5]?.focus(), 50);
+                const remainingAttempts = Number(json?.data?.remainingAttempts);
+                setLoginOtpError(
+                    Number.isFinite(remainingAttempts) && remainingAttempts > 0
+                        ? t("auth.invalidCodeAttempts").replace("{n}", String(remainingAttempts))
+                        : json.message || t("auth.invalidCode")
+                );
                 return;
             }
 
@@ -807,6 +856,8 @@ export default function Login() {
                 setLoginOtpExpiry(300);
                 setLoginOtpResend(60);
                 setLoginOtpError("");
+                setLoginOtpLockSec(0);
+                loginOtpAutoSubmitRef.current = "";
                 setTimeout(() => loginOtpInputRefs.current[0]?.focus(), 50);
             } else {
                 toast.error(json.message || t("auth.resendFailed"));
@@ -1150,8 +1201,10 @@ export default function Login() {
                                                 ref={(el) => { loginOtpInputRefs.current[idx] = el; }}
                                                 type="text"
                                                 inputMode="numeric"
+                                                autoComplete={idx === 0 ? "one-time-code" : "off"}
                                                 maxLength={1}
                                                 value={digit}
+                                                disabled={loginOtpVerifying || loginOtpLockSec > 0}
                                                 onChange={(e) => handleLoginOtpChange(idx, e.target.value)}
                                                 onKeyDown={(e) => handleLoginOtpKeyDown(idx, e)}
                                                 onPaste={idx === 0 ? handleLoginOtpPaste : undefined}
@@ -1165,16 +1218,26 @@ export default function Login() {
                                     </div>
 
                                     {loginOtpError && (
-                                        <div className="flex items-start gap-2 rounded-[14px] border border-red-500/25 bg-red-500/[0.08] px-3 py-2.5 text-xs text-red-200">
-                                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                                            <span>{loginOtpError}</span>
+                                        <div className="flex flex-col gap-1 rounded-[14px] border border-red-500/25 bg-red-500/[0.08] px-3 py-2.5 text-xs text-red-200">
+                                            <span className="flex items-start gap-2">
+                                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                                                <span>{loginOtpError}</span>
+                                            </span>
+                                            {loginOtpLockSec > 0 && (
+                                                <span className="pl-6 font-mono font-semibold text-red-300">
+                                                    {t("auth.lockedCountdown").replace(
+                                                        "{n}",
+                                                        `${String(Math.floor(loginOtpLockSec / 60)).padStart(2, "0")}:${String(loginOtpLockSec % 60).padStart(2, "0")}`
+                                                    )}
+                                                </span>
+                                            )}
                                         </div>
                                     )}
 
                                     <Button
                                         onClick={handleVerifyLoginOtp}
                                         className={AUTH_PRIMARY_BUTTON_CLASS}
-                                        disabled={loginOtpDigits.some((d) => !d) || loginOtpVerifying}
+                                        disabled={loginOtpDigits.some((d) => !d) || loginOtpVerifying || loginOtpLockSec > 0}
                                     >
                                         {loginOtpVerifying ? (
                                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
