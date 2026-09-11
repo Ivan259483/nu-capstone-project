@@ -115,7 +115,6 @@ function FilterChip({
   const activeBg = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.08)';
   return (
     <MotionPressable
-      haptic="selection"
       onPress={onPress}
       style={[
         styles.chip,
@@ -149,7 +148,6 @@ function CopyIdButton({ value, colors }: { value: string; colors: ThemeColors })
 
   return (
     <MotionPressable
-      haptic="selection"
       onPress={handlePress}
       style={[styles.copyBtn, { borderColor: colors.border }]}
       accessibilityLabel="Copy transaction ID"
@@ -231,7 +229,6 @@ function TransactionCard({
 
       {payment.receiptAvailable ? (
         <MotionPressable
-          haptic="light"
           onPress={() => onViewReceipt(payment.paymentId)}
           disabled={receiptLoading}
           style={styles.receiptCta}

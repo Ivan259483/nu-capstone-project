@@ -9,7 +9,6 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import Animated, {
   Easing,
   FadeInDown,
@@ -105,7 +104,7 @@ export default function AnalyzingScreen() {
         if (!accepted) return;
 
         setStatus('Damage detection complete. Preparing diagnostic report.');
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
         transitionTimer = setTimeout(() => {
           const currentSessionId = aiScanStore.getState().workflow.sessionId;
           if (mounted && navigationGuard.current.claim(sessionId, currentSessionId)) {
@@ -123,7 +122,7 @@ export default function AnalyzingScreen() {
         if (aiScanStore.failScanRequest(sessionId, message)) {
           setFailed(true);
           setStatus(message);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+
         }
       }
     };

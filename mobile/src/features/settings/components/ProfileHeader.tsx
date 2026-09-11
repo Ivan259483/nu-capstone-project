@@ -70,7 +70,6 @@ export default function ProfileHeader({ profile, isUpdatingAvatar, onPickImage }
       <MotionPressable
         onPress={onPickImage}
         pressedScale={Motion.scale.compactPress}
-        haptic="light"
         style={s.avatarOuter}
         disabled={isUpdatingAvatar}
         accessibilityRole="button"

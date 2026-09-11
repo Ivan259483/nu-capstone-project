@@ -156,10 +156,6 @@ export default function VerifyScreen() {
     }
   }, [challengeExpired, codeExpired]);
 
-  const triggerOutcomeHaptic = (type: 'success' | 'error') => {
-    Haptics.notify(type);
-  };
-
   const resetOtpInput = () => {
     setOtp('');
     otpInputRef.current?.focus();
@@ -170,7 +166,7 @@ export default function VerifyScreen() {
     setFeedback(null);
 
     if (token.length !== OTP_LENGTH) {
-      triggerOutcomeHaptic('error');
+      Haptics.formSubmitError();
       setFeedback({
         type: 'error',
         title: 'Complete the code',
@@ -179,7 +175,7 @@ export default function VerifyScreen() {
       return;
     }
     if (isLoginOtp && (!pendingLoginOtp || challengeExpired)) {
-      triggerOutcomeHaptic('error');
+      Haptics.formSubmitError();
       setFeedback({
         type: 'error',
         title: 'Verification session expired',
@@ -188,7 +184,7 @@ export default function VerifyScreen() {
       return;
     }
     if (isLoginOtp && codeExpired) {
-      triggerOutcomeHaptic('error');
+      Haptics.formSubmitError();
       setFeedback({
         type: 'error',
         title: 'Verification code expired',
@@ -197,7 +193,7 @@ export default function VerifyScreen() {
       return;
     }
     if (!isLoginOtp && !email) {
-      triggerOutcomeHaptic('error');
+      Haptics.formSubmitError();
       setFeedback({
         type: 'error',
         title: 'Email address missing',
@@ -217,7 +213,6 @@ export default function VerifyScreen() {
         if (!result.success) {
           throw new Error(result.message || 'Verification failed. Please try again.');
         }
-        triggerOutcomeHaptic('success');
         setFeedback({
           type: 'success',
           title: 'Email verified',
@@ -231,7 +226,6 @@ export default function VerifyScreen() {
       if (!response.data?.success) {
         throw new Error(response.data?.message || 'Verification failed.');
       }
-      triggerOutcomeHaptic('success');
       setFeedback({
         type: 'success',
         title: 'Email verified',
@@ -247,7 +241,7 @@ export default function VerifyScreen() {
           : /invalid|incorrect/i.test(message)
             ? 'Invalid verification code.'
             : message;
-      triggerOutcomeHaptic('error');
+      Haptics.formSubmitError();
       setFeedback({
         type: 'error',
         title: /expired/i.test(friendlyMessage)
@@ -268,14 +262,11 @@ export default function VerifyScreen() {
     setFeedback(null);
   }
 
-  function handleOtpComplete() {
-    Haptics.impact('light');
-  }
-
   async function handleResend() {
     if (busyAction || resendSeconds > 0) return;
     if (!isLoginOtp) {
       if (!email) {
+        Haptics.formSubmitError();
         setFeedback({
           type: 'error',
           title: 'Email address missing',
@@ -294,14 +285,13 @@ export default function VerifyScreen() {
         if (!response.data?.success) throw new Error(response.data?.message || 'Unable to resend code.');
         setSignupResendAvailableAt(Date.now() + 60_000);
         resetOtpInput();
-        triggerOutcomeHaptic('success');
         setFeedback({
           type: 'success',
           title: 'Verification code sent',
           message: 'Check your email for the new 6-digit code.',
         });
       } catch (error) {
-        triggerOutcomeHaptic('error');
+        Haptics.formSubmitError();
         setFeedback({
           type: 'error',
           title: 'Unable to send code',
@@ -313,6 +303,7 @@ export default function VerifyScreen() {
       return;
     }
     if (!pendingLoginOtp || challengeExpired) {
+      Haptics.formSubmitError();
       setFeedback({
         type: 'error',
         title: 'Verification session expired',
@@ -334,7 +325,6 @@ export default function VerifyScreen() {
       );
       if (!result.success) throw new Error(result.message || 'Unable to resend code.');
       resetOtpInput();
-      triggerOutcomeHaptic('success');
       setFeedback({
         type: 'success',
         title: 'Verification code sent',
@@ -342,7 +332,7 @@ export default function VerifyScreen() {
       });
     } catch (error) {
       const message = getApiErrorMessage(error, 'Unable to resend code. Please try again.');
-      triggerOutcomeHaptic('error');
+      Haptics.formSubmitError();
       setFeedback({
         type: 'error',
         title: 'Unable to send code',
@@ -446,7 +436,6 @@ export default function VerifyScreen() {
               ref={otpInputRef}
               value={otp}
               onChangeText={handleOtpChange}
-              onComplete={handleOtpComplete}
               error={feedback?.type === 'error'}
               disabled={Boolean(busyAction) || challengeExpired}
             />

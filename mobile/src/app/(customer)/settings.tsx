@@ -1,6 +1,6 @@
 /**
  * Settings Screen — Premium Customer Profile Hub
- * 
+ *
  * Clean grouped-list navigation with no inline modals.
  * Each profile action navigates to its own dedicated screen for a native feel.
  *
@@ -24,7 +24,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp } from 'react-native-reanimated';
-import { Haptics } from '@/utils/haptics';
 import * as ImagePicker from 'expo-image-picker';
 import * as LocalAuthentication from 'expo-local-authentication';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -142,7 +141,7 @@ export default function SettingsScreen() {
 
   // ── Navigation helper ──
   const nav = (path: string) => {
-    Haptics.impact('light');
+
     router.push(path as any);
   };
 
@@ -165,7 +164,7 @@ export default function SettingsScreen() {
       const preparedPhoto = await prepareProfilePhoto(selectedPhoto);
       await authService.updateMyProfilePhoto(preparedPhoto);
       await refreshProfile();
-      Haptics.notify('success');
+
       Toast.show('Profile photo updated', 'success');
     } catch (error: any) {
       Alert.alert('Error', getProfilePhotoUploadMessage(error));
@@ -215,7 +214,7 @@ export default function SettingsScreen() {
           setIsSigningOut(true);
           try {
             await signOut();
-            Haptics.notify('success');
+
             // AuthContext publishes the unauthenticated state; the root auth
             // guard is the sole owner of the replacement to /(auth)/login.
           } catch {
@@ -382,7 +381,7 @@ export default function SettingsScreen() {
               iconName="help-buoy-outline"
               title="Help Center"
               onPress={() => {
-                Haptics.impact('light');
+
                 Toast.show('Launching Help Center…', 'info');
               }}
             />
@@ -391,7 +390,7 @@ export default function SettingsScreen() {
               iconName="shield-checkmark-outline"
               title="Privacy Policy & Terms"
               onPress={() => {
-                Haptics.impact('light');
+
                 Toast.show('Loading Legal Terms…', 'info');
               }}
             />
@@ -405,7 +404,7 @@ export default function SettingsScreen() {
               danger
               rightElement={isSigningOut ? <PremiumLoader size="small" tone="danger" accessibilityLabel="Signing out" /> : undefined}
               onPress={isSigningOut ? undefined : () => {
-                Haptics.impact('heavy');
+
                 handleLogout();
               }}
             />
@@ -415,7 +414,7 @@ export default function SettingsScreen() {
               title="Delete Account"
               danger
               onPress={() => {
-                Haptics.impact('heavy');
+
                 handleDeleteAccount();
               }}
             />

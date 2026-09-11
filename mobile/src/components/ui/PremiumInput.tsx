@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, StyleSheet, TextInputProps, TouchableOpacity, Platform, ViewProps, ViewStyle } from 'react-native';
-import Animated, { 
-  FadeInUp, 
-  useSharedValue, 
-  useAnimatedStyle, 
-  withSequence, 
-  withTiming, 
+import { View, Text, TextInput, StyleSheet, TextInputProps, TouchableOpacity, ViewProps, ViewStyle } from 'react-native';
+import Animated, {
+  FadeInUp,
+  useSharedValue,
+  useAnimatedStyle,
+  withSequence,
+  withTiming,
   interpolateColor
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 
 interface PremiumInputProps extends Omit<TextInputProps, 'style'> {
   label: string;
@@ -22,16 +21,16 @@ interface PremiumInputProps extends Omit<TextInputProps, 'style'> {
   style?: TextInputProps['style'];
 }
 
-export default function PremiumInput({ 
-  label, 
-  iconName, 
+export default function PremiumInput({
+  label,
+  iconName,
   leftAccessory,
-  error, 
-  isPassword, 
+  error,
+  isPassword,
   premiumFocus = false,
   containerStyle,
-  style, 
-  ...props 
+  style,
+  ...props
 }: PremiumInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [showPassword, setShowPassword] = useState(!isPassword);
@@ -42,7 +41,6 @@ export default function PremiumInput({
 
   useEffect(() => {
     if (error) {
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       shakeX.value = withSequence(
         withTiming(10, { duration: 50 }),
         withTiming(-10, { duration: 50 }),
@@ -84,7 +82,7 @@ export default function PremiumInput({
   return (
     <View style={[styles.wrapper, containerStyle]}>
       <Text style={styles.label}>{label}</Text>
-      
+
       <Animated.View
         style={[
           styles.inputContainer,
@@ -116,11 +114,10 @@ export default function PremiumInput({
             if (props.onBlur) props.onBlur(e);
           }}
         />
-        
+
         {isPassword && (
-          <TouchableOpacity 
+          <TouchableOpacity
              onPress={() => {
-                if (Platform.OS !== 'web') Haptics.selectionAsync();
                 setShowPassword(!showPassword);
              }}
              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}

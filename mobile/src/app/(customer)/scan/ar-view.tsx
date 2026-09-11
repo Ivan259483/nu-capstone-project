@@ -12,7 +12,6 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { PremiumLoader } from '@/components/ui/loading';
-import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import QRCode from 'react-native-qrcode-svg';
@@ -96,7 +95,7 @@ export default function ArViewScreen() {
 
           taskId = started.taskId ?? null;
           if (started.status === 'ar_ready') {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
             return;
           }
           if (started.status !== 'processing' || !taskId) return;
@@ -109,9 +108,6 @@ export default function ArViewScreen() {
         });
         aiScanStore.setModelProgress(result);
 
-        if (result.status === 'ar_ready') {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        }
       } catch (error) {
         const message = error instanceof Error ? error.message : '3D reconstruction failed.';
         aiScanStore.setModelProgress({
@@ -120,7 +116,7 @@ export default function ArViewScreen() {
           progress: modelProgress,
           message,
         });
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+
       } finally {
         running.current = false;
       }
@@ -168,7 +164,7 @@ export default function ArViewScreen() {
     }
 
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
       await Linking.openURL(directUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not open native AR launcher.';

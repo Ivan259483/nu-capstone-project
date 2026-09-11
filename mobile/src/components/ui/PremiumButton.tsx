@@ -1,5 +1,5 @@
 /**
- * PremiumButton — Animated button with haptic feedback and optional gradient
+ * PremiumButton — Animated button with primary-only haptic feedback and optional gradient
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -105,9 +105,7 @@ export default function PremiumButton({
   };
   const handlePress = () => {
     if (isDisabled) return;
-    // Authentication outcomes provide the meaningful haptic. Avoid vibrating
-    // merely because the request entered its loading state.
-    if (!premiumAuth) Haptics.impact('medium');
+    if (variant === 'primary') Haptics.primaryPress();
     onPress();
   };
 

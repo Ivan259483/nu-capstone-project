@@ -26,7 +26,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import { Toast } from '@/components/ui/PremiumToast';
 import { PremiumLoader } from '@/components/ui/loading';
 import { MotionModal } from '@/components/ui/MotionOverlay';
@@ -39,6 +38,7 @@ import {
 import type { Vehicle } from '@/services/api/types';
 import { getApiErrorMessage } from '@/services/api/client';
 import { vehicleService } from '@/services/api/vehicleService';
+import { Haptics } from '@/utils/haptics';
 import {
   emptyVehicleGarageForm,
   validateVehicleGarageForm,
@@ -254,7 +254,7 @@ export default function AddVehicleModal({
     setPickerSearch('');
     setPicker(kind);
     Animated.spring(pickerAnim, { toValue: 1, useNativeDriver: true, tension: 65, friction: 10 }).start();
-    Haptics.selectionAsync();
+
   }, [pickerAnim]);
 
   const closePicker = useCallback(() => {
@@ -369,7 +369,7 @@ export default function AddVehicleModal({
         break;
     }
     closePicker();
-    Haptics.selectionAsync();
+
   }, [picker, closePicker, form.classificationOptions]);
 
   const plateHint = useMemo<{ text: string; tone: 'ok' | 'warn' } | undefined>(() => {
@@ -458,10 +458,11 @@ export default function AddVehicleModal({
     setErrType(errors.type || '');
 
     if (Object.keys(errors).length > 0) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Haptics.formSubmitError();
       return;
     }
 
+    Haptics.primaryPress();
     const plateNorm = normalizePlateNumber(form.plate.trim());
     const brandTrim = form.brand.trim();
     const modelTrim = form.model.trim();
@@ -500,6 +501,7 @@ export default function AddVehicleModal({
       reset();
       onVehicleAdded(newV);
     } catch (e: unknown) {
+      Haptics.formSubmitError();
       const correction = getVehicleClassificationCorrection(e);
       if (correction) setForm((previous) => ({ ...previous, ...correction }));
       const msg = getApiErrorMessage(
@@ -510,7 +512,6 @@ export default function AddVehicleModal({
 
       if (code === 'PLATE_TAKEN' || msg.toLowerCase().includes('another account')) {
         setErrPlate('Plate already registered to another account');
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       } else {
         setApiError(msg);
         scrollRef.current?.scrollTo({ y: 0, animated: true });
@@ -734,7 +735,7 @@ export default function AddVehicleModal({
                       onPress={() => {
                         setColorOther(false);
                         setForm((prev) => patchVehicleForm(prev, { color: c.name }));
-                        Haptics.selectionAsync();
+
                       }}
                       style={[s.swatch, { backgroundColor: c.hex }, sel && s.swatchSel]}
                     />
@@ -747,7 +748,7 @@ export default function AddVehicleModal({
                   onPress={() => {
                     setColorOther(true);
                     setForm((prev) => patchVehicleForm(prev, { color: '' }));
-                    Haptics.selectionAsync();
+
                   }}
                   style={[s.otherPill, colorOther && s.otherPillSel]}
                 >

@@ -73,7 +73,6 @@ export default function WelcomeScreen() {
           <View style={styles.loginRow}>
             <Text style={styles.loginTextSub}>Already have an account? </Text>
             <MotionPressable
-              haptic="light"
               hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
               onPress={() => router.push('/(auth)/login')}
             >

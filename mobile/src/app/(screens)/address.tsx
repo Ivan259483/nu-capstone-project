@@ -16,8 +16,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInUp, FadeIn } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Haptics } from '@/utils/haptics';
 import { Palette } from '@/constants/theme';
 import PremiumInput from '@/components/ui/PremiumInput';
 import { Toast } from '@/components/ui/PremiumToast';
@@ -102,7 +102,7 @@ function AddressCard({
         {!address.isDefault && (
           <TouchableOpacity
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
               onSetDefault(address.id);
             }}
             style={s.cardActionBtn}
@@ -113,7 +113,7 @@ function AddressCard({
         )}
         <TouchableOpacity
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
             onEdit(address);
           }}
           style={s.cardActionBtn}
@@ -123,7 +123,7 @@ function AddressCard({
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
             onDelete(address.id);
           }}
           style={s.cardActionBtn}
@@ -223,11 +223,15 @@ export default function AddressScreen() {
 
   const handleSave = async () => {
     setFormError('');
-    if (!street.trim()) return setFormError('Street address is required');
-    if (!city.trim()) return setFormError('City is required');
-    if (!province.trim()) return setFormError('Province is required');
-    if (!zipCode.trim()) return setFormError('Zip code is required');
+    if (!street.trim() || !city.trim() || !province.trim() || !zipCode.trim()) {
+      Haptics.formSubmitError();
+      if (!street.trim()) return setFormError('Street address is required');
+      if (!city.trim()) return setFormError('City is required');
+      if (!province.trim()) return setFormError('Province is required');
+      return setFormError('Zip code is required');
+    }
 
+    Haptics.primaryPress();
     setSaving(true);
     try {
       if (editingAddress) {
@@ -261,10 +265,11 @@ export default function AddressScreen() {
         await persist([...addresses, newAddr]);
         Toast.show('Address saved', 'success');
       }
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
       setModalVisible(false);
       resetForm();
     } catch {
+      Haptics.formSubmitError();
       Toast.show('Failed to save address', 'error');
     } finally {
       setSaving(false);
@@ -281,7 +286,7 @@ export default function AddressScreen() {
     }
     persist(remaining);
     Toast.show('Address removed', 'success');
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
   };
 
   const handleSetDefault = (id: string) => {
@@ -291,7 +296,7 @@ export default function AddressScreen() {
     }));
     persist(updated);
     Toast.show('Default address updated', 'success');
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
   };
 
   // ── Skeleton Loader ──
@@ -330,7 +335,7 @@ export default function AddressScreen() {
             <TouchableOpacity
               key={label}
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 setSelectedLabel(label);
               }}
               style={[
@@ -365,7 +370,7 @@ export default function AddressScreen() {
       <View style={s.header}>
         <TouchableOpacity
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
             router.back();
           }}
           style={s.backBtn}
@@ -376,7 +381,7 @@ export default function AddressScreen() {
         <Text style={s.headerTitle}>Address & Location</Text>
         <TouchableOpacity
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
             openAdd();
           }}
           style={s.addHeaderBtn}

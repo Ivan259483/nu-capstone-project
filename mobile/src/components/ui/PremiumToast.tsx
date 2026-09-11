@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform, StyleSheet } from 'react-native';
-import * as Haptics from 'expo-haptics';
+import { StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AuthFeedback, {
   type AuthFeedbackData,
@@ -37,18 +36,6 @@ class ToastController {
     if (signature === this.lastSignature && now - this.lastShownAt < 600) return;
     this.lastSignature = signature;
     this.lastShownAt = now;
-
-    if (Platform.OS !== 'web') {
-      if (payload.type === 'error') {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      } else if (payload.type === 'success') {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } else if (payload.type === 'warning') {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      } else {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-    }
 
     this.nextId += 1;
     this.listener({ ...payload, id: this.nextId });

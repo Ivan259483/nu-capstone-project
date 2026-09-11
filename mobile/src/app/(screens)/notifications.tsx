@@ -11,7 +11,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Haptics } from '@/utils/haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
@@ -280,12 +279,12 @@ export default function NotificationsScreen() {
 
   const handleFilterChange = (nextFilter: InboxFilter) => {
     setFilter(nextFilter);
-    Haptics.selection();
+
   };
 
   const openCategoryView = (category: SummaryCategory) => {
     setCategoryView(category);
-    Haptics.selection();
+
   };
 
   const handleHeaderBack = () => {
@@ -300,7 +299,7 @@ export default function NotificationsScreen() {
     if (markingAllRead || unreadCount === 0) return;
     try {
       await markAllAsRead();
-      Haptics.notify('success');
+
       Toast.show('All notifications marked as read.', 'success');
     } catch (readError) {
       Toast.show(getApiErrorMessage(readError, 'Unable to mark notifications as read.'), 'error');
@@ -308,7 +307,7 @@ export default function NotificationsScreen() {
   };
 
   const openDetail = (notification: NotificationRecord) => {
-    Haptics.impact('light');
+
     setDetailNotification({ ...notification, isRead: true });
     if (!notification.isRead) {
       void markAsRead(notification.id).catch((readError) => {
@@ -337,7 +336,7 @@ export default function NotificationsScreen() {
   const toggleReadState = async (notification: NotificationRecord) => {
     try {
       await setReadState(notification.id, !notification.isRead);
-      Haptics.selection();
+
     } catch (readError) {
       Toast.show(getApiErrorMessage(readError, 'Unable to update this notification.'), 'error');
     }
@@ -347,7 +346,7 @@ export default function NotificationsScreen() {
     try {
       await clearNotification(notification.id);
       if (detailNotification?.id === notification.id) setDetailNotification(null);
-      Haptics.notify('success');
+
       Toast.show('Notification removed.', 'success');
     } catch (clearError) {
       Toast.show(getApiErrorMessage(clearError, 'Unable to remove this notification.'), 'error');
@@ -677,7 +676,7 @@ function NotificationRow({
   const hasLongMessage = notification.message.trim().length > 120;
 
   const confirmDelete = () => {
-    Haptics.impact('medium');
+
     Alert.alert(
       'Remove notification?',
       'This removes it from your inbox without deleting the service record.',

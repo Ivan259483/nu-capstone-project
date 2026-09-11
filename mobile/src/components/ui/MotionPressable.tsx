@@ -12,7 +12,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Motion, reducedMotionDuration } from '@/constants/motion';
-import { Haptics, type HapticImpact } from '@/utils/haptics';
 
 type MotionPressableProps = Omit<
   PressableProps,
@@ -20,7 +19,6 @@ type MotionPressableProps = Omit<
 > & {
   style?: StyleProp<ViewStyle>;
   pressedScale?: number;
-  haptic?: HapticImpact | 'selection' | 'none';
 };
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -28,7 +26,6 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export default function MotionPressable({
   style,
   pressedScale = Motion.scale.press,
-  haptic = 'none',
   disabled,
   onPress,
   ...props
@@ -57,8 +54,6 @@ export default function MotionPressable({
         });
       }}
       onPress={(event) => {
-        if (haptic === 'selection') Haptics.selection();
-        else if (haptic !== 'none') Haptics.impact(haptic);
         onPress?.(event);
       }}
       style={[style, animatedStyle]}

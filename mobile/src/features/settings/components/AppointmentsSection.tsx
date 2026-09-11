@@ -3,7 +3,6 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
 import { bookingService } from '@/services/api/bookingService';
 import type { BookingRecord } from '@/services/api/types';
 import SectionHeader from './SectionHeader';
@@ -75,7 +74,7 @@ export default function AppointmentsSection({ onViewCalendar, onReschedule }: Ap
               activeOpacity={0.8}
               style={s.upcomingCard}
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 onReschedule?.(booking);
               }}
             >

@@ -22,7 +22,6 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Motion, reducedMotionDuration } from '@/constants/motion';
-import { Haptics } from '@/utils/haptics';
 
 type BaseOverlayProps = {
   visible: boolean;
@@ -215,7 +214,7 @@ export function MotionSheet({
 
   const completeGestureDismiss = useCallback(() => {
     mountOverlay(false);
-    Haptics.selection();
+
     onCloseRef.current();
     onClosedRef.current?.();
   }, [mountOverlay]);

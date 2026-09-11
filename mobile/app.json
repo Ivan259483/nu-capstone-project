@@ -24,6 +24,9 @@
     },
     "android": {
       "icon": "./assets/icon.png",
+      "blockedPermissions": [
+        "android.permission.VIBRATE"
+      ],
       "permissions": [
         "INTERNET",
         "CAMERA"

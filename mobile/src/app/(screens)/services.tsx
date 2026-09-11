@@ -9,7 +9,6 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Haptics } from '@/utils/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import AddVehicleModal from '@/components/booking/AddVehicleModal';
@@ -30,6 +29,7 @@ import type {
   Vehicle,
 } from '@/services/api/types';
 import { vehicleService } from '@/services/api/vehicleService';
+import { Haptics } from '@/utils/haptics';
 
 const C = {
   bg: '#040405',
@@ -407,7 +407,7 @@ export default function ServicesCatalogScreen() {
 
   const handleBook = useCallback(async (service: ServiceOption) => {
     const intent = ++serviceIntentRef.current;
-    Haptics.impact('medium');
+    Haptics.primaryPress();
     setPendingService(service);
     setCheckingServiceId(service.id);
     const openedForLoading = !vehiclesLoaded;
@@ -463,7 +463,7 @@ export default function ServicesCatalogScreen() {
   return (
     <View style={s.screen}>
       <LinearGradient colors={['rgba(255,140,0,0.07)', 'transparent']} style={s.headerGlow} pointerEvents="none" />
-      <View style={[s.header, { paddingTop: Math.max(insets.top, 12) + 4 }]}> 
+      <View style={[s.header, { paddingTop: Math.max(insets.top, 12) + 4 }]}>
         <TouchableOpacity accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} style={s.backButton}>
           <Ionicons name="chevron-back" size={21} color={C.white} />
         </TouchableOpacity>
@@ -487,7 +487,7 @@ export default function ServicesCatalogScreen() {
               accessibilityHint="Opens the vehicle class selector"
               activeOpacity={0.84}
               onPress={() => {
-                Haptics.impact('light');
+
                 setCategoryPickerOpen(true);
               }}
               style={s.selector}
@@ -672,7 +672,7 @@ export default function ServicesCatalogScreen() {
                 accessibilityLabel={category.label}
                 activeOpacity={0.82}
                 onPress={() => {
-                  Haptics.selection();
+
                   setSelectedCategoryCode(category.code);
                 }}
                 style={[s.choiceRow, active && s.choiceRowActive]}

@@ -20,7 +20,6 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInUp, ZoomIn } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import AuthLayout from '@/components/auth/AuthLayout';
 import AuthButton from '@/components/auth/AuthButton';
 import AuthInput from '@/components/auth/AuthInput';
@@ -34,6 +33,7 @@ import { authService } from '@/services/api/authService';
 import { isPasswordValid } from '@/utils/validation';
 import { REGISTER_COUNTRY_DIALS } from '@/lib/countries-dial-data';
 import { validateRegisterNationalDigits, buildRegisterE164 } from '@/lib/phoneRegister';
+import { Haptics } from '@/utils/haptics';
 import {
   PPF_TERMS_BUSINESS,
   PPF_TERMS_INTRO,
@@ -251,11 +251,10 @@ export default function SignUpScreen() {
 
   const handleContinueStep = () => {
     if (!validateStepOne()) {
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Haptics.formSubmitError();
       return;
     }
     if (apiError) setApiError('');
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setStep(2);
   };
 
@@ -301,11 +300,11 @@ export default function SignUpScreen() {
 
   const handleRegisterSubmit = async () => {
     if (!validateAll()) {
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Haptics.formSubmitError();
       return;
     }
     if (!registerLegalAcknowledged) {
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Haptics.formSubmitError();
       Toast.show(
         'Both checkboxes are required: accept the PPF terms in the popup, and confirm the website Terms of Service.',
         'error'
@@ -319,7 +318,6 @@ export default function SignUpScreen() {
 
     setLoading(true);
     setApiError('');
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const result = await authService.registerCustomer({
       name: fullName,
@@ -331,13 +329,12 @@ export default function SignUpScreen() {
     setLoading(false);
 
     if (result.success) {
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setRegisteredEmail(emailNorm);
       setShowRegistrationSuccess(true);
       return;
     }
 
-    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    Haptics.formSubmitError();
     const msg = result.message || 'Registration failed.';
     if (result.status === 409 || /already exists|already in use/i.test(msg)) {
       setErrors((p) => ({ ...p, email: 'An account with this email already exists' }));
@@ -347,15 +344,10 @@ export default function SignUpScreen() {
     }
   };
 
-  const hapticLight = () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
   return (
     <AuthLayout
       showBack={!showRegistrationSuccess}
       onBack={() => {
-        hapticLight();
         router.back();
       }}
       logo={showRegistrationSuccess ? null : undefined}
@@ -367,7 +359,6 @@ export default function SignUpScreen() {
             <Text style={s.footerText}>Already have an account? </Text>
             <TouchableOpacity
               onPress={() => {
-                hapticLight();
                 router.back();
               }}
             >
@@ -449,7 +440,6 @@ export default function SignUpScreen() {
                 style={s.stepBackBtn}
                 activeOpacity={0.78}
                 onPress={() => {
-                  hapticLight();
                   setStep(1);
                 }}
               >
@@ -514,12 +504,10 @@ export default function SignUpScreen() {
                   onPress={() => {
                     if (ppfTermsAgreed) {
                       setPpfTermsAgreed(false);
-                      hapticLight();
                     } else {
                       setPpfTermsModalScrolledToEnd(false);
                       setPpfTermsModalBodyKey((k) => k + 1);
                       setPpfTermsModalOpen(true);
-                      hapticLight();
                     }
                   }}
                 >
@@ -539,7 +527,6 @@ export default function SignUpScreen() {
                   activeOpacity={0.75}
                   onPress={() => {
                     setRegisterWebsiteTermsAgreed((v) => !v);
-                    hapticLight();
                   }}
                 >
                   <View style={[s.agreeBox, registerWebsiteTermsAgreed && s.agreeBoxOn]}>
@@ -642,7 +629,6 @@ export default function SignUpScreen() {
               if (!ppfTermsModalScrolledToEnd) return;
               setPpfTermsAgreed(true);
               setPpfTermsModalOpen(false);
-              if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             }}
           />
         </View>

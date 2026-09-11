@@ -10,7 +10,6 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/hooks/useThemeContext';
 import { BorderRadius, Shadows } from '@/constants/theme';
 
@@ -55,7 +54,7 @@ export default function GlassCard({
 
   const handlePress = () => {
     if (onPress) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
       onPress();
     }
   };

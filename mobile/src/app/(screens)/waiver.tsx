@@ -16,8 +16,8 @@ import { PageSkeleton, PremiumLoader } from '@/components/ui/loading';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
 import SignatureScreen from 'react-native-signature-canvas';
+import { Haptics } from '@/utils/haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@/context/AuthContext';
 import { bookingService } from '@/services/api/bookingService';
@@ -171,35 +171,39 @@ export default function WaiverScreen() {
 
   const handleSubmit = async () => {
     const uploadedPhotos = Object.values(photos).filter(Boolean) as string[];
-    
+
     if (uploadedPhotos.length < 2) {
+      Haptics.formSubmitError();
       Alert.alert('Photos Required', 'Please upload at least 2 pre-service condition photos (ideally all 4 sides).');
       return;
     }
 
     if (!signatureData) {
+      Haptics.formSubmitError();
       Alert.alert('Signature Required', 'Please sign the waiver before submitting.');
       return;
     }
 
     if (!bookingId) {
+      Haptics.formSubmitError();
       Alert.alert('Error', 'Booking ID is missing. Cannot submit waiver.');
       return;
     }
 
     setIsSubmitting(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Haptics.primaryPress();
 
     try {
       // 1. Submit waiver signature
       await bookingService.signWaiver(bookingId, signatureData);
-      
+
       // 2. Submit pre-service inspection photos
       await bookingService.uploadInspection(bookingId, uploadedPhotos, damageNotes);
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
       setIsSubmitted(true);
     } catch (error) {
+      Haptics.formSubmitError();
       console.error(error);
       Alert.alert('Submission Failed', 'An error occurred while submitting the waiver. Please try again.');
     } finally {
@@ -341,9 +345,9 @@ export default function WaiverScreen() {
                     activeOpacity={0.8}
                   >
                     {photos[angle] ? (
-                      <Animated.Image 
-                        source={{ uri: photos[angle]! }} 
-                        style={s.photoImage} 
+                      <Animated.Image
+                        source={{ uri: photos[angle]! }}
+                        style={s.photoImage}
                         entering={FadeIn}
                       />
                     ) : (
@@ -353,7 +357,7 @@ export default function WaiverScreen() {
                       </View>
                     )}
                     {photos[angle] && (
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={s.removePhotoBtn}
                         onPress={(e) => {
                           e.stopPropagation();
@@ -366,7 +370,7 @@ export default function WaiverScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
-              
+
               {/* Damage Notes */}
               <View style={s.damageWrap}>
                 <Text style={s.damageLabel}>Existing Damage / Scratches (Optional)</Text>

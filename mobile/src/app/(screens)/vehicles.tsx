@@ -19,7 +19,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeInUp, FadeIn, SlideInRight } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { vehicleService } from '@/services/api/vehicleService';
 import { Palette } from '@/constants/theme';
@@ -49,7 +48,7 @@ function VehicleCard({
   onDelete: (id: string) => void;
 }) {
   const handleDelete = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
     Alert.alert(
       'Remove Vehicle',
       `Remove ${vehicle.year} ${vehicle.make} ${vehicle.model} (${vehicle.plateNumber}) from your saved vehicles?`,
@@ -136,7 +135,7 @@ export default function VehiclesScreen() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['my-vehicles'] });
       Toast.show('Vehicle removed', 'success');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
     },
     onError: (error: any) => {
       Toast.show(error.message || 'Failed to remove vehicle', 'error');
@@ -184,7 +183,7 @@ export default function VehiclesScreen() {
         </View>
         <TouchableOpacity
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
             router.back();
           }}
           style={s.backBtn}
@@ -225,7 +224,7 @@ export default function VehiclesScreen() {
       {/* ── Floating Add Button ── */}
       <TouchableOpacity
         onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
           setModalVisible(true);
         }}
         activeOpacity={0.8}

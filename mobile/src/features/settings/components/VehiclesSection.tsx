@@ -10,7 +10,6 @@ import {
 import Animated, { FadeInUp, FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
 import { vehicleService } from '@/services/api/vehicleService';
 import type { Vehicle } from '@/services/api/types';
 import SectionHeader from './SectionHeader';
@@ -74,7 +73,7 @@ export default function VehiclesSection({
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
             setVehicles((prev) => prev.filter((v) => v.id !== vehicle.id));
           },
         },
@@ -87,7 +86,7 @@ export default function VehiclesSection({
       style={s.addCard}
       activeOpacity={0.7}
       onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
         onAddVehicle?.();
       }}
     >
@@ -138,7 +137,7 @@ export default function VehiclesSection({
             <TouchableOpacity
               style={s.actionBtn}
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 onEditVehicle?.(item);
               }}
               activeOpacity={0.7}
@@ -148,7 +147,7 @@ export default function VehiclesSection({
             <TouchableOpacity
               style={s.actionBtn}
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 onViewHistory?.(item);
               }}
               activeOpacity={0.7}

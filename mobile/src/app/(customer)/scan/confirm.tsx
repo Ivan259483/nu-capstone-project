@@ -9,10 +9,10 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Toast } from '@/components/ui/PremiumToast';
+import { Haptics } from '@/utils/haptics';
 import {
   AiPill,
   BottomActionBar,
@@ -112,12 +112,13 @@ export default function ConfirmScreen() {
   const confirmAndBook = useCallback(() => {
     if (!scan || !estimate) return;
     if (!selectedVehicleId || vehicles.length === 0) {
+      Haptics.formSubmitError();
       Toast.show('Please select or add a vehicle before confirming.', 'warning');
       return;
     }
 
     setBusy(true);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
 
     const estimateText = selectedMax > 0 ? formatPhp(selectedMax) : estimate.formattedTotal;
     const notes = buildAiNotes(
@@ -226,7 +227,7 @@ export default function ConfirmScreen() {
               <Pressable
                 key={vehicle.id}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                   setSelectedVehicleId(vehicle.id);
                 }}
               >

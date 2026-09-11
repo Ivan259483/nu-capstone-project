@@ -10,7 +10,6 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -98,7 +97,7 @@ export default function Prepare3DScreen() {
 
     aiScanStore.setVehicle3DSourceImage(image);
     setConfirmedFullVehicle(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
   }, []);
 
   const takePhoto = useCallback(async () => {
@@ -108,7 +107,7 @@ export default function Prepare3DScreen() {
       return;
     }
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: 'images',
       quality: 0.9,
@@ -123,7 +122,7 @@ export default function Prepare3DScreen() {
       return;
     }
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: 'images',
       allowsMultipleSelection: false,
@@ -134,7 +133,7 @@ export default function Prepare3DScreen() {
 
   const generateModel = useCallback(() => {
     if (!validation.valid || !confirmedFullVehicle) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
     router.push(AI_SCAN_ROUTES.arView as never);
   }, [confirmedFullVehicle, router, validation.valid]);
 
@@ -252,7 +251,7 @@ export default function Prepare3DScreen() {
             accessibilityRole="checkbox"
             accessibilityState={{ checked: confirmedFullVehicle }}
             onPress={() => {
-              Haptics.selectionAsync();
+
               setConfirmedFullVehicle((value) => !value);
             }}
             style={[styles.confirmRow, confirmedFullVehicle && styles.confirmRowChecked]}

@@ -10,12 +10,12 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Toast } from '@/components/ui/PremiumToast';
+import { Haptics } from '@/utils/haptics';
 import {
   AiPill,
   BottomActionBar,
@@ -81,13 +81,13 @@ export default function AiScanEntry() {
       return;
     }
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: 'images',
       quality: 0.88,
     });
     if (!result.canceled) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
       addAssets(result.assets);
     }
   }, [addAssets, canAddMore]);
@@ -100,7 +100,7 @@ export default function AiScanEntry() {
       return;
     }
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: 'images',
       allowsMultipleSelection: true,
@@ -111,17 +111,18 @@ export default function AiScanEntry() {
   }, [addAssets, canAddMore, images.length]);
 
   const removeImage = useCallback((index: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
     setImages((prev) => prev.filter((_, idx) => idx !== index));
   }, []);
 
   const startInspection = useCallback(() => {
     if (images.length === 0) {
+      Haptics.formSubmitError();
       Toast.show('Add at least one vehicle photo to start AI inspection.', 'warning');
       return;
     }
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
     aiScanStore.setCapturedImages(images);
     router.push('/(customer)/scan/analyzing' as never);
   }, [images, router]);

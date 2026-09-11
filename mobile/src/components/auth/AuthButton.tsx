@@ -119,7 +119,7 @@ export default function AuthButton({
 
   const handlePress = () => {
     if (isDisabled) return;
-    Haptics.impact('light');
+    if (variant === 'primary') Haptics.primaryPress();
     onPress();
   };
 

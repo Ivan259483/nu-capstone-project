@@ -251,10 +251,6 @@ export default function LoginScreen() {
     setFeedback(null);
   }
 
-  const triggerOutcomeHaptic = (type: 'success' | 'warning' | 'error') => {
-    Haptics.notify(type);
-  };
-
   async function handleLogin() {
     Keyboard.dismiss();
 
@@ -280,7 +276,7 @@ export default function LoginScreen() {
     setCredentialsRejected(false);
     setFeedback(null);
     if (nextEmailError || nextPasswordError) {
-      triggerOutcomeHaptic('error');
+      Haptics.formSubmitError();
       return;
     }
 
@@ -291,23 +287,20 @@ export default function LoginScreen() {
       const result = await signIn(normalizedEmail, password);
 
       if (result.success) {
-        triggerOutcomeHaptic('success');
         setIsLocked(false);
         setLockUntilMs(null);
         setButtonState('success');
         router.replace('/');
       } else if (result.requiresEmailOtp && result.verifyEmail) {
-        triggerOutcomeHaptic('warning');
         setButtonState('idle');
         router.push(`/(auth)/verify?email=${encodeURIComponent(result.verifyEmail)}`);
       } else if (result.requiresLoginOtp && result.userId && result.challengeToken) {
-        triggerOutcomeHaptic('success');
         // The opaque challenge is held in encrypted storage by AuthContext. Do
         // not put it (or the raw email) in navigation URLs/history.
         setButtonState('success');
         router.push('/(auth)/verify');
       } else {
-        triggerOutcomeHaptic('error');
+        Haptics.formSubmitError();
         setButtonState('idle');
 
         if (result.data?.locked || result.data?.lockUntilMs) {
@@ -338,7 +331,7 @@ export default function LoginScreen() {
         }
       }
     } catch {
-      triggerOutcomeHaptic('error');
+      Haptics.formSubmitError();
       setButtonState('idle');
       setFeedback({
         type: 'error',
@@ -485,7 +478,7 @@ export default function LoginScreen() {
                 ]}>
                   <TouchableOpacity
                     style={styles.checkRow}
-                    onPress={() => { Haptics.selection(); setKeepSignedIn(!keepSignedIn); }}
+                    onPress={() => {  setKeepSignedIn(!keepSignedIn); }}
                     activeOpacity={0.82}
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: keepSignedIn }}

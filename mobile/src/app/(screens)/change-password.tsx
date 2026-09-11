@@ -19,7 +19,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
 import { authService } from '@/services/api/authService';
 import { getApiErrorMessage } from '@/services/api/client';
@@ -28,6 +27,7 @@ import PremiumInput from '@/components/ui/PremiumInput';
 import PremiumButton from '@/components/ui/PremiumButton';
 import PasswordRequirementsCard from '@/components/ui/PasswordRequirementsCard';
 import { Toast } from '@/components/ui/PremiumToast';
+import { Haptics } from '@/utils/haptics';
 import { isPasswordValid, getPasswordRequirementsMessage, passwordsMatch } from '@/utils/validation';
 
 const SURFACE = '#111114';
@@ -111,9 +111,6 @@ export default function ChangePasswordScreen() {
     }
 
     if (firstInvalidField) {
-      if (Platform.OS !== 'web') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      }
       scrollToField(firstInvalidField);
       return false;
     }
@@ -122,19 +119,20 @@ export default function ChangePasswordScreen() {
   };
 
   const handleChangePassword = async () => {
-    if (!validateForm()) return;
+    if (!validateForm()) {
+      Haptics.formSubmitError();
+      return;
+    }
 
     // Must have either a JWT (email/password users) or a Firebase session (social users)
     if (!token && !user) {
+      Haptics.formSubmitError();
       Toast.show('Session expired. Please re-login.', 'error');
       router.replace('/(auth)/login');
       return;
     }
 
     setLoading(true);
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
 
     try {
       if (user) {
@@ -146,18 +144,13 @@ export default function ChangePasswordScreen() {
       }
 
       setSuccess(true);
-      if (Platform.OS !== 'web') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
       Toast.show('Password updated successfully!', 'success');
 
       setTimeout(() => {
         router.back();
       }, 1500);
     } catch (err: any) {
-      if (Platform.OS !== 'web') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      }
+      Haptics.formSubmitError();
 
       const message = getApiErrorMessage(err);
 
@@ -182,17 +175,12 @@ export default function ChangePasswordScreen() {
     }
   };
 
-  const triggerHapticLight = () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => {
-            triggerHapticLight();
             router.back();
           }}
           style={styles.backBtn}

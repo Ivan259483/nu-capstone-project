@@ -14,7 +14,6 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { Palette } from '@/constants/theme';
 import { Toast } from '@/components/ui/PremiumToast';
 import { useAuth } from '@/context/AuthContext';
@@ -87,7 +86,7 @@ function ToggleRow({
           accessibilityLabel={title}
           value={value}
           onValueChange={(nextValue) => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
             onToggle(nextValue);
           }}
           trackColor={{ false: 'rgba(255,255,255,0.1)', true: Palette.accent }}
@@ -317,7 +316,7 @@ export default function NotificationPreferencesScreen() {
         <TouchableOpacity
           accessibilityLabel="Go back"
           onPress={() => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
             router.back();
           }}
           style={s.backBtn}

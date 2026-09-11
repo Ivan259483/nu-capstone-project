@@ -20,7 +20,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
 import { authService } from '@/services/api/authService';
 import { getApiErrorMessage } from '@/services/api/client';
@@ -29,6 +28,7 @@ import { Palette } from '@/constants/theme';
 import PremiumInput from '@/components/ui/PremiumInput';
 import PremiumButton from '@/components/ui/PremiumButton';
 import { Toast } from '@/components/ui/PremiumToast';
+import { Haptics } from '@/utils/haptics';
 import {
   getProfilePhotoUploadMessage,
   prepareProfilePhoto,
@@ -100,11 +100,11 @@ export default function EditProfileScreen() {
   };
 
   const handleSave = async () => {
-    if (!validateForm()) return;
-    setLoading(true);
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (!validateForm()) {
+      Haptics.formSubmitError();
+      return;
     }
+    setLoading(true);
 
     try {
       await authService.updateMyBackendProfile({
@@ -118,16 +118,11 @@ export default function EditProfileScreen() {
       setSuccess(true);
       setHasChanges(false);
 
-      if (Platform.OS !== 'web') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
       Toast.show('Profile updated successfully!', 'success');
       router.back();
 
     } catch (err: any) {
-      if (Platform.OS !== 'web') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      }
+      Haptics.formSubmitError();
       const message = getApiErrorMessage(err);
       Toast.show(message || 'Failed to update profile', 'error');
     } finally {
@@ -150,13 +145,11 @@ export default function EditProfileScreen() {
       if (!selectedPhoto) return;
 
       setIsUpdatingAvatar(true);
-      if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
       const preparedPhoto = await prepareProfilePhoto(selectedPhoto);
       await authService.updateMyProfilePhoto(preparedPhoto);
       await refreshProfile();
 
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Toast.show('Profile photo updated successfully!', 'success');
     } catch (error: any) {
       Alert.alert('Error', getProfilePhotoUploadMessage(error));
@@ -185,10 +178,6 @@ export default function EditProfileScreen() {
     );
   };
 
-  const triggerHapticLight = () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
   const initials = fullName
     ? fullName.split(' ').map((w: string) => w[0]).join('').substring(0, 2).toUpperCase()
     : 'U';
@@ -199,7 +188,6 @@ export default function EditProfileScreen() {
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => {
-            triggerHapticLight();
             handleDiscard();
           }}
           style={styles.backBtn}
@@ -225,8 +213,8 @@ export default function EditProfileScreen() {
             entering={FadeInDown.delay(100).duration(200)}
             style={styles.avatarArea}
           >
-            <TouchableOpacity 
-              style={styles.avatarContainer} 
+            <TouchableOpacity
+              style={styles.avatarContainer}
               activeOpacity={0.8}
               onPress={handlePickImage}
               disabled={isUpdatingAvatar}

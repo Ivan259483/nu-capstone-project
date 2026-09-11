@@ -27,7 +27,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import * as Haptics from 'expo-haptics';
 import type { DamageIssue } from '../types';
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -40,7 +39,7 @@ import type { DamageIssue } from '../types';
  *  • Pulsing damage zone markers on the BEFORE side
  *  • Smart fallback simulation when FLUX unavailable
  *  • Auto-reveal entrance animation (spring)
- *  • Haptic feedback on drag start + edges
+ *  • Drag-start and edge feedback remains visual-only
  *  • Bottom stats strip (issues / confidence / severity / source)
  *  • Single GestureDetector wrapping the full touch area (no conflicts)
  * ══════════════════════════════════════════════════════════════════════════════ */
@@ -445,15 +444,6 @@ export default function BeforeAfterSlider({
     }
   }, [isReady, showComparison]);
 
-  /* ── Haptic Feedback ────────────────────────────────────────────────────── */
-  const fireHaptic = useCallback((type: 'start' | 'edge') => {
-    if (type === 'start') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    } else {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    }
-  }, []);
-
   const markDragged = useCallback(() => {
     setHasDragged(true);
   }, []);
@@ -463,16 +453,12 @@ export default function BeforeAfterSlider({
     Gesture.Pan()
       .onStart(() => {
         startX.value = sliderX.value;
-        runOnJS(fireHaptic)('start');
         runOnJS(markDragged)();
       })
       .onUpdate((e) => {
         const next = startX.value + e.translationX;
         const clamped = Math.max(16, Math.min(width - 16, next));
         sliderX.value = clamped;
-        if (clamped <= 18 || clamped >= width - 18) {
-          runOnJS(fireHaptic)('edge');
-        }
       }),
     [width],
   );

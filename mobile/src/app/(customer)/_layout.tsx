@@ -26,7 +26,6 @@ import AskAiFab from '@/components/ui/AskAiFab';
 import { useAuth } from '@/context/AuthContext';
 import { isCustomerRole } from '@/services/api/roles';
 import { Motion, reducedMotionDuration } from '@/constants/motion';
-import { Haptics } from '@/utils/haptics';
 
 const SHOW_FLOATING_AI_CHATBOT = false;
 
@@ -161,7 +160,7 @@ function TabBarButton({
   }));
 
   const handlePress = () => {
-    Haptics.impact('light');
+
     onPress();
   };
 

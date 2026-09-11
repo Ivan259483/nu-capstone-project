@@ -20,7 +20,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { PageSkeleton, PremiumLoader } from '@/components/ui/loading';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Haptics } from '@/utils/haptics';
 import { useAuth } from '@/context/AuthContext';
 import { bookingService } from '@/services/api/bookingService';
 import { getApiErrorMessage } from '@/services/api/client';
@@ -119,7 +118,7 @@ const BookingCard = React.memo(
                   activeOpacity={0.8}
                   disabled={cancelling}
                   onPress={() => {
-                    Haptics.impact('medium');
+
                     onCancel(booking.id);
                   }}
                 >
@@ -136,7 +135,7 @@ const BookingCard = React.memo(
                   style={c.rebookBtn}
                   activeOpacity={0.8}
                   onPress={() => {
-                    Haptics.impact('medium');
+
                     onRebook(booking);
                   }}
                 >
@@ -341,7 +340,7 @@ export default function AppointmentsScreen() {
             activeOpacity={0.8}
             onPress={() => {
               setActiveTab(tab);
-              Haptics.selection();
+
             }}
           >
             <Ionicons
@@ -424,7 +423,7 @@ export default function AppointmentsScreen() {
             onRebook={handleRebook}
             cancelling={cancellingId === String(item.id || item._id)}
             onPress={(id) => {
-              Haptics.impact('light');
+
               router.push({ pathname: '/(screens)/booking-details', params: { id } });
             }}
           />

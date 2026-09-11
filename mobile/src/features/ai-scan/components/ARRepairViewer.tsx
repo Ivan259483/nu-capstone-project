@@ -31,7 +31,6 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Palette } from '@/constants/theme';
@@ -1014,7 +1013,7 @@ export default function ARRepairViewer({
           webViewRef.current?.injectJavaScript(
             `window.postMessage(JSON.stringify({ type: 'SET_VISUAL_MODE', mode: '${activeMode}' }), '*'); true;`
           );
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+
           break;
 
         case 'MODEL_ERROR':
@@ -1024,7 +1023,7 @@ export default function ARRepairViewer({
 
         case 'HOTSPOT_CLICKED':
           setSelectedIssueId(data.issueId);
-          Haptics.selectionAsync().catch(() => {});
+
           break;
       }
     } catch {
@@ -1037,7 +1036,7 @@ export default function ARRepairViewer({
     if (mode === activeMode || transitioning) return;
     setTransitioning(true);
     setActiveMode(mode);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+
     if (mode === 'repaired') setSelectedIssueId(null);
 
     webViewRef.current?.injectJavaScript(
@@ -1051,7 +1050,7 @@ export default function ARRepairViewer({
   /* ── AR Launch — opens full-screen in-app WebView modal (works on iOS + Android) ── */
   const triggerAR = useCallback(() => {
     if (!modelReady || !modelUrl) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+
     setShowArModal(true);
   }, [modelReady, modelUrl]);
 

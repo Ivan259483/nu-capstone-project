@@ -1,7 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Dimensions, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Haptics from 'expo-haptics';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -14,6 +13,7 @@ import { AuthColors, AuthFontFamily, AuthRadius, AuthTypography } from '@/consta
 import { Validation } from '@/utils/validation';
 import { authService } from '@/services/api/authService';
 import { apiClient, getApiErrorMessage } from '@/services/api/client';
+import { Haptics } from '@/utils/haptics';
 
 type Step = 'email' | 'otp' | 'newPassword' | 'success';
 const OTP_LENGTH = 6;
@@ -39,10 +39,6 @@ export default function ForgotPasswordScreen() {
   const [countdown, setCountdown] = useState(0);
   const [feedback, setFeedback] = useState<AuthStatusData | null>(null);
   const otpInputRef = useRef<AuthOtpInputHandle | null>(null);
-
-  const haptic = (type: 'success' | 'error') => Haptics.notificationAsync(
-    type === 'success' ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error,
-  );
 
   function startCountdown() {
     setCountdown(60);
@@ -80,7 +76,10 @@ export default function ForgotPasswordScreen() {
     setEmailTouched(true);
     setEmailError(nextEmailError);
     setFeedback(null);
-    if (nextEmailError) return;
+    if (nextEmailError) {
+      Haptics.formSubmitError();
+      return;
+    }
 
     const normalizedEmail = normalizeEmail(email);
     setLoading(true);
@@ -88,7 +87,6 @@ export default function ForgotPasswordScreen() {
       const res = await apiClient.post('/auth/forgot-password', { email: normalizedEmail });
       if (res.data?.success) {
         setEmail(normalizedEmail);
-        haptic('success');
         setStep('otp');
         setFeedback({
           type: 'success',
@@ -100,7 +98,7 @@ export default function ForgotPasswordScreen() {
         throw new Error(res.data?.message || 'Unable to send reset code.');
       }
     } catch (err: any) {
-      haptic('error');
+      Haptics.formSubmitError();
       setFeedback({
         type: 'error',
         title: 'Unable to send code',
@@ -117,7 +115,7 @@ export default function ForgotPasswordScreen() {
     const code = normalizeOtp(otp);
     setFeedback(null);
     if (code.length < OTP_LENGTH) {
-      haptic('error');
+      Haptics.formSubmitError();
       setFeedback({
         type: 'error',
         title: 'Complete the code',
@@ -130,7 +128,6 @@ export default function ForgotPasswordScreen() {
     try {
       const res = await apiClient.post('/auth/verify-reset-otp', { email: normalizeEmail(email), otp: code });
       if (res.data?.success) {
-        haptic('success');
         setStep('newPassword');
         setFeedback({
           type: 'success',
@@ -141,7 +138,7 @@ export default function ForgotPasswordScreen() {
         throw new Error(res.data?.message || 'Incorrect code. Please try again.');
       }
     } catch (err: any) {
-      haptic('error');
+      Haptics.formSubmitError();
       setFeedback({
         type: 'error',
         title: 'Incorrect verification code',
@@ -164,7 +161,10 @@ export default function ForgotPasswordScreen() {
     setPasswordError(nextPasswordError);
     setConfirmError(nextConfirmError);
     setFeedback(null);
-    if (nextPasswordError || nextConfirmError) return;
+    if (nextPasswordError || nextConfirmError) {
+      Haptics.formSubmitError();
+      return;
+    }
 
     setLoading(true);
     try {
@@ -174,7 +174,6 @@ export default function ForgotPasswordScreen() {
         newPassword,
       });
       if (res.data?.success) {
-        haptic('success');
         // Also trigger Firebase password reset so Firebase Auth stays in sync
         await authService.syncFirebasePasswordReset(normalizeEmail(email));
         setStep('success');
@@ -182,7 +181,7 @@ export default function ForgotPasswordScreen() {
         throw new Error(res.data?.message || 'Failed to reset password.');
       }
     } catch (err: any) {
-      haptic('error');
+      Haptics.formSubmitError();
       setFeedback({
         type: 'error',
         title: 'Unable to reset password',

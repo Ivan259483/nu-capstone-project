@@ -10,7 +10,6 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Polygon } from 'react-native-svg';
@@ -228,7 +227,7 @@ export default function ResultsScreen() {
                   accessibilityState={{ checked: showOverlay }}
                   hitSlop={8}
                   onPress={() => {
-                    Haptics.selectionAsync();
+
                     setShowOverlay((visible) => !visible);
                   }}
                   style={[styles.overlaySwitch, showOverlay && styles.overlaySwitchOn]}
@@ -297,7 +296,7 @@ export default function ResultsScreen() {
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
                     onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                       setActiveDamageId(damage.id);
                     }}
                     style={({ pressed }) => [
@@ -388,7 +387,7 @@ export default function ResultsScreen() {
               </View>
               <Pressable
                 style={styles.optimizeBtn}
-                onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
+                onPress={() => undefined}
               >
                 <Ionicons name="sparkles" size={14} color={scannerColors.orange} />
                 <Text style={styles.optimizeText}>Optimize</Text>
@@ -445,7 +444,7 @@ export default function ResultsScreen() {
 
         <Pressable
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
             aiScanStore.activateWorkflowStage('3d');
             router.push(getAiResultDestination('continue_3d') as never);
           }}

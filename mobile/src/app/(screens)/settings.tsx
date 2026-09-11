@@ -20,7 +20,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
 import { getRoleLabel } from '@/services/api/roles';
 import { useTheme } from '@/hooks/useThemeContext';
@@ -129,7 +128,7 @@ export default function SettingsScreen() {
           style: 'destructive',
           onPress: async () => {
             setLoggingOut(true);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
             try {
               await signOut();
             } catch {
@@ -144,7 +143,7 @@ export default function SettingsScreen() {
 
   // ── Delete Account ──────────────────────────────────────────────────
   const openDeleteFlow = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
     Alert.alert(
       'Delete Account?',
       'This action is permanent and cannot be undone. All account data, history, and associated records will be permanently removed.',
@@ -232,7 +231,7 @@ export default function SettingsScreen() {
               </View>
             </View>
             <TouchableOpacity style={s.editBtn} onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
               router.push('/(screens)/edit-profile' as any);
             }}>
               <Ionicons name="create-outline" size={16} color={ACCENT} />
@@ -249,7 +248,7 @@ export default function SettingsScreen() {
               label="Personal Information"
               sub="Name, phone number, address"
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 router.push('/(screens)/edit-profile' as any);
               }}
             />
@@ -259,7 +258,7 @@ export default function SettingsScreen() {
               label="Change Password"
               sub="Update your secure credentials"
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 router.push('/(screens)/change-password' as any);
               }}
             />
@@ -269,7 +268,7 @@ export default function SettingsScreen() {
               label="My Vehicles"
               sub="Manage your registered vehicles"
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 router.push('/(customer)/book');
               }}
             />
@@ -285,7 +284,7 @@ export default function SettingsScreen() {
               label="Notification Preferences"
               sub="Control delivery channels and service alerts"
               onPress={() => {
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 router.push('/(screens)/notification-preferences');
               }}
             />
@@ -295,7 +294,7 @@ export default function SettingsScreen() {
               label="Notification Center"
               sub="View all recent alerts"
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 router.push('/(screens)/notifications');
               }}
             />
@@ -316,7 +315,7 @@ export default function SettingsScreen() {
                   value={isDark}
                   onValueChange={() => {
                     toggleTheme();
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
                   }}
                   trackColor={{ false: '#333', true: 'rgba(139,92,246,0.4)' }}
                   thumbColor={isDark ? '#8B5CF6' : '#666'}
@@ -336,7 +335,7 @@ export default function SettingsScreen() {
               label="My Waivers"
               sub="View signed service agreements"
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 router.push('/(screens)/documents');
               }}
             />
@@ -346,7 +345,7 @@ export default function SettingsScreen() {
               label="Payment History"
               sub="Receipts and transactions"
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 router.push('/(screens)/payments');
               }}
             />
@@ -356,7 +355,7 @@ export default function SettingsScreen() {
               label="My Appointments"
               sub="Upcoming and past bookings"
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 router.push('/(screens)/appointments');
               }}
             />
@@ -372,7 +371,7 @@ export default function SettingsScreen() {
               label="Help & FAQ"
               sub="Common questions and guides"
               color="#06B6D4"
-              onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+              onPress={() => undefined}
             />
             <View style={s.divider} />
             <MenuItem
@@ -381,7 +380,7 @@ export default function SettingsScreen() {
               sub="Chat with our team"
               color="#06B6D4"
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 router.push('/');
               }}
             />

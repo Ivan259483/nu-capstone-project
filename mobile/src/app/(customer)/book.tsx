@@ -2,10 +2,10 @@
  * Book Screen — Premium 6-Step Service Booking Wizard
  * ═══════════════════════════════════════════════════════
  * "The Kinetic Gallery" Design System
- * 
+ *
  * Obsidian surfaces · Warm amber accents · Editorial typography
  * Glassmorphism · Tonal depth · No hard borders
- * 
+ *
  * Step 0: Service · Step 1: Details · Step 2: Schedule
  * Step 3: Review · Step 4: Terms · Step 5: Payment
  */
@@ -45,8 +45,8 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Haptics } from '@/utils/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // expo-blur available if needed for future glassmorphism enhancements
 import { useAuth } from '@/context/AuthContext';
@@ -782,7 +782,7 @@ function VehicleCard({
         onPressIn={() => { scale.value = withTiming(0.97, { duration: 100 }); }}
         onPressOut={() => { scale.value = withTiming(1, { duration: 150 }); }}
         onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
           onPress();
         }}
         style={[
@@ -1499,13 +1499,13 @@ function MonthCalendar({
 
   const prevMonth = () => {
     if (!canGoPrevious) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
     const d = new Date(year, month - 1, 1);
     setCurrentMonth(d);
     onMonthChange?.(d.getFullYear(), d.getMonth());
   };
   const nextMonth = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
     const d = new Date(year, month + 1, 1);
     setCurrentMonth(d);
     onMonthChange?.(d.getFullYear(), d.getMonth());
@@ -1841,7 +1841,7 @@ export default function BookScreen() {
     tcScrolledToBottomRef.current = true;
     setTcScrollProgress(1);
     setTcScrolledToBottom(true);
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    Haptics.termsReviewComplete();
   }, []);
 
   const updateTermsReviewProgress = useCallback((
@@ -2190,7 +2190,7 @@ export default function BookScreen() {
     setSlotStatuses([]);
     setScheduleMessage('');
     void fetchSlotsForDate(iso);
-    Haptics.selectionAsync();
+
   }, [fetchSlotsForDate]);
 
   useEffect(() => {
@@ -2543,7 +2543,7 @@ export default function BookScreen() {
     setSelectedPkg(pkg.key);
     setSelectedService({ ...pkg.service, price: pkg.price.value });
     setDraftDirty(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
   }, [selectedPkg, selectedService?.id, selectedService?.price]);
 
   const applyPersistedDraft = useCallback((draft: BookingDraftV1) => {
@@ -2750,12 +2750,12 @@ export default function BookScreen() {
 
   // ── Navigation ──
   const goNext = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Haptics.primaryPress();
     setDraftDirty(true);
     setStep((current) => Math.min(5, current + 1));
   };
   const goBack = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
     setStep((s) => Math.max(0, s - 1));
   };
 
@@ -2781,13 +2781,13 @@ export default function BookScreen() {
         Toast.show('Your selected package is not available for this vehicle type. Please choose another package.', 'warning');
       }
     }
-    Haptics.selectionAsync();
+
   }, [selectedPkg, services]);
 
   const openVehicleEditor = useCallback((vehicle: Vehicle) => {
     vehicleEditorAfterPickerRef.current = vehicle;
     setShowVehiclePicker(false);
-    Haptics.selectionAsync();
+
   }, []);
 
   const closeVehicleEditor = useCallback(() => {
@@ -2947,6 +2947,7 @@ export default function BookScreen() {
   };
   const handleConfirm = async () => {
     if (bookingSubmissionInFlightRef.current) return;
+    Haptics.primaryPress();
     const effectivePrice = selectedService?.price ?? null;
     const effectiveName = selectedService?.name || '';
     const selectedAvailability = selectedDate ? monthAvailability[selectedDate] : undefined;
@@ -2961,6 +2962,7 @@ export default function BookScreen() {
       || selectedAvailability?.unavailable
       || !selectedSlotStillAvailable
     ) {
+      Haptics.formSubmitError();
       setStep(2);
       Toast.show(
         selectedAvailability?.errorCode === 'EMERGENCY_CLOSED'
@@ -3005,11 +3007,12 @@ export default function BookScreen() {
         bookingRequestId,
       });
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
       invalidateCache('/bookings');
       reset();
       router.push('/(customer)/track');
     } catch (error: any) {
+      Haptics.formSubmitError();
       const errorPayload = error?.response?.data || {};
       const status = Number(error?.response?.status || 0);
       const errorCode = String(errorPayload?.errorCode || '').toUpperCase();
@@ -3143,20 +3146,22 @@ export default function BookScreen() {
 
   const handleStepOneContinue = () => {
     if (!canProceedStep0 || isContinuing) return;
+    Haptics.primaryPress();
     setIsContinuing(true);
     setDraftDirty(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setStep(1);
   };
 
   const handleDetailsContinue = async () => {
     if (isDetailsContinuing) return;
     if (!isValidPhilippineMobile(phone)) {
+      Haptics.formSubmitError();
       setPhoneError('Enter a valid Philippine mobile number.');
       setIsPhoneEditing(true);
       return;
     }
     if (!selectedVehicle || !selectedService || !selectedPkg) {
+      Haptics.formSubmitError();
       Toast.show('Please review your vehicle and service selection.', 'warning');
       setStep(0);
       return;
@@ -3174,6 +3179,7 @@ export default function BookScreen() {
         vehicle._id === selectedVehicleId || vehicle.id === selectedVehicleId
       ) ?? null;
       if (!currentVehicle) {
+        Haptics.formSubmitError();
         setSelectedVehicle(null);
         setSelectedService(null);
         setSelectedPkg(null);
@@ -3197,6 +3203,7 @@ export default function BookScreen() {
       setSelectedVehicle(currentVehicle);
       setVehicleType(currentVehicleType);
       if (!currentService || currentPrice?.status !== 'available') {
+        Haptics.formSubmitError();
         setSelectedService(null);
         setSelectedPkg(null);
         setStep(0);
@@ -3208,12 +3215,14 @@ export default function BookScreen() {
       setSelectedService({ ...currentService, price: currentPrice.value });
       setDraftDirty(true);
       if (priceChanged) {
+        Haptics.formSubmitError();
         Toast.show('Package pricing changed. Please review the updated total.', 'warning');
         return;
       }
 
       goNext();
     } catch (error) {
+      Haptics.formSubmitError();
       Toast.show(getApiErrorMessage(error, 'Unable to verify your booking details. Please try again.'), 'error');
     } finally {
       setIsDetailsContinuing(false);
@@ -3224,6 +3233,7 @@ export default function BookScreen() {
     if (!canProceedStep2 || !selectedDate || !selectedTime || !selectedVehicle || !selectedService || !selectedPkg) {
       return;
     }
+    Haptics.primaryPress();
 
     const requestedDate = selectedDate;
     const requestedTime = selectedTime;
@@ -3273,6 +3283,7 @@ export default function BookScreen() {
         || refreshedDayAvailability.status !== 'available'
         || selectedSlot?.status !== 'AVAILABLE'
       ) {
+        Haptics.formSubmitError();
         selectedTimeRef.current = null;
         setSelectedTime(null);
         setDraftDirty(true);
@@ -3292,6 +3303,7 @@ export default function BookScreen() {
         return;
       }
       if (!normalized.dailyAvailability) {
+        Haptics.formSubmitError();
         const capacityMessage = 'Daily booking capacity could not be confirmed. Please try again.';
         setScheduleMessage(capacityMessage);
         Toast.show(capacityMessage, 'error');
@@ -3302,6 +3314,7 @@ export default function BookScreen() {
         vehicle._id === requestedVehicleId || vehicle.id === requestedVehicleId
       ) ?? null;
       if (!currentVehicle) {
+        Haptics.formSubmitError();
         setVehicles(freshVehicles);
         setSelectedVehicle(null);
         setSelectedService(null);
@@ -3328,6 +3341,7 @@ export default function BookScreen() {
       setSelectedVehicle(currentVehicle);
       setVehicleType(currentVehicleType);
       if (!currentService || currentPrice?.status !== 'available') {
+        Haptics.formSubmitError();
         setSelectedService(null);
         setSelectedPkg(null);
         setStep(0);
@@ -3339,12 +3353,13 @@ export default function BookScreen() {
       setSelectedService({ ...currentService, price: currentPrice.value });
       setScheduleMessage('');
       setDraftDirty(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
       if (priceChanged) {
         Toast.show('Package pricing was updated. Review the current total on the next step.', 'warning');
       }
       setStep(3);
     } catch (error) {
+      Haptics.formSubmitError();
       Toast.show(getApiErrorMessage(error, 'Unable to verify this arrival time. Please try again.'), 'error');
     } finally {
       setIsScheduleContinuing(false);
@@ -3677,7 +3692,7 @@ export default function BookScreen() {
                     activeOpacity={0.85}
                     accessibilityRole="button"
                     accessibilityLabel="Add your first vehicle"
-                    onPress={() => { setShowAddVehicle(true); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
+                    onPress={() => { setShowAddVehicle(true);  }}
                     style={svc.addVehicleEmptyCard}
                   >
                     <View style={svc.addVehicleIconWrap}>
@@ -3732,7 +3747,7 @@ export default function BookScreen() {
                       activeOpacity={0.8}
                       accessibilityRole="button"
                       accessibilityLabel="Add another vehicle"
-                      onPress={() => { setShowAddVehicle(true); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                      onPress={() => { setShowAddVehicle(true);  }}
                       style={svc.addVehicleSecondary}
                     >
                       <Ionicons name="add-circle-outline" size={16} color={STEP_ONE_TONES.accentText} />
@@ -4361,7 +4376,7 @@ export default function BookScreen() {
                             setSelectedTime(t);
                             setScheduleMessage('');
                             setDraftDirty(true);
-                            Haptics.selectionAsync();
+
                           }}
                         />
                       ))}
@@ -4713,7 +4728,7 @@ export default function BookScreen() {
                 onToggle={() => {
                   if (!tcScrolledToBottom) return;
                   setAgreedToTerms((current) => !current);
-                  void Haptics.selectionAsync();
+
                 }}
               />
             </Animated.View>
@@ -4780,7 +4795,7 @@ export default function BookScreen() {
                         const result = await ImagePicker.launchImageLibraryAsync(PAYMENT_PROOF_PICKER_OPTIONS);
                         if (!result.canceled && result.assets[0]) {
                           setDownpaymentProof(paymentProofDataUrlFromAsset(result.assets[0]));
-                          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
                         }
                       } catch (error) {
                         Alert.alert('Receipt Not Selected', getApiErrorMessage(error));

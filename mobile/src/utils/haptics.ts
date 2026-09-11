@@ -1,36 +1,34 @@
 import { Platform } from 'react-native';
 import * as ExpoHaptics from 'expo-haptics';
 
-export type HapticImpact = 'light' | 'medium' | 'heavy';
-export type HapticNotification = 'success' | 'warning' | 'error';
-
-const impactStyle: Record<HapticImpact, ExpoHaptics.ImpactFeedbackStyle> = {
-  light: ExpoHaptics.ImpactFeedbackStyle.Light,
-  medium: ExpoHaptics.ImpactFeedbackStyle.Medium,
-  heavy: ExpoHaptics.ImpactFeedbackStyle.Heavy,
-};
-
-const notificationType: Record<HapticNotification, ExpoHaptics.NotificationFeedbackType> = {
-  success: ExpoHaptics.NotificationFeedbackType.Success,
-  warning: ExpoHaptics.NotificationFeedbackType.Warning,
-  error: ExpoHaptics.NotificationFeedbackType.Error,
-};
-
-function supported() {
-  return Platform.OS !== 'web';
+function runIos(effect: () => Promise<void>) {
+  if (Platform.OS !== 'ios') return;
+  void effect().catch(() => undefined);
 }
 
 export const Haptics = {
-  impact(kind: HapticImpact = 'light') {
-    if (!supported()) return;
-    void ExpoHaptics.impactAsync(impactStyle[kind]).catch(() => undefined);
+  primaryPress() {
+    if (Platform.OS === 'android') {
+      void ExpoHaptics.performAndroidHapticsAsync(ExpoHaptics.AndroidHaptics.Virtual_Key)
+        .catch(() => undefined);
+      return;
+    }
+    runIos(() => ExpoHaptics.impactAsync(ExpoHaptics.ImpactFeedbackStyle.Light));
   },
-  selection() {
-    if (!supported()) return;
-    void ExpoHaptics.selectionAsync().catch(() => undefined);
+  formSubmitError() {
+    if (Platform.OS === 'android') {
+      void ExpoHaptics.performAndroidHapticsAsync(ExpoHaptics.AndroidHaptics.Reject)
+        .catch(() => undefined);
+      return;
+    }
+    runIos(() => ExpoHaptics.notificationAsync(ExpoHaptics.NotificationFeedbackType.Error));
   },
-  notify(kind: HapticNotification) {
-    if (!supported()) return;
-    void ExpoHaptics.notificationAsync(notificationType[kind]).catch(() => undefined);
+  termsReviewComplete() {
+    if (Platform.OS === 'android') {
+      void ExpoHaptics.performAndroidHapticsAsync(ExpoHaptics.AndroidHaptics.Confirm)
+        .catch(() => undefined);
+      return;
+    }
+    runIos(() => ExpoHaptics.notificationAsync(ExpoHaptics.NotificationFeedbackType.Success));
   },
 } as const;

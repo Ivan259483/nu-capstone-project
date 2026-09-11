@@ -44,7 +44,6 @@ import Animated, {
   withSequence,
   Easing,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { bookingService } from '@/services/api/bookingService';
@@ -72,6 +71,7 @@ import {
   PAYMENT_PROOF_PICKER_OPTIONS,
   paymentProofDataUrlFromAsset,
 } from '@/utils/payment-proof-image';
+import { Haptics } from '@/utils/haptics';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -1492,14 +1492,14 @@ export default function TrackScreen() {
           if (bookingSnapshot) {
             setCompleteBooking({ ...bookingSnapshot });
             setShowComplete(true);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
           }
         }, 1500);
       } else if (bookingSnapshot) {
         // Already at Ready for Pickup (Step 5) — show completion immediately
         setCompleteBooking({ ...bookingSnapshot });
         setShowComplete(true);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
       }
     }
 
@@ -1618,7 +1618,7 @@ export default function TrackScreen() {
   );
 
   const onRefresh = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
     if (!profile) return;
     await Promise.all([
       refreshBookings(),
@@ -1640,7 +1640,7 @@ export default function TrackScreen() {
         setUploading(true);
         const img = paymentProofDataUrlFromAsset(result.assets[0]);
         await bookingService.uploadPaymentProof(booking.id, img);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
         setPaymentProofLocal(img);
         await Promise.all([
           refreshBookings(),
@@ -1666,7 +1666,7 @@ export default function TrackScreen() {
           countdown={countdown}
           onViewSummary={() => {
             if (countdownTimer.current) clearInterval(countdownTimer.current);
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
             router.replace('/(screens)/appointments');
           }}
         />
@@ -1703,7 +1703,7 @@ export default function TrackScreen() {
               style={s.emptyBtn}
               activeOpacity={0.85}
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                Haptics.primaryPress();
                 void onRefresh();
               }}
             >
@@ -1727,7 +1727,7 @@ export default function TrackScreen() {
                 style={s.emptyBtn}
                 activeOpacity={0.85}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  Haptics.primaryPress();
                   router.push('/(customer)/book');
                 }}
               >
@@ -1956,7 +1956,7 @@ export default function TrackScreen() {
                 style={s.actionBtn}
                 activeOpacity={0.85}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                   router.push('/(screens)/appointments');
                 }}
               >
@@ -1967,7 +1967,7 @@ export default function TrackScreen() {
                 style={s.actionBtn}
                 activeOpacity={0.85}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                   router.push('/(screens)/waiver');
                 }}
               >

@@ -7,7 +7,6 @@ import {
   View,
   TouchableOpacity,
   StyleSheet,
-  Platform,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -19,7 +18,6 @@ import Animated, {
   FadeIn,
   type SharedValue,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { TabBarContentHeight } from '@/constants/theme';
@@ -96,7 +94,6 @@ export default function AskAiFab() {
   const router = useRouter();
 
   const handlePress = () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     router.push('/(screens)/ai-chat');
   };
 

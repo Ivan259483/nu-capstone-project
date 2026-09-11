@@ -9,6 +9,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { Haptics } from '@/utils/haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
@@ -450,7 +451,14 @@ export function BottomActionBar({
           <Text style={styles.secondaryActionText}>{secondaryLabel}</Text>
         </Pressable>
       ) : null}
-      <Pressable disabled={disabled} onPress={onPrimaryPress} style={styles.primaryActionOuter}>
+      <Pressable
+        disabled={disabled}
+        onPress={() => {
+          Haptics.primaryPress();
+          onPrimaryPress();
+        }}
+        style={styles.primaryActionOuter}
+      >
         <LinearGradient
           colors={
             disabled

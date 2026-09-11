@@ -13,6 +13,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:haptics-policy": "node --test tests/hapticsPolicy.test.mjs",
     "test:ai-scan-workflow": "node --experimental-strip-types --test tests/aiScanWorkflowState.test.mjs",
     "test:payment-history-parity": "node --experimental-strip-types --test tests/customerPaymentHistoryParity.test.mjs"
   },

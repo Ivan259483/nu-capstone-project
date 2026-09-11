@@ -366,20 +366,22 @@ function Shim({ w, h, r = 14 }: { w: number; h: number; r?: number }) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ATOM: Haptic spring pressable
+// ATOM: Spring pressable
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Tap({
-  children, onPress, style, h = 'Light', targetScale = 0.98, accessibilityLabel,
+  children, onPress, style, primary = false, targetScale = 0.98, accessibilityLabel,
 }: {
   children: React.ReactNode; onPress?: () => void;
-  style?: any; h?: 'Light'|'Medium'|'Heavy'; targetScale?: number;
+  style?: any; primary?: boolean; targetScale?: number;
   accessibilityLabel?: string;
 }) {
   return (
     <MotionPressable
-      onPress={onPress}
+      onPress={() => {
+        if (primary) Haptics.primaryPress();
+        onPress?.();
+      }}
       pressedScale={targetScale}
-      haptic={h.toLowerCase() as 'light' | 'medium' | 'heavy'}
       style={[{ flex: 1 }, style]}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
@@ -668,7 +670,7 @@ function HeroSection({ job, isLoading, step, router }: {
 
     return (
       <Animated.View entering={FadeIn.duration(240)}>
-        <Tap onPress={() => router.push(actionRoute as any)} h="Light" accessibilityLabel={actionLabel}>
+        <Tap onPress={() => router.push(actionRoute as any)} accessibilityLabel={actionLabel}>
           <GBCard
             colors={['rgba(238,103,42,0.34)','rgba(130,50,22,0.12)','rgba(238,103,42,0.18)']}
             radius={26}
@@ -774,7 +776,7 @@ function HeroSection({ job, isLoading, step, router }: {
 
   return (
     <Animated.View entering={FadeIn.duration(240)}>
-      <Tap onPress={() => router.push('/(customer)/book')} h="Medium" accessibilityLabel="Book a service">
+      <Tap onPress={() => router.push('/(customer)/book')} primary accessibilityLabel="Book a service">
         <View style={[$.heroCard, {
           minHeight:hero.cardHeight,
           borderRadius:hero.cardRadius,
@@ -988,7 +990,7 @@ function QuickSection({ router, completed, job, isLoading }: {
       <View style={$.qaGrid}>
         {actions.map((action, i) => (
           <Animated.View key={action.n} entering={FadeInDown.delay(350+i*55).duration(200)} style={$.qaGridItem}>
-            <Tap onPress={() => router.push(action.r as any)} h="Light" style={{flex:1}} accessibilityLabel={action.n}>
+            <Tap onPress={() => router.push(action.r as any)} style={{flex:1}} accessibilityLabel={action.n}>
               <GBCard colors={GB.neutral} radius={18} bg={D.s1} style={{flex:1}}>
                 <View style={$.qaCardBody}>
                   <View style={$.qaCardTop}>
@@ -1226,7 +1228,6 @@ function PromoSection({
             ...(vehicle?.id ? { vehicleId:vehicle.id } : {}),
           },
         })}
-        h="Medium"
         accessibilityLabel={`View ${offer.service.name} offer`}
       >
         <GBCard colors={GB.neutral} radius={RADIUS.card}>
@@ -1360,7 +1361,7 @@ function HistorySection({
                   <View style={$.histEnd}>
                     <Text style={$.histPrice}>₱{item.totalPrice?.toLocaleString()||'—'}</Text>
                     <Pressable
-                      onPress={() => { Haptics.impact('medium'); router.push('/(customer)/book'); }}
+                      onPress={() => {  router.push('/(customer)/book'); }}
                       style={$.rebookPill} hitSlop={10}
                     >
                       <Text style={$.rebookTxt}>Re-book</Text>
@@ -1392,7 +1393,7 @@ function HistorySection({
             <Text style={$.emptySub}>{emptyDescription}</Text>
             <Tap
               onPress={() => router.push(emptyActionRoute as any)}
-              h="Medium"
+              primary
               accessibilityLabel={emptyActionLabel}
             >
               <LinearGradient

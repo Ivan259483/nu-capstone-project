@@ -9,7 +9,6 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -80,10 +79,10 @@ export default function EstimateScreen() {
       const damages = scan.damages.filter((damage) => selectedDamageIds.has(damage.id));
       const nextEstimate = await recomputeAiScanEstimate(damages.length ? damages : scan.damages);
       aiScanStore.setEstimate(nextEstimate);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
     } catch (error) {
       console.warn('[ai-scan/estimate] recompute failed:', error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
     } finally {
       setBusy(false);
     }
@@ -91,7 +90,7 @@ export default function EstimateScreen() {
 
   const continueToApproval = useCallback(() => {
     if (selectedIds.length === 0) return;
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
     aiScanStore.activateWorkflowStage('approve');
     router.push('/(customer)/scan/confirm' as never);
   }, [router, selectedIds.length]);
@@ -215,7 +214,7 @@ export default function EstimateScreen() {
               index={index}
               selected={selectedIds.includes(line.id)}
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
                 aiScanStore.toggleLineItem(line.id);
               }}
             />
@@ -243,7 +242,7 @@ export default function EstimateScreen() {
         <GlassPanel>
           <Pressable
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
               setWhyOpen((value) => !value);
             }}
             style={styles.whyHead}

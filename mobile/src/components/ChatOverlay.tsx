@@ -25,7 +25,6 @@ import {
 } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeOut, useSharedValue, withRepeat, withTiming, withDelay, useAnimatedStyle } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
@@ -35,6 +34,7 @@ import {
   type ChatMessageRecord,
   type SalesHandoffStatus,
 } from '@/services/api/chatbotService';
+import { Haptics } from '@/utils/haptics';
 
 interface ChatScreenProps {
   onClose: () => void;
@@ -61,17 +61,17 @@ function TypingDots() {
   const op1 = useSharedValue(0.4);
   const op2 = useSharedValue(0.4);
   const op3 = useSharedValue(0.4);
-  
+
   useEffect(() => {
     op1.value = withRepeat(withTiming(1, { duration: 500 }), -1, true);
     op2.value = withDelay(200, withRepeat(withTiming(1, { duration: 500 }), -1, true));
     op3.value = withDelay(400, withRepeat(withTiming(1, { duration: 500 }), -1, true));
   }, [op1, op2, op3]);
-  
+
   const style1 = useAnimatedStyle(() => ({ opacity: op1.value }));
   const style2 = useAnimatedStyle(() => ({ opacity: op2.value }));
   const style3 = useAnimatedStyle(() => ({ opacity: op3.value }));
-  
+
   return (
     <View style={s.typingDots}>
        <Animated.View style={[s.dot, style1]} />
@@ -248,7 +248,7 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
     if (!trimmed || sending || loading || handoffBusy) return;
     if (handoffStatus === 'resolved' || handoffStatus === 'converted') return;
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.primaryPress();
     setInput('');
     setError(null);
 
@@ -341,9 +341,6 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
         throw new Error('Missing chat response.');
       }
 
-      if (response.action?.type === 'handoff') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
       if (response.handoffOffer?.eligible) {
         setShowConnectToSales(true);
       }
@@ -382,8 +379,9 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
       setShowConnectToSales(false);
       setShowContactCapture(false);
       await chatbotService.markCustomerRead();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
     } catch (err: any) {
+      Haptics.formSubmitError();
       if (err?.response?.data?.code === 'SALES_CONTACT_REQUIRED') {
         setShowContactCapture(true);
         setError('Please enter your name and a valid Philippine mobile number.');
@@ -398,9 +396,11 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
   const handleConnectToSales = () => {
     const isLoggedIn = Boolean(token || profile?.id);
     if (!isLoggedIn && (!contactName.trim() || !contactPhone.trim())) {
+      Haptics.formSubmitError();
       setShowContactCapture(true);
       return;
     }
+    Haptics.primaryPress();
     void completeSalesHandoff(
       isLoggedIn
         ? undefined
@@ -438,7 +438,7 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
   };
 
   const handleRetry = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.primaryPress();
     void initSession();
   };
 
@@ -565,7 +565,7 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
                     </View>
                   )}
                   <View style={[
-                    s.bubbleContentWrapper, 
+                    s.bubbleContentWrapper,
                     m.sender === 'user'
                       ? { alignItems: 'flex-end' }
                       : m.sender === 'system'
@@ -601,14 +601,14 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
                     </View>
 
                     {m.actionChips && m.actionChips.length > 0 && (
-                      <ScrollView 
-                        horizontal 
-                        showsHorizontalScrollIndicator={false} 
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
                         contentContainerStyle={s.actionChipsContainer}
                       >
                         {m.actionChips.map(chip => (
-                          <TouchableOpacity 
-                            key={chip} 
+                          <TouchableOpacity
+                            key={chip}
                             style={s.actionChip}
                             onPress={() => {
                               setInput(chip);
@@ -1031,7 +1031,7 @@ const s = StyleSheet.create({
     borderColor: 'rgba(239,68,68,0.2)',
     marginTop: 8,
   },
-  
+
   // Custom wrappers & Chips & Time
   bubbleContentWrapper: {
     flexShrink: 1,

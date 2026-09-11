@@ -18,6 +18,7 @@ import { getApiErrorMessage } from '@/services/api/client';
 import type { BookingRecord } from '@/services/api/types';
 import { bookingShowsCustomerLiveTracker } from '@/utils/customer-live-tracker-pick';
 import { resolveCustomerPaymentState } from '@/utils/customer-payment-state';
+import { Haptics } from '@/utils/haptics';
 
 const C = {
   bg: '#050505',
@@ -136,7 +137,6 @@ export default function BookingDetailsScreen() {
         <MotionPressable
           accessibilityRole="button"
           accessibilityLabel="Back"
-          haptic="light"
           onPress={() => router.back()}
           style={styles.headerButton}
         >
@@ -164,7 +164,13 @@ export default function BookingDetailsScreen() {
           <Text style={styles.errorBody}>
             {isError ? getApiErrorMessage(error, 'Check your connection and try again.') : 'This booking could not be found.'}
           </Text>
-          <MotionPressable haptic="light" onPress={() => void refetch()} style={styles.retryButton}>
+          <MotionPressable
+            onPress={() => {
+              Haptics.primaryPress();
+              void refetch();
+            }}
+            style={styles.retryButton}
+          >
             <Ionicons name="refresh" size={16} color="#17100B" />
             <Text style={styles.retryText}>Try Again</Text>
           </MotionPressable>
@@ -240,8 +246,10 @@ export default function BookingDetailsScreen() {
             <View style={styles.actions}>
               {bookingShowsCustomerLiveTracker(booking) ? (
                 <MotionPressable
-                  haptic="light"
-                  onPress={() => router.push({ pathname: '/(customer)/track', params: { id: booking.id } })}
+                  onPress={() => {
+                    Haptics.primaryPress();
+                    router.push({ pathname: '/(customer)/track', params: { id: booking.id } });
+                  }}
                   style={styles.primaryAction}
                 >
                   <Ionicons name="navigate-outline" size={18} color="#17100B" />
@@ -249,7 +257,6 @@ export default function BookingDetailsScreen() {
                 </MotionPressable>
               ) : null}
               <MotionPressable
-                haptic="light"
                 onPress={() => router.push({ pathname: '/(screens)/payments', params: { orderId: booking.id } })}
                 style={styles.secondaryAction}
               >

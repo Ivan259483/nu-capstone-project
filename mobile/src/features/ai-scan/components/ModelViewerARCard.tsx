@@ -13,7 +13,6 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
 import { Palette } from '@/constants/theme';
 import { PremiumLoader } from '@/components/ui/loading';
@@ -355,7 +354,7 @@ function ReadyView({ modelUrl }: { modelUrl: string }) {
   const applyMode = async (nextMode: VisualMode) => {
     setMode(nextMode);
     sendToViewer({ type: 'SET_VISUAL_MODE', mode: nextMode });
-    await Haptics.selectionAsync();
+
   };
 
   return (
@@ -439,7 +438,7 @@ function ReadyView({ modelUrl }: { modelUrl: string }) {
       <TouchableOpacity
         style={styles.launchArBtn}
         onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
           sendToViewer({ type: 'ACTIVATE_AR' });
         }}
       >
