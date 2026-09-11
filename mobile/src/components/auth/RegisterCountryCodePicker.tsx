@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { MotionSheet } from '@/components/ui/MotionOverlay';
+import { AuthColors, AuthFontFamily, AuthRadius } from '@/constants/authTheme';
 import {
   REGISTER_COUNTRY_DIALS,
   REGISTER_PHONE_PRIORITY_ISO,
@@ -99,7 +100,7 @@ export default function RegisterCountryCodePicker({ countryIso, onCountryIsoChan
           pointerEvents="none"
           name="chevron-down"
           size={14}
-          color="rgba(255,255,255,0.50)"
+          color={AuthColors.textSecondary}
         />
       </TouchableOpacity>
 
@@ -151,7 +152,7 @@ export default function RegisterCountryCodePicker({ countryIso, onCountryIsoChan
                       {country.name}
                     </Text>
                     <Text style={styles.countryDial}>+{country.dial}</Text>
-                    {isSelected ? <Ionicons name="checkmark" size={18} color="#F97316" /> : null}
+                    {isSelected ? <Ionicons name="checkmark" size={18} color={AuthColors.textPrimary} /> : null}
                   </TouchableOpacity>
                 );
               }}
@@ -171,19 +172,19 @@ const styles = StyleSheet.create({
     gap: 5,
     paddingRight: 10,
     borderRightWidth: 1,
-    borderRightColor: 'rgba(255,255,255,0.10)',
+    borderRightColor: AuthColors.borderHairline,
   },
   triggerText: {
-    color: '#FFFFFF',
+    color: AuthColors.textPrimary,
+    fontFamily: AuthFontFamily.medium,
     fontSize: 14,
-    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   modalSheet: {
     maxHeight: '78%',
-    backgroundColor: '#1A1A2E',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    backgroundColor: AuthColors.elevated,
+    borderTopLeftRadius: AuthRadius.card,
+    borderTopRightRadius: AuthRadius.card,
     paddingBottom: Platform.OS === 'ios' ? 28 : 16,
   },
   modalHeader: {
@@ -193,32 +194,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: AuthColors.borderHairline,
   },
-  modalTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  modalDone: { color: '#F97316', fontSize: 16, fontWeight: '700' },
+  modalTitle: { color: AuthColors.textPrimary, fontFamily: AuthFontFamily.semiBold, fontSize: 17 },
+  modalDone: { color: AuthColors.textPrimary, fontFamily: AuthFontFamily.medium, fontSize: 16 },
   search: {
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 8,
-    borderRadius: 10,
+    borderRadius: AuthRadius.input,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: AuthColors.borderHairline,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    fontFamily: AuthFontFamily.regular,
     fontSize: 15,
-    color: '#FFFFFF',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    color: AuthColors.textPrimary,
+    backgroundColor: AuthColors.card,
   },
   sectionLabel: {
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 6,
-    color: 'rgba(255,255,255,0.45)',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+    color: AuthColors.textTertiary,
+    fontFamily: AuthFontFamily.medium,
+    fontSize: 12,
   },
   countryRow: {
     flexDirection: 'row',
@@ -227,12 +227,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  countryRowSelected: { backgroundColor: 'rgba(255,255,255,0.08)' },
-  countryName: { flex: 1, color: '#FFFFFF', fontSize: 15, fontWeight: '500' },
+  countryRowSelected: { backgroundColor: AuthColors.card },
+  countryName: { flex: 1, color: AuthColors.textPrimary, fontFamily: AuthFontFamily.medium, fontSize: 15 },
   countryDial: {
-    color: 'rgba(255,255,255,0.75)',
+    color: AuthColors.textSecondary,
+    fontFamily: AuthFontFamily.regular,
     fontSize: 14,
     fontVariant: ['tabular-nums'],
   },
-  empty: { color: 'rgba(255,255,255,0.5)', textAlign: 'center', padding: 24 },
+  empty: { color: AuthColors.textSecondary, textAlign: 'center', padding: 24 },
 });

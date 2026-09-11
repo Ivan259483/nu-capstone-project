@@ -11,26 +11,19 @@ import {
   TextInput,
   type KeyboardEvent,
   type LayoutChangeEvent,
-  ViewStyle,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, {
-  FadeIn,
-  FadeInDown,
-  interpolateColor,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import { useAuth } from '@/context/AuthContext';
 import { Validation } from '@/utils/validation';
-import PremiumButton from '@/components/ui/PremiumButton';
-import AuthFeedback, { type AuthFeedbackData } from '@/components/auth/AuthFeedback';
+import { AuthBackdrop } from '@/components/auth/AuthLayout';
+import AuthInput from '@/components/auth/AuthInput';
+import AuthButton from '@/components/auth/AuthButton';
+import AuthStatusCard, { type AuthStatusData } from '@/components/auth/AuthStatusCard';
+import { AuthColors, AuthFontFamily, AuthSpacing, AuthTypography } from '@/constants/authTheme';
 import { Haptics } from '@/utils/haptics';
 
 type AuthButtonState = 'idle' | 'loading' | 'success';
@@ -65,12 +58,9 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [keepSignedIn, setKeepSignedIn] = useState(true);
   const [buttonState, setButtonState] = useState<AuthButtonState>('idle');
-  const [focusedField, setFocusedField] = useState<FocusedField>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
-  const [feedback, setFeedback] = useState<AuthFeedbackData | null>(null);
+  const [feedback, setFeedback] = useState<AuthStatusData | null>(null);
   const emailInputRef = useRef<TextInput>(null);
   const passwordInputRef = useRef<TextInput>(null);
   const requestInFlightRef = useRef(false);
@@ -85,53 +75,29 @@ export default function LoginScreen() {
   const [isLocked, setIsLocked] = useState(false);
   const [lockUntilMs, setLockUntilMs] = useState<number | null>(null);
   const [lockCountdown, setLockCountdown] = useState('');
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [credentialsRejected, setCredentialsRejected] = useState(false);
+  const [keepSignedIn, setKeepSignedIn] = useState(true);
 
   const isSigningIn = buttonState === 'loading';
   const compactMode = keyboardVisible;
-  const emailFocused = focusedField === 'email';
-  const passwordFocused = focusedField === 'password';
-  const emailFocusProgress = useSharedValue(0);
-  const passwordFocusProgress = useSharedValue(0);
 
-  useEffect(() => {
-    emailFocusProgress.value = withTiming(emailFocused ? 1 : 0, { duration: reduceMotion ? 0 : 190 });
-  }, [emailFocusProgress, emailFocused, reduceMotion]);
+  const validateEmailField = useCallback((value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return 'Email is required';
+    if (!Validation.isValidEmail(trimmed)) return 'Please enter a valid email';
+    return '';
+  }, []);
 
-  useEffect(() => {
-    passwordFocusProgress.value = withTiming(passwordFocused ? 1 : 0, { duration: reduceMotion ? 0 : 190 });
-  }, [passwordFocusProgress, passwordFocused, reduceMotion]);
+  const validatePasswordField = useCallback((value: string) => {
+    if (!value) return 'Password is required';
+    return '';
+  }, []);
 
-  const emailFocusStyle = useAnimatedStyle(() => ({
-    borderColor: interpolateColor(
-      emailFocusProgress.value,
-      [0, 1],
-      ['rgba(255,255,255,0.18)', 'rgba(255,122,0,0.76)'],
-    ),
-    backgroundColor: interpolateColor(
-      emailFocusProgress.value,
-      [0, 1],
-      ['rgba(24,24,24,0.88)', 'rgba(32,24,19,0.92)'],
-    ),
-  }));
-
-  const passwordFocusStyle = useAnimatedStyle(() => ({
-    borderColor: interpolateColor(
-      passwordFocusProgress.value,
-      [0, 1],
-      ['rgba(255,255,255,0.18)', 'rgba(255,122,0,0.76)'],
-    ),
-    backgroundColor: interpolateColor(
-      passwordFocusProgress.value,
-      [0, 1],
-      ['rgba(24,24,24,0.88)', 'rgba(32,24,19,0.92)'],
-    ),
-  }));
-
-  const handleFieldFocus = useCallback((field: Exclude<FocusedField, null>) => {
-    setFocusedField(field);
+  const handleFieldFocus = useCallback(() => {
     // Android has no keyboardWillShow event, so prepare its compact layout at
     // focus time. iOS changes mode from keyboardWillShow, allowing the reflow
     // to use the keyboard's native animation curve.
@@ -139,8 +105,14 @@ export default function LoginScreen() {
   }, []);
 
   const handleFieldBlur = useCallback((field: Exclude<FocusedField, null>) => {
-    setFocusedField(current => current === field ? null : current);
-  }, []);
+    if (field === 'email') {
+      setEmailTouched(true);
+      setEmailError(validateEmailField(email));
+    } else {
+      setPasswordTouched(true);
+      setPasswordError(validatePasswordField(password));
+    }
+  }, [email, password, validateEmailField, validatePasswordField]);
 
   const updateCompactContentTop = useCallback(() => {
     const viewportHeight = keyboardSessionViewportHeightRef.current;
@@ -298,16 +270,19 @@ export default function LoginScreen() {
       return;
     }
 
-    setEmailError('');
-    setPasswordError('');
+    const normalizedEmail = email.trim().toLowerCase();
+    const nextEmailError = validateEmailField(email);
+    const nextPasswordError = validatePasswordField(password);
+    setEmailTouched(true);
+    setPasswordTouched(true);
+    setEmailError(nextEmailError);
+    setPasswordError(nextPasswordError);
     setCredentialsRejected(false);
     setFeedback(null);
-    const normalizedEmail = email.trim().toLowerCase();
-    let hasError = false;
-    if (!normalizedEmail) { setEmailError('Email is required'); hasError = true; }
-    else if (!Validation.isValidEmail(normalizedEmail)) { setEmailError('Please enter a valid email'); hasError = true; }
-    if (!password) { setPasswordError('Password is required'); hasError = true; }
-    if (hasError) return;
+    if (nextEmailError || nextPasswordError) {
+      triggerOutcomeHaptic('error');
+      return;
+    }
 
     requestInFlightRef.current = true;
     setButtonState('loading');
@@ -376,7 +351,7 @@ export default function LoginScreen() {
     }
   }
 
-  const displayedFeedback: AuthFeedbackData | null = isLocked
+  const displayedFeedback: AuthStatusData | null = isLocked
     ? {
         type: 'error',
         title: 'Sign-in temporarily locked',
@@ -392,24 +367,7 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <Image
-        source={require('../../../assets/images/login-cinematic-bg.png')}
-        style={styles.backgroundArtwork}
-        contentFit="cover"
-        contentPosition="top center"
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-      />
-      <LinearGradient
-        colors={[
-          'rgba(5,5,5,0.28)',
-          'rgba(5,5,5,0.44)',
-          'rgba(5,5,5,0.82)',
-          '#050505',
-        ]}
-        locations={[0, 0.28, 0.49, 0.72]}
-        style={styles.backgroundScrim}
-      />
+      <AuthBackdrop source={require('../../../assets/images/login-cinematic-bg.png')} />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardAvoidingView}
@@ -448,30 +406,21 @@ export default function LoginScreen() {
                 >
                   <Image
                     source={require('../../../assets/images/autospf-logo.png')}
-                    style={[
-                      styles.logo,
-                      compactMode && styles.logoCompact,
-                    ]}
+                    style={[styles.logo, compactMode && styles.logoCompact]}
                     contentFit="contain"
                     accessibilityLabel="AutoSPF+ Logo"
                   />
-                  <Text style={[
-                    styles.brandLabel,
-                    compactMode && styles.brandLabelCompact,
-                  ]}>
-                    Premium Automotive Care Platform
-                  </Text>
-                </Animated.View>
-                <Animated.View entering={reduceMotion ? undefined : FadeIn.delay(110).duration(330)}>
-                  <Text style={[styles.heading, compactMode && styles.headingCompact]}>Welcome back</Text>
-                  <Text style={[styles.subheading, compactMode && styles.subheadingCompact]}>
-                    Sign in to continue to your account
-                  </Text>
+                  <Animated.View entering={reduceMotion ? undefined : FadeIn.delay(110).duration(330)}>
+                    <Text style={[styles.heading, compactMode && styles.headingCompact]}>Welcome back</Text>
+                    <Text style={[styles.subheading, compactMode && styles.subheadingCompact]}>
+                      Sign in to continue to your account
+                    </Text>
+                  </Animated.View>
                 </Animated.View>
               </View>
 
               {!compactMode && displayedFeedback ? (
-                <AuthFeedback
+                <AuthStatusCard
                   {...displayedFeedback}
                   style={styles.feedbackCard}
                   testID="login-auth-feedback"
@@ -479,99 +428,57 @@ export default function LoginScreen() {
               ) : null}
 
               <Animated.View entering={reduceMotion ? undefined : FadeInDown.delay(170).duration(360)}>
+                <AuthInput
+                  ref={emailInputRef}
+                  label="Email address"
+                  placeholder="name@example.com"
+                  value={email}
+                  onChangeText={t => {
+                    setEmail(t);
+                    setEmailError('');
+                    setPasswordError('');
+                    setCredentialsRejected(false);
+                    clearAttemptState();
+                  }}
+                  onFocus={handleFieldFocus}
+                  onBlur={() => handleFieldBlur('email')}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoCorrect={false}
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  onSubmitEditing={() => passwordInputRef.current?.focus()}
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  surfaceColor={AuthColors.cardOnPhoto}
+                  error={emailTouched ? emailError : ''}
+                  containerStyle={styles.fieldSpacing}
+                />
 
-                <Animated.View style={[
-                  styles.inputWrap,
-                  styles.inputWrapFirst,
-                  compactMode && styles.inputWrapCompact,
-                  emailFocusStyle,
-                  emailFocused && !emailError ? styles.inputWrapFocused : null,
-                  emailError ? styles.inputWrapError : null,
-                ]}>
-                  <Ionicons
-                    name="mail-outline"
-                    size={compactMode ? 17 : 19}
-                    color={emailFocused ? '#FF8A2A' : 'rgba(255,255,255,0.50)'}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    ref={emailInputRef}
-                    style={styles.input}
-                    placeholder="Email address"
-                    placeholderTextColor="rgba(255,255,255,0.42)"
-                    value={email}
-                    onChangeText={t => {
-                      setEmail(t);
-                      setEmailError('');
-                      setPasswordError('');
-                      clearAttemptState();
-                    }}
-                    onFocus={() => handleFieldFocus('email')}
-                    onBlur={() => handleFieldBlur('email')}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    autoCorrect={false}
-                    returnKeyType="next"
-                    submitBehavior="submit"
-                    onSubmitEditing={() => passwordInputRef.current?.focus()}
-                    autoComplete="email"
-                    textContentType="emailAddress"
-                    accessibilityLabel="Email address"
-                  />
-                </Animated.View>
-                {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
+                <AuthInput
+                  ref={passwordInputRef}
+                  label="Password"
+                  placeholder="Password"
+                  value={password}
+                  onChangeText={t => {
+                    setPassword(t);
+                    setPasswordError('');
+                    setCredentialsRejected(false);
+                    setFeedback(null);
+                  }}
+                  onFocus={handleFieldFocus}
+                  onBlur={() => handleFieldBlur('password')}
+                  isPassword
+                  returnKeyType="done"
+                  submitBehavior="blurAndSubmit"
+                  onSubmitEditing={Keyboard.dismiss}
+                  autoComplete="current-password"
+                  textContentType="password"
+                  surfaceColor={AuthColors.cardOnPhoto}
+                  error={(passwordTouched && passwordError) || (credentialsRejected ? 'Incorrect email or password' : '')}
+                  containerStyle={styles.fieldSpacingTight}
+                />
 
-                <Animated.View style={[
-                  styles.inputWrap,
-                  styles.inputWrapSpaced,
-                  compactMode && styles.inputWrapSpacedCompact,
-                  compactMode && styles.inputWrapCompact,
-                  passwordFocusStyle,
-                  passwordFocused && !passwordError && !credentialsRejected ? styles.inputWrapFocused : null,
-                  passwordError || credentialsRejected ? styles.inputWrapError : null,
-                ]}>
-                  <Ionicons
-                    name="lock-closed-outline"
-                    size={compactMode ? 17 : 19}
-                    color={passwordFocused ? '#FF8A2A' : 'rgba(255,255,255,0.50)'}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    ref={passwordInputRef}
-                    style={styles.input}
-                    placeholder="Password"
-                    placeholderTextColor="rgba(255,255,255,0.42)"
-                    value={password}
-                    onChangeText={t => {
-                      setPassword(t);
-                      setPasswordError('');
-                      setCredentialsRejected(false);
-                      setFeedback(null);
-                    }}
-                    onFocus={() => handleFieldFocus('password')}
-                    onBlur={() => handleFieldBlur('password')}
-                    secureTextEntry={!showPassword}
-                    returnKeyType="done"
-                    submitBehavior="blurAndSubmit"
-                    onSubmitEditing={Keyboard.dismiss}
-                    autoComplete="current-password"
-                    textContentType="password"
-                    accessibilityLabel="Password"
-                  />
-                  <TouchableOpacity
-                    onPress={() => setShowPassword(!showPassword)}
-                    style={styles.eyeBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    <Ionicons
-                      name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                      size={19}
-                      color={passwordFocused ? 'rgba(255,255,255,0.74)' : 'rgba(255,255,255,0.48)'}
-                    />
-                  </TouchableOpacity>
-                </Animated.View>
-                {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
                 <View style={[
                   styles.authOptionsRow,
                   compactMode && styles.authOptionsRowCompact,
@@ -585,7 +492,7 @@ export default function LoginScreen() {
                     accessibilityLabel="Remember me"
                   >
                     <View style={[styles.checkbox, keepSignedIn && styles.checkboxOn]}>
-                      {keepSignedIn && <Ionicons name="checkmark" size={17} color="#FFF" />}
+                      {keepSignedIn && <Ionicons name="checkmark" size={15} color={AuthColors.bg} />}
                     </View>
                     <Text style={styles.checkLabel}>Remember me</Text>
                   </TouchableOpacity>
@@ -599,20 +506,17 @@ export default function LoginScreen() {
                   </TouchableOpacity>
                 </View>
 
-                <PremiumButton
+                <AuthButton
                   title={isSigningIn ? 'Signing in…' : isLocked ? `Locked — ${lockCountdown}` : 'Sign in'}
-                  icon={isSigningIn || isLocked ? undefined : 'arrow-forward'}
                   onPress={handleLogin}
                   disabled={isLocked}
                   loading={isSigningIn}
                   success={buttonState === 'success'}
                   successTitle="Verified"
-                  premiumAuth
-                  style={styles.signInBtn}
                 />
                 {!compactMode ? (
                   <Animated.View entering={reduceMotion ? undefined : FadeIn.delay(260).duration(240)} style={styles.trustRow}>
-                    <Ionicons name="lock-closed" size={14} color="rgba(255,255,255,0.43)" />
+                    <Ionicons name="lock-closed" size={13} color={AuthColors.textTertiary} />
                     <Text style={styles.trustText}>Secure authentication powered by AutoSPF+</Text>
                   </Animated.View>
                 ) : null}
@@ -646,22 +550,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#050505',
-  },
-  backgroundArtwork: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-  },
-  backgroundScrim: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    pointerEvents: 'none',
+    backgroundColor: AuthColors.bg,
   },
   keyboardAvoidingView: {
     flex: 1,
@@ -671,7 +560,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: AuthSpacing.screenPaddingHorizontal,
   },
   scrollContentCompact: {
     paddingBottom: 12,
@@ -697,7 +586,7 @@ const styles = StyleSheet.create({
 
   // Header
   headerBlock: {
-    marginBottom: 24,
+    marginBottom: AuthSpacing.sectionGap,
   },
   headerBlockCompact: {
     marginBottom: 6,
@@ -706,51 +595,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logo: {
-    width: 166,
+    width: 120,
     aspectRatio: 604 / 413,
-    alignSelf: 'center',
-    marginBottom: 8,
+    marginBottom: 16,
   },
   logoCompact: {
-    width: 84,
-    marginBottom: 0,
-  },
-  brandLabel: {
-    color: 'rgba(255,255,255,0.50)',
-    fontSize: 10.5,
-    fontWeight: '600',
-    letterSpacing: 2.25,
-    lineHeight: 15,
-    marginBottom: 22,
-    textAlign: 'center',
-    textTransform: 'uppercase',
-  },
-  brandLabelCompact: {
-    fontSize: 8,
-    lineHeight: 11,
-    letterSpacing: 1.25,
+    width: 72,
     marginBottom: 4,
   },
   heading: {
-    fontSize: 42,
-    lineHeight: 48,
-    fontWeight: '800',
-    color: '#FAFAFA',
+    fontFamily: AuthTypography.h1.fontFamily,
+    fontSize: AuthTypography.h1.fontSize,
+    lineHeight: AuthTypography.h1.lineHeight,
+    letterSpacing: AuthTypography.h1.letterSpacing,
+    color: AuthColors.textPrimary,
     textAlign: 'center',
-    letterSpacing: -1.25,
-    marginBottom: 7,
+    marginBottom: 8,
   },
   headingCompact: {
-    fontSize: 27,
-    lineHeight: 31,
-    letterSpacing: -0.55,
-    marginBottom: 1,
+    fontSize: 24,
+    lineHeight: 28,
+    marginBottom: 2,
   },
   subheading: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.52)',
-    fontWeight: '400',
-    lineHeight: 22,
+    fontFamily: AuthTypography.body.fontFamily,
+    fontSize: 15,
+    color: AuthColors.textSecondary,
     textAlign: 'center',
   },
   subheadingCompact: {
@@ -758,38 +628,33 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
-  // Persistent security feedback
   feedbackCard: {
     marginBottom: 18,
   },
 
-  // Form
-  inputWrapFirst: {
-    marginTop: 0,
+  fieldSpacing: {
+    marginBottom: 0,
   },
-  inputWrapSpaced: {
+  fieldSpacingTight: {
     marginTop: 14,
   },
-  inputWrapSpacedCompact: {
-    marginTop: 6,
-  },
+
   authOptionsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     minHeight: 44,
-    marginTop: 5,
+    marginTop: -4,
     marginBottom: 18,
   },
   authOptionsRowCompact: {
-    marginTop: 2,
+    marginTop: -8,
     marginBottom: 8,
   },
   forgotLink: {
+    fontFamily: AuthFontFamily.medium,
     fontSize: 14,
-    lineHeight: 19,
-    color: '#FF790F',
-    fontWeight: '600',
+    color: AuthColors.textSecondary,
   },
   forgotHitbox: {
     minHeight: 44,
@@ -797,55 +662,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     paddingLeft: 12,
   },
-  inputWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    height: 50,
-    backgroundColor: 'rgba(24,24,24,0.88)',
-  },
-  inputWrapCompact: {
-    height: 44,
-    borderRadius: 13,
-    paddingHorizontal: 13,
-  },
-  inputWrapFocused: {
-    boxShadow: '0 0 14px rgba(255,107,0,0.12)',
-  } as ViewStyle,
-  inputWrapError: {
-    borderColor: 'rgba(239,112,99,0.78)',
-    backgroundColor: 'rgba(35,22,21,0.92)',
-  },
-  inputIcon: {
-    width: 22,
-    marginRight: 8,
-  },
-  input: {
-    flex: 1,
-    fontSize: 14.5,
-    color: '#FFFFFF',
-    fontWeight: '400',
-    paddingVertical: 0,
-  },
-  eyeBtn: {
-    minWidth: 44,
-    minHeight: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: -9,
-  },
-  errorText: {
-    fontSize: 11.5,
-    lineHeight: 16,
-    color: '#F08A7A',
-    marginTop: 5,
-    marginLeft: 4,
-    fontWeight: '500',
-  },
-  // Checkbox
   checkRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -855,61 +671,52 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   checkbox: {
-    width: 25,
-    height: 25,
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.26)',
-    backgroundColor: 'rgba(20,20,20,0.82)',
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: AuthColors.borderFocus,
     justifyContent: 'center',
     alignItems: 'center',
     flexShrink: 0,
     marginRight: 12,
   },
   checkboxOn: {
-    backgroundColor: '#FF6B00',
-    borderColor: '#FF6B00',
-    boxShadow: '0 3px 8px rgba(255,107,0,0.18)',
+    backgroundColor: AuthColors.textPrimary,
+    borderColor: AuthColors.textPrimary,
   },
   checkLabel: {
-    fontSize: 15,
-    lineHeight: 20,
-    color: 'rgba(255,255,255,0.79)',
-    fontWeight: '500',
+    fontFamily: AuthFontFamily.regular,
+    fontSize: 14,
+    color: AuthColors.textSecondary,
     includeFontPadding: false,
     textAlignVertical: 'center',
-  },
-  // Sign In Button — premium orange
-  signInBtn: {
-    marginTop: 0,
   },
   trustRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 7,
-    marginTop: 15,
+    marginTop: 16,
   },
   trustText: {
-    color: 'rgba(255,255,255,0.44)',
+    color: AuthColors.textTertiary,
+    fontFamily: AuthFontFamily.regular,
     fontSize: 11.5,
-    fontWeight: '500',
-    letterSpacing: 0.05,
   },
 
-  // Footer
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 25,
+    marginTop: AuthSpacing.sectionGap,
     minHeight: 44,
   },
   footerDivider: {
     flex: 1,
     height: StyleSheet.hairlineWidth,
     maxWidth: 54,
-    backgroundColor: 'rgba(255,255,255,0.36)',
+    backgroundColor: AuthColors.borderHairline,
   },
   footerCopy: {
     flexDirection: 'row',
@@ -918,8 +725,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
   },
   footerText: {
+    fontFamily: AuthFontFamily.regular,
     fontSize: 13.5,
-    color: 'rgba(255,255,255,0.47)',
+    color: AuthColors.textSecondary,
   },
   footerLinkHitbox: {
     minHeight: 44,
@@ -928,8 +736,8 @@ const styles = StyleSheet.create({
     paddingLeft: 6,
   },
   footerLink: {
+    fontFamily: AuthFontFamily.medium,
     fontSize: 13.5,
-    color: '#FF790F',
-    fontWeight: '700',
+    color: AuthColors.textPrimary,
   },
 });

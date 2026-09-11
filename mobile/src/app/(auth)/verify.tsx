@@ -1,13 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BackHandler,
-  Dimensions,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -17,23 +15,17 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/hooks/useThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient, getApiErrorMessage } from '@/services/api/client';
-import { Palette } from '@/constants/theme';
-import PremiumButton from '@/components/ui/PremiumButton';
-import AuthFeedback, { type AuthFeedbackData } from '@/components/auth/AuthFeedback';
+import AuthButton from '@/components/auth/AuthButton';
+import AuthOtpInput, { type AuthOtpInputHandle } from '@/components/auth/AuthOtpInput';
+import AuthStatusCard, { type AuthStatusData } from '@/components/auth/AuthStatusCard';
+import { AuthColors, AuthFontFamily, AuthRadius, AuthTypography } from '@/constants/authTheme';
 import { Haptics } from '@/utils/haptics';
 
 const OTP_LENGTH = 6;
-const OTP_GAP = 8;
-const OTP_BOX_SIZE = Math.min(
-  48,
-  Math.floor((Dimensions.get('window').width - 64 - OTP_GAP * (OTP_LENGTH - 1)) / OTP_LENGTH),
-);
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
-const normalizeOtp = (value: string) => value.replace(/[^0-9]/g, '').slice(0, OTP_LENGTH);
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const firstParam = (value?: string | string[]): string =>
   Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
@@ -54,7 +46,6 @@ const formatClock = (seconds: number): string => {
 type BusyAction = 'verify' | 'resend' | null;
 
 export default function VerifyScreen() {
-  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const {
@@ -71,14 +62,13 @@ export default function VerifyScreen() {
     : maskEmail(email);
 
   const [otp, setOtp] = useState('');
-  const [otpFocused, setOtpFocused] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(() => (
     Platform.OS === 'web' ? 0 : (Keyboard.metrics()?.height ?? 0)
   ));
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [now, setNow] = useState(Date.now());
   const [signupResendAvailableAt, setSignupResendAvailableAt] = useState(Date.now() + 60_000);
-  const [feedback, setFeedback] = useState<AuthFeedbackData | null>(() => (
+  const [feedback, setFeedback] = useState<AuthStatusData | null>(() => (
     isLoginOtp || Boolean(email)
       ? {
           type: 'success',
@@ -87,9 +77,8 @@ export default function VerifyScreen() {
         }
       : null
   ));
-  const otpInputRef = useRef<TextInput | null>(null);
-  const previousOtpLengthRef = useRef(0);
   const restingWindowHeightRef = useRef(windowHeight);
+  const otpInputRef = useRef<AuthOtpInputHandle | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -172,7 +161,6 @@ export default function VerifyScreen() {
   };
 
   const resetOtpInput = () => {
-    previousOtpLengthRef.current = 0;
     setOtp('');
     otpInputRef.current?.focus();
   };
@@ -276,13 +264,12 @@ export default function VerifyScreen() {
   }
 
   function handleOtpChange(text: string) {
-    const nextOtp = normalizeOtp(text);
-    if (previousOtpLengthRef.current < OTP_LENGTH && nextOtp.length === OTP_LENGTH) {
-      Haptics.impact('light');
-    }
-    previousOtpLengthRef.current = nextOtp.length;
-    setOtp(nextOtp);
+    setOtp(text);
     setFeedback(null);
+  }
+
+  function handleOtpComplete() {
+    Haptics.impact('light');
   }
 
   async function handleResend() {
@@ -408,14 +395,14 @@ export default function VerifyScreen() {
   }, [availableHeight]);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+    <View style={[styles.container, { backgroundColor: AuthColors.bg, paddingTop: insets.top }]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         enabled={Platform.OS === 'ios'}
         style={styles.keyboardView}
       >
         <TouchableOpacity onPress={handleBack} style={styles.backButton} accessibilityLabel="Change account">
-          <Ionicons name="arrow-back" size={22} color={colors.text} />
+          <Ionicons name="arrow-back" size={20} color={AuthColors.textPrimary} />
         </TouchableOpacity>
 
         <Animated.View
@@ -429,19 +416,10 @@ export default function VerifyScreen() {
             },
           ]}
         >
-          <View
-            style={[
-              styles.iconCircle,
-              keyboardVisible && { marginBottom: keyboardLayout.iconGap },
-            ]}
-          >
-            <Ionicons name="mail-unread-outline" size={27} color={Palette.accent} />
-          </View>
-          <Text style={[styles.title, { color: colors.text }]}>Enter verification code</Text>
+          <Text style={styles.title}>Enter verification code</Text>
           <Text
             style={[
               styles.subtitle,
-              { color: colors.textSecondary },
               keyboardVisible && { marginTop: keyboardLayout.subtitleGap },
             ]}
           >
@@ -451,7 +429,6 @@ export default function VerifyScreen() {
             <Text
               style={[
                 styles.email,
-                { color: colors.text },
                 keyboardVisible && { marginTop: keyboardLayout.emailGap },
               ]}
             >
@@ -465,56 +442,14 @@ export default function VerifyScreen() {
               keyboardVisible && { marginTop: keyboardLayout.formGap },
             ]}
           >
-            <View style={styles.otpInputContainer}>
-              <View
-                style={styles.otpRow}
-                pointerEvents="none"
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-              >
-                {Array.from({ length: OTP_LENGTH }, (_, index) => {
-                  const digit = otp[index] ?? '';
-                  const isActive = otpFocused && index === Math.min(otp.length, OTP_LENGTH - 1);
-
-                  return (
-                    <View
-                      key={index}
-                      style={[
-                        styles.otpBox,
-                        {
-                          width: OTP_BOX_SIZE,
-                          height: OTP_BOX_SIZE + 9,
-                          backgroundColor: colors.cardAlt,
-                          borderColor: feedback?.type === 'error'
-                            ? 'rgba(239,68,68,0.55)'
-                            : digit || isActive ? Palette.accent : colors.border,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.otpDigit, { color: colors.text }]}>{digit}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-              <TextInput
-                ref={otpInputRef}
-                style={styles.otpNativeInput}
-                value={otp}
-                onChangeText={handleOtpChange}
-                onFocus={() => setOtpFocused(true)}
-                onBlur={() => setOtpFocused(false)}
-                keyboardType="number-pad"
-                textContentType="oneTimeCode"
-                autoComplete={Platform.OS === 'android' ? 'sms-otp' : 'one-time-code'}
-                autoFocus
-                selection={{ start: otp.length, end: otp.length }}
-                selectionColor="transparent"
-                caretHidden
-                editable={!busyAction && !challengeExpired}
-                accessibilityLabel="6-digit verification code"
-                accessibilityHint="Enter or paste the code sent to your email"
-              />
-            </View>
+            <AuthOtpInput
+              ref={otpInputRef}
+              value={otp}
+              onChangeText={handleOtpChange}
+              onComplete={handleOtpComplete}
+              error={feedback?.type === 'error'}
+              disabled={Boolean(busyAction) || challengeExpired}
+            />
 
             <View
               style={[
@@ -526,19 +461,17 @@ export default function VerifyScreen() {
               ]}
             >
               {feedback ? (
-                <AuthFeedback {...feedback} />
+                <AuthStatusCard {...feedback} />
               ) : isLoginOtp && !codeExpired ? (
-                <Text style={[styles.expiryText, { color: colors.textMuted }]}>Code expires in {formatClock(codeSeconds)}</Text>
+                <Text style={styles.expiryText}>Code expires in {formatClock(codeSeconds)}</Text>
               ) : null}
             </View>
 
-            <PremiumButton
-              title={busyAction === 'verify' ? 'Verifying…' : 'Verify & Sign In'}
-              icon={busyAction ? undefined : 'checkmark-circle-outline'}
+            <AuthButton
+              title={busyAction === 'verify' ? 'Verifying…' : 'Verify & sign in'}
               onPress={handleVerifyOtp}
               loading={busyAction === 'verify'}
               disabled={Boolean(busyAction) || challengeExpired || codeExpired || otp.length !== OTP_LENGTH}
-              premiumAuth
             />
 
             <View
@@ -551,9 +484,9 @@ export default function VerifyScreen() {
               ]}
             >
               {challengeExpired ? (
-                <Text style={[styles.resendCountdown, { color: colors.textMuted }]}>Verification session expired</Text>
+                <Text style={styles.resendCountdown}>Verification session expired</Text>
               ) : resendSeconds > 0 ? (
-                <Text style={[styles.resendCountdown, { color: colors.textMuted }]}>Resend code in {resendSeconds}s</Text>
+                <Text style={styles.resendCountdown}>Resend code in {resendSeconds}s</Text>
               ) : (
                 <TouchableOpacity onPress={handleResend} disabled={Boolean(busyAction)}>
                   <Text style={styles.resendLink}>
@@ -571,8 +504,8 @@ export default function VerifyScreen() {
                   keyboardVisible && { paddingVertical: keyboardLayout.changeAccountPadding },
                 ]}
               >
-                <Ionicons name="person-outline" size={15} color={colors.textSecondary} />
-                <Text style={[styles.changeAccountText, { color: colors.textSecondary }]}>Change account</Text>
+                <Ionicons name="person-outline" size={15} color={AuthColors.textSecondary} />
+                <Text style={styles.changeAccountText}>Change account</Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -581,11 +514,10 @@ export default function VerifyScreen() {
             <Text
               style={[
                 styles.helpText,
-                { color: colors.textMuted },
                 keyboardVisible && { marginTop: 16 },
               ]}
             >
-              Check Spam or All inboxes if the email does not appear.
+              Check spam or all inboxes if the email does not appear.
             </Text>
           ) : null}
         </Animated.View>
@@ -602,12 +534,13 @@ const styles = StyleSheet.create({
     left: 20,
     top: 18,
     zIndex: 2,
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 21,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: AuthRadius.full,
+    borderWidth: 1,
+    borderColor: AuthColors.borderHairline,
   },
   content: {
     flex: 1,
@@ -619,43 +552,35 @@ const styles = StyleSheet.create({
   contentKeyboardOpen: {
     justifyContent: 'flex-start',
   },
-  iconCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 22,
-    backgroundColor: 'rgba(249,115,22,0.11)',
-    borderWidth: 1,
-    borderColor: 'rgba(249,115,22,0.26)',
+  title: {
+    fontFamily: AuthTypography.h1.fontFamily,
+    fontSize: 26,
+    lineHeight: 30,
+    letterSpacing: AuthTypography.h1.letterSpacing,
+    color: AuthColors.textPrimary,
+    textAlign: 'center',
   },
-  title: { fontSize: 29, fontWeight: '800', textAlign: 'center', letterSpacing: -0.3 },
-  subtitle: { fontSize: 14, lineHeight: 21, textAlign: 'center', marginTop: 9 },
-  email: { fontSize: 14, fontWeight: '700', textAlign: 'center', marginTop: 3 },
+  subtitle: {
+    fontFamily: AuthFontFamily.regular,
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginTop: 9,
+    color: AuthColors.textSecondary,
+  },
+  email: {
+    fontFamily: AuthFontFamily.medium,
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 3,
+    color: AuthColors.textPrimary,
+  },
   form: { width: '100%', maxWidth: 420, marginTop: 32 },
-  otpInputContainer: { position: 'relative', alignSelf: 'center' },
-  otpRow: { flexDirection: 'row', justifyContent: 'center', gap: OTP_GAP },
-  otpBox: {
-    borderRadius: 12,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  otpDigit: {
-    fontSize: 21,
-    fontWeight: '800',
-  },
-  otpNativeInput: {
-    ...StyleSheet.absoluteFill,
-    color: 'transparent',
-    backgroundColor: 'transparent',
-  },
   statusSlot: { minHeight: 84, justifyContent: 'center', paddingHorizontal: 3, paddingVertical: 10 },
-  expiryText: { fontSize: 12, textAlign: 'center' },
-  resendArea: { alignItems: 'center', justifyContent: 'center', minHeight: 48, marginTop: 8 },
-  resendCountdown: { fontSize: 13, fontWeight: '600' },
-  resendLink: { color: Palette.accent, fontSize: 14, fontWeight: '800' },
+  expiryText: { fontFamily: AuthFontFamily.regular, fontSize: 12, textAlign: 'center', color: AuthColors.textTertiary },
+  resendArea: { alignItems: 'center', justifyContent: 'center', minHeight: 48, marginTop: 16 },
+  resendCountdown: { fontFamily: AuthFontFamily.medium, fontSize: 13, color: AuthColors.textTertiary },
+  resendLink: { color: AuthColors.textPrimary, fontFamily: AuthFontFamily.medium, fontSize: 14 },
   changeAccountButton: {
     alignSelf: 'center',
     flexDirection: 'row',
@@ -664,6 +589,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  changeAccountText: { fontSize: 13, fontWeight: '700' },
-  helpText: { maxWidth: 320, marginTop: 24, fontSize: 12, lineHeight: 18, textAlign: 'center' },
+  changeAccountText: { fontFamily: AuthFontFamily.medium, fontSize: 13, color: AuthColors.textSecondary },
+  helpText: {
+    fontFamily: AuthFontFamily.regular,
+    maxWidth: 320,
+    marginTop: 24,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    color: AuthColors.textTertiary,
+  },
 });

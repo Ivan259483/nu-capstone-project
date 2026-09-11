@@ -17,8 +17,10 @@
 import { Stack, useSegments, useRouter, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
+import { useFonts } from 'expo-font';
 import React, { useEffect } from 'react';
 import { AppState } from 'react-native';
+import { AuthFontAssets } from '@/constants/authTheme';
 import { ThemeProvider, useTheme } from '@/hooks/useThemeContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import GlobalErrorBoundary from '@/components/GlobalErrorBoundary';
@@ -51,6 +53,7 @@ function InnerLayout() {
   const { session, token, profile, initialized, pendingLoginOtp, loginOtpVerified } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const [authFontsLoaded, authFontsError] = useFonts(AuthFontAssets);
 
   // Role resolution is part of authentication. AuthContext only initializes
   // after /auth/me has validated restored sessions against the live DB role.
@@ -61,10 +64,13 @@ function InnerLayout() {
 
   useEffect(() => {
     if (!initialized) return;
+    // A font load failure falls back to the system font rather than blocking
+    // the app — never leave the native splash stuck on a font error.
+    if (!authFontsLoaded && !authFontsError) return;
     // AuthContext always reaches `initialized`, including its recovery paths,
     // so a failed session restore cannot leave the native splash stuck.
     void SplashScreen.hideAsync().catch(() => {});
-  }, [initialized]);
+  }, [initialized, authFontsLoaded, authFontsError]);
 
   useEffect(() => {
     if (!initialized) return;

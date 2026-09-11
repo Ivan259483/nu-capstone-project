@@ -1,22 +1,22 @@
 import { Stack } from 'expo-router';
-import { useTheme } from '@/hooks/useThemeContext';
 import { Motion } from '@/constants/motion';
+import { AuthColors } from '@/constants/authTheme';
 
 export default function AuthLayout() {
-  const { colors } = useTheme();
-
   return (
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: colors.background },
+        contentStyle: { backgroundColor: AuthColors.bg },
         animation: 'simple_push',
         animationDuration: Motion.duration.screen,
         gestureEnabled: true,
       }}
     >
+      <Stack.Screen name="welcome" />
       <Stack.Screen name="login" />
       <Stack.Screen name="signup" />
+      <Stack.Screen name="forgot-password" />
       <Stack.Screen name="verify" options={{ gestureEnabled: false }} />
     </Stack>
   );

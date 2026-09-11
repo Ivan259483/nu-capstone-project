@@ -1,30 +1,23 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  ScrollView,
-} from 'react-native';
+import React, { useRef, useState } from 'react';
+import { Dimensions, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
-
+import Animated, { FadeInUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
-import { Palette } from '@/constants/theme';
-import PremiumInput from '@/components/ui/PremiumInput';
-import PremiumButton from '@/components/ui/PremiumButton';
+import AuthLayout from '@/components/auth/AuthLayout';
+import AuthInput from '@/components/auth/AuthInput';
+import AuthButton from '@/components/auth/AuthButton';
+import AuthOtpInput, { type AuthOtpInputHandle } from '@/components/auth/AuthOtpInput';
+import AuthStatusCard, { type AuthStatusData } from '@/components/auth/AuthStatusCard';
+import { AuthColors, AuthFontFamily, AuthRadius, AuthTypography } from '@/constants/authTheme';
 import { Validation } from '@/utils/validation';
 import { authService } from '@/services/api/authService';
 import { apiClient, getApiErrorMessage } from '@/services/api/client';
-import AuthFeedback, { type AuthFeedbackData } from '@/components/auth/AuthFeedback';
 
 type Step = 'email' | 'otp' | 'newPassword' | 'success';
 const OTP_LENGTH = 6;
+const SCREEN_H = Dimensions.get('window').height;
 const normalizeOtp = (value: string) => value.replace(/[^0-9]/g, '').slice(0, OTP_LENGTH);
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
@@ -33,23 +26,23 @@ export default function ForgotPasswordScreen() {
 
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
+  const [emailTouched, setEmailTouched] = useState(false);
   const [emailError, setEmailError] = useState('');
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [confirmTouched, setConfirmTouched] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   const [confirmError, setConfirmError] = useState('');
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
-  const [feedback, setFeedback] = useState<AuthFeedbackData | null>(null);
+  const [feedback, setFeedback] = useState<AuthStatusData | null>(null);
+  const otpInputRef = useRef<AuthOtpInputHandle | null>(null);
 
-  const otpRefs = React.useRef<(TextInput | null)[]>([]);
-
-  const haptic = (type: 'success' | 'error') => {
-    if (Platform.OS === 'web') return;
-    if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    else Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-  };
+  const haptic = (type: 'success' | 'error') => Haptics.notificationAsync(
+    type === 'success' ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error,
+  );
 
   function startCountdown() {
     setCountdown(60);
@@ -61,15 +54,35 @@ export default function ForgotPasswordScreen() {
     }, 1000);
   }
 
+  function validateEmailField(value: string) {
+    const normalized = normalizeEmail(value);
+    if (!normalized) return 'Email is required';
+    if (!Validation.isValidEmail(normalized)) return 'Please enter a valid email address';
+    return '';
+  }
+
+  function validateNewPasswordField(value: string) {
+    if (!value) return 'Password is required';
+    if (!Validation.isStrongPassword(value)) return 'Must be 8+ chars with upper, lower, number & special character';
+    return '';
+  }
+
+  function validateConfirmField(value: string, against: string) {
+    if (!value) return 'Please confirm your password';
+    if (value !== against) return 'Passwords do not match';
+    return '';
+  }
+
   // ── Step 1: Send OTP ─────────────────────────────────────────────────────────
   async function handleSendOtp() {
     if (loading) return;
-    setEmailError('');
+    const nextEmailError = validateEmailField(email);
+    setEmailTouched(true);
+    setEmailError(nextEmailError);
     setFeedback(null);
-    const normalizedEmail = normalizeEmail(email);
-    if (!normalizedEmail) { setEmailError('Email is required'); return; }
-    if (!Validation.isValidEmail(normalizedEmail)) { setEmailError('Please enter a valid email address'); return; }
+    if (nextEmailError) return;
 
+    const normalizedEmail = normalizeEmail(email);
     setLoading(true);
     try {
       const res = await apiClient.post('/auth/forgot-password', { email: normalizedEmail });
@@ -101,7 +114,7 @@ export default function ForgotPasswordScreen() {
   // ── Step 2: Verify OTP ────────────────────────────────────────────────────────
   async function handleVerifyOtp() {
     if (loading) return;
-    const code = normalizeOtp(otp.join(''));
+    const code = normalizeOtp(otp);
     setFeedback(null);
     if (code.length < OTP_LENGTH) {
       haptic('error');
@@ -134,8 +147,8 @@ export default function ForgotPasswordScreen() {
         title: 'Incorrect verification code',
         message: getApiErrorMessage(err, 'Check the code and try again.'),
       });
-      setOtp(['', '', '', '', '', '']);
-      otpRefs.current[0]?.focus();
+      setOtp('');
+      otpInputRef.current?.focus();
     } finally {
       setLoading(false);
     }
@@ -144,22 +157,20 @@ export default function ForgotPasswordScreen() {
   // ── Step 3: Set new password ──────────────────────────────────────────────────
   async function handleResetPassword() {
     if (loading) return;
-    setPasswordError('');
-    setConfirmError('');
+    const nextPasswordError = validateNewPasswordField(newPassword);
+    const nextConfirmError = validateConfirmField(confirmPassword, newPassword);
+    setPasswordTouched(true);
+    setConfirmTouched(true);
+    setPasswordError(nextPasswordError);
+    setConfirmError(nextConfirmError);
     setFeedback(null);
-
-    if (!newPassword) { setPasswordError('Password is required'); return; }
-    if (!Validation.isStrongPassword(newPassword)) {
-      setPasswordError('Must be 8+ chars with upper, lower, number & special character');
-      return;
-    }
-    if (newPassword !== confirmPassword) { setConfirmError('Passwords do not match'); return; }
+    if (nextPasswordError || nextConfirmError) return;
 
     setLoading(true);
     try {
       const res = await apiClient.post('/auth/reset-password', {
         email: normalizeEmail(email),
-        otp: normalizeOtp(otp.join('')),
+        otp: normalizeOtp(otp),
         newPassword,
       });
       if (res.data?.success) {
@@ -182,271 +193,192 @@ export default function ForgotPasswordScreen() {
     }
   }
 
-  // ── OTP input helpers ─────────────────────────────────────────────────────────
-  function handleOtpChange(text: string, index: number) {
-    const digit = normalizeOtp(text);
-    const next = [...otp];
-    if (digit.length > 1) {
-      const chars = digit.split('');
-      next.fill('');
-      chars.forEach((c, i) => { if (i < OTP_LENGTH) next[i] = c; });
-      setOtp(next);
-      otpRefs.current[Math.min(chars.length, OTP_LENGTH - 1)]?.focus();
-      return;
-    }
-    next[index] = digit;
-    setOtp(next);
-    if (digit && index < OTP_LENGTH - 1) otpRefs.current[index + 1]?.focus();
-  }
+  const stepConfig: Record<Step, { title?: string; subtitle?: string }> = {
+    email: {
+      title: 'Reset password',
+      subtitle: "Enter your email and we'll send a verification code to reset your password.",
+    },
+    otp: {
+      title: 'Enter code',
+      subtitle: `We sent a 6-digit code to ${email}`,
+    },
+    newPassword: {
+      title: 'New password',
+      subtitle: 'Choose a strong password for your account.',
+    },
+    success: {},
+  };
 
-  function handleOtpKeyPress(key: string, index: number) {
-    if (key === 'Backspace' && !otp[index] && index > 0) {
-      const next = [...otp];
-      next[index - 1] = '';
-      setOtp(next);
-      otpRefs.current[index - 1]?.focus();
+  const footer = (() => {
+    if (step === 'email') {
+      return (
+        <AuthButton
+          title={loading ? 'Sending code…' : 'Send reset code'}
+          onPress={handleSendOtp}
+          disabled={loading}
+          loading={loading}
+        />
+      );
     }
-  }
+    if (step === 'otp') {
+      return (
+        <View style={{ gap: 16 }}>
+          <AuthButton
+            title={loading ? 'Verifying…' : 'Verify code'}
+            onPress={handleVerifyOtp}
+            disabled={loading || normalizeOtp(otp).length < OTP_LENGTH}
+            loading={loading}
+          />
+          <View style={styles.resendRow}>
+            {countdown > 0 ? (
+              <Text style={styles.resendMuted}>Resend in {countdown}s</Text>
+            ) : (
+              <TouchableOpacity disabled={loading} onPress={handleSendOtp}>
+                <Text style={styles.resendLink}>Resend code</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      );
+    }
+    if (step === 'newPassword') {
+      return (
+        <AuthButton
+          title={loading ? 'Saving…' : 'Reset password'}
+          onPress={handleResetPassword}
+          disabled={loading}
+          loading={loading}
+        />
+      );
+    }
+    return <AuthButton title="Back to sign in" onPress={() => router.replace('/(auth)/login')} />;
+  })();
 
-  // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <View style={styles.container}>
+    <AuthLayout
+      showBack
+      onBack={() => router.back()}
+      logo={null}
+      title={stepConfig[step].title}
+      subtitle={stepConfig[step].subtitle}
+      contentContainerStyle={{ paddingTop: SCREEN_H * 0.15 }}
+      footer={footer}
+    >
+      {feedback ? <AuthStatusCard {...feedback} style={styles.feedbackCard} /> : null}
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      {step === 'email' && (
+        <Animated.View entering={FadeInUp.duration(200)}>
+          <AuthInput
+            label="Email address"
+            placeholder="name@example.com"
+            value={email}
+            onChangeText={(t) => { setEmail(t); setEmailError(''); }}
+            onBlur={() => { setEmailTouched(true); setEmailError(validateEmailField(email)); }}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            textContentType="emailAddress"
+            autoComplete="email"
+            error={emailTouched ? emailError : ''}
+          />
+        </Animated.View>
+      )}
 
-          {/* Back button */}
-          <Animated.View entering={FadeInDown.delay(50).duration(200)} style={styles.backBtn}>
-            <TouchableOpacity style={styles.backBtnInner} hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }} onPress={() => router.back()}>
-              <Ionicons name="chevron-back" size={24} color="rgba(255,255,255,0.80)" />
-            </TouchableOpacity>
-          </Animated.View>
+      {step === 'otp' && (
+        <Animated.View entering={FadeInUp.duration(200)} style={{ alignItems: 'center' }}>
+          <AuthOtpInput
+            ref={otpInputRef}
+            value={otp}
+            onChangeText={setOtp}
+            error={feedback?.type === 'error'}
+            disabled={loading}
+          />
+        </Animated.View>
+      )}
 
-          {/* ── STEP: email ── */}
-          {step === 'email' && (
-            <>
-              <Animated.View entering={FadeInDown.delay(100).duration(200)} style={styles.header}>
-                <View style={styles.iconBox}>
-                  <Ionicons name="lock-closed-outline" size={32} color={Palette.accent} />
-                </View>
-                <Text style={styles.title}>Reset Password</Text>
-                <Text style={styles.subtitle}>Enter your email and we&apos;ll send a verification code to reset your password.</Text>
-              </Animated.View>
+      {step === 'newPassword' && (
+        <Animated.View entering={FadeInUp.duration(200)}>
+          <AuthInput
+            label="New password"
+            placeholder="Min. 8 chars, 1 upper, 1 lower, 1 number"
+            value={newPassword}
+            onChangeText={(t) => { setNewPassword(t); setPasswordError(''); }}
+            onBlur={() => { setPasswordTouched(true); setPasswordError(validateNewPasswordField(newPassword)); }}
+            isPassword
+            textContentType="newPassword"
+            autoComplete="new-password"
+            error={passwordTouched ? passwordError : ''}
+          />
+          <AuthInput
+            label="Confirm password"
+            placeholder="Re-enter your new password"
+            value={confirmPassword}
+            onChangeText={(t) => { setConfirmPassword(t); setConfirmError(''); }}
+            onBlur={() => { setConfirmTouched(true); setConfirmError(validateConfirmField(confirmPassword, newPassword)); }}
+            isPassword
+            textContentType="newPassword"
+            autoComplete="new-password"
+            error={confirmTouched ? confirmError : ''}
+          />
+        </Animated.View>
+      )}
 
-              {feedback ? <AuthFeedback {...feedback} style={styles.feedbackCard} /> : null}
-
-              <Animated.View entering={FadeInUp.delay(200).duration(200)}>
-                <PremiumInput
-                  label="EMAIL ADDRESS"
-                  iconName="mail-outline"
-                  placeholder="name@example.com"
-                  value={email}
-                  onChangeText={(t: string) => { setEmail(t); setEmailError(''); }}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  error={emailError}
-                />
-              </Animated.View>
-
-              <Animated.View entering={FadeInUp.delay(300).duration(200)} style={{ marginTop: 32 }}>
-                <PremiumButton
-                  title={loading ? 'Sending code…' : 'SEND RESET CODE'}
-                  icon={loading ? undefined : 'paper-plane-outline'}
-                  onPress={handleSendOtp}
-                  disabled={loading}
-                  loading={loading}
-                  premiumAuth
-                />
-              </Animated.View>
-            </>
-          )}
-
-          {/* ── STEP: otp ── */}
-          {step === 'otp' && (
-            <>
-              <Animated.View entering={FadeInDown.delay(100).duration(200)} style={styles.header}>
-                <View style={styles.iconBox}>
-                  <Ionicons name="shield-checkmark-outline" size={32} color={Palette.accent} />
-                </View>
-                <Text style={styles.title}>Enter Code</Text>
-                <Text style={styles.subtitle}>
-                  We sent a 6-digit code to{'\n'}
-                  <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>{email}</Text>
-                </Text>
-              </Animated.View>
-
-              {feedback ? <AuthFeedback {...feedback} style={styles.feedbackCard} /> : null}
-
-              <Animated.View entering={FadeInUp.delay(200).duration(200)}>
-                <View style={styles.otpRow}>
-                  {otp.map((digit, i) => (
-                    <TextInput
-                      key={i}
-                      ref={r => { otpRefs.current[i] = r; }}
-                      style={[styles.otpBox, digit && styles.otpBoxFilled]}
-                      value={digit}
-                      onChangeText={t => handleOtpChange(t, i)}
-                      onKeyPress={({ nativeEvent }) => handleOtpKeyPress(nativeEvent.key, i)}
-                      keyboardType="number-pad"
-                      maxLength={i === 0 ? OTP_LENGTH : 1}
-                      textContentType="oneTimeCode"
-                      autoFocus={i === 0}
-                      selectTextOnFocus
-                    />
-                  ))}
-                </View>
-              </Animated.View>
-
-              <Animated.View entering={FadeInUp.delay(300).duration(200)} style={{ marginTop: 32 }}>
-                <PremiumButton
-                  title={loading ? 'Verifying…' : 'VERIFY CODE'}
-                  icon={loading ? undefined : 'checkmark-circle-outline'}
-                  onPress={handleVerifyOtp}
-                  disabled={loading || normalizeOtp(otp.join('')).length < OTP_LENGTH}
-                  loading={loading}
-                  premiumAuth
-                />
-              </Animated.View>
-
-              <View style={{ alignItems: 'center', marginTop: 20 }}>
-                {countdown > 0 ? (
-                  <Text style={{ color: 'rgba(255,255,255,0.50)', fontSize: 13 }}>
-                    Resend in <Text style={{ color: Palette.accent, fontWeight: '700' }}>{countdown}s</Text>
-                  </Text>
-                ) : (
-                  <TouchableOpacity disabled={loading} onPress={handleSendOtp}>
-                    <Text style={{ color: Palette.accent, fontSize: 14, fontWeight: '700' }}>Resend Code</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </>
-          )}
-
-          {/* ── STEP: newPassword ── */}
-          {step === 'newPassword' && (
-            <>
-              <Animated.View entering={FadeInDown.delay(100).duration(200)} style={styles.header}>
-                <View style={styles.iconBox}>
-                  <Ionicons name="key-outline" size={32} color={Palette.accent} />
-                </View>
-                <Text style={styles.title}>New Password</Text>
-                <Text style={styles.subtitle}>Choose a strong password for your account.</Text>
-              </Animated.View>
-
-              {feedback ? <AuthFeedback {...feedback} style={styles.feedbackCard} /> : null}
-
-              <Animated.View entering={FadeInUp.delay(200).duration(200)}>
-                <PremiumInput
-                  label="NEW PASSWORD"
-                  iconName="lock-closed-outline"
-                  placeholder="Min. 8 chars, 1 upper, 1 lower, 1 number"
-                  value={newPassword}
-                  onChangeText={(t: string) => { setNewPassword(t); setPasswordError(''); }}
-                  isPassword
-                  error={passwordError}
-                />
-              </Animated.View>
-
-              <Animated.View entering={FadeInUp.delay(280).duration(200)} style={{ marginTop: 12 }}>
-                <PremiumInput
-                  label="CONFIRM PASSWORD"
-                  iconName="lock-closed-outline"
-                  placeholder="Re-enter your new password"
-                  value={confirmPassword}
-                  onChangeText={(t: string) => { setConfirmPassword(t); setConfirmError(''); }}
-                  isPassword
-                  error={confirmError}
-                />
-              </Animated.View>
-
-              <Animated.View entering={FadeInUp.delay(360).duration(200)} style={{ marginTop: 32 }}>
-                <PremiumButton
-                  title={loading ? 'Saving…' : 'RESET PASSWORD'}
-                  icon={loading ? undefined : 'checkmark-done-outline'}
-                  onPress={handleResetPassword}
-                  disabled={loading}
-                  loading={loading}
-                  premiumAuth
-                />
-              </Animated.View>
-            </>
-          )}
-
-          {/* ── STEP: success ── */}
-          {step === 'success' && (
-            <Animated.View entering={FadeInUp.delay(100).duration(300)} style={styles.successCard}>
-              <View style={styles.successIcon}>
-                <Ionicons name="checkmark-circle-outline" size={52} color={Palette.accent} />
-              </View>
-              <Text style={styles.successTitle}>Password Reset!</Text>
-              <Text style={styles.successSub}>
-                Your password has been updated successfully.{'\n\n'}
-                <Text style={{ color: '#F97316', fontWeight: '700' }}>Action Required: </Text>
-                We also sent a <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>Firebase reset link</Text> to your email. Click it to finish syncing your login, then sign in with your new password.
-              </Text>
-              <View style={{ marginTop: 32, width: '100%' }}>
-                <PremiumButton
-                  title="BACK TO LOGIN"
-                  icon="log-in-outline"
-                  onPress={() => router.replace('/(auth)/login')}
-                />
-              </View>
-            </Animated.View>
-          )}
-
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </View>
+      {step === 'success' && (
+        <Animated.View entering={FadeInUp.duration(260)} style={styles.successCard}>
+          <View style={styles.successIcon}>
+            <Ionicons name="checkmark" size={26} color={AuthColors.textPrimary} />
+          </View>
+          <Text style={styles.successTitle}>Password reset</Text>
+          <Text style={styles.successSub}>
+            Your password has been updated successfully.{'\n\n'}
+            <Text style={styles.successEmphasis}>Action required: </Text>
+            we also sent a password reset link to your email. Open it to finish syncing your
+            login, then sign in with your new password.
+          </Text>
+        </Animated.View>
+      )}
+    </AuthLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
-  scroll: {
-    paddingHorizontal: 28,
-    paddingTop: Platform.OS === 'ios' ? 100 : 80,
-    paddingBottom: 60,
-    flexGrow: 1,
-    flex: 1,
-    justifyContent: 'center',
-  },
-  backBtn: { position: 'absolute', top: Platform.OS === 'ios' ? 60 : 40, left: 20, zIndex: 10 },
-  backBtnInner: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  header: { alignItems: 'center', marginBottom: 36 },
-  iconBox: {
-    width: 68, height: 68, borderRadius: 20,
-    backgroundColor: 'rgba(249,115,22,0.10)',
-    borderWidth: 1, borderColor: 'rgba(249,115,22,0.25)',
-    justifyContent: 'center', alignItems: 'center', marginBottom: 20,
-  },
-  title: { fontSize: 32, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.5, marginBottom: 10 },
-  subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.50)', textAlign: 'center', lineHeight: 22 },
-  feedbackCard: { marginTop: -16, marginBottom: 24 },
-
-  otpRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 8 },
-  otpBox: {
-    width: 48, height: 58, borderRadius: 12,
-    backgroundColor: '#111111', borderWidth: 1, borderColor: '#2a2a2a',
-    color: '#FFFFFF', fontSize: 24, fontWeight: '700', textAlign: 'center',
-  },
-  otpBoxFilled: { borderColor: '#FF6B00', backgroundColor: 'rgba(249,115,22,0.06)' },
-
+  feedbackCard: { marginBottom: 20 },
+  resendRow: { alignItems: 'center' },
+  resendMuted: { color: AuthColors.textTertiary, fontFamily: AuthFontFamily.regular, fontSize: 13 },
+  resendLink: { color: AuthColors.textPrimary, fontFamily: AuthFontFamily.medium, fontSize: 14 },
   successCard: {
-    alignItems: 'center', padding: 28,
-    backgroundColor: '#111111',
-    borderRadius: 24, borderWidth: 1, borderColor: '#2a2a2a',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: AuthColors.card,
+    borderRadius: AuthRadius.card,
+    borderWidth: 1,
+    borderColor: AuthColors.borderHairline,
   },
   successIcon: {
-    width: 88, height: 88, borderRadius: 44,
-    backgroundColor: 'rgba(249,115,22,0.10)',
-    borderWidth: 1, borderColor: 'rgba(249,115,22,0.25)',
-    justifyContent: 'center', alignItems: 'center', marginBottom: 20,
+    width: 56,
+    height: 56,
+    borderRadius: AuthRadius.full,
+    backgroundColor: AuthColors.elevated,
+    borderWidth: 1,
+    borderColor: AuthColors.borderHairline,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 18,
   },
-  successTitle: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', marginBottom: 10 },
-  successSub: { fontSize: 14, color: 'rgba(255,255,255,0.50)', textAlign: 'center', lineHeight: 22 },
+  successTitle: {
+    fontFamily: AuthTypography.h1.fontFamily,
+    fontSize: 22,
+    color: AuthColors.textPrimary,
+    marginBottom: 10,
+  },
+  successSub: {
+    fontFamily: AuthFontFamily.regular,
+    fontSize: 14,
+    color: AuthColors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 21,
+  },
+  successEmphasis: {
+    color: AuthColors.textPrimary,
+    fontFamily: AuthFontFamily.medium,
+  },
 });

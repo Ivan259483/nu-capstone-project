@@ -146,6 +146,7 @@ export function MotionModal({
 type MotionSheetProps = BaseOverlayProps & {
   swipeToDismiss?: boolean;
   keyboardAvoiding?: boolean;
+  backdropOpacity?: number;
 };
 
 export function MotionSheet({
@@ -158,6 +159,7 @@ export function MotionSheet({
   keyboardAvoiding = true,
   accessibilityLabel = 'Bottom sheet',
   onClosed,
+  backdropOpacity = 0.76,
 }: MotionSheetProps) {
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
@@ -291,7 +293,9 @@ export function MotionSheet({
         accessibilityLabel={accessibilityLabel}
         onAccessibilityEscape={onClose}
       >
-        <Animated.View style={[styles.backdrop, backdropStyle]}>
+        <Animated.View
+          style={[styles.backdrop, { backgroundColor: `rgba(0,0,0,${backdropOpacity})` }, backdropStyle]}
+        >
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={dismissOnBackdrop ? onClose : undefined}

@@ -24,6 +24,7 @@ export const Motion = {
     press: 0.985,
     compactPress: 0.99,
     modalFrom: 0.985,
+    authPress: 0.98,
   },
   distance: {
     modalY: 8,
@@ -32,6 +33,9 @@ export const Motion = {
     enter: Easing.bezier(0.16, 1, 0.3, 1),
     exit: Easing.bezier(0.4, 0, 1, 1),
     standard: Easing.bezier(0.22, 1, 0.36, 1),
+    // Linear-leaning "material standard" curve used only by the restrained
+    // auth theme; existing consumers keep using `standard` above unchanged.
+    authStandard: Easing.bezier(0.2, 0, 0, 1),
   },
 } as const;
 
