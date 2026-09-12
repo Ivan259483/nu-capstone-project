@@ -6,7 +6,7 @@ export const CHAT_INBOX_NAME = 'AutoSPF+ Concierge';
 
 /** Shared public launcher treatment used before and after the chat bundle loads. */
 export const chatLauncherClass =
-    'relative flex h-[60px] w-[60px] cursor-pointer items-center justify-center rounded-full bg-gradient-to-br from-[#F4B63D] to-[#D58A12] text-[#07070A] shadow-[0_6px_24px_rgba(213,138,18,0.32)] transition-[transform,box-shadow,filter] hover:scale-105 hover:brightness-110 hover:shadow-[0_10px_30px_rgba(213,138,18,0.42)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F7CF77] focus-visible:ring-offset-2 focus-visible:ring-offset-[#07070A]';
+    'relative flex h-[60px] w-[60px] cursor-pointer items-center justify-center rounded-full bg-gradient-to-br from-[#F4B63D] to-[#D58A12] text-[#07070A] shadow-[0_6px_24px_rgba(213,138,18,0.32)] transition-[box-shadow,filter] hover:brightness-110 hover:shadow-[0_10px_30px_rgba(213,138,18,0.42)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F7CF77] focus-visible:ring-offset-2 focus-visible:ring-offset-[#07070A]';
 
 /** Main messenger panel */
 export const chatWindowClass =

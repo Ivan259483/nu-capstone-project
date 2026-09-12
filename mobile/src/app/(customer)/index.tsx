@@ -205,7 +205,7 @@ const TRUST = [
   { icon:'shield-checkmark-outline' as const, label:'DTI Registered' },
   { icon:'ribbon-outline'           as const, label:'Licensed' },
   { icon:'checkmark-circle-outline' as const, label:'Insured' },
-  { icon:'star-outline'             as const, label:'4.9 · 68 Reviews' },
+  { icon:'star-outline'             as const, label:'4.9 · 68 reviews' },
 ];
 
 const greet = (date = new Date()) => {
@@ -885,7 +885,7 @@ function HeroSection({ job, isLoading, step, router }: {
               }]}>
                 {[
                   {i:'time-outline'  as const, t:'2–4 hrs'},
-                  {i:'star-outline'  as const, t:'Rated 4.9'},
+                  {i:'star-outline'  as const, t:'4.9 · 68 reviews'},
                   {i:'ribbon-outline'as const, t:'Certified'},
                 ].map((m, index)=>(
                   <React.Fragment key={m.t}>

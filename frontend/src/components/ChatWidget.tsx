@@ -1839,7 +1839,6 @@ export default function ChatWidget({
 
             <motion.button
                 onClick={handleOpenWidget}
-                whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 className={chatLauncherClass}
                 aria-label={isOpen ? 'Close chat' : 'Open chat'}

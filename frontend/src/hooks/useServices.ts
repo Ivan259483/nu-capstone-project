@@ -71,13 +71,13 @@ export function useServices() {
         setIsLoading(true);
         const [{ data }, catalogResponse] = await Promise.all([
           api.get('/services'),
-          api.get('/services/catalog', { meta: { suppressErrorToast: true } } as any),
+          api.get('/services/catalog', { meta: { suppressErrorToast: true } } as any).catch(() => null),
         ]);
         if (data.success && Array.isArray(data.data)) {
           // Only show Active services in POS
           setServices(data.data.filter((s: BackendService) => s.status === 'Active'));
         }
-        const categories = catalogResponse.data?.data?.pricingCategories;
+        const categories = catalogResponse?.data?.data?.pricingCategories;
         if (Array.isArray(categories)) setPricingCategories(categories);
       } catch (err: any) {
         console.error('[useServices] Failed to fetch services:', err);
