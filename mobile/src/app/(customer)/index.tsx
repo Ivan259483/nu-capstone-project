@@ -62,6 +62,7 @@ import type { BookingRecord, ServiceOption, Vehicle } from '@/services/api/types
 import { isBookingCountedAsActiveOnHome } from '@/utils/customerBookingLifecycle';
 import {
   bookingIsReadyForPickup,
+  bookingIsTerminalForLiveTracker,
   bookingShowsCustomerLiveTracker,
   pickCustomerLiveTrackerBooking,
 } from '@/utils/customer-live-tracker-pick';
@@ -1435,8 +1436,12 @@ export default function HomeScreen() {
   }, [refreshBookings, servicesQuery, vehiclesQuery]);
 
   const { job, completed, history, totalSpend } = useMemo(() => {
+    // The status-only active filter cannot see a terminal `serviceTrackingStage`, so the
+    // canonical terminal guard runs alongside it; otherwise a settled pickup order becomes
+    // the hero job again through the `activeRows[0]` fallback below.
     const activeRows = bookings
-      .filter((b: BookingRecord) => isBookingCountedAsActiveOnHome(b.status))
+      .filter((b: BookingRecord) =>
+        isBookingCountedAsActiveOnHome(b.status) && !bookingIsTerminalForLiveTracker(b))
       .sort(
         (a: BookingRecord, b: BookingRecord) =>
           new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()

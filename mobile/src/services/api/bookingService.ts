@@ -2,7 +2,10 @@ import { apiClient, cachedGet, TTL } from '@/services/api/client';
 import { API_BASE_URL } from '@/config/env';
 import type { ApiEnvelope, BookingRecord, ServiceOption } from '@/services/api/types';
 import { isBookingCountedAsActiveOnHome } from '@/utils/customerBookingLifecycle';
-import { pickCustomerLiveTrackerBooking } from '@/utils/customer-live-tracker-pick';
+import {
+  bookingIsTerminalForLiveTracker,
+  pickCustomerLiveTrackerBooking,
+} from '@/utils/customer-live-tracker-pick';
 import {
   cacheDirectory,
   writeAsStringAsync,
@@ -114,7 +117,8 @@ export const bookingService = {
     if (trackerBooking) return trackerBooking;
 
     const active = bookings
-      .filter((booking) => isActiveBookingStatus(booking.status))
+      .filter((booking) =>
+        isActiveBookingStatus(booking.status) && !bookingIsTerminalForLiveTracker(booking))
       .sort((a, b) => {
         const aTime = new Date(a.createdAt || 0).getTime();
         const bTime = new Date(b.createdAt || 0).getTime();

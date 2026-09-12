@@ -106,6 +106,12 @@ const orderSchema = new mongoose.Schema(
     paymentMethod: String,
     paymentProvider: String,
     paidAt: Date,
+    /**
+     * Set when the order reaches its terminal completed state. For the POS pickup
+     * flow that is the moment the final balance settles on an order already at
+     * Ready for Pickup; QC step 7 completion sets it for the non-POS path.
+     */
+    completedAt: Date,
     posQueueStatus: {
       type: String,
       enum: [null, 'balance_pickup_queue'],

@@ -18,6 +18,7 @@ import {
 import { hydrateReceiptSnapshot } from '../utils/receiptSnapshot.utils.js';
 import { resolveCustomerReceiptCoverage } from '../utils/customerReceiptDetails.utils.js';
 import { normalizePosPaymentMethod } from '../utils/paymentMethod.utils.js';
+import { normalizeLifecycleKey } from '../constants/orderLifecycle.js';
 import {
   LEDGER_BALANCE_SELECT_FIELDS,
   getOrderLedger,
@@ -83,6 +84,21 @@ const POS_QUEUE_ORDER_SELECT = [
   'readyForPaymentAt',
   'qcCompletedAt',
 ].join(' ');
+
+/**
+ * The vehicle still has to be physically handed over after the balance settles.
+ * Final settlement now advances the stage past `ready_pickup` to the terminal
+ * `completed`, so the release affordance must accept the terminal stages too —
+ * otherwise closing the tracker would also hide the handover action from Sales.
+ */
+const RELEASABLE_TRACKING_STAGES = new Set(['ready_pickup', 'completed', 'released']);
+
+const isVehicleReleaseAvailable = (order) => Boolean(
+  order
+  && order.paymentStatus === 'paid'
+  && RELEASABLE_TRACKING_STAGES.has(normalizeLifecycleKey(order.serviceTrackingStage))
+  && order.readyForPickupEvidenceComplete
+);
 
 const sendPosQueueLoadError = (res, status, code, message) =>
   res.status(status).json({ success: false, message, code });
@@ -500,9 +516,7 @@ async function buildCompletedCheckoutResponse({ order, billing, payment, idempot
       paymentId: payment._id,
       posInvoiceId: payment.invoiceId,
       receipt: buildReceiptFromPayment(payment, order),
-      vehicleReleaseAvailable: order.paymentStatus === 'paid'
-        && order.serviceTrackingStage === 'ready_pickup'
-        && Boolean(order.readyForPickupEvidenceComplete),
+      vehicleReleaseAvailable: isVehicleReleaseAvailable(order),
       inventoryWarnings: [],
       pdfUrl: invoiceRecord ? `/api/invoices/${encodeURIComponent(invoiceNumber)}/pdf` : null,
       snapshot: invoiceRecord?.snapshot || null,
@@ -1077,7 +1091,7 @@ export const checkoutBilling = async (req, res, next) => {
         paymentId: payment._id,
         posInvoiceId: invoiceId,
         receipt: receiptData,
-        vehicleReleaseAvailable: order.paymentStatus === 'paid' && order.serviceTrackingStage === 'ready_pickup' && Boolean(order.readyForPickupEvidenceComplete),
+        vehicleReleaseAvailable: isVehicleReleaseAvailable(order),
         inventoryWarnings,
         pdfUrl: `/api/invoices/${encodeURIComponent(invoiceNumber)}/pdf`,
         snapshot: invoiceRecord.snapshot,

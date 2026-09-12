@@ -56,6 +56,7 @@ import { useCustomerBookings } from '@/hooks/useCustomerBookings';
 import { isDefaultTrackBookingRow } from '@/utils/customerBookingLifecycle';
 import {
   bookingIsReadyForPickup,
+  bookingIsTerminalForLiveTracker,
   bookingShowsCustomerLiveTracker,
   pickCustomerLiveTrackerBooking,
 } from '@/utils/customer-live-tracker-pick';
@@ -1309,8 +1310,11 @@ export default function TrackScreen() {
     const trackerBooking = pickCustomerLiveTrackerBooking(allBookings);
     if (trackerBooking) return trackerBooking;
 
+    // `isDefaultTrackBookingRow` only reads `status`, so it would still admit an order
+    // whose terminal state lives on `serviceTrackingStage`. Apply the canonical terminal
+    // guard as well, or a settled pickup order reappears here after the picker drops it.
     const active = [...allBookings]
-      .filter((b: any) => isDefaultTrackBookingRow(b.status))
+      .filter((b: any) => isDefaultTrackBookingRow(b.status) && !bookingIsTerminalForLiveTracker(b))
       .sort(
         (a: any, b: any) =>
           new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
@@ -1502,6 +1506,7 @@ export default function TrackScreen() {
   }, [booking, postPayComplete, readyForPickupComplete]);
   const hasActive =
     !!booking &&
+    !bookingIsTerminalForLiveTracker(booking) &&
     (bookingShowsCustomerLiveTracker(booking) || isDefaultTrackBookingRow(booking?.status || ''));
 
   const stepTimestamps = booking ? getCustomerTrackerTimestamps(booking) : ['', '', '', '', ''];

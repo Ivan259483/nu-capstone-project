@@ -425,6 +425,7 @@ const ORDER_LIST_SELECT_FIELDS = [
   'paymentMethod',
   'paymentProvider',
   'paidAt',
+  'completedAt',
   'approvedAt',
   'qcCompletedAt',
   'readyForPaymentAt',

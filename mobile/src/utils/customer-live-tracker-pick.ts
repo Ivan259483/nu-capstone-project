@@ -65,9 +65,24 @@ export function bookingHasCompletedCustomerHandover(b: unknown): boolean {
   const status = normTrackerStr(row.status);
   const stage = normTrackerStr(row.serviceTrackingStage);
   const paymentStatus = normTrackerStr(row.paymentStatus);
+  const customerStatus = normTrackerStr(row.customerStatus);
 
   if (status === 'released' || stage === 'released') return true;
-  return paymentStatus === 'paid' && (status === 'completed' || stage === 'completed');
+  if (status === 'cancelled' || status === 'rejected') return true;
+  // Settlement alone is not terminal: a paid vehicle still awaiting QC handback must
+  // stay on the tracker. Terminal means paid AND the job itself reached `completed`,
+  // which is what the POS final-settlement flow writes once the balance hits zero.
+  if (paymentStatus !== 'paid') return false;
+  return status === 'completed' || stage === 'completed' || customerStatus === 'completed';
+}
+
+/**
+ * Explicit name for the same rule, for call sites that read better as a terminal check.
+ * Any surface that decides "is there an active tracker" must go through this, including
+ * fallback paths that would otherwise select a booking by `status` alone.
+ */
+export function bookingIsTerminalForLiveTracker(b: unknown): boolean {
+  return bookingHasCompletedCustomerHandover(b);
 }
 
 /** True when this booking should surface the technician/QC live tracker. */

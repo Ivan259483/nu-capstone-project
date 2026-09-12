@@ -61,6 +61,10 @@ import {
 import { getVisitEvidenceAt } from '../services/salesAnalytics.service.js';
 import { timeOperation } from '../utils/performance.utils.js';
 import { logCheckoutPhase, timedPosPaymentStep } from '../utils/posPaymentLog.utils.js';
+import {
+  TERMINAL_ORDER_STATUSES,
+  TERMINAL_TRACKING_STAGES,
+} from '../constants/orderLifecycle.js';
 import { parseReportingRange } from '../utils/reportingRange.utils.js';
 import PaymentReconciliationEvent from '../models/paymentReconciliationEvent.model.js';
 import { getSystemState } from '../services/systemState.service.js';
@@ -1895,11 +1899,21 @@ export const runPosCheckoutCore = async ({
   const fullySettled = balanceRemaining <= 0;
   const prevStatusKey = String(prevPosStatus || '').toLowerCase().replace(/-/g, '_');
   const prevStageKey = String(prevTrackingStage || '').toLowerCase().replace(/-/g, '_');
-  if (fullySettled && readyPickupPhotosComplete && (prevStageKey === 'ready_pickup' || prevStatusKey === 'ready_for_payment')) {
-    // Preserve the pickup service status for existing customer trackers.
-    // paymentStatus=paid owns settlement; released owns physical handover.
-    order.status = 'ready_for_payment';
-    order.serviceTrackingStage = 'ready_pickup';
+  // Already-terminal orders never regress. A retry, a stale event, or a second
+  // settlement attempt must leave `completed`/`released` exactly where it is.
+  const alreadyTerminal = TERMINAL_ORDER_STATUSES.has(prevStatusKey)
+    || TERMINAL_TRACKING_STAGES.has(prevStageKey);
+  if (alreadyTerminal) {
+    order.status = prevPosStatus;
+    order.serviceTrackingStage = prevTrackingStage;
+  } else if (fullySettled && readyPickupPhotosComplete && (prevStageKey === 'ready_pickup' || prevStatusKey === 'ready_for_payment')) {
+    // Business rule: the final POS balance is collected only after the order has
+    // reached Ready for Pickup, so settling it to zero IS the completion of the job.
+    // The authoritative ledger (not a client toast) decided `fullySettled`, and the
+    // payment is already persisted by the time this runs.
+    order.status = 'completed';
+    order.serviceTrackingStage = 'completed';
+    order.completedAt = order.completedAt || new Date();
   } else if (fullySettled) {
     if (['pending_confirmation', 'pending', 'approved', 'confirmed', 'assigned', 'queued'].includes(prevStatusKey)) {
       order.status = ['approved', 'assigned'].includes(prevStatusKey) ? prevPosStatus : 'confirmed';
@@ -1907,7 +1921,7 @@ export const runPosCheckoutCore = async ({
     } else if (['received', 'in_progress', 'processing'].includes(prevStatusKey)) {
       order.status = prevStatusKey === 'received' ? 'received' : 'in_progress';
       order.serviceTrackingStage = order.serviceTrackingStage || (prevStatusKey === 'received' ? 'received' : 'in_progress');
-    } else if (prevStatusKey === 'ready_for_payment' || prevStatusKey === 'completed' || prevStageKey === 'ready_pickup') {
+    } else if (prevStatusKey === 'ready_for_payment' || prevStageKey === 'ready_pickup') {
       order.status = 'ready_for_payment';
       order.serviceTrackingStage = order.serviceTrackingStage || 'ready_pickup';
     } else {
@@ -1921,7 +1935,11 @@ export const runPosCheckoutCore = async ({
   order.readyForPickupEvidenceComplete = readyPickupPhotosComplete;
   const nextStatusKey = String(order.status || '').toLowerCase().replace(/-/g, '_');
   const nextStageKey = String(order.serviceTrackingStage || '').toLowerCase().replace(/-/g, '_');
-  if (['released', 'ready_pickup'].includes(nextStageKey) || ['paid', 'released', 'ready_for_payment', 'completed'].includes(nextStatusKey)) {
+  if (TERMINAL_ORDER_STATUSES.has(nextStatusKey) || TERMINAL_TRACKING_STAGES.has(nextStageKey)) {
+    // Terminal jobs leave the customer live tracker entirely; `ready` would keep
+    // them in the active candidate set on both Web and Mobile.
+    order.customerStatus = 'completed';
+  } else if (['ready_pickup'].includes(nextStageKey) || ['paid', 'ready_for_payment'].includes(nextStatusKey)) {
     order.customerStatus = 'ready';
   } else if (nextStatusKey === 'received') {
     order.customerStatus = 'received';
@@ -2078,7 +2096,8 @@ export const runPosCheckoutCore = async ({
         bookingId: order._id.toString(),
         status: order.status,
         serviceTrackingStage: order.serviceTrackingStage || null,
-        paymentStatus: 'paid',
+        paymentStatus: order.paymentStatus,
+        completedAt: order.completedAt || null,
         invoiceId: order.invoiceId || null,
         customerStatus: order.customerStatus,
         updatedAt: new Date().toISOString(),
