@@ -44,8 +44,9 @@ Approved customer-facing mappings:
 
 - `car_scratch`, `deep_car_scratch`, `scuffed_paint` → `Scratch / Scuff`
 - `car_dent` → `Dent`
-- `chipped_paint` → `Paint Damage`
 - `cracked_bumper` → `Crack`
+
+`chipped_paint` is temporarily withdrawn from the approved mappings and abstains as `Unknown Damage` with reason `unmapped_classifier_label`. The 2026-09-12 subtype calibration audit found the classifier returns `chipped_paint` for regions a human labelled Scratch / Scuff, including high-confidence, high-margin cases that neither acceptance gate can filter. The raw label is still reported in `subtypeAnalysis.rawClass` as diagnostic metadata. No replacement `Paint Damage` class is mapped in the meantime.
 
 All other raw labels abstain as `Unknown Damage`. Raw classifier labels are diagnostic API metadata only and are never rendered in the customer UI. `confidence` remains RF-DETR localization confidence; `subtypeAnalysis.top1Confidence` is classifier confidence. Neither confidence value is severity. `affectedAreaPercent` and `detectedArea.percentage` are the segmentation mask area divided by total image area, not physical panel damage percentage and not severity.
 

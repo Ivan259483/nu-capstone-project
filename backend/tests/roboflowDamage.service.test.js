@@ -174,6 +174,56 @@ test('abstains for an unmapped classifier class such as video_1', () => {
   assert.equal(result.rawClass, 'video_1');
 });
 
+test('abstains for chipped_paint even at 0.90 with a wide margin', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['chipped_paint', 0.90],
+    ['scuffed_paint', 0.04],
+  ]));
+  assert.equal(result.accepted, false);
+  assert.equal(result.reason, 'unmapped_classifier_label');
+  assert.equal(result.damageSubtype, undefined);
+  // The raw score stays available as diagnostic API metadata.
+  assert.equal(result.rawClass, 'chipped_paint');
+  assert.equal(result.top1Confidence, 0.9);
+  assert.equal(result.top2Class, 'scuffed_paint');
+  assert.equal(result.top2Confidence, 0.04);
+  assert.equal(result.margin, 0.86);
+});
+
+test('accepts cracked_bumper 0.7412 vs 0.0938 as Crack', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['cracked_bumper', 0.7412],
+    ['car_dent', 0.0938],
+  ]));
+  assert.equal(result.accepted, true);
+  assert.equal(result.damageSubtype, 'Crack');
+  assert.equal(result.rawClass, 'cracked_bumper');
+  assert.equal(result.margin, 0.6474);
+});
+
+test('keeps every remaining approved scratch alias mapped to Scratch / Scuff', () => {
+  for (const rawClass of ['car_scratch', 'deep_car_scratch', 'scuffed_paint']) {
+    const result = analyzeDamageSubtype(classifierPredictionsPayload([
+      [rawClass, 0.8123],
+      ['car_dent', 0.0611],
+    ]));
+    assert.equal(result.accepted, true, `${rawClass} should stay approved`);
+    assert.equal(result.damageSubtype, 'Scratch / Scuff');
+  }
+});
+
+test('abstains for every junk and unapproved classifier label', () => {
+  for (const rawClass of ['video_1', 'video_2', 'video_3', 'minor_car_damage', 'chipped_paint']) {
+    const result = analyzeDamageSubtype(classifierPredictionsPayload([
+      [rawClass, 0.94],
+      ['car_scratch', 0.03],
+    ]));
+    assert.equal(result.accepted, false, `${rawClass} must not reach the customer`);
+    assert.equal(result.reason, 'unmapped_classifier_label');
+    assert.equal(result.rawClass, rawClass);
+  }
+});
+
 test('abstains safely when the direct classifier returns only one prediction', () => {
   const result = analyzeDamageSubtype(classifierPredictionsPayload([
     ['car_dent', 0.91],
@@ -428,6 +478,47 @@ test('adds an accepted subtype without replacing RF-DETR confidence or fabricati
   assert.equal(requests[1][2].params.api_key, 'server-only-test-key');
   assert.equal(requests[1][2].params.confidence, 0);
   assert.match(requests[1][1], /^[A-Za-z0-9+/]+=*$/);
+});
+
+test('abstains on chipped_paint end to end while preserving RF-DETR localization', async () => {
+  const imageBuffer = await createValidImage();
+  await withRoboflowEnv({
+    ROBOFLOW_API_KEY: 'server-only-test-key',
+    ROBOFLOW_MAX_RETRIES: '0',
+  }, async () => withAxiosPost(async (url) => {
+    if (String(url).includes('/infer/workflows/')) {
+      return { data: binaryWorkflowPayload([credibleDamagePrediction({ confidence: 0.91 })]) };
+    }
+    return { data: classifierPredictionsPayload([
+      ['chipped_paint', 0.9012],
+      ['scuffed_paint', 0.0431],
+    ]) };
+  }, async () => {
+    const result = await detectDamageWithRoboflow([{ buffer: imageBuffer }]);
+    assert.equal(result.noDamageDetected, false);
+    assert.equal(result.damages.length, 1);
+    const [damage] = result.damages;
+
+    assert.equal(damage.damageSubtype, UNKNOWN_DAMAGE_SUBTYPE);
+    assert.equal(damage.component, UNKNOWN_VEHICLE_PANEL);
+    assert.equal(damage.subtypeAnalysis.accepted, false);
+    assert.equal(damage.subtypeAnalysis.reason, 'unmapped_classifier_label');
+    assert.equal(damage.subtypeAnalysis.rawClass, 'chipped_paint');
+    assert.equal(damage.subtypeAnalysis.top1Confidence, 0.9012);
+
+    // RF-DETR localization must survive the subtype abstention untouched.
+    assert.equal(damage.damageClass, 'damage');
+    assert.equal(damage.confidence, 0.91);
+    assert.equal(damage.coordinates.x, 0.3125);
+    assert.equal(damage.coordinates.width, 0.375);
+    assert.ok(Math.abs(damage.coordinates.y - 1 / 3) < 1e-6);
+    assert.ok(Math.abs(damage.coordinates.height - 1 / 3) < 1e-6);
+    assert.equal(damage.segmentation.points.length, 4);
+    assert.deepEqual(damage.segmentation.points[0], { x: 0.3125, y: 0.33333 });
+    assert.equal(damage.detectedArea.imageWidth, 80);
+    assert.equal(damage.detectedArea.imageHeight, 60);
+    assert.ok(damage.detectedArea.pixels > 0);
+  }));
 });
 
 test('does not fabricate or request a subtype when RF-DETR returns no localization', async () => {

@@ -21,12 +21,16 @@ const BINARY_DAMAGE_CLASS = 'damage';
 export const UNKNOWN_DAMAGE_SUBTYPE = 'Unknown Damage';
 export const UNKNOWN_VEHICLE_PANEL = 'Unknown Vehicle Panel';
 
+// `chipped_paint` is deliberately absent. The 2026-09-12 subtype calibration audit found the
+// classifier returns `chipped_paint` for regions a human labelled Scratch / Scuff, including
+// high-confidence, high-margin cases that neither acceptance gate can filter. Until that class
+// confusion is resolved, it falls through to the unmapped branch and abstains as Unknown Damage.
+// Restoring it requires new classifier evidence, not a threshold change.
 const APPROVED_DAMAGE_SUBTYPES = Object.freeze({
   car_scratch: 'Scratch / Scuff',
   deep_car_scratch: 'Scratch / Scuff',
   scuffed_paint: 'Scratch / Scuff',
   car_dent: 'Dent',
-  chipped_paint: 'Paint Damage',
   cracked_bumper: 'Crack',
 });
 
