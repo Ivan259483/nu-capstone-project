@@ -4,8 +4,8 @@
  * A restrained, international-premium dark theme scoped to the auth flow
  * (Welcome, Sign In, Create Account, Reset Password, OTP) only. This does
  * NOT replace `./theme.ts`, which remains the app-wide, orange-branded
- * theme for the dashboard/bookings/etc. Orange never appears here — the
- * brand mark is confined to the bundled logo images, not this palette.
+ * theme for the dashboard/bookings/etc. Brand orange is opt-in so a screen
+ * can use it deliberately without recoloring the full authentication flow.
  *
  * Fixed dark aesthetic: unlike `./theme.ts`, this module does not read
  * from `useThemeContext()` and has no light variant.
@@ -14,6 +14,9 @@
 import { Motion } from './motion';
 
 export const AuthColors = {
+  // Brand — opt-in for the Sign In refinement
+  brandAccent: '#F7690E',
+
   // Surfaces
   bg: '#0B0B0C',
   card: '#141416',
@@ -45,7 +48,8 @@ export const AuthColors = {
   photoBase: 'rgba(11,11,12,0.45)',
 
   // Form-on-photo surface (Sign In fields sit above the cinematic backdrop)
-  cardOnPhoto: 'rgba(20,20,22,0.96)',
+  cardOnPhoto: 'rgba(255,255,255,0.04)',
+  loginLabel: '#8A8A8E',
 } as const;
 
 export const AuthRadius = {
@@ -67,6 +71,7 @@ export const AuthFontFamily = {
   regular: 'Inter-Regular',
   medium: 'Inter-Medium',
   semiBold: 'Inter-SemiBold',
+  bold: 'Inter-Bold',
 } as const;
 
 /** Passed to `useFonts()` in the root layout. */
@@ -74,6 +79,7 @@ export const AuthFontAssets = {
   [AuthFontFamily.regular]: require('../../assets/fonts/Inter-Regular.ttf'),
   [AuthFontFamily.medium]: require('../../assets/fonts/Inter-Medium.ttf'),
   [AuthFontFamily.semiBold]: require('../../assets/fonts/Inter-SemiBold.ttf'),
+  [AuthFontFamily.bold]: require('@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf'),
 } as const;
 
 export const AuthTypography = {

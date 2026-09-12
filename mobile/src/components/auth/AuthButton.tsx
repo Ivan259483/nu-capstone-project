@@ -9,7 +9,8 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { Pressable, StyleProp, Text, TextStyle, ViewStyle } from 'react-native';
+import { Pressable, StyleProp, TextStyle, ViewStyle } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -20,7 +21,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { AuthColors, AuthRadius, AuthTypography, AuthMotion } from '@/constants/authTheme';
+import { AuthColors, AuthFontFamily, AuthRadius, AuthTypography, AuthMotion } from '@/constants/authTheme';
 import { PremiumLoader, SuccessMark, LoadingMotion } from '@/components/ui/loading';
 import { reducedMotionDuration } from '@/constants/motion';
 import { Haptics } from '@/utils/haptics';
@@ -40,6 +41,7 @@ interface AuthButtonProps {
   onSuccessAnimationComplete?: () => void;
   fullWidth?: boolean;
   style?: StyleProp<ViewStyle>;
+  appearance?: 'default' | 'loginBrand';
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -55,6 +57,7 @@ export default function AuthButton({
   onSuccessAnimationComplete,
   fullWidth = true,
   style,
+  appearance = 'default',
 }: AuthButtonProps) {
   const reduceMotion = useReducedMotion();
   const scale = useSharedValue(1);
@@ -64,6 +67,7 @@ export default function AuthButton({
   const isDisabled = disabled || loading || success;
   const isSecondary = variant === 'secondary';
   const isPlain = variant === 'plain';
+  const isLoginBrand = appearance === 'loginBrand' && !isSecondary && !isPlain;
   const disabledProgress = useSharedValue(isDisabled ? 1 : 0);
 
   useEffect(() => {
@@ -134,12 +138,18 @@ export default function AuthButton({
     borderColor: AuthColors.borderHairline,
   };
 
-  const enabledBg = isSecondary ? 'rgba(0,0,0,0)' : AuthColors.buttonPrimaryBg;
+  const enabledBg = isSecondary
+    ? 'rgba(0,0,0,0)'
+    : isLoginBrand
+      ? AuthColors.brandAccent
+      : AuthColors.buttonPrimaryBg;
   const enabledTextColor = isPlain
     ? AuthColors.textSecondary
     : isSecondary
       ? AuthColors.textPrimary
-      : AuthColors.buttonPrimaryText;
+      : isLoginBrand
+        ? '#FFFFFF'
+        : AuthColors.buttonPrimaryText;
 
   // Cross-fades bg/text between enabled and disabled colors over
   // DISABLED_FADE_DURATION instead of snapping instantly — e.g. the PPF
@@ -157,16 +167,20 @@ export default function AuthButton({
   );
 
   const textStyle: TextStyle = {
-    fontFamily: AuthTypography.button.fontFamily,
+    fontFamily: isLoginBrand ? AuthFontFamily.bold : AuthTypography.button.fontFamily,
     fontSize: AuthTypography.button.fontSize,
   };
 
   // PremiumLoader's `tone` presets default to an accent-orange track ring —
   // always override both `color` and `trackColor` explicitly here so no
   // orange can leak into an auth screen's loading state.
-  const isLightOnDark = isSecondary || isPlain || isDisabled;
+  const isLightOnDark = isSecondary || isPlain || isDisabled || isLoginBrand;
   const loaderColor = isLightOnDark ? AuthColors.textPrimary : AuthColors.buttonPrimaryText;
-  const loaderTrackColor = isLightOnDark ? 'rgba(245,245,244,0.14)' : 'rgba(11,11,12,0.16)';
+  const loaderTrackColor = isLoginBrand
+    ? 'rgba(255,255,255,0.22)'
+    : isLightOnDark
+      ? 'rgba(245,245,244,0.14)'
+      : 'rgba(11,11,12,0.16)';
 
   return (
     <AnimatedPressable
@@ -196,7 +210,11 @@ export default function AuthButton({
           entering={reduceMotion ? undefined : FadeIn.duration(LoadingMotion.contentEnter)}
           style={styles.contentRow}
         >
-          <SuccessMark size={19} label={successTitle} />
+          {isLoginBrand ? (
+            <Ionicons name="checkmark-circle" size={19} color="#FFFFFF" />
+          ) : (
+            <SuccessMark size={19} label={successTitle} />
+          )}
           <Animated.Text style={[textStyle, textColorAnimatedStyle]}>{successTitle}</Animated.Text>
         </Animated.View>
       ) : (

@@ -28,9 +28,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthColors, AuthRadius, AuthSpacing, AuthTypography } from '@/constants/authTheme';
 
-/** Cinematic photo backdrop with a neutral (never orange-tinted) scrim,
- *  used by Sign In and Welcome. See authTheme.ts for the exact color stops. */
-export function AuthBackdrop({ source }: { source: ImageSourcePropType }) {
+/** Cinematic photo backdrop with a neutral scrim used by Sign In and Welcome. */
+export function AuthBackdrop({
+  source,
+  bottomFade = false,
+}: {
+  source: ImageSourcePropType;
+  bottomFade?: boolean;
+}) {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <Image source={source} style={StyleSheet.absoluteFill} contentFit="cover" />
@@ -40,6 +45,13 @@ export function AuthBackdrop({ source }: { source: ImageSourcePropType }) {
         style={StyleSheet.absoluteFill}
       />
       <View style={[StyleSheet.absoluteFill, { backgroundColor: AuthColors.photoBase }]} />
+      {bottomFade ? (
+        <LinearGradient
+          colors={['transparent', AuthColors.bg]}
+          locations={[0, 1]}
+          style={styles.bottomFade}
+        />
+      ) : null}
     </View>
   );
 }
@@ -145,6 +157,13 @@ export default function AuthLayout({
 }
 
 const styles = StyleSheet.create({
+  bottomFade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '40%',
+  },
   container: { flex: 1 },
   flex: { flex: 1 },
   backButton: {

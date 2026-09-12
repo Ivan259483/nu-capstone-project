@@ -25,6 +25,7 @@ import {
 } from 'react-native';
 import Animated, {
   Keyframe,
+  interpolate,
   interpolateColor,
   useAnimatedStyle,
   useReducedMotion,
@@ -47,6 +48,8 @@ interface AuthInputProps extends Omit<TextInputProps, 'style'> {
   /** Field surface color — defaults to the flat card token. Sign In passes
    *  `AuthColors.cardOnPhoto` since its fields sit above a cinematic photo. */
   surfaceColor?: string;
+  appearance?: 'default' | 'loginBrand';
+  reserveErrorSpace?: boolean;
   containerStyle?: ViewProps['style'];
   style?: StyleProp<TextStyle>;
 }
@@ -57,7 +60,9 @@ function AuthInput(
     leftAccessory,
     error,
     isPassword,
-    surfaceColor = AuthColors.card,
+    surfaceColor,
+    appearance = 'default',
+    reserveErrorSpace,
     containerStyle,
     style,
     ...props
@@ -65,6 +70,9 @@ function AuthInput(
   ref: React.Ref<TextInput>,
 ) {
   const reduceMotion = useReducedMotion();
+  const isLoginBrand = appearance === 'loginBrand';
+  const shouldReserveErrorSpace = reserveErrorSpace ?? isLoginBrand;
+  const resolvedSurfaceColor = surfaceColor ?? (isLoginBrand ? AuthColors.cardOnPhoto : AuthColors.card);
   const [isFocused, setIsFocused] = useState(false);
   const [showPassword, setShowPassword] = useState(!isPassword);
   const borderProgress = useSharedValue(0); // 0 = hairline, 1 = focus, 2 = error
@@ -85,15 +93,39 @@ function AuthInput(
     borderColor: interpolateColor(
       borderProgress.value,
       [0, 1, 2],
-      [AuthColors.borderHairline, AuthColors.borderFocus, AuthColors.error],
+      [
+        AuthColors.borderHairline,
+        isLoginBrand ? AuthColors.brandAccent : AuthColors.borderFocus,
+        AuthColors.error,
+      ],
     ),
+    borderWidth: isLoginBrand
+      ? interpolate(borderProgress.value, [0, 1, 2], [1, 1.5, 1])
+      : 1,
   }));
 
-  return (
-    <View style={[styles.wrapper, containerStyle]}>
-      <Text style={styles.label}>{label}</Text>
+  const errorMessage = error ? (
+    <Animated.Text
+      entering={reduceMotion ? undefined : ERROR_ENTERING}
+      style={[styles.errorText, shouldReserveErrorSpace && styles.errorTextReserved]}
+      accessibilityRole="alert"
+    >
+      {error}
+    </Animated.Text>
+  ) : null;
 
-      <Animated.View style={[styles.inputContainer, { backgroundColor: surfaceColor }, animatedBorderStyle]}>
+  return (
+    <View style={[styles.wrapper, isLoginBrand && styles.wrapperLoginBrand, containerStyle]}>
+      <Text style={[styles.label, isLoginBrand && styles.labelLoginBrand]}>{label}</Text>
+
+      <Animated.View
+        style={[
+          styles.inputContainer,
+          isLoginBrand && styles.inputContainerLoginBrand,
+          { backgroundColor: resolvedSurfaceColor },
+          animatedBorderStyle,
+        ]}
+      >
         {leftAccessory}
 
         <TextInput
@@ -129,15 +161,7 @@ function AuthInput(
         )}
       </Animated.View>
 
-      {error ? (
-        <Animated.Text
-          entering={reduceMotion ? undefined : ERROR_ENTERING}
-          style={styles.errorText}
-          accessibilityRole="alert"
-        >
-          {error}
-        </Animated.Text>
-      ) : null}
+      {shouldReserveErrorSpace ? <View style={styles.errorSlot}>{errorMessage}</View> : errorMessage}
     </View>
   );
 }
@@ -149,12 +173,18 @@ const styles = StyleSheet.create({
     width: '100%',
     marginBottom: AuthSpacing.fieldGap,
   },
+  wrapperLoginBrand: {
+    marginBottom: 0,
+  },
   label: {
     fontFamily: AuthTypography.label.fontFamily,
     fontSize: AuthTypography.label.fontSize,
     letterSpacing: AuthTypography.label.letterSpacing,
     color: AuthColors.textSecondary,
     marginBottom: AuthSpacing.labelToInput,
+  },
+  labelLoginBrand: {
+    color: AuthColors.loginLabel,
   },
   inputContainer: {
     flexDirection: 'row',
@@ -164,6 +194,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     height: 52,
     gap: 10,
+  },
+  inputContainerLoginBrand: {
+    borderRadius: 12,
   },
   input: {
     flex: 1,
@@ -186,5 +219,13 @@ const styles = StyleSheet.create({
     color: AuthColors.error,
     marginTop: 8,
     marginLeft: 2,
+  },
+  errorSlot: {
+    height: 20,
+    justifyContent: 'flex-end',
+  },
+  errorTextReserved: {
+    lineHeight: 16,
+    marginTop: 0,
   },
 });
