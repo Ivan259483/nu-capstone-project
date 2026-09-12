@@ -9,9 +9,7 @@ import {
     RefreshCw,
     Edit3,
     CheckCircle2,
-    Paperclip,
     Smile,
-    Mic,
     ArrowUpRight,
     Car,
     Clock3,
@@ -47,6 +45,19 @@ const msgVariants: Variants = {
 const FRIENDLY_HANDOFF_COPY =
     'You’re now connected to AutoSPF+ Sales. Please wait for a reply.';
 const FRIENDLY_SALES_JOINED_COPY = 'AutoSPF+ Sales joined the conversation.';
+const CHAT_SUGGESTIONS = [
+    'Ceramic coating pricing',
+    'Book an appointment',
+    'PPF vs ceramic',
+    'Business hours',
+] as const;
+
+const PUBLIC_CHAT_IDENTITY: ChatAgentIdentity = {
+    kind: 'bot',
+    displayName: 'AutoSPF+ AI',
+    avatarUrl: '',
+    initials: 'A+',
+};
 
 function getSystemMessageCopy(message: ChatMessage): string {
     if (
@@ -105,6 +116,7 @@ interface ChatConversationScreenProps {
     onInputFocus: () => void;
     onInputBlur: () => void;
     onSend: () => void;
+    onSuggestionSelect: (message: string) => void;
     onRetryMessage: (messageId: string) => void;
     onLeadNameChange: (value: string) => void;
     onLeadPhoneChange: (value: string) => void;
@@ -294,6 +306,7 @@ export default function ChatConversationScreen({
     onInputFocus,
     onInputBlur,
     onSend,
+    onSuggestionSelect,
     onRetryMessage,
     onLeadNameChange,
     onLeadPhoneChange,
@@ -313,6 +326,7 @@ export default function ChatConversationScreen({
         input.trim().length > 0 &&
         registrationStep !== 'submitting';
     const showTypingIndicator = isSending || registrationStep === 'submitting';
+    const hasUserMessage = messages.some(message => message.sender === 'user');
     const hasPersistedHandoffMessage = messages.some(
         message =>
             message.sender === 'system' &&
@@ -332,18 +346,16 @@ export default function ChatConversationScreen({
                     <ChevronLeft className="h-6 w-6" strokeWidth={2.1} />
                 </button>
                 <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <ChatAgentAvatar identity={agentIdentity} size="md" />
+                    <ChatAgentAvatar identity={PUBLIC_CHAT_IDENTITY} size="md" />
                     <div className="min-w-0">
                         <p className="truncate text-[17px] font-semibold leading-tight text-[#15171C]">
-                            {agentIdentity.displayName}
+                            AutoSPF+ AI
                         </p>
-                        <p className="mt-0.5 truncate text-[13px] leading-tight text-[#747983]">
-                            {agentIdentity.kind === 'human'
-                                ? isSalesHandoff
-                                    ? 'AutoSPF+ Sales'
-                                    : 'Sales conversation'
-                                : 'AI concierge'}
-                        </p>
+                        {isSalesHandoff && (
+                            <p className="mt-0.5 truncate text-[13px] leading-tight text-[#747983]">
+                                Connected to AutoSPF+ Sales
+                            </p>
+                        )}
                     </div>
                 </div>
                 <button
@@ -373,9 +385,26 @@ export default function ChatConversationScreen({
                 style={{ scrollbarWidth: 'thin', scrollbarColor: '#E5E7EB transparent' }}
             >
                 {messages.length === 0 && (
-                    <p className="mx-auto max-w-[310px] px-1 pt-1 pb-8 text-center text-[16px] leading-relaxed text-[#6B7280]">
-                        Hi, I&apos;m your AutoSPF+ Concierge. Ask me about paint protection film, ceramic coating, detailing, booking slots, or the best care plan for your vehicle.
-                    </p>
+                    <div className="mx-auto w-full max-w-[330px] px-1 pt-1 pb-8 text-center">
+                        <p className="text-[16px] leading-relaxed text-[#6B7280]">
+                            Hi, I&apos;m your AutoSPF+ Concierge. Ask me about paint protection film, ceramic coating, detailing, booking slots, or the best care plan for your vehicle.
+                        </p>
+                        {!hasUserMessage && (
+                            <div className="mt-5 grid grid-cols-2 gap-2" aria-label="Suggested questions">
+                                {CHAT_SUGGESTIONS.map(suggestion => (
+                                    <button
+                                        key={suggestion}
+                                        type="button"
+                                        onClick={() => onSuggestionSelect(suggestion)}
+                                        disabled={isSending || handoffBusy || isClosedHandoff}
+                                        className="min-h-10 rounded-full border !border-[#E9B34B]/55 bg-[#FFF9ED] px-3 py-2 text-[12px] font-semibold leading-4 text-[#71450E] transition-colors hover:bg-[#FFF1D2] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F4B63D] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        {suggestion}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 )}
 
                 {messages.map((msg, index) => {
@@ -632,10 +661,8 @@ export default function ChatConversationScreen({
 
                 {messages.length === 0 && !showTypingIndicator && (
                     <div className="mb-3 flex items-center justify-center gap-2 text-[13px] text-[#6B7280]">
-                        <ChatAgentAvatar identity={agentIdentity} size="sm" />
-                        {agentIdentity.kind === 'human'
-                            ? `${agentIdentity.displayName} is ready to help`
-                            : 'AutoSPF+ studio team is on standby'}
+                        <ChatAgentAvatar identity={PUBLIC_CHAT_IDENTITY} size="sm" />
+                        AutoSPF+ AI is ready to help
                     </div>
                 )}
                 <div
@@ -664,11 +691,8 @@ export default function ChatConversationScreen({
                         }}
                     />
                     <div className="flex items-center justify-between px-4 pb-3.5 pt-0.5">
-                        <div className="flex items-center gap-3.5 text-[#9CA1A9]">
-                            <Paperclip className="h-[18px] w-[18px]" aria-hidden="true" />
+                        <div className="flex items-center text-[#9CA1A9]">
                             <Smile className="h-[18px] w-[18px]" aria-hidden="true" />
-                            <span className="text-[11px] font-semibold">GIF</span>
-                            <Mic className="h-[18px] w-[18px]" aria-hidden="true" />
                         </div>
                         <button
                             type="button"

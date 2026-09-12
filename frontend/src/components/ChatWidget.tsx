@@ -1770,7 +1770,7 @@ export default function ChatWidget({
                         exit="exit"
                         onWheelCapture={containChatScrollGesture}
                         onTouchMoveCapture={containChatScrollGesture}
-                        className={`${chatWindowClass} h-[min(680px,calc(100dvh_-_48px))] max-h-[calc(100dvh_-_48px)] w-[calc(100vw_-_24px)] sm:h-[min(620px,calc(100dvh_-_120px))] sm:max-h-[calc(100dvh_-_120px)] sm:w-[min(380px,calc(100vw_-_32px))] sm:max-w-[380px]`}
+                        className={`${chatWindowClass} h-[min(560px,calc(100dvh_-_48px))] max-h-[560px] w-[calc(100vw_-_24px)] sm:h-[min(560px,calc(100dvh_-_120px))] sm:w-[min(380px,calc(100vw_-_32px))] sm:max-w-[380px]`}
                     >
                         {screen === 'home' && (
                             <ChatHomeScreen
@@ -1823,6 +1823,7 @@ export default function ChatWidget({
                                 onInputFocus={() => setInputFocused(true)}
                                 onInputBlur={() => setInputFocused(false)}
                                 onSend={() => void handleSend()}
+                                onSuggestionSelect={(message) => void handleSend(message)}
                                 onRetryMessage={(messageId) => void handleRetryMessage(messageId)}
                                 onLeadNameChange={setLeadName}
                                 onLeadPhoneChange={setLeadPhone}
