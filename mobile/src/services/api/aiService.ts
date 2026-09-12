@@ -675,6 +675,39 @@ export interface AiScanSubtypeAnalysis {
   reason: string;
 }
 
+export interface AiScanSourceView {
+  id: string;
+  label: string;
+  index: number;
+}
+
+export interface AiScanInspectionSummary {
+  requestedViews: number;
+  analyzedViews: number;
+  successfulViews: number;
+  failedViews: number;
+  viewsWithDamage: number;
+  /** A region count across views, not a unique-damage count. */
+  totalDetectedRegions: number;
+}
+
+export interface AiScanViewResult {
+  viewId: string;
+  label: string;
+  index: number;
+  success: boolean;
+  errorCode: string;
+  message: string;
+  noDamageDetected: boolean;
+  damages: AiScanDamage[];
+}
+
+export interface AiScanCrossViewDeduplication {
+  applied: boolean;
+  policy: string;
+  note: string;
+}
+
 export interface AiScanDamage {
   id: string;
   type: string;
@@ -690,6 +723,8 @@ export interface AiScanDamage {
   affectedArea: string;
   imageIndex: number;
   angleHint?: string;
+  /** Which guided camera view this region came from. Not a vehicle component. */
+  sourceView?: AiScanSourceView;
   urgency: AiScanUrgency;
   segmentation: AiScanSegmentation;
   detectedArea: AiScanDetectedArea;
@@ -807,6 +842,13 @@ export interface AiScanResult {
   elapsedMs?: number;
   damageReport?: Record<string, unknown>;
   integration: AiScanIntegrationPayload;
+
+  /* ── Multi-view guided inspection (absent on single-image scans) ── */
+  inspectionId?: string;
+  inspectionMode?: 'single' | 'multi_view';
+  inspectionSummary?: AiScanInspectionSummary;
+  views?: AiScanViewResult[];
+  crossViewDeduplication?: AiScanCrossViewDeduplication;
 }
 
 export interface AiScanInputImage {
@@ -896,6 +938,13 @@ const mapDamage = (raw: any, index: number): AiScanDamage => ({
   affectedArea: String(raw?.affectedArea || raw?.affected_area || raw?.location || 'Vehicle Body'),
   imageIndex: Number.isFinite(Number(raw?.imageIndex)) ? Number(raw.imageIndex) : 0,
   angleHint: raw?.angleHint || raw?.angle_hint || 'close_up',
+  sourceView: raw?.sourceView && typeof raw.sourceView === 'object'
+    ? {
+        id: String(raw.sourceView.id || ''),
+        label: String(raw.sourceView.label || ''),
+        index: Number.isFinite(Number(raw.sourceView.index)) ? Number(raw.sourceView.index) : 0,
+      }
+    : undefined,
   urgency: toAiUrgency(raw?.urgency),
   segmentation: {
     format: raw?.segmentation?.format === 'rle' ? 'rle' : 'polygon',
@@ -1008,6 +1057,57 @@ const buildIntegrationPayload = (damages: AiScanDamage[]): AiScanIntegrationPayl
   })),
 });
 
+const mapViewResult = (raw: any, index: number, damages: AiScanDamage[]): AiScanViewResult => {
+  const viewId = String(raw?.viewId || raw?.view_id || '');
+  const success = raw?.success !== false;
+  const viewDamages = Array.isArray(raw?.damages)
+    ? raw.damages.map(mapDamage)
+    : damages.filter((damage) => damage.sourceView?.id === viewId);
+
+  return {
+    viewId,
+    label: String(raw?.label || viewId),
+    index: Number.isFinite(Number(raw?.index)) ? Number(raw.index) : index,
+    success,
+    errorCode: String(raw?.errorCode || raw?.error_code || ''),
+    message: String(raw?.message || ''),
+    noDamageDetected: success && viewDamages.length === 0,
+    damages: viewDamages,
+  };
+};
+
+/** Multi-view keys are absent on single-image scans and stay undefined there. */
+const mapMultiViewFields = (raw: any, damages: AiScanDamage[]) => {
+  const rawViews = Array.isArray(raw?.views) ? raw.views : [];
+  if (rawViews.length === 0) return {};
+
+  const views = rawViews.map((view: any, index: number) => mapViewResult(view, index, damages));
+  const summary = raw?.inspectionSummary || {};
+  const count = (value: unknown) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+  };
+
+  return {
+    inspectionId: raw?.inspectionId ? String(raw.inspectionId) : undefined,
+    inspectionMode: raw?.inspectionMode === 'multi_view' ? ('multi_view' as const) : ('single' as const),
+    inspectionSummary: {
+      requestedViews: count(summary.requestedViews) || views.length,
+      analyzedViews: count(summary.analyzedViews),
+      successfulViews: count(summary.successfulViews),
+      failedViews: count(summary.failedViews),
+      viewsWithDamage: count(summary.viewsWithDamage),
+      totalDetectedRegions: count(summary.totalDetectedRegions),
+    },
+    views,
+    crossViewDeduplication: {
+      applied: raw?.crossViewDeduplication?.applied === true,
+      policy: String(raw?.crossViewDeduplication?.policy || 'not_supported'),
+      note: String(raw?.crossViewDeduplication?.note || ''),
+    },
+  };
+};
+
 const mapAiScanResult = (raw: any): AiScanResult => {
   const damages = (Array.isArray(raw?.damages) ? raw.damages : []).map(mapDamage);
 
@@ -1032,6 +1132,7 @@ const mapAiScanResult = (raw: any): AiScanResult => {
     elapsedMs: Number.isFinite(Number(raw?.elapsedMs)) ? Number(raw.elapsedMs) : undefined,
     damageReport: raw?.damageReport && typeof raw.damageReport === 'object' ? raw.damageReport : undefined,
     integration: buildIntegrationPayload(damages),
+    ...mapMultiViewFields(raw, damages),
   };
 };
 
@@ -1111,6 +1212,132 @@ export const runAiScan = async (
   }
 
   return mapAiScanResult(response.data.data || {});
+};
+
+/**
+ * POST /api/ai/scan/batch — Multi-view guided vehicle inspection.
+ *
+ * Each guided image stays an independent inference input on the server; nothing
+ * is stitched client-side. The array order defines every `imageIndex` in the
+ * response, so keep it stable between here and `capturedImages`.
+ *
+ * Falls back to the single-image endpoint if the backend predates /scan/batch,
+ * synthesizing a one-view inspection so the UI contract stays the same.
+ */
+export const runAiScanBatch = async (
+  images: AiScanInputImage[],
+  options: {
+    vehicleId?: string;
+    onUploadProgress?: (progress: number) => void;
+  } = {}
+): Promise<AiScanResult> => {
+  if (!Array.isArray(images) || images.length === 0) {
+    throw buildError('AI_SCAN_INVALID', 'Add at least one guided vehicle view.', false);
+  }
+
+  const formData = new FormData();
+  images.forEach((image, index) => {
+    formData.append('images', {
+      uri: image.uri,
+      name: image.fileName || `vehicle_${index + 1}.jpg`,
+      type: image.mimeType || 'image/jpeg',
+    } as never);
+  });
+
+  const viewIds = images.map((image) => image.angle || 'close_up');
+  formData.append('viewIds', JSON.stringify(viewIds));
+  // `angles` is kept for parity with the single-scan contract; viewId === angle.
+  formData.append('angles', JSON.stringify(viewIds));
+  formData.append('damageAreas', JSON.stringify(images.map((img) => img.selectedDamageArea || '')));
+  if (options.vehicleId) formData.append('vehicleId', options.vehicleId);
+
+  let response;
+  try {
+    response = await apiClient.post('/ai/scan/batch', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      // Views run two at a time upstream, so five views is roughly three
+      // sequential rounds of a 20s workflow call plus subtype enrichment.
+      timeout: 180_000,
+      onUploadProgress: (event) => {
+        if (!options.onUploadProgress || !event.total) return;
+        options.onUploadProgress(Math.round((event.loaded / event.total) * 60));
+      },
+    });
+  } catch (err) {
+    if (isAxiosError(err) && err.response?.status === 404) {
+      const single = await runAiScan(images, options);
+      return withSyntheticSingleViewInspection(single, images);
+    }
+    if (isAxiosError(err)) {
+      const status = Number(err.response?.status) || 0;
+      const code = String(err.response?.data?.code || err.code || 'AI_INSPECTION_FAILED');
+      const timedOut = err.code === 'ECONNABORTED' || status === 504;
+      const message = String(
+        err.response?.data?.message
+        || (timedOut
+          ? 'The multi-view vehicle inspection timed out. Check your connection and retry.'
+          : 'The multi-view vehicle inspection could not be completed.')
+      );
+      throw buildError(code, message, !status || status === 429 || status >= 500);
+    }
+    throw buildError('AI_INSPECTION_FAILED', 'The multi-view vehicle inspection could not be completed.', true);
+  }
+
+  options.onUploadProgress?.(100);
+
+  if (!response.data?.success) {
+    throw buildError(
+      'AI_INSPECTION_FAILED',
+      String(response.data?.message || 'Multi-view vehicle inspection failed.'),
+      true
+    );
+  }
+
+  return mapAiScanResult(response.data.data || {});
+};
+
+/**
+ * Wrap a single-image scan as a one-view inspection so the multi-view UI can
+ * render an older backend's response without special cases.
+ */
+const withSyntheticSingleViewInspection = (
+  scan: AiScanResult,
+  images: AiScanInputImage[]
+): AiScanResult => {
+  const viewId = images[0]?.angle || 'close_up';
+  const damages = scan.damages.map((damage) => ({
+    ...damage,
+    sourceView: damage.sourceView ?? { id: viewId, label: viewId, index: 0 },
+  }));
+
+  return {
+    ...scan,
+    damages,
+    inspectionMode: 'multi_view',
+    inspectionSummary: {
+      requestedViews: 1,
+      analyzedViews: 1,
+      successfulViews: 1,
+      failedViews: 0,
+      viewsWithDamage: damages.length > 0 ? 1 : 0,
+      totalDetectedRegions: damages.length,
+    },
+    views: [{
+      viewId,
+      label: viewId,
+      index: 0,
+      success: true,
+      errorCode: '',
+      message: '',
+      noDamageDetected: damages.length === 0,
+      damages,
+    }],
+    crossViewDeduplication: {
+      applied: false,
+      policy: 'not_supported',
+      note: 'Regions are counted per view.',
+    },
+  };
 };
 
 /**

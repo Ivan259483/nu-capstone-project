@@ -1996,6 +1996,9 @@ export const getScanById = async (req, res) => {
       success: true,
       data: {
         scanId: String(scan._id),
+        inspectionId: scan.inspectionId || '',
+        inspectionMode: scan.inspectionMode || 'single',
+        views: scan.views || [],
         source: scan.source,
         model: scan.model,
         vehicleDetected: scan.vehicleDetected,

@@ -25,6 +25,30 @@ import {
 
 const router = express.Router();
 
+/**
+ * Traces the checkout request BEFORE `authorize` runs, so a stall inside authentication
+ * or authorization is still visible. `origin` here is the proof of which frontend build
+ * is calling this process.
+ */
+const traceRequestReceived = (prefix) => (req, _res, next) => {
+  req._traceReceivedAt = process.hrtime.bigint();
+  console.info(`[${prefix}] request received mark`, {
+    method: req.method,
+    originalUrl: req.originalUrl || req.url,
+    origin: req.get('origin') || null,
+    referer: req.get('referer') || null,
+    host: req.get('host') || null,
+    ip: req.ip,
+    idempotencyKey: req.get('Idempotency-Key') || req.get('X-Idempotency-Key') || null,
+    pid: process.pid,
+    receivedAt: new Date().toISOString(),
+  });
+  next();
+};
+
+const traceCheckoutRequest = traceRequestReceived('CHECKOUT');
+const traceBillingSaveRequest = traceRequestReceived('BILLING-SAVE');
+
 const TRACKER_STAGE_PHOTO_MAX_BYTES = 12 * 1024 * 1024;
 const TRACKER_STAGE_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 
@@ -109,13 +133,23 @@ router.get('/:orderId/pos-queue-load', authorize(...POS_MANAGER_ROLES), getPosQu
  * @route PUT /api/orders/:orderId/billing
  * @desc Replace billing line items and charges
  */
-router.put('/:orderId/billing', authorize(...POS_MANAGER_ROLES), putBilling);
+router.put(
+  '/:orderId/billing',
+  traceBillingSaveRequest,
+  authorize(...POS_MANAGER_ROLES),
+  putBilling
+);
 
 /**
  * @route POST /api/orders/:orderId/billing/checkout
  * @desc Checkout: invoice snapshot + POS payment + sync order items
  */
-router.post('/:orderId/billing/checkout', authorize(...POS_MANAGER_ROLES), checkoutBilling);
+router.post(
+  '/:orderId/billing/checkout',
+  traceCheckoutRequest,
+  authorize(...POS_MANAGER_ROLES),
+  checkoutBilling
+);
 
 /**
  * @route GET /api/orders/queue/balance-pickup

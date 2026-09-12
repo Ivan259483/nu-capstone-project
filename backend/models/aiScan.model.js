@@ -57,6 +57,19 @@ const subtypeAnalysisSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/**
+ * Which guided camera view a damage region came from. A camera position, not a
+ * vehicle component — `component` stays `Unknown Vehicle Panel`.
+ */
+const sourceViewSchema = new mongoose.Schema(
+  {
+    id: { type: String, trim: true, default: '' },
+    label: { type: String, trim: true, default: '' },
+    index: { type: Number, min: 0, default: 0 },
+  },
+  { _id: false }
+);
+
 const damageSchema = new mongoose.Schema(
   {
     id: { type: String, trim: true, required: true },
@@ -78,6 +91,7 @@ const damageSchema = new mongoose.Schema(
     affectedArea: { type: String, trim: true, default: 'Vehicle Body' },
     imageIndex: { type: Number, default: 0 },
     angleHint: { type: String, trim: true, default: 'close_up' },
+    sourceView: { type: sourceViewSchema, default: undefined },
     segmentation: { type: segmentationSchema, default: () => ({}) },
     detectedArea: { type: detectedAreaSchema, default: () => ({}) },
     affectedAreaPercent: { type: Number, min: 0, max: 100, default: 0 },
@@ -175,6 +189,26 @@ const imageArchiveSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/**
+ * Per-view outcome for a multi-view inspection. Intentionally lightweight: it
+ * references damages by id rather than duplicating damage documents, and holds
+ * no image data.
+ */
+const viewResultSchema = new mongoose.Schema(
+  {
+    viewId: { type: String, trim: true, default: '' },
+    label: { type: String, trim: true, default: '' },
+    index: { type: Number, min: 0, default: 0 },
+    success: { type: Boolean, default: false },
+    errorCode: { type: String, trim: true, default: '' },
+    message: { type: String, trim: true, default: '' },
+    noDamageDetected: { type: Boolean, default: false },
+    detectedRegions: { type: Number, min: 0, default: 0 },
+    damageIds: [{ type: String, trim: true }],
+  },
+  { _id: false }
+);
+
 const aiScanSchema = new mongoose.Schema(
   {
     customer: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -183,6 +217,12 @@ const aiScanSchema = new mongoose.Schema(
     imageArchive: { type: imageArchiveSchema, default: () => ({}) },
     angles: [{ type: String, trim: true }],
     imageCount: { type: Number, default: 1, min: 1 },
+
+    // Multi-view guided inspection. One AIScan document still represents one
+    // inspection; `views` is a lightweight aggregation over `damages`.
+    inspectionId: { type: String, trim: true, default: '' },
+    inspectionMode: { type: String, enum: ['single', 'multi_view'], default: 'single' },
+    views: [viewResultSchema],
 
     source: {
       type: String,

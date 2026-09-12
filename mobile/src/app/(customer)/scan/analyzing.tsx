@@ -32,9 +32,23 @@ import {
   createPendingScanProgressController,
   createSessionNavigationGuard,
 } from '@/features/ai-scan/scanWorkflowState';
-import { runAiScan } from '@/services/api/aiService';
+import {
+  countCompletedGuidedViews,
+  getGuidedViewStatusLabel,
+  type GuidedViewProgress,
+} from '@/features/ai-scan/guidedViews';
+import { runAiScanBatch } from '@/services/api/aiService';
 
-const DETECTION_MESSAGE = 'AI is analyzing the image for visible vehicle damage.';
+const DETECTION_MESSAGE = 'Each guided view is analyzed on its own for visible vehicle damage.';
+
+const VIEW_STATUS_ICON: Record<GuidedViewProgress['status'], keyof typeof Ionicons.glyphMap> = {
+  pending: 'ellipse-outline',
+  ready: 'ellipse-outline',
+  analyzing: 'sync-outline',
+  complete: 'checkmark',
+  failed: 'alert-circle-outline',
+  retake_required: 'alert-circle-outline',
+};
 
 function ProgressRing({ progress }: { progress: number }) {
   const rotation = useSharedValue(0);
@@ -68,7 +82,10 @@ export default function AnalyzingScreen() {
   const params = useLocalSearchParams<{ vehicleId?: string }>();
   const capturedImages = useAiScanStore((state) => state.capturedImages);
   const workflow = useAiScanStore((state) => state.workflow);
+  const guidedViewProgress = useAiScanStore((state) => state.guidedViewProgress);
   const progress = workflow.progress;
+  const resolvedViewCount = countCompletedGuidedViews(guidedViewProgress);
+  const requestSettled = workflow.requestStatus === 'succeeded' || workflow.requestStatus === 'failed';
   const [status, setStatus] = useState(DETECTION_MESSAGE);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -90,7 +107,7 @@ export default function AnalyzingScreen() {
 
     const run = async () => {
       try {
-        const result = await runAiScan(capturedImages, {
+        const result = await runAiScanBatch(capturedImages, {
           vehicleId: params.vehicleId,
           onUploadProgress: (uploadProgress) => {
             if (mounted) progressController.reportUpload(uploadProgress);
@@ -102,7 +119,7 @@ export default function AnalyzingScreen() {
         const accepted = aiScanStore.completeScanRequest(sessionId, result);
         if (!accepted) return;
 
-        setStatus('Damage detection complete. Preparing diagnostic report.');
+        setStatus('All view results received. Preparing the inspection report.');
 
         transitionTimer = setTimeout(() => {
           const currentSessionId = aiScanStore.getState().workflow.sessionId;
@@ -194,25 +211,50 @@ export default function AnalyzingScreen() {
         </Animated.View>
 
         <View style={styles.pipelineList}>
-          <Animated.View entering={FadeInDown.duration(260)}>
-            <GlassPanel contentStyle={styles.pipelineRow}>
-              <View style={[
-                styles.pipelineIcon,
-                progress >= 100 && styles.pipelineIconDone,
-                progress < 100 && !failed && styles.pipelineIconActive,
-              ]}>
-                <Ionicons
-                  name={progress >= 100 ? 'checkmark' : 'analytics-outline'}
-                  size={17}
-                  color={progress >= 100 ? '#041014' : scannerColors.orange}
-                />
-              </View>
-              <View style={styles.pipelineCopy}>
-                <Text style={styles.pipelineTitle}>Damage Detection</Text>
-                <Text style={styles.pipelineText}>{DETECTION_MESSAGE}</Text>
-              </View>
-            </GlassPanel>
-          </Animated.View>
+          <View style={styles.viewListHead}>
+            <Text style={styles.viewListTitle}>Guided views</Text>
+            <Text style={styles.viewListMeta}>
+              {requestSettled
+                ? `${resolvedViewCount} of ${guidedViewProgress.length} views analyzed`
+                : `${guidedViewProgress.length} ${guidedViewProgress.length === 1 ? 'view' : 'views'} in progress`}
+            </Text>
+          </View>
+
+          {guidedViewProgress.map((view, index) => {
+            const done = view.status === 'complete';
+            const needsRetake = view.status === 'failed' || view.status === 'retake_required';
+            return (
+              <Animated.View key={view.viewId} entering={FadeInDown.duration(260).delay(index * 40)}>
+                <GlassPanel contentStyle={styles.pipelineRow}>
+                  <View style={[
+                    styles.pipelineIcon,
+                    done && styles.pipelineIconDone,
+                    needsRetake && styles.pipelineIconFailed,
+                    view.status === 'analyzing' && styles.pipelineIconActive,
+                  ]}>
+                    <Ionicons
+                      name={VIEW_STATUS_ICON[view.status]}
+                      size={17}
+                      color={done ? '#041014' : needsRetake ? scannerColors.red : scannerColors.orange}
+                    />
+                  </View>
+                  <View style={styles.pipelineCopy}>
+                    <Text style={styles.pipelineTitle}>{view.label}</Text>
+                    <Text style={styles.pipelineText}>
+                      {view.message || (done ? 'Analyzed' : DETECTION_MESSAGE)}
+                    </Text>
+                  </View>
+                  <Text style={[
+                    styles.viewStatusLabel,
+                    done && styles.viewStatusLabelDone,
+                    needsRetake && styles.viewStatusLabelFailed,
+                  ]}>
+                    {getGuidedViewStatusLabel(view.status)}
+                  </Text>
+                </GlassPanel>
+              </Animated.View>
+            );
+          })}
         </View>
       </ScrollView>
 
@@ -365,6 +407,42 @@ const styles = StyleSheet.create({
   pipelineIconDone: {
     backgroundColor: scannerColors.orange,
     borderColor: scannerColors.orange,
+  },
+  pipelineIconFailed: {
+    borderColor: scannerColors.red,
+    backgroundColor: 'rgba(239,68,68,0.12)',
+  },
+  viewListHead: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginBottom: 2,
+  },
+  viewListTitle: {
+    color: scannerColors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  viewListMeta: {
+    color: scannerColors.orange,
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  viewStatusLabel: {
+    color: scannerColors.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  viewStatusLabelDone: {
+    color: scannerColors.orange,
+  },
+  viewStatusLabelFailed: {
+    color: scannerColors.red,
   },
   pipelineCopy: {
     flex: 1,

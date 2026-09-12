@@ -20,6 +20,18 @@ import type {
 import { normalizeAiScanResult } from './scanResultState';
 import { createVehicle3DSourcePatch } from './threeDPreparation';
 import {
+  createGuidedViewProgress,
+  markGuidedViewsAnalyzing,
+  markGuidedViewsFailed,
+  resolveGuidedViewProgress,
+  type GuidedViewProgress,
+} from './guidedViews';
+import {
+  normalizeMultiViewInspection,
+  VIEW_ANALYSIS_FAILED_MESSAGE,
+  type MultiViewInspection,
+} from './multiViewInspection';
+import {
   activateAiScanWorkflowStage,
   beginAiScanWorkflow,
   completeAiScanWorkflow,
@@ -42,6 +54,11 @@ export interface AiScanStoreState {
   scan: AiScanResult | null;
   scanError: string | null;
   workflow: AiScanWorkflowState;
+
+  // Multi-view guided inspection. `guidedViewProgress` is ordered exactly like
+  // `capturedImages`, so a row's position is its imageIndex.
+  guidedViewProgress: GuidedViewProgress[];
+  inspection: MultiViewInspection | null;
 
   // Selected line items (for the estimate screen)
   selectedLineItemIds: string[];
@@ -69,6 +86,8 @@ const INITIAL_STATE: AiScanStoreState = {
   scan: null,
   scanError: null,
   workflow: createInitialAiScanWorkflow(),
+  guidedViewProgress: [],
+  inspection: null,
   selectedLineItemIds: [],
   estimate: null,
   modelStatus: 'idle',
@@ -104,7 +123,12 @@ export const aiScanStore = {
   },
 
   reset: () => {
-    state = { ...INITIAL_STATE, workflow: createInitialAiScanWorkflow() };
+    state = {
+      ...INITIAL_STATE,
+      workflow: createInitialAiScanWorkflow(),
+      guidedViewProgress: [],
+      inspection: null,
+    };
     emit();
   },
 
@@ -116,6 +140,9 @@ export const aiScanStore = {
       scan: null,
       scanError: null,
       workflow: createInitialAiScanWorkflow(),
+      // A fresh capture set never inherits the previous inspection's rows.
+      guidedViewProgress: createGuidedViewProgress(images),
+      inspection: null,
       selectedLineItemIds: [],
       estimate: null,
       modelStatus: 'idle',
@@ -130,8 +157,13 @@ export const aiScanStore = {
 
   setScan: (scan: AiScanResult) => {
     const normalizedScan = normalizeAiScanResult(scan);
+    const inspection = normalizeMultiViewInspection(scan);
     update({
       scan: normalizedScan,
+      inspection,
+      guidedViewProgress: inspection
+        ? resolveGuidedViewProgress(state.guidedViewProgress, inspection.views)
+        : state.guidedViewProgress,
       scanError: null,
       estimate: normalizedScan.estimate,
       selectedLineItemIds: normalizedScan.estimate.lineItems.map((line) => line.id),
@@ -152,6 +184,10 @@ export const aiScanStore = {
     update({
       scan: null,
       scanError: null,
+      inspection: null,
+      // Every submitted view reads "Analyzing" until its own result arrives.
+      // Nothing here claims a view is finished.
+      guidedViewProgress: markGuidedViewsAnalyzing(state.guidedViewProgress),
       workflow: beginAiScanWorkflow(nextScanSessionId),
     });
     return nextScanSessionId;
@@ -169,8 +205,14 @@ export const aiScanStore = {
     if (workflow === state.workflow) return false;
 
     const normalizedScan = normalizeAiScanResult(scan);
+    const inspection = normalizeMultiViewInspection(scan);
     update({
       scan: normalizedScan,
+      // Per-view status is resolved strictly from the response.
+      inspection,
+      guidedViewProgress: inspection
+        ? resolveGuidedViewProgress(state.guidedViewProgress, inspection.views)
+        : state.guidedViewProgress,
       scanError: null,
       estimate: normalizedScan.estimate,
       selectedLineItemIds: normalizedScan.estimate.lineItems.map((line) => line.id),
@@ -191,7 +233,11 @@ export const aiScanStore = {
   failScanRequest: (sessionId: number, message: string) => {
     const workflow = failAiScanWorkflow(state.workflow, sessionId);
     if (workflow === state.workflow) return false;
-    update({ scanError: message, workflow });
+    update({
+      scanError: message,
+      guidedViewProgress: markGuidedViewsFailed(state.guidedViewProgress, VIEW_ANALYSIS_FAILED_MESSAGE),
+      workflow,
+    });
     return true;
   },
 

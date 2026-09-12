@@ -23,7 +23,7 @@ import {
 import { authenticate, authorize, optionalAuthenticate } from '../middleware/auth.middleware.js';
 import { SERVICE_OPERATION_ROLES } from '../constants/roles.js';
 import { config } from '../config/environment.js';
-import { detectVehicleDamage } from '../controllers/damageDetection.controller.js';
+import { detectVehicleDamage, detectVehicleDamageBatch } from '../controllers/damageDetection.controller.js';
 import { handleDamageImageUpload } from '../middleware/damageImageUpload.middleware.js';
 
 const router = express.Router();
@@ -94,6 +94,15 @@ router.post(
   damageDetectionLimiter,
   handleDamageImageUpload,
   detectVehicleDamage
+);
+// Multi-view guided inspection. Each image stays an independent inference
+// input; /scan above is untouched and remains the single-image contract.
+router.post(
+  '/scan/batch',
+  optionalAuthenticate,
+  damageDetectionLimiter,
+  handleDamageImageUpload,
+  detectVehicleDamageBatch
 );
 router.get('/scan/:id', optionalAuthenticate, getScanById);
 router.get('/webar-session/:scanId', optionalAuthenticate, getWebARSession);

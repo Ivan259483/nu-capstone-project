@@ -6,6 +6,16 @@ import Order from '../models/order.model.js';
 export const LEDGER_BALANCE_SELECT_FIELDS =
   '_id order amount amountSubmitted amountVerified amountPaid status transactionType relatedPayment';
 
+/**
+ * Payment proof images are base64 blobs stored on the document and repeated inside
+ * every `statusHistory` entry, which puts real payments in the multi-megabyte range.
+ * No ledger arithmetic reads them, so ledger reads exclude them by default; a single
+ * unprojected read of one such payment took 34s against Atlas versus 94ms projected.
+ * Callers that genuinely need the image fetch it explicitly, as
+ * `order.controller.js` already does with `.select('proofImage')`.
+ */
+export const LEDGER_BLOB_EXCLUSIONS = '-proofImage -statusHistory.proofImage';
+
 export const POSTED_POSITIVE_STATUSES = Object.freeze(['succeeded']);
 export const POSTED_REFUND_STATUSES = Object.freeze(['refunded', 'succeeded']);
 
@@ -269,7 +279,7 @@ export const buildLedgerTransaction = (payment, { orderPayments = [], order: exp
 
 export const getOrderLedger = async (orderId, { session = null, select = null } = {}) => {
   let query = Payment.find({ order: orderId }).sort({ effectiveAt: 1, createdAt: 1 });
-  if (select) query = query.select(select);
+  query = query.select(select || LEDGER_BLOB_EXCLUSIONS);
   if (session) query = query.session(session);
   return query;
 };

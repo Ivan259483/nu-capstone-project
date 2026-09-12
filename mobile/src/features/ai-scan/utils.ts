@@ -1,5 +1,6 @@
 import { type ImagePickerAsset } from 'expo-image-picker';
 import { Palette } from '@/constants/theme';
+import { getDefaultDamageArea } from './guidedViews';
 import { type DamageSeverity, type VehicleAngle, type VehicleImageInput } from './types';
 
 export const VEHICLE_ANGLE_SLOTS: Array<{ angle: VehicleAngle; label: string; required: boolean }> = [
@@ -18,20 +19,9 @@ export const DAMAGE_AREA_OPTIONS: Record<VehicleAngle, string[]> = {
   close_up: ['Bumper', 'Fender', 'Panel', 'Trunk', 'Headlight', 'Tail Light'],
 };
 
-export const getDefaultDamageArea = (angle: VehicleAngle): string => {
-  switch (angle) {
-    case 'front':
-      return 'Front Bumper';
-    case 'rear':
-      return 'Rear Bumper';
-    case 'left':
-      return 'Left Panel';
-    case 'right':
-      return 'Right Panel';
-    default:
-      return 'Panel';
-  }
-};
+// Canonical definition lives beside the guided view table; re-exported here so
+// existing importers keep working against one implementation.
+export { getDefaultDamageArea };
 
 export const MIN_IMAGE_COUNT = 1;
 export const MAX_IMAGE_COUNT = 5;

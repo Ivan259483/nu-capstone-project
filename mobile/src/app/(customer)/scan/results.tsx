@@ -34,6 +34,13 @@ import {
 } from '@/features/ai-scan/scanResultState';
 import type { AiScanDamage } from '@/services/api/aiService';
 import {
+  getDamagesForView,
+  getMultiViewSummaryCopy,
+  VIEW_ANALYSIS_FAILED_MESSAGE,
+  VIEW_ZERO_DETECTION_MESSAGE,
+  type MultiViewViewResult,
+} from '@/features/ai-scan/multiViewInspection';
+import {
   getAiResultDestination,
   THREE_D_OPTIONAL_HELPER,
 } from '@/features/ai-scan/threeDPreparation';
@@ -98,19 +105,35 @@ export default function ResultsScreen() {
   const scanError = useAiScanStore((state) => state.scanError);
   const capturedImages = useAiScanStore((state) => state.capturedImages);
   const workflow = useAiScanStore((state) => state.workflow);
+  const inspection = useAiScanStore((state) => state.inspection);
   const [showOverlay, setShowOverlay] = useState(true);
   const [activeDamageId, setActiveDamageId] = useState<string | null>(
     scan?.damages[0]?.id ?? null
   );
+  // null means "All views". Selecting a view filters the report to that source
+  // image only; overlays are never drawn across images.
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
 
   const presentation = useMemo(
     () => scan ? getAiScanResultPresentation(scan) : null,
     [scan]
   );
   const noDamageDetected = presentation?.noDamageDetected ?? false;
-  const damages = useMemo(
+  const inspectionCopy = useMemo(
+    () => inspection ? getMultiViewSummaryCopy(inspection) : null,
+    [inspection]
+  );
+  const activeView: MultiViewViewResult | null = useMemo(
+    () => inspection?.views.find((view) => view.viewId === activeViewId) ?? null,
+    [inspection, activeViewId]
+  );
+  const allDamages = useMemo(
     () => noDamageDetected ? [] : scan?.damages ?? [],
     [noDamageDetected, scan?.damages]
+  );
+  const damages = useMemo(
+    () => getDamagesForView(allDamages, activeView),
+    [allDamages, activeView]
   );
   const rankedDamages = useMemo(
     () =>
@@ -125,7 +148,8 @@ export default function ResultsScreen() {
   const activeDamage = rankedDamages.find((damage) => damage.id === activeDamageId)
     ?? rankedDamages[0];
   const overallSeverity = rankedDamages[0]?.severity ?? null;
-  const activeImageIndex = activeDamage?.imageIndex ?? 0;
+  // When a view with no damage is selected, still show that view's own photo.
+  const activeImageIndex = activeDamage?.imageIndex ?? activeView?.index ?? 0;
   const heroImage =
     scan?.imageUrls[activeImageIndex] ||
     capturedImages[activeImageIndex]?.uri ||
@@ -133,12 +157,19 @@ export default function ResultsScreen() {
     capturedImages[0]?.uri ||
     null;
   const displayImageCount = Math.max(scan?.imageUrls.length ?? 0, capturedImages.length);
-  const avgConfidence = presentation?.detectionConfidence ?? 0;
-  const severeCount = presentation?.severeFindings ?? 0;
+  const avgConfidence = rankedDamages.length
+    ? rankedDamages.reduce((sum, damage) => sum + damage.confidence, 0) / rankedDamages.length
+    : 0;
+  const severeCount = rankedDamages.filter((damage) => damage.severity === 'high').length;
+  const detectedRegionCount = rankedDamages.length;
 
-  const repairLines = [...(noDamageDetected ? [] : scan?.estimate.lineItems ?? [])].sort((a, b) => {
-    return severityRank[b.severity] - severityRank[a.severity] || b.confidence - a.confidence;
-  });
+  const visibleDamageIds = useMemo(
+    () => new Set(rankedDamages.map((damage) => damage.id)),
+    [rankedDamages]
+  );
+  const repairLines = [...(noDamageDetected ? [] : scan?.estimate.lineItems ?? [])]
+    .filter((line) => !activeView || visibleDamageIds.has(line.damageId))
+    .sort((a, b) => severityRank[b.severity] - severityRank[a.severity] || b.confidence - a.confidence);
 
   if (!scan) {
     return (
@@ -239,13 +270,118 @@ export default function ResultsScreen() {
           </GlassPanel>
         </Animated.View>
 
+        {inspection && inspectionCopy ? (
+          <Animated.View entering={FadeInDown.duration(380).delay(60)}>
+            <GlassPanel style={styles.inspectionCard}>
+              <View style={styles.inspectionHead}>
+                <Ionicons name="albums-outline" size={20} color={scannerColors.orange} />
+                <Text style={styles.inspectionTitle}>{inspectionCopy.title}</Text>
+              </View>
+              <Text style={styles.inspectionLine}>{inspectionCopy.viewsLine}</Text>
+              <Text style={styles.inspectionLine}>{inspectionCopy.damageViewsLine}</Text>
+              <Text style={styles.inspectionLine}>{inspectionCopy.regionsLine}</Text>
+              <Text style={styles.inspectionNote}>{inspectionCopy.message}</Text>
+              {inspectionCopy.partialFailureNote ? (
+                <View style={styles.inspectionWarnRow}>
+                  <Ionicons name="alert-circle-outline" size={16} color={scannerColors.red} />
+                  <Text style={styles.inspectionWarnText}>{inspectionCopy.partialFailureNote}</Text>
+                </View>
+              ) : null}
+              <Text style={styles.inspectionFinePrint}>
+                Counts are detected regions per view. The same physical damage seen from two
+                angles is reported in both and is not claimed to be unique.
+              </Text>
+            </GlassPanel>
+          </Animated.View>
+        ) : null}
+
+        {inspection && inspection.views.length > 1 ? (
+          <View>
+            <View style={styles.sectionHead}>
+              <View>
+                <Text style={styles.sectionTitle}>Source views</Text>
+                <Text style={styles.sectionText}>Each view was analyzed as its own image.</Text>
+              </View>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.viewChipRow}
+            >
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: activeViewId === null }}
+                onPress={() => setActiveViewId(null)}
+                style={[styles.viewChip, activeViewId === null && styles.viewChipActive]}
+              >
+                <Text style={[styles.viewChipText, activeViewId === null && styles.viewChipTextActive]}>
+                  All views
+                </Text>
+              </Pressable>
+              {inspection.views.map((view) => {
+                const selected = view.viewId === activeViewId;
+                return (
+                  <Pressable
+                    key={view.viewId}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => setActiveViewId(view.viewId)}
+                    style={[
+                      styles.viewChip,
+                      selected && styles.viewChipActive,
+                      !view.success && styles.viewChipFailed,
+                    ]}
+                  >
+                    <Ionicons
+                      name={view.success
+                        ? view.detectedRegions > 0 ? 'alert-circle' : 'checkmark-circle-outline'
+                        : 'refresh-circle-outline'}
+                      size={14}
+                      color={!view.success
+                        ? scannerColors.red
+                        : selected ? scannerColors.orange : scannerColors.textMuted}
+                    />
+                    <Text style={[styles.viewChipText, selected && styles.viewChipTextActive]}>
+                      {view.label}
+                    </Text>
+                    {view.success && view.detectedRegions > 0 ? (
+                      <Text style={styles.viewChipCount}>{view.detectedRegions}</Text>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {activeView && !activeView.success ? (
+          <GlassPanel style={styles.clearReportCard}>
+            <Ionicons name="refresh-circle-outline" size={24} color={scannerColors.red} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.clearReportTitle}>{activeView.label} needs a retake</Text>
+              <Text style={styles.clearReportText}>{VIEW_ANALYSIS_FAILED_MESSAGE}</Text>
+            </View>
+          </GlassPanel>
+        ) : null}
+
+        {activeView && activeView.success && activeView.detectedRegions === 0 ? (
+          <GlassPanel style={styles.clearReportCard}>
+            <Ionicons name="alert-circle-outline" size={24} color={scannerColors.orange} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.clearReportTitle}>{activeView.label} view</Text>
+              <Text style={styles.clearReportText}>{VIEW_ZERO_DETECTION_MESSAGE}</Text>
+            </View>
+          </GlassPanel>
+        ) : null}
+
         {!noDamageDetected && rankedDamages.length ? (
           <GlassPanel style={styles.damageDetectedCard}>
             <Ionicons name="alert-circle" size={24} color={scannerColors.orange} />
             <View style={{ flex: 1 }}>
               <Text style={styles.damageDetectedTitle}>Damage Detected</Text>
               <Text style={styles.damageDetectedText}>
-                {rankedDamages.length} confidence-qualified damage {rankedDamages.length === 1 ? 'region' : 'regions'} highlighted by RF-DETR.
+                {rankedDamages.length} confidence-qualified damage {rankedDamages.length === 1 ? 'region' : 'regions'} highlighted by RF-DETR
+                {activeView ? ` in the ${activeView.label} view.` : inspection ? ' across the analyzed views.' : '.'}
               </Text>
             </View>
           </GlassPanel>
@@ -253,8 +389,8 @@ export default function ResultsScreen() {
 
         <View style={styles.metricRow}>
           <GlassPanel style={styles.metricCard}>
-            <Text style={styles.metricValue}>{presentation?.detectedIssues ?? 0}</Text>
-            <Text style={styles.metricLabel}>Detected issues</Text>
+            <Text style={styles.metricValue}>{detectedRegionCount}</Text>
+            <Text style={styles.metricLabel}>{inspection ? 'Detected regions' : 'Detected issues'}</Text>
           </GlassPanel>
           <GlassPanel style={styles.metricCard}>
             <Text style={styles.metricValue}>{severeCount}</Text>
@@ -272,8 +408,11 @@ export default function ResultsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.clearReportTitle}>Scan needs a closer view</Text>
               <Text style={styles.clearReportText}>
-                {ZERO_DETECTION_MESSAGE}
+                {inspectionCopy ? inspectionCopy.message : ZERO_DETECTION_MESSAGE}
               </Text>
+              {inspectionCopy?.partialFailureNote ? (
+                <Text style={styles.clearReportText}>{inspectionCopy.partialFailureNote}</Text>
+              ) : null}
             </View>
           </GlassPanel>
         ) : null}
@@ -315,6 +454,7 @@ export default function ResultsScreen() {
                       </View>
                       <Text style={styles.damageRankComponent} numberOfLines={1}>
                         {damage.component}
+                        {damage.sourceView?.label ? ` · ${damage.sourceView.label} view` : ''}
                       </Text>
                       <Text style={styles.damageRankMeta}>
                         {Math.round(damage.confidence * 100)}% detection confidence · {damage.affectedAreaPercent.toFixed(2)}% image area
@@ -346,6 +486,9 @@ export default function ResultsScreen() {
               <View style={styles.assessmentGrid}>
                 <AssessmentField label="Damage type" value={activeDamage.damageSubtype} />
                 <AssessmentField label="Component" value={activeDamage.component} />
+                {activeDamage.sourceView?.label ? (
+                  <AssessmentField label="Source view" value={activeDamage.sourceView.label} />
+                ) : null}
                 <AssessmentField
                   label="Detection confidence"
                   value={`${Math.round(activeDamage.confidence * 100)}%`}
@@ -593,6 +736,89 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     marginTop: 3,
+  },
+  inspectionCard: {
+    gap: 4,
+  },
+  inspectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginBottom: 6,
+  },
+  inspectionTitle: {
+    color: scannerColors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  inspectionLine: {
+    color: scannerColors.textSoft,
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '700',
+  },
+  inspectionNote: {
+    color: scannerColors.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  inspectionWarnRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 8,
+  },
+  inspectionWarnText: {
+    flex: 1,
+    color: scannerColors.red,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
+  },
+  inspectionFinePrint: {
+    color: scannerColors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
+    marginTop: 10,
+  },
+  viewChipRow: {
+    gap: 8,
+    paddingVertical: 2,
+    paddingRight: 8,
+  },
+  viewChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: scannerColors.border,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  viewChipActive: {
+    borderColor: 'rgba(255,107,53,0.55)',
+    backgroundColor: 'rgba(255,107,53,0.12)',
+  },
+  viewChipFailed: {
+    borderColor: 'rgba(239,68,68,0.45)',
+  },
+  viewChipText: {
+    color: scannerColors.textSoft,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  viewChipTextActive: {
+    color: scannerColors.text,
+  },
+  viewChipCount: {
+    color: scannerColors.orange,
+    fontSize: 12,
+    fontWeight: '900',
   },
   damageDetectedCard: {
     flexDirection: 'row',

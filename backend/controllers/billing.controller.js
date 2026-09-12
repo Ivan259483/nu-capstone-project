@@ -25,6 +25,13 @@ import {
   summarizeLedgerRows,
 } from '../services/financialLedger.service.js';
 import { runInBackground, timeOperation } from '../utils/performance.utils.js';
+import {
+  durationMsSince,
+  logCheckoutPhase,
+  logPosPayment,
+  timedPosPaymentStep,
+  timedTraceStep,
+} from '../utils/posPaymentLog.utils.js';
 
 const RECEIPT_CUSTOMER_SELECT = `name email ${USER_PHONE_SELECT_FIELDS}`;
 const RECEIPT_VEHICLE_SELECT = 'year make model color plateNumber vehicleType';
@@ -80,36 +87,6 @@ const POS_QUEUE_ORDER_SELECT = [
 const sendPosQueueLoadError = (res, status, code, message) =>
   res.status(status).json({ success: false, message, code });
 
-const durationMsSince = (startedAt) => Number(process.hrtime.bigint() - startedAt) / 1e6;
-
-function logPosPayment({ req, orderId, reference, step, status = null, body = null, durationMs }) {
-  console.info('[POS PAYMENT]', {
-    endpoint: req.originalUrl || req.url,
-    orderId,
-    reference: reference || null,
-    step,
-    httpStatus: status,
-    responseBody: body,
-    durationMs: Number(durationMs || 0).toFixed(1),
-  });
-}
-
-async function timedPosPaymentStep(context, step, operation) {
-  const startedAt = process.hrtime.bigint();
-  try {
-    const value = await operation();
-    logPosPayment({ ...context, step, durationMs: durationMsSince(startedAt) });
-    return value;
-  } catch (error) {
-    logPosPayment({
-      ...context,
-      step,
-      body: { code: error.code || null, message: error.message },
-      durationMs: durationMsSince(startedAt),
-    });
-    throw error;
-  }
-}
 
 async function loadPickupEvidence(orderId) {
   const [row] = await Order.aggregate([
@@ -651,16 +628,56 @@ export const getBilling = async (req, res, next) => {
  * PUT /api/orders/:orderId/billing
  */
 export const putBilling = async (req, res, next) => {
+  const requestStartedAt = process.hrtime.bigint();
+  const trace = {
+    req,
+    tracePrefix: 'BILLING-SAVE',
+    orderId: String(req.params.orderId || ''),
+    reference: null,
+    requestStartedAt,
+  };
+  logCheckoutPhase(trace, 'hooks/middleware', 'end', {
+    note: 'time from route entry to controller entry (auth + global middleware)',
+    stepMs: req._traceReceivedAt
+      ? durationMsSince(req._traceReceivedAt).toFixed(1)
+      : null,
+  });
+  logCheckoutPhase(trace, 'saveOrderWithSlotTransition', 'mark', {
+    note: 'not invoked on this route — billing save never writes the Order document',
+  });
+  res.on('finish', () => {
+    logCheckoutPhase(trace, 'response sent', 'mark', {
+      httpStatus: res.statusCode,
+      totalMs: durationMsSince(requestStartedAt).toFixed(1),
+    });
+  });
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      logCheckoutPhase(trace, 'response aborted before send', 'mark', {
+        totalMs: durationMsSince(requestStartedAt).toFixed(1),
+      });
+    }
+  });
   try {
     const { orderId } = req.params;
     if (!mongoose.isValidObjectId(orderId)) {
       return res.status(400).json({ success: false, message: 'Invalid order id' });
     }
-    const order = await Order.findById(orderId).select(BILLING_ORDER_SELECT);
+    const order = await timedTraceStep(
+      trace,
+      'order lookup',
+      () => Order.findById(orderId).select(BILLING_ORDER_SELECT)
+    );
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
-    const orderLedgerRows = await getOrderLedger(order._id);
+    trace.reference = order.bookingReference || order.orderNumber || null;
+    const orderLedgerRows = await timedTraceStep(
+      trace,
+      'order ledger lookup',
+      () => getOrderLedger(order._id),
+      { endExtra: (rows) => ({ rowCount: rows?.length ?? 0 }) }
+    );
     const orderLedger = summarizeLedgerRows(orderLedgerRows, getOrderServiceTotal(order));
     if (orderLedger.netVerified > 0 && orderLedger.outstandingBalance <= 0.009) {
       return res.status(400).json({ success: false, message: 'Cannot edit billing on a paid order' });
@@ -670,7 +687,12 @@ export const putBilling = async (req, res, next) => {
     const MAX_ATTEMPTS = 4;
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      let billing = await Billing.findOne({ order: orderId });
+      let billing = await timedTraceStep(
+        trace,
+        'billing document lookup',
+        () => Billing.findOne({ order: orderId }),
+        { startExtra: { attempt } }
+      );
       if (!billing) {
         billing = new Billing({ order: orderId });
       }
@@ -678,16 +700,24 @@ export const putBilling = async (req, res, next) => {
         return res.status(400).json({ success: false, message: 'Billing already checked out' });
       }
 
-      applyBillingBody(billing, body);
-      await applyLedgerCredit(billing);
-      billing.lastEditedBy = req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : null;
+      await timedTraceStep(trace, 'payload normalization', async () => applyBillingBody(billing, body));
+      await timedTraceStep(trace, 'ledger credit lookup', () => applyLedgerCredit(billing));
 
-      pushBillingEvent(billing, req, 'billing_updated', `v${billing.version} — ${billing.lineItems.length} line(s)`, {
-        computed: billing.computed,
+      await timedTraceStep(trace, 'assign billing fields', async () => {
+        billing.lastEditedBy = req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : null;
+        pushBillingEvent(billing, req, 'billing_updated', `v${billing.version} — ${billing.lineItems.length} line(s)`, {
+          computed: billing.computed,
+        });
       });
 
+      await timedTraceStep(trace, 'billing validation', () => billing.validate());
+
       try {
-        await billing.save();
+        await timedTraceStep(
+          trace,
+          'mongoose save/update',
+          () => billing.save({ validateBeforeSave: false })
+        );
       } catch (saveErr) {
         if (isBillingVersionConflict(saveErr) && attempt < MAX_ATTEMPTS - 1) {
           await new Promise((r) => setTimeout(r, 40 * (attempt + 1)));
@@ -707,7 +737,14 @@ export const putBilling = async (req, res, next) => {
         metadata: { orderId: order._id, billingVersion: billing.version },
       });
 
-      return res.json({ success: true, data: billing });
+      const payload = await timedTraceStep(
+        trace,
+        'response serialization',
+        async () => JSON.stringify({ success: true, data: billing }),
+        { endExtra: (json) => ({ bytes: json.length }) }
+      );
+      logCheckoutPhase(trace, 'response sending', 'mark', { httpStatus: 200, bytes: payload.length });
+      return res.type('application/json').send(payload);
     }
 
     return res.status(409).json({
@@ -730,9 +767,32 @@ export const checkoutBilling = async (req, res, next) => {
     req,
     orderId: String(req.params.orderId || ''),
     reference: null,
+    requestStartedAt,
   };
+  logCheckoutPhase(context, 'controller entered', 'mark', {
+    method: req.method,
+    originalUrl: req.originalUrl || req.url,
+    origin: req.get('origin') || null,
+    host: req.get('host') || null,
+    idempotencyKey: req.get('Idempotency-Key') || req.get('X-Idempotency-Key') || null,
+    userId: req.user?.id || null,
+  });
+  res.on('finish', () => {
+    logCheckoutPhase(context, 'response sent', 'mark', {
+      httpStatus: res.statusCode,
+      totalMs: durationMsSince(requestStartedAt).toFixed(1),
+    });
+  });
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      logCheckoutPhase(context, 'response aborted before send', 'mark', {
+        totalMs: durationMsSince(requestStartedAt).toFixed(1),
+      });
+    }
+  });
   const sendFailure = (status, code, message) => {
     const body = { success: false, message, ...(code ? { code } : {}) };
+    logCheckoutPhase(context, 'response sending', 'mark', { httpStatus: status, code: code || null });
     logPosPayment({
       ...context,
       step: 'response',
@@ -757,6 +817,7 @@ export const checkoutBilling = async (req, res, next) => {
       splitPayments = [],
     } = req.body || {};
 
+    logCheckoutPhase(context, 'idempotency lookup', 'start');
     const providedIdempotencyKey = String(
       req.get('Idempotency-Key') || req.get('X-Idempotency-Key') || req.body?.idempotencyKey || ''
     ).trim();
@@ -765,6 +826,7 @@ export const checkoutBilling = async (req, res, next) => {
     }
     const idempotencyKey = providedIdempotencyKey || `pos-final:${orderId}`;
     const checkoutReference = `billing-checkout:${orderId}:${idempotencyKey}`;
+    logCheckoutPhase(context, 'idempotency lookup', 'end', { idempotencyKey, checkoutReference });
 
     const paymentMethod = normalizePosPaymentMethod(requestedPaymentMethod);
     if (!paymentMethod) {
@@ -779,9 +841,9 @@ export const checkoutBilling = async (req, res, next) => {
       timedPosPaymentStep(context, 'find_order', () => Order.findById(orderId)
         .select(CHECKOUT_ORDER_BLOB_EXCLUSIONS)
         .populate('customer', RECEIPT_CUSTOMER_SELECT)
-        .populate('vehicle', RECEIPT_VEHICLE_SELECT)),
-      timedPosPaymentStep(context, 'find_billing', () => Billing.findOne({ order: orderId })),
-      timedPosPaymentStep(context, 'find_pickup_evidence', () => loadPickupEvidence(orderId)),
+        .populate('vehicle', RECEIPT_VEHICLE_SELECT), 'order lookup'),
+      timedPosPaymentStep(context, 'find_billing', () => Billing.findOne({ order: orderId }), 'billing lookup'),
+      timedPosPaymentStep(context, 'find_pickup_evidence', () => loadPickupEvidence(orderId), 'pickup evidence lookup'),
     ]);
     if (!order) {
       return sendFailure(404, 'POS_CHECKOUT_ORDER_NOT_FOUND', 'Order not found');
@@ -794,13 +856,15 @@ export const checkoutBilling = async (req, res, next) => {
     const previousPayment = await timedPosPaymentStep(
       context,
       'check_existing_payment',
-      () => findCompletedCheckout(orderId)
+      () => findCompletedCheckout(orderId),
+      'existing payment lookup'
     );
     if (previousPayment) {
       const replay = await timedPosPaymentStep(
         context,
         'replay_committed_payment',
-        () => buildCompletedCheckoutResponse({ order, billing, payment: previousPayment })
+        () => buildCompletedCheckoutResponse({ order, billing, payment: previousPayment }),
+        'idempotent replay build'
       );
       logPosPayment({
         ...context,
@@ -815,6 +879,7 @@ export const checkoutBilling = async (req, res, next) => {
         },
         durationMs: durationMsSince(requestStartedAt),
       });
+      logCheckoutPhase(context, 'response sending', 'mark', { httpStatus: 200, idempotent: true });
       return res.json(replay);
     }
     if (billing.status === 'checked_out') {
@@ -828,7 +893,7 @@ export const checkoutBilling = async (req, res, next) => {
       return sendFailure(400, 'POS_CHECKOUT_LINE_ITEMS_REQUIRED', 'Add at least one line item before checkout');
     }
 
-    await timedPosPaymentStep(context, 'load_ledger_credit', () => applyLedgerCredit(billing));
+    await timedPosPaymentStep(context, 'load_ledger_credit', () => applyLedgerCredit(billing), 'ledger credit lookup');
 
     const discountForCalc =
       billing.discount && Number(billing.discount.value) > 0
@@ -853,12 +918,13 @@ export const checkoutBilling = async (req, res, next) => {
       return sendFailure(400, 'POS_CHECKOUT_INVALID_TOTALS', 'Invalid billing totals');
     }
 
-    await timedPosPaymentStep(context, 'sync_order_items', () => syncOrderItemsFromBilling(order, billing));
+    await timedPosPaymentStep(context, 'sync_order_items', () => syncOrderItemsFromBilling(order, billing), 'order item sync');
 
     const invoiceNumber = await timedPosPaymentStep(
       context,
       'allocate_invoice_number',
-      generateUniqueInvoiceNumber
+      generateUniqueInvoiceNumber,
+      'invoice number allocation'
     );
     const snapshot = buildInvoiceSnapshot({ invoiceNumber, order, billing, computed: totals });
 
@@ -871,7 +937,8 @@ export const checkoutBilling = async (req, res, next) => {
         billingVersion: billing.version,
         snapshot,
         createdBy: req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : null,
-      })
+      }),
+      'receipt snapshot'
     );
 
     const allItems = billing.lineItems.map((li) => ({
@@ -912,7 +979,9 @@ export const checkoutBilling = async (req, res, next) => {
           checkoutReference,
           idempotencyKey,
         },
-      })
+        traceContext: context,
+      }),
+      'payment commit and settle'
     );
     paymentCommitted = true;
 
@@ -946,7 +1015,7 @@ export const checkoutBilling = async (req, res, next) => {
     invoiceRecord.markModified('snapshot');
     const finalizeErrors = [];
     try {
-      await timedPosPaymentStep(context, 'attach_receipt_to_payment', () => invoiceRecord.save());
+      await timedPosPaymentStep(context, 'attach_receipt_to_payment', () => invoiceRecord.save(), 'receipt snapshot attach');
     } catch (receiptError) {
       finalizeErrors.push({ code: 'POS_RECEIPT_ATTACH_FAILED', message: receiptError.message });
     }
@@ -973,7 +1042,7 @@ export const checkoutBilling = async (req, res, next) => {
       invoiceNumber,
     });
     try {
-      await timedPosPaymentStep(context, 'mark_billing_checked_out', () => billing.save());
+      await timedPosPaymentStep(context, 'mark_billing_checked_out', () => billing.save(), 'billing update');
     } catch (billingError) {
       finalizeErrors.push({ code: 'POS_BILLING_FINALIZE_FAILED', message: billingError.message });
     }
@@ -1027,6 +1096,7 @@ export const checkoutBilling = async (req, res, next) => {
       },
       durationMs: durationMsSince(requestStartedAt),
     });
+    logCheckoutPhase(context, 'response sending', 'mark', { httpStatus: 200, invoiceNumber });
     return res.json(responseBody);
   } catch (err) {
     if (err.code === 'CHECKOUT_ALREADY_COMPLETED') {
@@ -1050,6 +1120,7 @@ export const checkoutBilling = async (req, res, next) => {
             body: { success: true, idempotent: true, paymentCommitted: true },
             durationMs: durationMsSince(requestStartedAt),
           });
+          logCheckoutPhase(context, 'response sending', 'mark', { httpStatus: 200, idempotent: true });
           return res.json(replay);
         }
       } catch (replayError) {
@@ -1062,6 +1133,11 @@ export const checkoutBilling = async (req, res, next) => {
     if (err.statusCode === 400 || err.statusCode === 409) {
       return sendFailure(err.statusCode, err.code, err.message);
     }
+    logCheckoutPhase(context, 'response sending', 'mark', {
+      httpStatus: 500,
+      code: err.code || null,
+      message: err.message,
+    });
     logPosPayment({
       ...context,
       step: 'response',

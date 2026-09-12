@@ -182,6 +182,29 @@ export const createPendingScanProgressController = (
   };
 };
 
+/**
+ * One-shot latch for the Analyze CTA. A double tap must never start two
+ * inspections, and `release` lets the screen re-arm after a failure or a
+ * deliberate new capture set.
+ */
+export const createSingleSubmitLatch = () => {
+  let claimed = false;
+
+  return {
+    claim() {
+      if (claimed) return false;
+      claimed = true;
+      return true;
+    },
+    release() {
+      claimed = false;
+    },
+    get isClaimed() {
+      return claimed;
+    },
+  };
+};
+
 export const createSessionNavigationGuard = () => {
   const claimedSessions = new Set<number>();
 

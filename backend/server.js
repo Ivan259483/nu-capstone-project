@@ -458,6 +458,13 @@ const startServer = async () => {
       console.log(`📧 Email Provider: ${config.emailProvider}`);
       console.log(`📨 Using MongoDB for OTP storage`);
       console.log(`✅ Ready for connectivity testing!`);
+      console.info('[CHECKOUT-TARGET] backend', {
+        pid: process.pid,
+        port: config.port,
+        nodeEnv: config.nodeEnv,
+        cwd: process.cwd(),
+        checkoutRoute: `${proto}://localhost:${config.port}/api/orders/:orderId/billing/checkout`,
+      });
 
       // ── Inventory Reservation Expiry Scheduler ──────────────────────
       // Runs every hour to release inventory held for bookings still

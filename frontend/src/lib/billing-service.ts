@@ -160,6 +160,13 @@ export const BillingService = {
     const startedAt = performance.now();
     const endpoint = endpointFor(orderId, 'billing/checkout');
     const idempotencyKey = options?.idempotencyKey || `pos-final:${orderId}`;
+    console.info('[CHECKOUT-TARGET] posting checkout', {
+      frontendOrigin: typeof window !== 'undefined' ? window.location.origin : null,
+      apiBase: BACKEND_API_URL,
+      fullUrl: endpoint,
+      idempotencyKey,
+      callingRender: endpoint.includes('onrender.com'),
+    });
     try {
       const { data, status } = await api.post(`/orders/${orderId}/billing/checkout`, body, {
         headers: { 'Idempotency-Key': idempotencyKey },
@@ -187,6 +194,12 @@ export const BillingService = {
       };
     } catch (error: any) {
       const failure = apiFailure(error, 'Checkout failed');
+      console.info('[CHECKOUT-TARGET] checkout failed', {
+        fullUrl: endpoint,
+        axiosCode: error?.code ?? null,
+        httpStatus: error?.response?.status ?? 'NO_RESPONSE',
+        elapsedMs: Math.round(performance.now() - startedAt),
+      });
       logPosRequest({ step: 'submit_payment', orderId, reference: options?.reference, endpoint, status: failure.status || 'NO_RESPONSE', body: error.response?.data || { code: failure.code, message: failure.message }, durationMs: performance.now() - startedAt });
 
       if (!failure.receivedResponse) {

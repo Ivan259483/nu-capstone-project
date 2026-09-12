@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -27,104 +27,127 @@ import {
   scannerPrimaryGradient,
 } from '@/features/ai-scan/components/PremiumScanner';
 import { aiScanStore } from '@/features/ai-scan/scanStore';
+import {
+  canAnalyzeGuidedSet,
+  clearGuidedViewImage,
+  countReadyGuidedViews,
+  createGuidedCaptureSet,
+  getGuidedSubmissionImages,
+  getNextEmptyGuidedView,
+  getDefaultDamageArea,
+  GUIDED_VIEWS,
+  MAX_GUIDED_VIEWS,
+  setGuidedViewImage,
+  type GuidedViewId,
+} from '@/features/ai-scan/guidedViews';
+import { createSingleSubmitLatch } from '@/features/ai-scan/scanWorkflowState';
 import type { AiScanInputImage } from '@/services/api/aiService';
 
-const MAX_IMAGES = 5;
-
-const CAPTURE_SLOTS = [
-  { angle: 'front', damageArea: 'Front Bumper', label: 'Front', hint: 'Full nose and hood', icon: 'car-sport-outline' },
-  { angle: 'rear', damageArea: 'Rear Bumper', label: 'Rear', hint: 'Bumper and trunk', icon: 'return-down-back-outline' },
-  { angle: 'left', damageArea: 'Left Panel', label: 'Left', hint: 'Driver-side panels', icon: 'arrow-back-outline' },
-  { angle: 'right', damageArea: 'Right Panel', label: 'Right', hint: 'Passenger-side panels', icon: 'arrow-forward-outline' },
-  { angle: 'close_up', damageArea: 'Panel', label: 'Close-up', hint: 'Visible damage zone', icon: 'contract-outline' },
-] as const;
-
-const angleHintFromIndex = (index: number) => CAPTURE_SLOTS[index]?.angle ?? 'close_up';
-const damageAreaHintFromIndex = (index: number) => CAPTURE_SLOTS[index]?.damageArea ?? 'Panel';
+const assetToInputImage = (
+  asset: ImagePicker.ImagePickerAsset,
+  viewId: GuidedViewId
+): AiScanInputImage => ({
+  uri: asset.uri,
+  fileName: asset.fileName || `vehicle_${viewId}_${Date.now()}.jpg`,
+  mimeType: asset.mimeType || 'image/jpeg',
+  angle: viewId,
+  selectedDamageArea: getDefaultDamageArea(viewId),
+  width: asset.width,
+  height: asset.height,
+  fileSize: asset.fileSize,
+});
 
 export default function AiScanEntry() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [images, setImages] = useState<AiScanInputImage[]>([]);
+  // Each guided view is keyed by its own id, so retaking one angle never
+  // shifts, relabels, or discards the others.
+  const [captureSet, setCaptureSet] = useState(createGuidedCaptureSet);
+  const submitLatch = useRef(createSingleSubmitLatch());
 
-  const completedCount = images.length;
-  const nextSlot = CAPTURE_SLOTS[Math.min(completedCount, CAPTURE_SLOTS.length - 1)];
-  const canAddMore = images.length < MAX_IMAGES;
+  const completedCount = countReadyGuidedViews(captureSet);
+  const nextEmptyViewId = getNextEmptyGuidedView(captureSet);
+  const canAnalyze = canAnalyzeGuidedSet(captureSet);
 
   const liveHint = useMemo(() => {
-    if (images.length === 0) return 'Start with a clean front three-quarter vehicle photo.';
-    if (images.length < 4) return `Next recommended angle: ${nextSlot.label}.`;
-    if (images.length === 4) return 'Add one close-up to help AI classify paint depth.';
-    return 'Vehicle image set is ready for AI inspection.';
-  }, [images.length, nextSlot.label]);
+    if (completedCount === 0) return 'Start with the Front view, or tap any angle to capture it first.';
+    if (completedCount < MAX_GUIDED_VIEWS) {
+      const remaining = MAX_GUIDED_VIEWS - completedCount;
+      return `${completedCount} of ${MAX_GUIDED_VIEWS} views ready. Tap a captured view to retake just that angle.`
+        + (remaining === 1 ? ' One angle left.' : '');
+    }
+    return 'All guided views are ready for AI inspection.';
+  }, [completedCount]);
 
-  const addAssets = useCallback((assets: ImagePicker.ImagePickerAsset[]) => {
-    setImages((prev) => {
-      const room = MAX_IMAGES - prev.length;
-      const additions = assets.slice(0, room).map((asset, idx): AiScanInputImage => ({
-        uri: asset.uri,
-        fileName: asset.fileName || `vehicle_${Date.now()}_${idx}.jpg`,
-        mimeType: asset.mimeType || 'image/jpeg',
-        angle: angleHintFromIndex(prev.length + idx),
-        selectedDamageArea: damageAreaHintFromIndex(prev.length + idx),
-      }));
-      return [...prev, ...additions];
+  const applyAssetsFromView = useCallback((
+    assets: ImagePicker.ImagePickerAsset[],
+    startViewId: GuidedViewId
+  ) => {
+    setCaptureSet((previous) => {
+      let next = previous;
+      let targetId: GuidedViewId | null = startViewId;
+
+      assets.forEach((asset) => {
+        if (!targetId) return;
+        next = setGuidedViewImage(next, targetId, assetToInputImage(asset, targetId));
+        // Extra gallery picks fill the next empty guided views in order.
+        targetId = getNextEmptyGuidedView(next);
+      });
+
+      return next;
     });
   }, []);
 
-  const captureWithCamera = useCallback(async () => {
-    if (!canAddMore) return;
+  const captureView = useCallback(async (viewId: GuidedViewId) => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Toast.show('Camera access is required to scan a vehicle.', 'warning');
       return;
     }
 
-
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: 'images',
       quality: 0.88,
     });
-    if (!result.canceled) {
+    if (result.canceled) return;
+    applyAssetsFromView(result.assets, viewId);
+  }, [applyAssetsFromView]);
 
-      addAssets(result.assets);
-    }
-  }, [addAssets, canAddMore]);
-
-  const pickFromLibrary = useCallback(async () => {
-    if (!canAddMore) return;
+  const pickForView = useCallback(async (viewId: GuidedViewId) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Toast.show('Photo library access is required for gallery upload.', 'warning');
       return;
     }
 
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: 'images',
       allowsMultipleSelection: true,
-      selectionLimit: MAX_IMAGES - images.length,
+      selectionLimit: MAX_GUIDED_VIEWS,
       quality: 0.86,
     });
-    if (!result.canceled) addAssets(result.assets);
-  }, [addAssets, canAddMore, images.length]);
+    if (result.canceled) return;
+    applyAssetsFromView(result.assets, viewId);
+  }, [applyAssetsFromView]);
 
-  const removeImage = useCallback((index: number) => {
-
-    setImages((prev) => prev.filter((_, idx) => idx !== index));
+  const removeView = useCallback((viewId: GuidedViewId) => {
+    setCaptureSet((previous) => clearGuidedViewImage(previous, viewId));
   }, []);
 
-  const startInspection = useCallback(() => {
-    if (images.length === 0) {
+  const analyzeVehicle = useCallback(() => {
+    if (!canAnalyze) {
       Haptics.formSubmitError();
-      Toast.show('Add at least one vehicle photo to start AI inspection.', 'warning');
+      Toast.show('Capture at least one guided vehicle view to start the inspection.', 'warning');
       return;
     }
+    // A double tap must not start two inspections.
+    if (!submitLatch.current.claim()) return;
 
-
-    aiScanStore.setCapturedImages(images);
+    // This ordered list defines every imageIndex in the response.
+    aiScanStore.setCapturedImages(getGuidedSubmissionImages(captureSet));
     router.push('/(customer)/scan/analyzing' as never);
-  }, [images, router]);
+    submitLatch.current.release();
+  }, [canAnalyze, captureSet, router]);
 
   return (
     <ScannerBackground style={{ paddingTop: insets.top }}>
@@ -149,8 +172,8 @@ export default function AiScanEntry() {
             <AiPill label="AI ready" icon="radio-outline" />
             <Text style={styles.title}>Smart vehicle scan</Text>
             <Text style={styles.subtitle}>
-              Capture guided angles. The AI will detect damage, reconstruct a digital twin,
-              simulate repair, and price the job.
+              Capture guided angles. Each view is analyzed on its own, then combined into one
+              vehicle inspection report.
             </Text>
           </View>
         </Animated.View>
@@ -159,7 +182,10 @@ export default function AiScanEntry() {
           <GlassPanel style={styles.scanCard} contentStyle={styles.scanCardInner} intense>
             <Text style={styles.captureHint}>{liveHint}</Text>
             <View style={styles.scanActions}>
-              <Pressable style={styles.cameraAction} onPress={captureWithCamera}>
+              <Pressable
+                style={styles.cameraAction}
+                onPress={() => captureView(nextEmptyViewId ?? GUIDED_VIEWS[0].id)}
+              >
                 <LinearGradient
                   colors={[...scannerPrimaryGradient]}
                   start={{ x: 0, y: 0 }}
@@ -169,7 +195,10 @@ export default function AiScanEntry() {
                 <Ionicons name="camera" size={20} color="#fff" />
                 <Text style={styles.cameraActionText}>Capture angle</Text>
               </Pressable>
-              <Pressable style={styles.galleryAction} onPress={pickFromLibrary}>
+              <Pressable
+                style={styles.galleryAction}
+                onPress={() => pickForView(nextEmptyViewId ?? GUIDED_VIEWS[0].id)}
+              >
                 <Ionicons name="images-outline" size={19} color={scannerColors.orangeSoft} />
                 <Text style={styles.galleryActionText}>Upload gallery</Text>
               </Pressable>
@@ -179,17 +208,21 @@ export default function AiScanEntry() {
 
         <View style={styles.sectionHead}>
           <Text style={styles.sectionTitle}>Guided capture set</Text>
-          <Text style={styles.sectionMeta}>{completedCount}/{MAX_IMAGES} angles locked</Text>
+          <Text style={styles.sectionMeta}>{completedCount}/{MAX_GUIDED_VIEWS} angles locked</Text>
         </View>
 
         <View style={styles.slotGrid}>
-          {CAPTURE_SLOTS.map((slot, index) => {
-            const image = images[index];
-            const active = index === images.length && canAddMore;
+          {GUIDED_VIEWS.map((view, index) => {
+            const entry = captureSet[view.id];
+            const image = entry?.image;
+            const active = view.id === nextEmptyViewId;
             return (
-              <Animated.View key={slot.angle} entering={FadeInDown.duration(280).delay(index * 45)}>
+              <Animated.View key={view.id} entering={FadeInDown.duration(280).delay(index * 45)}>
                 <Pressable
-                  onPress={image ? () => removeImage(index) : captureWithCamera}
+                  accessibilityRole="button"
+                  accessibilityLabel={image ? `Retake ${view.label} view` : `Capture ${view.label} view`}
+                  onPress={() => captureView(view.id)}
+                  onLongPress={() => pickForView(view.id)}
                   style={[
                     styles.slotCard,
                     active && styles.slotCardActive,
@@ -200,22 +233,30 @@ export default function AiScanEntry() {
                     <>
                       <Image source={{ uri: image.uri }} style={styles.slotImage} />
                       <View style={styles.slotImageVeil} />
-                      <View style={styles.removeChip}>
-                        <Ionicons name="close" size={12} color="#fff" />
-                      </View>
                     </>
                   ) : null}
                   <View style={styles.slotContent}>
                     <View style={[styles.slotIcon, active && styles.slotIconActive]}>
                       <Ionicons
-                        name={slot.icon}
+                        name={view.icon}
                         size={18}
                         color={image || active ? scannerColors.orangeSoft : scannerColors.textMuted}
                       />
                     </View>
-                    <Text style={styles.slotLabel}>{slot.label}</Text>
-                    <Text style={styles.slotHint}>{image ? 'Captured' : slot.hint}</Text>
+                    <Text style={styles.slotLabel}>{view.label}</Text>
+                    <Text style={styles.slotHint}>{image ? 'Captured · tap to retake' : view.hint}</Text>
                   </View>
+                  {image ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${view.label} view`}
+                      hitSlop={10}
+                      onPress={() => removeView(view.id)}
+                      style={styles.removeChip}
+                    >
+                      <Ionicons name="close" size={12} color="#fff" />
+                    </Pressable>
+                  ) : null}
                 </Pressable>
               </Animated.View>
             );
@@ -228,18 +269,18 @@ export default function AiScanEntry() {
             <Text style={styles.assistTitle}>One-handed scan guidance</Text>
           </View>
           <Text style={styles.assistText}>
-            {'Take a close-up photo of the damaged panel.\nKeep the damaged area centered and clearly visible.\nAvoid excessive glare or reflections.'}
+            {'Tap an angle to capture it, or long-press to pick it from your gallery.\nKeep the damaged area centered and clearly visible.\nRetake a single bad angle without restarting the set.'}
           </Text>
         </GlassPanel>
 
         <BottomActionBar
           inline
-          primaryLabel="Start AI Inspection"
+          primaryLabel="Analyze Vehicle"
           primaryIcon="sparkles"
           primaryVariant="solid"
-          onPrimaryPress={startInspection}
-          secondaryLabel={images.length > 0 ? 'Add More Angles' : undefined}
-          onSecondaryPress={images.length > 0 ? captureWithCamera : undefined}
+          onPrimaryPress={analyzeVehicle}
+          secondaryLabel={nextEmptyViewId ? 'Add Another Angle' : undefined}
+          onSecondaryPress={nextEmptyViewId ? () => captureView(nextEmptyViewId) : undefined}
         />
       </ScrollView>
     </ScannerBackground>

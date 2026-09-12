@@ -367,11 +367,14 @@ export function RepairIntelligenceCard({
   index,
   selected = true,
   onPress,
+  sourceViewLabel,
 }: {
   line: AiScanLineItem;
   index: number;
   selected?: boolean;
   onPress?: () => void;
+  /** Guided view this line item's damage region came from, when known. */
+  sourceViewLabel?: string;
 }) {
   const meta = severityMeta[line.severity];
   const difficulty =
@@ -402,6 +405,7 @@ export function RepairIntelligenceCard({
           </View>
           <Text style={styles.repairSub} numberOfLines={2}>
             {line.affectedArea} - {line.damageType}
+            {sourceViewLabel ? ` - ${sourceViewLabel} view` : ''}
           </Text>
           <View style={styles.repairMetaRow}>
             <AiPill label={`Priority ${line.urgency}`} icon="flash-outline" color={meta.color} />

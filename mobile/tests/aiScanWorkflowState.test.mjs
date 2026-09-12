@@ -6,6 +6,7 @@ import {
   completeAiScanWorkflow,
   createPendingScanProgressController,
   createSessionNavigationGuard,
+  createSingleSubmitLatch,
   failAiScanWorkflow,
   PENDING_SCAN_PROGRESS_CEILING,
   updatePendingAiScanProgress,
@@ -136,4 +137,60 @@ test('back-to-back scans reset progress and do not leak prior stages', () => {
   assert.deepEqual(downstreamStates(second), {
     '3d': 'inactive', ar: 'inactive', price: 'inactive', approve: 'inactive',
   });
+});
+
+/* ── Multi-view guided inspection keeps the same pipeline invariants ───────── */
+
+test('a running multi-view batch keeps DETECT active and 3D/AR/PRICE inactive', () => {
+  let workflow = beginAiScanWorkflow(20);
+  assert.equal(workflow.stepStates.scan, 'complete');
+  assert.equal(workflow.stepStates.detect, 'active');
+
+  // Bounded visual progress while all five views are upstream.
+  for (let progress = 10; progress <= 200; progress += 10) {
+    workflow = updatePendingAiScanProgress(workflow, 20, progress);
+  }
+
+  assert.equal(workflow.activeStage, 'detect');
+  assert.equal(workflow.progress, PENDING_SCAN_PROGRESS_CEILING);
+  assert.deepEqual(downstreamStates(workflow), {
+    '3d': 'inactive', ar: 'inactive', price: 'inactive', approve: 'inactive',
+  });
+});
+
+test('a partial multi-view result completes DETECT without activating 3D/AR/PRICE', () => {
+  const workflow = completeAiScanWorkflow(beginAiScanWorkflow(21), 21);
+
+  assert.equal(workflow.stepStates.detect, 'complete');
+  assert.deepEqual(downstreamStates(workflow), {
+    '3d': 'inactive', ar: 'inactive', price: 'inactive', approve: 'inactive',
+  });
+});
+
+test('a stale multi-view batch cannot resolve the current inspection', () => {
+  const current = beginAiScanWorkflow(30);
+  assert.equal(completeAiScanWorkflow(current, 29), current);
+  assert.equal(failAiScanWorkflow(current, 29), current);
+  assert.equal(createSessionNavigationGuard().claim(29, current.sessionId), false);
+});
+
+test('back-to-back inspections start from a clean pipeline', () => {
+  let first = completeAiScanWorkflow(beginAiScanWorkflow(31), 31);
+  first = activateAiScanWorkflowStage(first, 'price');
+  assert.equal(first.stepStates.price, 'active');
+
+  const second = beginAiScanWorkflow(32);
+  assert.equal(second.progress, 6);
+  assert.equal(second.stepStates.detect, 'active');
+  assert.deepEqual(downstreamStates(second), {
+    '3d': 'inactive', ar: 'inactive', price: 'inactive', approve: 'inactive',
+  });
+});
+
+test('the single-submit latch starts exactly one inspection', () => {
+  const latch = createSingleSubmitLatch();
+  assert.equal(latch.claim(), true);
+  assert.equal(latch.claim(), false);
+  latch.release();
+  assert.equal(latch.claim(), true);
 });

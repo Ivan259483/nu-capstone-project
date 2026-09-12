@@ -36,6 +36,23 @@ export const getBaseApiUrl = () => {
 
 export const BACKEND_API_URL = getBaseApiUrl();
 
+/**
+ * One-shot runtime target banner. Printed so the API base is read off the running
+ * bundle rather than inferred from this file — a production build silently falls back
+ * to the Render origin, and that must be visible before any local fix is called tested.
+ */
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+    console.info('[CHECKOUT-TARGET] frontend', {
+        frontendOrigin: window.location.origin,
+        dev: import.meta.env.DEV,
+        rawViteApiUrl: import.meta.env.VITE_API_URL ?? null,
+        rawViteBackendUrl: import.meta.env.VITE_BACKEND_URL ?? null,
+        useRemoteApi: import.meta.env.VITE_USE_REMOTE_API ?? null,
+        resolvedApiBase: BACKEND_API_URL,
+        callingRender: BACKEND_API_URL.includes('onrender.com'),
+    });
+}
+
 export const getStoredAuthToken = () => {
     if (typeof window === 'undefined') return '';
 

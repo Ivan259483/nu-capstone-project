@@ -2,6 +2,8 @@ import axios from 'axios';
 import sharp from 'sharp';
 import { buildDamageIssue, buildDamageReport } from '../models/damageReport.model.js';
 import { timeOperation } from '../utils/performance.utils.js';
+import { mapWithConcurrency } from '../utils/concurrency.utils.js';
+import { getGuidedViewLabel } from '../constants/guidedViews.js';
 
 const DEFAULT_WORKSPACE = 'ivan-tadena';
 const DEFAULT_WORKFLOW_ID = 'autogloss-binary-damage-deployment-1787502823460';
@@ -35,6 +37,51 @@ const APPROVED_DAMAGE_SUBTYPES = Object.freeze({
 });
 
 export const ZERO_DETECTION_MESSAGE = 'No confident damage detected. Try taking a closer photo of the affected area.';
+
+/* ── Multi-view guided inspection ──────────────────────────────────────────── */
+
+/**
+ * Guided views analyzed simultaneously. Deliberately a constant rather than an
+ * environment knob: it bounds provider rate spikes, peak memory, and timeout
+ * risk, and the value is asserted by tests.
+ */
+export const MULTI_VIEW_MAX_CONCURRENCY = 2;
+
+/** Customer-facing text for a view the pipeline could not analyze. */
+export const VIEW_ANALYSIS_FAILED_MESSAGE =
+  'This view could not be analyzed. Please retake or upload it again.';
+
+/** Cautious inspection-level wording. Never claims the vehicle has no damage. */
+export const MULTI_VIEW_ZERO_DETECTION_MESSAGE =
+  'No confident damage was detected across the analyzed vehicle views.';
+
+/** Appended whenever a view failed, so failures are never read as clean. */
+export const MULTI_VIEW_PARTIAL_FAILURE_MESSAGE =
+  'Some views could not be analyzed and were not confirmed clean.';
+
+/**
+ * No cross-view deduplication is attempted. The application holds no
+ * deterministic evidence that a region in one image is the same physical damage
+ * as a region in another, so counts are reported as detected regions.
+ */
+export const CROSS_VIEW_DEDUPLICATION_POLICY = Object.freeze({
+  applied: false,
+  policy: 'not_supported',
+  note: 'Regions are counted per view. The same physical damage visible in two views is reported twice and is not claimed to be unique.',
+});
+
+const buildInspectionSummaryMessage = (summary) => {
+  const parts = [];
+  if (summary.totalDetectedRegions === 0) {
+    parts.push(MULTI_VIEW_ZERO_DETECTION_MESSAGE);
+  } else {
+    const regions = `${summary.totalDetectedRegions} damage region${summary.totalDetectedRegions === 1 ? '' : 's'}`;
+    const views = `${summary.analyzedViews} analyzed view${summary.analyzedViews === 1 ? '' : 's'}`;
+    parts.push(`${regions} detected across ${views} by RF-DETR instance segmentation.`);
+  }
+  if (summary.failedViews > 0) parts.push(MULTI_VIEW_PARTIAL_FAILURE_MESSAGE);
+  return parts.join(' ');
+};
 
 export class RoboflowDamageError extends Error {
   constructor(message, code, status = 502, cause) {
@@ -553,6 +600,94 @@ const executeWorkflow = async (image, config) => {
   throw new RoboflowDamageError('Roboflow damage detection is temporarily unavailable.', 'ROBOFLOW_REQUEST_FAILED', 502, lastError);
 };
 
+/**
+ * Analyze ONE image through the production pipeline: optimize -> RF-DETR
+ * Workflow -> region parsing -> localization quality gate -> optional subtype
+ * classifier -> subtype abstention -> normalized damage issues.
+ *
+ * This is the single implementation of the detector. Both the existing
+ * single-request `detectDamageWithRoboflow` and the multi-view
+ * `detectDamageAcrossViews` call it, so the two paths cannot drift apart.
+ *
+ * `regionConcurrency` bounds the per-region subtype classifier calls within
+ * this image. The existing path passes Infinity to preserve its exact
+ * behaviour; the multi-view path bounds it.
+ */
+const analyzeImageForDamage = async (file, config, context = {}) => {
+  const {
+    imageIndex = 0,
+    metricLabel = `image.${imageIndex + 1}`,
+    angleHint = 'close_up',
+    damageAreaHint = '',
+    regionConcurrency = Infinity,
+    req,
+    res,
+  } = context;
+
+  const image = await timeOperation(
+    { req, res, kind: 'cpu', name: `roboflow.${metricLabel}.optimize` },
+    () => optimizeImage(file, config.maxImageEdge)
+  );
+
+  const payload = await timeOperation(
+    { req, res, kind: 'external', name: `roboflow.${metricLabel}.workflow` },
+    () => executeWorkflow(image, config)
+  );
+
+  const predictions = parseRoboflowWorkflowResponse(payload, image)
+    .filter((prediction) => {
+      const predictionClass = String(
+        prediction.class || prediction.class_name || prediction.label || ''
+      ).trim().toLowerCase();
+      const confidence = Number(prediction.confidence ?? prediction.score);
+      return predictionClass === BINARY_DAMAGE_CLASS && confidence >= config.minConfidence;
+    });
+
+  const issues = await mapWithConcurrency(
+    predictions,
+    regionConcurrency,
+    async (prediction, index) => {
+      const enrichment = await enrichPredictionSubtype(prediction, image, config);
+      return buildDamageIssue(prediction, {
+        imageIndex,
+        index,
+        imageWidth: prediction.imageWidth || image.width,
+        imageHeight: prediction.imageHeight || image.height,
+        angleHint,
+        damageAreaHint,
+        ...enrichment,
+      });
+    }
+  );
+
+  return {
+    issues,
+    imageProcessing: {
+      imageIndex,
+      width: image.width,
+      height: image.height,
+      bytes: image.buffer.length,
+      mimeType: image.mimeType,
+    },
+  };
+};
+
+/** Shared severity-derived headline fields so both paths report identically. */
+const summarizeIssues = (issues, damageReport) => {
+  const severity = damageReport.highestSeverity;
+  return {
+    overallCondition: !issues.length
+      ? 'Excellent'
+      : severity === 'high' ? 'Poor' : severity === 'medium' ? 'Fair' : 'Good',
+    recommendedPackage: severity === 'high'
+      ? 'SPF 99 Premium'
+      : severity === 'medium' ? 'SPF 89 Advanced' : 'SPF 80 Essential',
+    urgency: severity === 'high'
+      ? 'Immediate'
+      : severity === 'medium' ? 'Can Wait' : 'Optional',
+  };
+};
+
 export const detectDamageWithRoboflow = async (files, options = {}) => {
   const config = getRoboflowDamageConfig();
   if (!config.apiKey) {
@@ -562,46 +697,23 @@ export const detectDamageWithRoboflow = async (files, options = {}) => {
     throw new RoboflowDamageError('At least one vehicle image is required.', 'IMAGE_REQUIRED', 400);
   }
 
-  const optimizedImages = await Promise.all(files.map((file, index) => timeOperation(
-    { req: options.req, res: options.res, kind: 'cpu', name: `roboflow.image.${index + 1}.optimize` },
-    () => optimizeImage(file, config.maxImageEdge)
-  )));
-  const workflowResults = await Promise.all(optimizedImages.map((image, index) => timeOperation(
-    { req: options.req, res: options.res, kind: 'external', name: `roboflow.image.${index + 1}.workflow` },
-    () => executeWorkflow(image, config)
-  )));
-  const issues = [];
+  // Unbounded on purpose: this is the long-standing single-request behaviour of
+  // POST /api/ai/scan and the web client depends on it. The multi-view path
+  // below is where bounded concurrency applies.
+  const analyzed = await Promise.all(files.map((file, index) => analyzeImageForDamage(file, config, {
+    imageIndex: index,
+    metricLabel: `image.${index + 1}`,
+    angleHint: options.angles?.[index] || 'close_up',
+    damageAreaHint: options.damageAreas?.[index] || '',
+    regionConcurrency: Infinity,
+    req: options.req,
+    res: options.res,
+  })));
 
-  const perImageIssues = await Promise.all(workflowResults.map(async (payload, imageIndex) => {
-    const image = optimizedImages[imageIndex];
-    const predictions = parseRoboflowWorkflowResponse(payload, image)
-      .filter((prediction) => {
-        const predictionClass = String(
-          prediction.class || prediction.class_name || prediction.label || ''
-        ).trim().toLowerCase();
-        const confidence = Number(prediction.confidence ?? prediction.score);
-        return predictionClass === BINARY_DAMAGE_CLASS && confidence >= config.minConfidence;
-      });
-
-    return Promise.all(predictions.map(async (prediction, index) => {
-      const enrichment = await enrichPredictionSubtype(prediction, image, config);
-      return buildDamageIssue(prediction, {
-        imageIndex,
-        index,
-        imageWidth: prediction.imageWidth || image.width,
-        imageHeight: prediction.imageHeight || image.height,
-        angleHint: options.angles?.[imageIndex] || 'close_up',
-        damageAreaHint: options.damageAreas?.[imageIndex] || '',
-        ...enrichment,
-      });
-    }));
-  }));
-  issues.push(...perImageIssues.flat());
-
+  const issues = analyzed.flatMap((entry) => entry.issues);
   const requestId = options.requestId || `roboflow_${Date.now()}`;
   const model = `roboflow-workflow:${config.workflowId}`;
   const damageReport = buildDamageReport({ issues, requestId, model });
-  const severity = damageReport.highestSeverity;
 
   return {
     source: 'roboflow',
@@ -609,26 +721,146 @@ export const detectDamageWithRoboflow = async (files, options = {}) => {
     requestId,
     vehicleDetected: true,
     noDamageDetected: issues.length === 0,
-    overallCondition: !issues.length ? 'Excellent' : severity === 'high' ? 'Poor' : severity === 'medium' ? 'Fair' : 'Good',
-    recommendedPackage: severity === 'high' ? 'SPF 99 Premium' : severity === 'medium' ? 'SPF 89 Advanced' : 'SPF 80 Essential',
-    urgency: severity === 'high' ? 'Immediate' : severity === 'medium' ? 'Can Wait' : 'Optional',
+    ...summarizeIssues(issues, damageReport),
     summary: issues.length
       ? `${issues.length} damage region${issues.length === 1 ? '' : 's'} detected by RF-DETR instance segmentation.`
       : ZERO_DETECTION_MESSAGE,
     damages: issues,
     damageReport,
-    imageProcessing: optimizedImages.map((image, index) => ({
-      imageIndex: index,
-      width: image.width,
-      height: image.height,
-      bytes: image.buffer.length,
-      mimeType: image.mimeType,
-    })),
+    imageProcessing: analyzed.map((entry) => entry.imageProcessing),
+  };
+};
+
+/**
+ * Analyze several guided vehicle views as INDEPENDENT inference inputs.
+ *
+ * Images are never stitched and never sent as one detector input. Each view
+ * goes through `analyzeImageForDamage` exactly as a single scan would, under
+ * bounded concurrency, and a failing view degrades to a retake request instead
+ * of failing the whole inspection.
+ *
+ * @param {{ file: object, viewId: string, label?: string, index?: number, damageAreaHint?: string }[]} views
+ */
+export const detectDamageAcrossViews = async (views, options = {}) => {
+  const config = getRoboflowDamageConfig();
+  if (!config.apiKey) {
+    throw new RoboflowDamageError('Roboflow damage detection is not configured.', 'ROBOFLOW_NOT_CONFIGURED', 503);
+  }
+  if (!Array.isArray(views) || views.length === 0) {
+    throw new RoboflowDamageError('At least one vehicle image is required.', 'IMAGE_REQUIRED', 400);
+  }
+
+  const requestId = options.requestId || `roboflow_inspection_${Date.now()}`;
+  const model = `roboflow-workflow:${config.workflowId}`;
+
+  const analyzed = await mapWithConcurrency(
+    views,
+    MULTI_VIEW_MAX_CONCURRENCY,
+    async (view, position) => {
+      const index = Number.isFinite(view.index) ? Number(view.index) : position;
+      const viewId = String(view.viewId || '');
+      const label = String(view.label || getGuidedViewLabel(viewId));
+      const sourceView = { id: viewId, label, index };
+
+      try {
+        const { issues, imageProcessing } = await analyzeImageForDamage(view.file, config, {
+          imageIndex: index,
+          metricLabel: `view.${viewId || index + 1}`,
+          angleHint: viewId || 'close_up',
+          damageAreaHint: view.damageAreaHint || '',
+          regionConcurrency: MULTI_VIEW_MAX_CONCURRENCY,
+          req: options.req,
+          res: options.res,
+        });
+
+        // Additive only — every existing damage field is preserved.
+        const damages = issues.map((issue) => ({ ...issue, sourceView }));
+
+        return {
+          viewId,
+          label,
+          index,
+          success: true,
+          errorCode: '',
+          message: '',
+          noDamageDetected: damages.length === 0,
+          damages,
+          imageProcessing,
+        };
+      } catch (error) {
+        // Customer-facing text never leaks upstream provider detail. The stable
+        // `errorCode` is already part of the public single-scan contract.
+        return {
+          viewId,
+          label,
+          index,
+          success: false,
+          errorCode: String(error?.code || 'VIEW_ANALYSIS_FAILED'),
+          message: VIEW_ANALYSIS_FAILED_MESSAGE,
+          noDamageDetected: false,
+          damages: [],
+          imageProcessing: null,
+          error,
+        };
+      }
+    }
+  );
+
+  const successfulViews = analyzed.filter((view) => view.success);
+
+  // Every view failing is not partial success. Rethrow so the HTTP status and
+  // stable code match the existing single-scan semantics and the client retries.
+  if (successfulViews.length === 0) {
+    const firstError = analyzed.find((view) => view.error)?.error;
+    if (firstError instanceof RoboflowDamageError) throw firstError;
+    throw new RoboflowDamageError(
+      'Roboflow damage detection is temporarily unavailable.',
+      'ROBOFLOW_REQUEST_FAILED',
+      502,
+      firstError
+    );
+  }
+
+  const issues = analyzed.flatMap((view) => view.damages);
+  const damageReport = buildDamageReport({ issues, requestId, model });
+  const failedViews = analyzed.length - successfulViews.length;
+  const viewsWithDamage = successfulViews.filter((view) => view.damages.length > 0).length;
+
+  const inspectionSummary = {
+    requestedViews: analyzed.length,
+    analyzedViews: successfulViews.length,
+    successfulViews: successfulViews.length,
+    failedViews,
+    viewsWithDamage,
+    // A region count across views, NOT a unique-damage count. The same physical
+    // scratch photographed from two angles legitimately produces two regions.
+    totalDetectedRegions: issues.length,
+  };
+
+  return {
+    source: 'roboflow',
+    model,
+    requestId,
+    vehicleDetected: true,
+    // Only the successfully analyzed views can be described as clean. A failed
+    // view is never folded into this flag.
+    noDamageDetected: issues.length === 0,
+    ...summarizeIssues(issues, damageReport),
+    summary: buildInspectionSummaryMessage(inspectionSummary),
+    damages: issues,
+    damageReport,
+    imageProcessing: successfulViews
+      .map((view) => view.imageProcessing)
+      .filter(Boolean),
+    inspectionSummary,
+    views: analyzed.map(({ error, imageProcessing, ...view }) => view),
+    crossViewDeduplication: CROSS_VIEW_DEDUPLICATION_POLICY,
   };
 };
 
 export default {
   detectDamageWithRoboflow,
+  detectDamageAcrossViews,
   getRoboflowDamageConfig,
   isRoboflowDamageConfigured,
   parseRoboflowWorkflowResponse,

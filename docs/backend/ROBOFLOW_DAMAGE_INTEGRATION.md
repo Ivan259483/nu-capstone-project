@@ -56,6 +56,56 @@ Existing optional dependencies remain unchanged:
 - Cloudinary archives the uploaded scan image for Meshy.
 - Meshy consumes the stored `scanId` through the existing `/api/ai/generate-3d-from-scan` flow.
 
+## Multi-view guided inspection
+
+`POST /api/ai/scan/batch` analyzes the guided vehicle views as a single inspection.
+`POST /api/ai/scan` is unchanged and remains the single-image contract used by the web client.
+
+Each guided image stays an independent inference input through the same pipeline: optimization,
+RF-DETR Workflow, region parsing, localization quality gate, optional subtype classifier,
+abstention, affected image area, and severity. Images are never stitched and never sent as one
+detector input. Views are analyzed at most two at a time, and the per-region subtype classifier
+calls within a view are bounded the same way.
+
+Guided view identifiers reuse the existing capture angles and are also the per-damage
+`angleHint`: `front`, `rear`, `left`, `right`, `close_up`. A guided view is a camera position,
+not a vehicle component; `component` remains `Unknown Vehicle Panel`.
+
+```bash
+curl -X POST http://localhost:3000/api/ai/scan/batch \
+  -H "Authorization: Bearer <optional-autogloss-jwt>" \
+  -F "images=@/absolute/path/front.jpg" \
+  -F "images=@/absolute/path/rear.jpg" \
+  -F 'viewIds=["front","rear"]'
+```
+
+Validation returns 400 with a stable code for `IMAGE_REQUIRED`, `VIEW_IDS_REQUIRED`,
+`VIEW_COUNT_MISMATCH`, `UNKNOWN_VIEW_ID`, and `DUPLICATE_VIEW_ID`. File count, size, and MIME
+type are enforced by the same upload boundary as `/api/ai/scan`.
+
+The response `data` is a superset of the single-scan payload, adding `inspectionId`,
+`inspectionMode`, `inspectionSummary`, `views`, and `crossViewDeduplication`. Each damage gains
+`sourceView` and keeps every existing field. The counts object is named `inspectionSummary`
+rather than `summary` because `data.summary` is already the human-readable string every client
+renders.
+
+One failed view does not fail the inspection: that view returns `success: false`, a stable
+`errorCode`, and the customer-safe message `This view could not be analyzed. Please retake or
+upload it again.` A failed view is never counted as clean, and the aggregate summary appends
+`Some views could not be analyzed and were not confirmed clean.` If every view fails, the
+endpoint returns the same upstream status and code as a failed single scan.
+
+`inspectionSummary.totalDetectedRegions` is a region count across views, not a unique-damage
+count. No cross-view deduplication is performed: the application holds no deterministic
+evidence that a region in one image is the same physical damage as a region in another, and
+`crossViewDeduplication.applied` is always `false`. Consequently the estimator, which produces
+one line item per detected region, appends a provisional assumption to `estimate.assumptions`,
+the mobile estimate screen totals only user-selected line items, and each line item displays
+the guided view its region came from.
+
+The 3D flow is unchanged. The guided capture set is never sent to Meshy; 3D still requires the
+separately chosen, separately validated full-vehicle photo.
+
 ## API request
 
 ```bash
@@ -86,6 +136,11 @@ Automated parser/model tests run with:
 
 ```bash
 node --test backend/tests/roboflowDamage.service.test.js
+node --test backend/tests/multiViewInspection.test.js
+node --test backend/tests/multiViewInspectionHttp.test.js
+node --test backend/tests/concurrencyUtils.test.js
+npm run test:multi-view-inspection --prefix mobile
+npm run test:guided-views --prefix mobile
 npm run typecheck --prefix mobile
 npm run build --prefix frontend
 ```

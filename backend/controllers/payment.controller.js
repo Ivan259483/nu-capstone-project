@@ -45,6 +45,7 @@ import { normalizePaymentMethod } from '../utils/paymentMethod.utils.js';
 import {
   buildLedgerTransaction,
   LEDGER_BALANCE_SELECT_FIELDS,
+  LEDGER_BLOB_EXCLUSIONS,
   createRefundLedgerEntry,
   findRefundByIdempotency,
   getOrderLedger,
@@ -59,6 +60,7 @@ import {
 } from '../services/financialLedger.service.js';
 import { getVisitEvidenceAt } from '../services/salesAnalytics.service.js';
 import { timeOperation } from '../utils/performance.utils.js';
+import { logCheckoutPhase, timedPosPaymentStep } from '../utils/posPaymentLog.utils.js';
 import { parseReportingRange } from '../utils/reportingRange.utils.js';
 import PaymentReconciliationEvent from '../models/paymentReconciliationEvent.model.js';
 import { getSystemState } from '../services/systemState.service.js';
@@ -1275,6 +1277,7 @@ export const getCustomerPaymentSummary = async (req, res, next) => {
 
     const customerObjectId = new mongoose.Types.ObjectId(customerId);
     const payments = await Payment.find({ customer: customerObjectId })
+      .select(LEDGER_BLOB_EXCLUSIONS)
       .sort({ effectiveAt: -1, submittedAt: -1, createdAt: -1 })
       .populate(
         'order',
@@ -1589,14 +1592,25 @@ export const runPosCheckoutCore = async ({
   billingVersion = null,
   metadataExtra = {},
   pickupEvidence,
+  traceContext = null,
 }) => {
+  const trace = traceContext || {
+    req,
+    orderId: order?._id?.toString?.() || null,
+    reference: order?.bookingReference || order?.orderNumber || null,
+  };
   const subtotal = normalizeMoney(subtotalIn);
   const discountAmount = normalizeMoney(discountAmountIn);
   const taxVat = normalizeMoney(taxVatAmount);
   const fees = normalizeMoney(additionalFees);
   const grandTotal = normalizeMoney(grandTotalIn);
   const requestedBalance = normalizeMoney(balanceDueIn);
-  const existingLedgerRows = await getOrderLedger(order._id);
+  const existingLedgerRows = await timedPosPaymentStep(
+    trace,
+    'load_order_ledger',
+    () => getOrderLedger(order._id),
+    'order ledger lookup'
+  );
   const existingLedger = summarizeLedgerRows(existingLedgerRows, grandTotal);
   const dp = roundMoney(Math.max(0, existingLedger.netVerified));
   const amountCollected = roundMoney(Math.max(0, grandTotal - existingLedger.netVerified));
@@ -1630,22 +1644,37 @@ export const runPosCheckoutCore = async ({
     throw checkoutConflict('This order is already finalized and cannot be checked out again.');
   }
 
-  await assertPickupQueueCheckoutStillEligible(order, pickupEvidence);
+  await timedPosPaymentStep(
+    trace,
+    'assert_pickup_queue_eligible',
+    () => assertPickupQueueCheckoutStillEligible(order, pickupEvidence),
+    'pickup queue eligibility check'
+  );
 
-  const duplicatePayment = await Payment.findOne({
-    checkoutReference,
-    status: 'succeeded',
-  }).select('_id invoiceId');
+  const duplicatePayment = await timedPosPaymentStep(
+    trace,
+    'find_duplicate_checkout_payment',
+    () => Payment.findOne({
+      checkoutReference,
+      status: 'succeeded',
+    }).select('_id invoiceId'),
+    'duplicate payment guard lookup'
+  );
   if (duplicatePayment) {
     throw checkoutConflict(
       `Checkout already completed for this order (${duplicatePayment.invoiceId}).`
     );
   }
   if (paymentMethod === 'gcash') {
-    const reusedReference = await Payment.findOne({
-      paymentReference: String(paymentReference || '').trim(),
-      status: 'succeeded',
-    }).select('_id invoiceId');
+    const reusedReference = await timedPosPaymentStep(
+      trace,
+      'find_reused_payment_reference',
+      () => Payment.findOne({
+        paymentReference: String(paymentReference || '').trim(),
+        status: 'succeeded',
+      }).select('_id invoiceId'),
+      'reused reference guard lookup'
+    );
     if (reusedReference) {
       throw checkoutConflict(`This GCash reference was already used for ${reusedReference.invoiceId}.`);
     }
@@ -1697,6 +1726,8 @@ export const runPosCheckoutCore = async ({
   }
 
   const inventoryWarnings = [];
+  logCheckoutPhase(trace, 'inventory recipe scan', 'start', { itemCount: allItems.length });
+  const inventoryScanStartedAt = process.hrtime.bigint();
   for (const item of allItems) {
     const service = await Service.findOne({ name: new RegExp(`^${escapeRegex(item.name)}$`, 'i') });
     if (service?.recipe?.length) {
@@ -1715,17 +1746,33 @@ export const runPosCheckoutCore = async ({
       }
     }
   }
+  logCheckoutPhase(trace, 'inventory recipe scan', 'end', {
+    itemCount: allItems.length,
+    warningCount: inventoryWarnings.length,
+    stepMs: (Number(process.hrtime.bigint() - inventoryScanStartedAt) / 1e6).toFixed(1),
+  });
 
   const resolvedStaffId = staffId || req.user?.id || null;
   let staffUser = null;
   if (resolvedStaffId) {
-    staffUser = await User.findById(resolvedStaffId).select('name email');
+    staffUser = await timedPosPaymentStep(
+      trace,
+      'find_staff_user',
+      () => User.findById(resolvedStaffId).select('name email'),
+      'staff user lookup'
+    );
   }
 
-  const invoiceId = await allocateUniquePaymentInvoiceId(order.invoiceId);
+  const invoiceId = await timedPosPaymentStep(
+    trace,
+    'allocate_payment_invoice_id',
+    () => allocateUniquePaymentInvoiceId(order.invoiceId),
+    'payment invoice id allocation'
+  );
   const balanceRemaining = normalizeMoney(Math.max(0, grandTotal - dp - amountCollected));
 
   let payment;
+  logCheckoutPhase(trace, 'payment creation', 'start');
   const paymentCreateStartedAt = process.hrtime.bigint();
   try {
     payment = await Payment.create({
@@ -1796,7 +1843,16 @@ export const runPosCheckoutCore = async ({
       responseBody: { paymentId: payment._id?.toString?.(), status: payment.status, amount: payment.amount },
       durationMs: (Number(process.hrtime.bigint() - paymentCreateStartedAt) / 1e6).toFixed(1),
     });
+    logCheckoutPhase(trace, 'payment creation', 'end', {
+      paymentId: payment._id?.toString?.(),
+      stepMs: (Number(process.hrtime.bigint() - paymentCreateStartedAt) / 1e6).toFixed(1),
+    });
   } catch (error) {
+    logCheckoutPhase(trace, 'payment creation', 'error', {
+      code: error.code || null,
+      message: error.message,
+      stepMs: (Number(process.hrtime.bigint() - paymentCreateStartedAt) / 1e6).toFixed(1),
+    });
     console.info('[POS PAYMENT]', {
       endpoint: req.originalUrl || req.url || null,
       orderId: order._id?.toString?.(),
@@ -1880,8 +1936,12 @@ export const runPosCheckoutCore = async ({
     order.serviceTrackingUpdatedBy = req.user?.name || req.user?.id || 'POS';
   }
   const orderSettleStartedAt = process.hrtime.bigint();
+  logCheckoutPhase(trace, 'order settlement', 'start');
   try {
     await saveOrderWithSlotTransition(order, occupancyBefore);
+    logCheckoutPhase(trace, 'order settlement', 'end', {
+      stepMs: (Number(process.hrtime.bigint() - orderSettleStartedAt) / 1e6).toFixed(1),
+    });
     console.info('[POS PAYMENT]', {
       endpoint: req.originalUrl || req.url || null,
       orderId: order._id?.toString?.(),
@@ -1896,6 +1956,11 @@ export const runPosCheckoutCore = async ({
       durationMs: (Number(process.hrtime.bigint() - orderSettleStartedAt) / 1e6).toFixed(1),
     });
   } catch (saveError) {
+    logCheckoutPhase(trace, 'order settlement', 'error', {
+      code: saveError.code || null,
+      message: saveError.message,
+      stepMs: (Number(process.hrtime.bigint() - orderSettleStartedAt) / 1e6).toFixed(1),
+    });
     console.error('[POS] Order finalization failed after payment create. Rolling back payment.', {
       orderId: order._id?.toString?.(),
       paymentId: payment._id?.toString?.(),
@@ -1917,7 +1982,12 @@ export const runPosCheckoutCore = async ({
     throw saveError;
   }
   try {
-    await applyInventoryDeductions(order);
+    await timedPosPaymentStep(
+      trace,
+      'apply_inventory_deductions',
+      () => applyInventoryDeductions(order),
+      'inventory deduction'
+    );
   } catch (inventoryError) {
     inventoryWarnings.push({
       code: 'INVENTORY_DEDUCTION_FAILED',
@@ -1975,7 +2045,10 @@ export const runPosCheckoutCore = async ({
   }
 
   try {
-    await createAdminNotification({
+    await timedPosPaymentStep(
+      trace,
+      'create_admin_notification',
+      () => createAdminNotification({
       title: 'POS payment completed',
       message: `Payment ${invoiceId} received — ₱${amountCollected.toLocaleString()} via ${paymentMethod.toUpperCase()}`,
       category: 'payments',
@@ -1988,12 +2061,15 @@ export const runPosCheckoutCore = async ({
       link: buildAdminDeepLink('payments', { paymentId: String(payment._id), orderId: String(order._id) }),
       action: { label: 'View payment' },
       metadata: { paymentId: payment._id, orderId: order._id, invoiceId, amount: amountCollected },
-    });
+      }),
+      'admin notification'
+    );
   } catch (notificationError) {
     console.error('Failed to create POS notification:', notificationError.message);
   }
 
   invalidateResponseCache('qc:');
+  logCheckoutPhase(trace, 'realtime broadcast', 'start');
   try {
     const io = getIO();
     const customerId = order.customer?._id || order.customer;
@@ -2038,6 +2114,7 @@ export const runPosCheckoutCore = async ({
   } catch (socketError) {
     console.warn('Socket not initialized for POS notification:', socketError.message);
   }
+  logCheckoutPhase(trace, 'realtime broadcast', 'end');
 
   const linkedVehicle =
     order.vehicle && typeof order.vehicle === 'object' ? order.vehicle : {};
@@ -2111,6 +2188,7 @@ export const runPosCheckoutCore = async ({
     }
   }
 
+  logCheckoutPhase(trace, 'checkout core returning', 'mark', { invoiceId });
   return { payment, receiptData, inventoryWarnings, invoiceId };
 };
 

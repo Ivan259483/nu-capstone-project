@@ -49,6 +49,15 @@ export default function EstimateScreen() {
   }, []);
 
   const lineItems = useMemo(() => estimate?.lineItems ?? [], [estimate?.lineItems]);
+  // Join line items back to the guided view their damage region came from.
+  const sourceViewLabelByDamageId = useMemo(
+    () => new Map(
+      (scan?.damages ?? [])
+        .filter((damage) => Boolean(damage.sourceView?.label))
+        .map((damage) => [damage.id, damage.sourceView!.label])
+    ),
+    [scan?.damages]
+  );
   const selectedLines = useMemo(
     () => lineItems.filter((line) => selectedIds.includes(line.id)),
     [lineItems, selectedIds]
@@ -213,6 +222,9 @@ export default function EstimateScreen() {
               line={line}
               index={index}
               selected={selectedIds.includes(line.id)}
+              // Surfacing the source view makes a cross-view repeat of the same
+              // physical damage visible instead of silently doubling the total.
+              sourceViewLabel={sourceViewLabelByDamageId.get(line.damageId)}
               onPress={() => {
 
                 aiScanStore.toggleLineItem(line.id);
