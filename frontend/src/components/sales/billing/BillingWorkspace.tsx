@@ -251,21 +251,29 @@ export default function BillingWorkspace({
     setDownpayment(saveFirst.data.downpayment ?? 0);
 
     setCheckoutLoading(true);
-    const res = await BillingService.checkout(orderId, {
-      paymentMethod,
-      cashReceived: paymentMethod === 'cash' ? Number(cashReceived === '' ? due : cashReceived) : undefined,
-    });
-    setCheckoutLoading(false);
-    if (res.success && res.data) {
-      toast.success(`Invoiced: ${res.data.invoiceNumber}`);
-      onCheckoutSuccess?.({
-        invoiceNumber: res.data.invoiceNumber,
-        pdfUrl: res.data.pdfUrl,
-        snapshot: res.data.snapshot,
+    try {
+      const res = await BillingService.checkout(orderId, {
+        paymentMethod,
+        cashReceived: paymentMethod === 'cash' ? Number(cashReceived === '' ? due : cashReceived) : undefined,
       });
-      await load();
-    } else {
-      toast.error(res.message || 'Checkout failed');
+      if (res.success && res.data) {
+        toast.success(`Invoiced: ${res.data.invoiceNumber}`);
+        onCheckoutSuccess?.({
+          invoiceNumber: res.data.invoiceNumber,
+          pdfUrl: res.data.pdfUrl || '',
+          snapshot: res.data.snapshot,
+        });
+        const refreshed = await BillingService.getBilling(orderId);
+        if (refreshed.success && 'data' in refreshed && refreshed.data) {
+          setBilling(refreshed.data);
+        } else {
+          toast.warning('Payment completed. Billing refresh can be retried without submitting payment again.');
+        }
+      } else {
+        toast.error(res.message || 'Checkout failed');
+      }
+    } finally {
+      setCheckoutLoading(false);
     }
   };
 

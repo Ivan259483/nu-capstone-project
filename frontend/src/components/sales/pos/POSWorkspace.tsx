@@ -475,6 +475,7 @@ export default function POSWorkspace({
   const [showReceipt, setShowReceipt] = useState(false);
   const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [paymentStatusUnknown, setPaymentStatusUnknown] = useState(false);
   const [cashReceived, setCashReceived] = useState('');
   const [gcashAmountReceived, setGcashAmountReceived] = useState('');
   const [gcashReference, setGcashReference] = useState('');
@@ -554,6 +555,7 @@ export default function POSWorkspace({
     setQueuedOrderContext(null);
     setPendingQueuedOrder(null);
     setSelectedOrderStale(false);
+    setPaymentStatusUnknown(false);
     setBillingComputedLive(null);
     setBillingCharges(emptyBillingCharges());
     setLastInvoiceSnap(null);
@@ -890,6 +892,7 @@ export default function POSWorkspace({
     setPosBillingOrderId(null);
     setQueuedOrderContext(hydrated.queuedContext);
     setSelectedOrderStale(false);
+    setPaymentStatusUnknown(false);
     setPaymentMethod('cash');
     setCashReceived('');
     setGcashAmountReceived('');
@@ -1332,6 +1335,12 @@ export default function POSWorkspace({
 
   const handleProcessPayment = () => {
     setPaymentValidationAttempted(true);
+    if (paymentStatusUnknown) {
+      toast.error('Payment status is still unverified.', {
+        description: 'Reload this queued order to check the server before submitting again.',
+      });
+      return;
+    }
     if (selectedOrderStale) {
       showStaleToastOnce(effectiveOrderId);
       clearQueuedOrderContext();
@@ -1373,9 +1382,11 @@ export default function POSWorkspace({
           cashReceived: pm === 'cash' ? cashReceivedAmount : undefined,
           amountReceived: pm === 'gcash' ? gcashReceivedAmount : undefined,
           paymentReference: pm === 'gcash' ? gcashReference.trim() : undefined,
+        }, {
+          reference: queuedOrderContext?.label || orderReference(activeUnpaidOrder),
         });
         if (!chk.success || !('data' in chk) || !chk.data) {
-          if ((chk as { status?: number; code?: string }).status === 409 || (chk as { code?: string }).code === 'POS_QUEUE_STALE') {
+          if ((chk as { code?: string }).code === 'POS_QUEUE_STALE') {
             setSelectedOrderStale(true);
             showStaleToastOnce(effectiveOrderId);
             clearQueuedOrderContext();
@@ -1383,8 +1394,21 @@ export default function POSWorkspace({
             setProcessing(false);
             return;
           }
-          toast.error(chk.message || 'Checkout failed');
+          if ((chk as { paymentStatusUnknown?: boolean }).paymentStatusUnknown) {
+            setPaymentStatusUnknown(true);
+            toast.error(chk.message || 'Payment status could not be verified.', {
+              description: 'The loaded order and queue remain visible. Reload the order before trying again.',
+            });
+            return;
+          }
+          toast.error(chk.message || 'Checkout failed', {
+            action: {
+              label: 'Retry',
+              onClick: () => { void executeConfirmedPayment(); },
+            },
+          });
         } else {
+          setPaymentStatusUnknown(false);
           const chkData = chk.data;
           const savedReceipt = (chkData.receipt || {}) as any;
           const txnId = String(
@@ -1499,7 +1523,7 @@ export default function POSWorkspace({
         cashReceived: pm === 'cash' ? cashReceivedAmount : undefined,
         amountReceived: pm === 'gcash' ? gcashReceivedAmount : undefined,
         paymentReference: pm === 'gcash' ? gcashReference.trim() : undefined,
-      });
+      }, { reference: createRes.data?.bookingReference || createRes.data?.orderNumber || null });
       if (!chk.success || !('data' in chk) || !chk.data) {
         toast.error(chk.message || 'Checkout failed');
         return;
@@ -1592,6 +1616,7 @@ export default function POSWorkspace({
     setQueuedOrderContext(null);
     setPendingQueuedOrder(null);
     setSelectedOrderStale(false);
+    setPaymentStatusUnknown(false);
   };
 
   const receiptSnap = receiptData;
@@ -1708,7 +1733,7 @@ export default function POSWorkspace({
                 compact={Boolean(effectiveOrderId)}
                 paymentMethod={paymentMethod}
                 processing={processing}
-                paymentDisabled={Boolean(paymentValidationMessage)}
+                paymentDisabled={Boolean(paymentValidationMessage) || paymentStatusUnknown}
                 queuedOrderLabel={queuedOrderContext?.label ?? null}
                 onClearQueuedOrder={queuedOrderContext ? clearQueuedOrderContext : undefined}
                 transactionNotes={transactionNotes}

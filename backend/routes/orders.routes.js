@@ -16,6 +16,7 @@ import {
 } from '../constants/roles.js';
 import {
   getBilling,
+  getCheckoutStatus,
   getPosQueueLoad,
   putBilling,
   checkoutBilling,
@@ -95,6 +96,7 @@ router.get(
  * @desc Load or create draft billing for an order
  */
 router.get('/:orderId/billing', authorize(...POS_MANAGER_ROLES), getBilling);
+router.get('/:orderId/billing/checkout-status', authorize(...POS_MANAGER_ROLES), getCheckoutStatus);
 
 /**
  * @route GET /api/orders/:orderId/pos-queue-load

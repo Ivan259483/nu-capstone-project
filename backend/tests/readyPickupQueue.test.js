@@ -359,11 +359,20 @@ test('balance pickup queue route is protected and registered before dynamic orde
 test('final QC gate creates a Sales task; payment enables handover without completing the service', async () => {
   const qc = await seedUser('staff_quality_checker');
   const sales = await seedUser('sales');
-  const { order } = await seedEligibleOrder({ order: {
+  const { order, billing } = await seedEligibleOrder({ order: {
     serviceTrackingStage: 'quality_check',
     qcCompletedAt: null,
+    totalAmount: 7999,
+    totalPrice: 7999,
+    downPaymentAmount: 500,
     trackerStageMedia: [...pickupMedia(), { stage: 'quality_check', slot: 'front', photoUrl: 'https://example.test/qc.jpg' }],
   } });
+  billing.lineItems = [{ name: 'SPF 80 - Essential', unitPrice: 7999, quantity: 1 }];
+  await billing.save();
+  await Payment.updateOne(
+    { order: order._id, transactionType: 'reservation_fee' },
+    { $set: { amount: 500, amountSubmitted: 500, amountVerified: 500 } }
+  );
   const qcHeaders = { Authorization: `Bearer ${tokenFor(qc)}` };
   const salesHeaders = { Authorization: `Bearer ${tokenFor(sales)}` };
   const setStage = (stage) => requestJson(`/api/qc/jobs/${order._id}/service-status`, {
@@ -384,18 +393,42 @@ test('final QC gate creates a Sales task; payment enables handover without compl
     assert.match(blocked.body.message, /final balance/);
   }
   const deniedCheckout = await requestJson(`/api/bookings/${order._id}/billing/checkout`, {
-    method: 'POST', headers: qcHeaders, body: JSON.stringify({ paymentMethod: 'cash', cashReceived: 800 }),
+    method: 'POST', headers: qcHeaders, body: JSON.stringify({ paymentMethod: 'cash', cashReceived: 7499 }),
   });
   assert.equal(deniedCheckout.response.status, 403);
 
+  const beforeCheckoutStatus = await requestJson(
+    `/api/bookings/${order._id}/billing/checkout-status`,
+    { headers: salesHeaders }
+  );
+  assert.equal(beforeCheckoutStatus.response.status, 200);
+  assert.equal(beforeCheckoutStatus.body.paymentCommitted, false);
+
+  const inlinePhoto = `data:image/jpeg;base64,${'A'.repeat(350 * 1024)}`;
+  await Order.collection.updateOne(
+    { _id: order._id },
+    { $set: {
+      'trackerStageMedia.$[media].photoUrl': inlinePhoto,
+    } },
+    { arrayFilters: [{ 'media.stage': 'ready_pickup' }] }
+  );
+
+  const checkoutStartedAt = performance.now();
   const checkout = await requestJson(`/api/bookings/${order._id}/billing/checkout`, {
-    method: 'POST', headers: salesHeaders, body: JSON.stringify({ paymentMethod: 'cash', cashReceived: 800 }),
+    method: 'POST',
+    headers: { ...salesHeaders, 'Idempotency-Key': `pos-final:${order._id}` },
+    body: JSON.stringify({ paymentMethod: 'cash', cashReceived: 7499 }),
   });
+  const checkoutDurationMs = performance.now() - checkoutStartedAt;
   assert.equal(checkout.response.status, 200, JSON.stringify(checkout.body));
+  assert.ok(checkoutDurationMs < 3000, `checkout took ${checkoutDurationMs.toFixed(1)}ms`);
   assert.ok(checkout.body.data.receipt.transactionId);
   assert.equal(checkout.body.data.vehicleReleaseAvailable, true);
   const paid = await Order.findById(order._id);
   assert.equal(paid.paymentStatus, 'paid');
+  assert.equal(paid.amountCollected, 7999);
+  assert.equal(paid.downPaymentAmount, 500);
+  assert.equal(paid.finalPaymentAmount, 7499);
   assert.equal(paid.status, 'ready_for_payment');
   assert.equal(paid.serviceTrackingStage, 'ready_pickup');
   assert.equal(paid.posQueueStatus, null);
@@ -404,6 +437,7 @@ test('final QC gate creates a Sales task; payment enables handover without compl
   assert.equal(paymentUpdate.payload.serviceTrackingStage, 'ready_pickup');
   assert.equal(paymentUpdate.payload.posQueueStatus, null);
   assert.ok(paymentUpdate.payload.invoiceId);
+  assert.equal(JSON.stringify(paymentUpdate.payload).includes('data:image'), false);
   assert.equal(paid.readyForPaymentAt.getTime(), queued.readyForPaymentAt.getTime());
 
   const qcJobs = await requestJson(`/api/qc/jobs?scope=all&orderId=${order._id}`, { headers: qcHeaders });
@@ -417,10 +451,27 @@ test('final QC gate creates a Sales task; payment enables handover without compl
   assert.equal(paymentQueue.body.data.length, 0);
 
   const duplicate = await requestJson(`/api/bookings/${order._id}/billing/checkout`, {
-    method: 'POST', headers: salesHeaders, body: JSON.stringify({ paymentMethod: 'cash', cashReceived: 800 }),
+    method: 'POST',
+    headers: { ...salesHeaders, 'Idempotency-Key': `pos-final:${order._id}` },
+    body: JSON.stringify({ paymentMethod: 'cash', cashReceived: 7499 }),
   });
-  assert.equal(duplicate.response.status, 400);
+  assert.equal(duplicate.response.status, 200, JSON.stringify(duplicate.body));
+  assert.equal(duplicate.body.idempotent, true);
+  assert.equal(duplicate.body.paymentCommitted, true);
+  assert.equal(duplicate.body.data.paymentId, checkout.body.data.paymentId);
   assert.equal(await Payment.countDocuments({ order: order._id, transactionType: 'service_balance' }), 1);
+  const finalPayment = await Payment.findOne({ order: order._id, transactionType: 'service_balance' });
+  assert.equal(finalPayment.amount, 7499);
+  assert.equal(finalPayment.downpayment, 500);
+  const afterCheckoutStatus = await requestJson(
+    `/api/bookings/${order._id}/billing/checkout-status`,
+    { headers: salesHeaders }
+  );
+  assert.equal(afterCheckoutStatus.response.status, 200);
+  assert.equal(afterCheckoutStatus.body.paymentCommitted, true);
+  assert.equal(afterCheckoutStatus.body.data.paymentId, checkout.body.data.paymentId);
+  const persistedMedia = (await Order.collection.findOne({ _id: order._id })).trackerStageMedia;
+  assert.ok(persistedMedia.filter((row) => row.stage === 'ready_pickup').every((row) => row.photoUrl === inlinePhoto));
 
   const handover = await setStage('released');
   assert.equal(handover.response.status, 200, JSON.stringify(handover.body));

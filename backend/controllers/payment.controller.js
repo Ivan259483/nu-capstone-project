@@ -16,7 +16,11 @@ import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { notifyCustomerReceiptReady } from '../utils/customerReceiptNotification.utils.js';
 import { createCustomerPaymentConfirmedNotification } from '../utils/customerStageNotifications.utils.js';
 import { normalizeMoney, computeDiscountAmount, computeBillingTotals } from '../utils/billingTotals.js';
-import { countGatePhotos, REQUIRED_GATE_PHOTOS } from '../utils/trackerGatePhotos.utils.js';
+import {
+  countGatePhotos,
+  REQUIRED_GATE_PHOTOS,
+  readyPickupSlotProgressFromEvidence,
+} from '../utils/trackerGatePhotos.utils.js';
 import {
   evaluateReadyForPickupQueueEligibility,
 } from '../utils/readyPickupPaymentFlow.utils.js';
@@ -63,7 +67,6 @@ import {
   findCustomerPaymentInvoiceMetadata,
   reservationReceiptNumber,
 } from './customerReceipt.controller.js';
-import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
 
 const LOW_STOCK_THRESHOLD = 10;
 const LOCAL_PAYMENTS_PROVIDER = (process.env.LOCAL_PAYMENTS_PROVIDER || 'paymongo').toLowerCase();
@@ -192,12 +195,13 @@ const isPickupQueueCheckoutContext = (order) => {
   );
 };
 
-const assertPickupQueueCheckoutStillEligible = async (order) => {
+const assertPickupQueueCheckoutStillEligible = async (order, pickupEvidence) => {
   if (!isPickupQueueCheckoutContext(order)) return null;
   const result = await evaluateReadyForPickupQueueEligibility(order, {
     persist: false,
     emit: false,
     notify: false,
+    ...(pickupEvidence === undefined ? {} : { pickupEvidence }),
   });
   if (!result.eligible || result.remainingBalance <= 0) {
     throw checkoutConflict(
@@ -1584,6 +1588,7 @@ export const runPosCheckoutCore = async ({
   invoiceRecordId = null,
   billingVersion = null,
   metadataExtra = {},
+  pickupEvidence,
 }) => {
   const subtotal = normalizeMoney(subtotalIn);
   const discountAmount = normalizeMoney(discountAmountIn);
@@ -1625,7 +1630,7 @@ export const runPosCheckoutCore = async ({
     throw checkoutConflict('This order is already finalized and cannot be checked out again.');
   }
 
-  await assertPickupQueueCheckoutStillEligible(order);
+  await assertPickupQueueCheckoutStillEligible(order, pickupEvidence);
 
   const duplicatePayment = await Payment.findOne({
     checkoutReference,
@@ -1721,6 +1726,7 @@ export const runPosCheckoutCore = async ({
   const balanceRemaining = normalizeMoney(Math.max(0, grandTotal - dp - amountCollected));
 
   let payment;
+  const paymentCreateStartedAt = process.hrtime.bigint();
   try {
     payment = await Payment.create({
       invoiceId,
@@ -1749,6 +1755,7 @@ export const runPosCheckoutCore = async ({
       providerReference: `POS-${invoiceId}`,
       paymentReference: paymentMethod === 'gcash' ? normalizedPaymentReference : null,
       checkoutReference,
+      idempotencyKey: metadataExtra.idempotencyKey || null,
       staffAssigned: resolvedStaffId,
       submittedAt: new Date(),
       reviewedAt: new Date(),
@@ -1780,7 +1787,25 @@ export const runPosCheckoutCore = async ({
         changedBy: resolvedStaffId,
       }],
     });
+    console.info('[POS PAYMENT]', {
+      endpoint: req.originalUrl || req.url || null,
+      orderId: order._id?.toString?.(),
+      reference: order.bookingReference || order.orderNumber || null,
+      step: 'create_payment_transaction',
+      httpStatus: null,
+      responseBody: { paymentId: payment._id?.toString?.(), status: payment.status, amount: payment.amount },
+      durationMs: (Number(process.hrtime.bigint() - paymentCreateStartedAt) / 1e6).toFixed(1),
+    });
   } catch (error) {
+    console.info('[POS PAYMENT]', {
+      endpoint: req.originalUrl || req.url || null,
+      orderId: order._id?.toString?.(),
+      reference: order.bookingReference || order.orderNumber || null,
+      step: 'create_payment_transaction',
+      httpStatus: null,
+      responseBody: { code: error.code || null, message: error.message },
+      durationMs: (Number(process.hrtime.bigint() - paymentCreateStartedAt) / 1e6).toFixed(1),
+    });
     if (error?.code === 11000 && error?.keyPattern?.checkoutReference) {
       throw checkoutConflict('Checkout already completed for this order.');
     }
@@ -1807,7 +1832,9 @@ export const runPosCheckoutCore = async ({
   const occupancyBefore = captureOrderSlotOccupancy(order);
   const prevPosStatus = order.status;
   const prevTrackingStage = order.serviceTrackingStage;
-  const readyPickupPhotosComplete = countGatePhotos(order, 'ready_pickup') >= REQUIRED_GATE_PHOTOS;
+  const readyPickupPhotosComplete = pickupEvidence === undefined
+    ? countGatePhotos(order, 'ready_pickup') >= REQUIRED_GATE_PHOTOS
+    : readyPickupSlotProgressFromEvidence(pickupEvidence).complete;
   // Payment makes release available; only an explicit customer handover releases the vehicle.
   const fullySettled = balanceRemaining <= 0;
   const prevStatusKey = String(prevPosStatus || '').toLowerCase().replace(/-/g, '_');
@@ -1852,8 +1879,22 @@ export const runPosCheckoutCore = async ({
     order.serviceTrackingUpdatedAt = new Date();
     order.serviceTrackingUpdatedBy = req.user?.name || req.user?.id || 'POS';
   }
+  const orderSettleStartedAt = process.hrtime.bigint();
   try {
     await saveOrderWithSlotTransition(order, occupancyBefore);
+    console.info('[POS PAYMENT]', {
+      endpoint: req.originalUrl || req.url || null,
+      orderId: order._id?.toString?.(),
+      reference: order.bookingReference || order.orderNumber || null,
+      step: 'mark_order_settled',
+      httpStatus: null,
+      responseBody: {
+        paymentStatus: order.paymentStatus,
+        status: order.status,
+        posQueueStatus: order.posQueueStatus,
+      },
+      durationMs: (Number(process.hrtime.bigint() - orderSettleStartedAt) / 1e6).toFixed(1),
+    });
   } catch (saveError) {
     console.error('[POS] Order finalization failed after payment create. Rolling back payment.', {
       orderId: order._id?.toString?.(),
@@ -1861,12 +1902,33 @@ export const runPosCheckoutCore = async ({
       checkoutReference,
       error: saveError.message,
     });
+    console.info('[POS PAYMENT]', {
+      endpoint: req.originalUrl || req.url || null,
+      orderId: order._id?.toString?.(),
+      reference: order.bookingReference || order.orderNumber || null,
+      step: 'mark_order_settled',
+      httpStatus: null,
+      responseBody: { code: saveError.code || null, message: saveError.message },
+      durationMs: (Number(process.hrtime.bigint() - orderSettleStartedAt) / 1e6).toFixed(1),
+    });
     await Payment.deleteOne({ _id: payment._id }).catch((rollbackError) => {
       console.error('[POS] Payment rollback failed after order save failure:', rollbackError.message);
     });
     throw saveError;
   }
-  await applyInventoryDeductions(order);
+  try {
+    await applyInventoryDeductions(order);
+  } catch (inventoryError) {
+    inventoryWarnings.push({
+      code: 'INVENTORY_DEDUCTION_FAILED',
+      message: inventoryError.message,
+    });
+    console.error('[POS PAYMENT] step=inventory_deduction outcome=error', {
+      orderId: order._id?.toString?.(),
+      paymentId: payment._id?.toString?.(),
+      message: inventoryError.message,
+    });
+  }
 
   if (prevPosStatus !== order.status || String(prevTrackingStage || '') !== String(order.serviceTrackingStage || '')) {
     onOrderStatusChange(order, prevPosStatus, req.user).catch((err) =>
@@ -1943,7 +2005,6 @@ export const runPosCheckoutCore = async ({
         paymentStatus: 'paid',
         invoiceId: order.invoiceId || null,
         customerStatus: order.customerStatus,
-        trackerStageMedia: getCustomerVisibleTrackerStageMedia(order),
         updatedAt: new Date().toISOString(),
       });
     }
@@ -1957,7 +2018,6 @@ export const runPosCheckoutCore = async ({
       posQueueStatus: order.posQueueStatus || null,
       readyForPickupEvidenceComplete: order.readyForPickupEvidenceComplete,
       readyForPaymentAt: order.readyForPaymentAt || null,
-      trackerStageMedia: order.trackerStageMedia || [],
       updatedAt: new Date().toISOString(),
     });
     io.to('booking:approvals').emit('pos:transaction_completed', {
