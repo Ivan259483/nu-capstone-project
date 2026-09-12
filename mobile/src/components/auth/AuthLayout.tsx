@@ -26,7 +26,13 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { AuthColors, AuthRadius, AuthSpacing, AuthTypography } from '@/constants/authTheme';
+import {
+  AuthColors,
+  AuthFontFamily,
+  AuthRadius,
+  AuthSpacing,
+  AuthTypography,
+} from '@/constants/authTheme';
 
 /** Cinematic photo backdrop with a neutral scrim used by Sign In and Welcome. */
 export function AuthBackdrop({
@@ -58,6 +64,7 @@ export function AuthBackdrop({
 
 interface AuthLayoutProps {
   backgroundImage?: ImageSourcePropType;
+  appearance?: 'default' | 'loginBrand';
   showBack?: boolean;
   onBack?: () => void;
   logo?: React.ReactNode;
@@ -71,9 +78,11 @@ interface AuthLayoutProps {
 }
 
 const DEFAULT_LOGO_SOURCE = require('../../../assets/images/autospf-logo.png');
+const LOGIN_BRAND_BACKGROUND_SOURCE = require('../../../assets/images/login-cinematic-bg.png');
 
 export default function AuthLayout({
   backgroundImage,
+  appearance = 'default',
   showBack = false,
   onBack,
   logo,
@@ -85,6 +94,9 @@ export default function AuthLayout({
   keyboardAvoiding = true,
   contentContainerStyle,
 }: AuthLayoutProps) {
+  const isLoginBrand = appearance === 'loginBrand';
+  const resolvedBackgroundImage = backgroundImage
+    ?? (isLoginBrand ? LOGIN_BRAND_BACKGROUND_SOURCE : undefined);
   const resolvedLogo = logo === undefined ? (
     <Image
       source={DEFAULT_LOGO_SOURCE}
@@ -96,16 +108,24 @@ export default function AuthLayout({
 
   const slots = (
     <>
-      {resolvedLogo ? <View style={styles.logoSlot}>{resolvedLogo}</View> : null}
-
-      {title ? (
-        <View style={styles.titleBlock}>
-          <Text style={styles.title}>{title}</Text>
-          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+      {resolvedLogo ? (
+        <View style={[styles.logoSlot, isLoginBrand && styles.logoSlotLoginBrand]}>
+          {resolvedLogo}
         </View>
       ) : null}
 
-      <View style={styles.formSlot}>{children}</View>
+      {title ? (
+        <View style={[styles.titleBlock, isLoginBrand && styles.titleBlockLoginBrand]}>
+          <Text style={[styles.title, isLoginBrand && styles.titleLoginBrand]}>{title}</Text>
+          {subtitle ? (
+            <Text style={[styles.subtitle, isLoginBrand && styles.subtitleLoginBrand]}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      <View style={[styles.formSlot, isLoginBrand && styles.formSlotLoginBrand]}>{children}</View>
     </>
   );
 
@@ -125,26 +145,47 @@ export default function AuthLayout({
 
       {scrollable ? (
         <ScrollView
-          contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            isLoginBrand && styles.scrollContentLoginBrand,
+            contentContainerStyle,
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
           {slots}
         </ScrollView>
       ) : (
-        <View style={[styles.scrollContent, contentContainerStyle]}>{slots}</View>
+        <View
+          style={[
+            styles.scrollContent,
+            isLoginBrand && styles.scrollContentLoginBrand,
+            contentContainerStyle,
+          ]}
+        >
+          {slots}
+        </View>
       )}
 
-      {footer ? <View style={styles.footerSlot}>{footer}</View> : null}
+      {footer ? (
+        <View style={[styles.footerSlot, isLoginBrand && styles.footerSlotLoginBrand]}>
+          {footer}
+        </View>
+      ) : null}
     </>
   );
 
   return (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: backgroundImage ? 'transparent' : AuthColors.bg }]}
+      style={[
+        styles.container,
+        { backgroundColor: resolvedBackgroundImage ? 'transparent' : AuthColors.bg },
+      ]}
       edges={['top', 'bottom']}
     >
-      {backgroundImage ? <AuthBackdrop source={backgroundImage} /> : null}
+      {resolvedBackgroundImage ? (
+        <AuthBackdrop source={resolvedBackgroundImage} bottomFade={isLoginBrand} />
+      ) : null}
       {keyboardAvoiding ? (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
           {body}
@@ -183,9 +224,18 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 24,
   },
+  scrollContentLoginBrand: {
+    alignItems: 'center',
+  },
   logoSlot: {
     alignItems: 'center',
     marginBottom: AuthSpacing.sectionGap,
+  },
+  logoSlotLoginBrand: {
+    // The source asset contains about 27px of visible black canvas below the
+    // mark at this rendered size. Five layout pixels keep the visible artwork
+    // approximately 32px above the heading.
+    marginBottom: 5,
   },
   logo: {
     width: 120,
@@ -194,12 +244,24 @@ const styles = StyleSheet.create({
   titleBlock: {
     marginBottom: AuthSpacing.sectionGap,
   },
+  titleBlockLoginBrand: {
+    width: '100%',
+    maxWidth: 430,
+    alignItems: 'center',
+  },
   title: {
     fontFamily: AuthTypography.h1.fontFamily,
     fontSize: AuthTypography.h1.fontSize,
     lineHeight: AuthTypography.h1.lineHeight,
     letterSpacing: AuthTypography.h1.letterSpacing,
     color: AuthColors.textPrimary,
+  },
+  titleLoginBrand: {
+    fontFamily: AuthFontFamily.bold,
+    fontSize: 28,
+    lineHeight: 34,
+    letterSpacing: -0.5,
+    textAlign: 'center',
   },
   subtitle: {
     fontFamily: AuthTypography.bodySecondary.fontFamily,
@@ -208,11 +270,25 @@ const styles = StyleSheet.create({
     color: AuthColors.textSecondary,
     marginTop: 8,
   },
+  subtitleLoginBrand: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
   formSlot: {
     width: '100%',
+  },
+  formSlotLoginBrand: {
+    maxWidth: 430,
+    alignSelf: 'center',
   },
   footerSlot: {
     paddingHorizontal: AuthSpacing.screenPaddingHorizontal,
     paddingBottom: 8,
+  },
+  footerSlotLoginBrand: {
+    width: '100%',
+    maxWidth: 430,
+    alignSelf: 'center',
   },
 });

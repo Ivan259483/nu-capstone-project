@@ -77,7 +77,7 @@ export default function Contact() {
             {/* ══════════════════════════════════
                 HERO SECTION
             ══════════════════════════════════ */}
-            <section className="relative pt-36 pb-24 overflow-hidden">
+            <section className="relative pt-36 pb-8 overflow-hidden">
                 <div className="absolute inset-0 bg-hero-pattern" />
                 <div
                     className="absolute inset-0"
@@ -392,10 +392,8 @@ export default function Contact() {
                                                     onClick={() => setSent(true)}
                                                     disabled={!form.name || !form.email || !form.message}
                                                     className={cn(
-                                                        "w-full h-13 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all duration-300 group/btn cursor-pointer",
-                                                        "bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/20",
-                                                        "hover:shadow-amber-500/40 hover:from-amber-600 hover:to-orange-700",
-                                                        "disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:shadow-none"
+                                                        "public-luxury-cta public-luxury-cta--primary w-full rounded-xl group/btn cursor-pointer",
+                                                        "disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:transform-none disabled:hover:shadow-none"
                                                     )}
                                                     style={{ height: "52px" }}
                                                 >

@@ -127,13 +127,13 @@ export function usePublishedBookingPackages() {
 
 /** Labels for price tier selector (matches booking modal). */
 export const CUSTOMER_BOOKING_PRICE_TIERS: { key: VehiclePriceKey; label: string }[] = [
-    { key: "hatchback", label: "Hatchback / Small Car" },
+    { key: "hatchback", label: "Hatchback" },
     { key: "sedan", label: "Sedan" },
-    { key: "midsized", label: "Midsized" },
+    { key: "midsized", label: "Midsize" },
     { key: "suv", label: "SUV" },
     { key: "pickup", label: "Pickup" },
     { key: "largesuv", label: "Large SUV / Van" },
-    { key: "highend", label: "High-End Sedan" },
+    { key: "highend", label: "High-end Sedan" },
 ];
 
 /** Signature menu items (marketing / booking catalog). */

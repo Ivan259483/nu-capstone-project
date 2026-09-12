@@ -41,6 +41,13 @@ export interface BackendService {
   isPublished: boolean;
 }
 
+export interface ServicePricingCategory {
+  code: string;
+  apiKey: string;
+  legacyKey: string;
+  label: string;
+}
+
 /** Returns the effective price for a service given the selected vehicle type */
 export function getEffectivePrice(svc: BackendService, vehicleType: VehicleType): number | null {
   const pricingKey = vehicleType === 'largesuv' ? 'largeSuv' : vehicleType;
@@ -54,6 +61,7 @@ export function getEffectivePrice(svc: BackendService, vehicleType: VehicleType)
 
 export function useServices() {
   const [services, setServices] = useState<BackendService[]>([]);
+  const [pricingCategories, setPricingCategories] = useState<ServicePricingCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,11 +69,16 @@ export function useServices() {
     const fetchServices = async () => {
       try {
         setIsLoading(true);
-        const { data } = await api.get('/services');
+        const [{ data }, catalogResponse] = await Promise.all([
+          api.get('/services'),
+          api.get('/services/catalog', { meta: { suppressErrorToast: true } } as any),
+        ]);
         if (data.success && Array.isArray(data.data)) {
           // Only show Active services in POS
           setServices(data.data.filter((s: BackendService) => s.status === 'Active'));
         }
+        const categories = catalogResponse.data?.data?.pricingCategories;
+        if (Array.isArray(categories)) setPricingCategories(categories);
       } catch (err: any) {
         console.error('[useServices] Failed to fetch services:', err);
         setError(err?.response?.data?.message || 'Failed to load services');
@@ -76,5 +89,5 @@ export function useServices() {
     fetchServices();
   }, []);
 
-  return { services, isLoading, error };
+  return { services, pricingCategories, isLoading, error };
 }

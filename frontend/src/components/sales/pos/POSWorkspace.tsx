@@ -402,7 +402,7 @@ export default function POSWorkspace({
   preloadOrderId = null,
   onPreloadConsumed,
 }: POSWorkspaceProps = {}) {
-  const { services, isLoading: servicesLoading } = useServices();
+  const { services, pricingCategories, isLoading: servicesLoading } = useServices();
   const { user: cashier } = useAuth();
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -1571,6 +1571,7 @@ export default function POSWorkspace({
           <div className="flex min-h-[40rem] flex-col overflow-hidden lg:col-span-5 lg:min-h-0">
             <ServiceCartPanel
               services={services}
+              pricingCategories={pricingCategories}
               servicesLoading={servicesLoading}
               selectedVehicleType={effectiveVehicleType}
               selectedVehicle={selectedVehicle}

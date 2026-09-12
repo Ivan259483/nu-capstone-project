@@ -16,11 +16,11 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 const vehicleOptions: { type: VehicleType; label: string; icon: ElementType }[] = [
     { type: 'hatchback', label: 'Hatchback', icon: CarFront },
     { type: 'sedan', label: 'Sedan', icon: Car },
-    { type: 'midsized', label: 'Midsized', icon: Car },
+    { type: 'midsized', label: 'Midsize', icon: Car },
     { type: 'suv', label: 'SUV', icon: Truck },
-    { type: 'pickup', label: 'Pick Up', icon: Truck },
+    { type: 'pickup', label: 'Pickup', icon: Truck },
     { type: 'largesuv', label: 'Large SUV / Van', icon: Truck },
-    { type: 'highend', label: 'Highend Sedan', icon: Crown },
+    { type: 'highend', label: 'High-end Sedan', icon: Crown },
 ];
 
 interface AdminServicesLivePreviewProps {

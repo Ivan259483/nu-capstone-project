@@ -117,9 +117,9 @@ const GHOST = 'rgba(255,255,255,0.08)'; // ghost border
 const VEHICLE_OPTIONS: { key: VehicleTypeKey; label: string; icon: string }[] = [
   { key: 'hatchback', label: 'Hatchback', icon: 'car-outline' },
   { key: 'sedan', label: 'Sedan', icon: 'car-sport-outline' },
-  { key: 'midsized', label: 'Midsized', icon: 'car-sport-outline' },
+  { key: 'midsized', label: 'Midsize', icon: 'car-sport-outline' },
   { key: 'suv', label: 'SUV', icon: 'car-outline' },
-  { key: 'pickup', label: 'Pick Up', icon: 'car-outline' },
+  { key: 'pickup', label: 'Pickup', icon: 'car-outline' },
   { key: 'largesuv', label: 'Large SUV / Van', icon: 'bus-outline' },
   { key: 'highend', label: 'High-end Sedan', icon: 'diamond-outline' },
 ];

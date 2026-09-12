@@ -4,7 +4,7 @@ import {
   Shield, Clock, BadgeCheck, ChevronDown, ChevronUp, Car,
 } from 'lucide-react';
 import { CartItem, Vehicle, formatPeso, formatVehicleTypeLabel } from '@/lib/salesData';
-import { BackendService, VehicleType, getEffectivePrice } from '@/hooks/useServices';
+import { BackendService, ServicePricingCategory, VehicleType, getEffectivePrice } from '@/hooks/useServices';
 
 // ── Vehicle type tab config ───────────────────────────────────────────────────
 type VehicleTab = { key: VehicleType; label: string };
@@ -33,7 +33,7 @@ const SPF_META: { match: string; meta: SPFMeta }[] = [
     match: 'SPF 80',
     meta: {
       badge: 'SPECIAL OFFER',
-      badgeColor: 'bg-sky-100 text-sky-700 shadow-sm shadow-sky-500/10',
+      badgeColor: 'bg-stone-100 text-stone-700 shadow-sm shadow-stone-500/10',
       tagline: 'Perfect entry-level protection',
       warranty: '3 Years',
     },
@@ -42,7 +42,7 @@ const SPF_META: { match: string; meta: SPFMeta }[] = [
     match: 'SPF 89',
     meta: {
       badge: 'RECOMMENDED',
-      badgeColor: 'bg-emerald-100 text-emerald-700 shadow-sm shadow-emerald-600/10',
+      badgeColor: 'bg-amber-100 text-amber-900 shadow-sm shadow-amber-500/15',
       tagline: 'Our most chosen package',
       warranty: '5 Years',
     },
@@ -51,7 +51,7 @@ const SPF_META: { match: string; meta: SPFMeta }[] = [
     match: 'SPF 99',
     meta: {
       badge: 'PREMIUM',
-      badgeColor: 'bg-blue-100 text-blue-800 shadow-sm shadow-blue-600/12',
+      badgeColor: 'bg-stone-100 text-stone-700 shadow-sm shadow-stone-500/10',
       tagline: 'Maximum protection, best price-to-value',
       warranty: '10 Years',
     },
@@ -60,7 +60,7 @@ const SPF_META: { match: string; meta: SPFMeta }[] = [
     match: 'SPF 101',
     meta: {
       badge: 'ALL-IN PACKAGE',
-      badgeColor: 'bg-purple-100 text-purple-700 shadow-sm shadow-purple-600/10',
+      badgeColor: 'bg-stone-100 text-stone-700 shadow-sm shadow-stone-500/10',
       tagline: 'The complete transformation experience',
       warranty: '10 Years',
     },
@@ -79,6 +79,7 @@ function getSPFMeta(service: BackendService): SPFMeta | null {
 
 interface Props {
   services: BackendService[];
+  pricingCategories?: ServicePricingCategory[];
   servicesLoading: boolean;
   selectedVehicleType: VehicleType | null;
   selectedVehicle: Vehicle | null;
@@ -99,6 +100,7 @@ type PosCartItemMeta = CartItem & {
 
 export default function ServiceCartPanel({
   services,
+  pricingCategories = [],
   servicesLoading,
   selectedVehicleType,
   selectedVehicle,
@@ -119,7 +121,15 @@ export default function ServiceCartPanel({
   );
 
   const inCart = (id: string) => cartItems.some((c) => c.id === id);
-  const activeVehicleLabel = VEHICLE_TABS.find((t) => t.key === selectedVehicleType)?.label ?? 'Pricing category required';
+  const vehicleTabs = pricingCategories.length === 7
+    ? pricingCategories.flatMap((category) => {
+        const key = category.apiKey === 'largeSuv' ? 'largesuv' : category.apiKey;
+        return VEHICLE_TABS.some((tab) => tab.key === key)
+          ? [{ key: key as VehicleType, label: category.label }]
+          : [];
+      })
+    : VEHICLE_TABS;
+  const activeVehicleLabel = vehicleTabs.find((t) => t.key === selectedVehicleType)?.label ?? 'Pricing category required';
   const hasVehicle = Boolean(selectedVehicle);
   const selectedVehicleName = selectedVehicle
     ? [selectedVehicle.year, selectedVehicle.make, selectedVehicle.model].filter(Boolean).join(' ')
@@ -189,7 +199,7 @@ export default function ServiceCartPanel({
           </div>
         )}
         <div className="flex items-center justify-start gap-1 overflow-x-auto rounded-2xl bg-slate-100/55 p-1 shadow-inner" style={{ scrollbarWidth: 'none' }}>
-          {VEHICLE_TABS.map((tab) => {
+          {vehicleTabs.map((tab) => {
             const active = selectedVehicleType === tab.key;
             return (
               <button

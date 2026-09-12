@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Dimensions, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
+import { Text, TouchableOpacity, View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,7 +17,6 @@ import { Haptics } from '@/utils/haptics';
 
 type Step = 'email' | 'otp' | 'newPassword' | 'success';
 const OTP_LENGTH = 6;
-const SCREEN_H = Dimensions.get('window').height;
 const normalizeOtp = (value: string) => value.replace(/[^0-9]/g, '').slice(0, OTP_LENGTH);
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
@@ -208,7 +207,7 @@ export default function ForgotPasswordScreen() {
     success: {},
   };
 
-  const footer = (() => {
+  const actions = (() => {
     if (step === 'email') {
       return (
         <AuthButton
@@ -216,6 +215,7 @@ export default function ForgotPasswordScreen() {
           onPress={handleSendOtp}
           disabled={loading}
           loading={loading}
+          appearance="loginBrand"
         />
       );
     }
@@ -227,6 +227,7 @@ export default function ForgotPasswordScreen() {
             onPress={handleVerifyOtp}
             disabled={loading || normalizeOtp(otp).length < OTP_LENGTH}
             loading={loading}
+            appearance="loginBrand"
           />
           <View style={styles.resendRow}>
             {countdown > 0 ? (
@@ -247,21 +248,26 @@ export default function ForgotPasswordScreen() {
           onPress={handleResetPassword}
           disabled={loading}
           loading={loading}
+          appearance="loginBrand"
         />
       );
     }
-    return <AuthButton title="Back to sign in" onPress={() => router.replace('/(auth)/login')} />;
+    return (
+      <AuthButton
+        title="Back to sign in"
+        onPress={() => router.replace('/(auth)/login')}
+        appearance="loginBrand"
+      />
+    );
   })();
 
   return (
     <AuthLayout
+      appearance="loginBrand"
       showBack
       onBack={() => router.back()}
-      logo={null}
       title={stepConfig[step].title}
       subtitle={stepConfig[step].subtitle}
-      contentContainerStyle={{ paddingTop: SCREEN_H * 0.15 }}
-      footer={footer}
     >
       {feedback ? <AuthStatusCard {...feedback} style={styles.feedbackCard} /> : null}
 
@@ -278,6 +284,8 @@ export default function ForgotPasswordScreen() {
             textContentType="emailAddress"
             autoComplete="email"
             error={emailTouched ? emailError : ''}
+            appearance="loginBrand"
+            reserveErrorSpace
           />
         </Animated.View>
       )}
@@ -300,12 +308,18 @@ export default function ForgotPasswordScreen() {
             label="New password"
             placeholder="Min. 8 chars, 1 upper, 1 lower, 1 number"
             value={newPassword}
-            onChangeText={(t) => { setNewPassword(t); setPasswordError(''); }}
+            onChangeText={(t) => {
+              setNewPassword(t);
+              setPasswordError('');
+              setConfirmError('');
+            }}
             onBlur={() => { setPasswordTouched(true); setPasswordError(validateNewPasswordField(newPassword)); }}
             isPassword
             textContentType="newPassword"
             autoComplete="new-password"
             error={passwordTouched ? passwordError : ''}
+            appearance="loginBrand"
+            reserveErrorSpace
           />
           <AuthInput
             label="Confirm password"
@@ -317,6 +331,8 @@ export default function ForgotPasswordScreen() {
             textContentType="newPassword"
             autoComplete="new-password"
             error={confirmTouched ? confirmError : ''}
+            appearance="loginBrand"
+            reserveErrorSpace
           />
         </Animated.View>
       )}
@@ -335,12 +351,25 @@ export default function ForgotPasswordScreen() {
           </Text>
         </Animated.View>
       )}
+
+      <View
+        style={[
+          styles.actionSlot,
+          step === 'otp' && styles.actionSlotAfterOtp,
+          step === 'success' && styles.actionSlotAfterSuccess,
+        ]}
+      >
+        {actions}
+      </View>
     </AuthLayout>
   );
 }
 
 const styles = StyleSheet.create({
   feedbackCard: { marginBottom: 20 },
+  actionSlot: { marginTop: 12 },
+  actionSlotAfterOtp: { marginTop: 32 },
+  actionSlotAfterSuccess: { marginTop: 30 },
   resendRow: { alignItems: 'center' },
   resendMuted: { color: AuthColors.textTertiary, fontFamily: AuthFontFamily.regular, fontSize: 13 },
   resendLink: { color: AuthColors.textPrimary, fontFamily: AuthFontFamily.medium, fontSize: 14 },

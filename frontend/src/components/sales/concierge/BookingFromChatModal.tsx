@@ -29,11 +29,11 @@ type Props = {
 const VEHICLE_TYPES: { value: VehicleType; label: string }[] = [
   { value: 'hatchback', label: 'Hatchback' },
   { value: 'sedan', label: 'Sedan' },
-  { value: 'midsized', label: 'Mid-size' },
+  { value: 'midsized', label: 'Midsize' },
   { value: 'suv', label: 'SUV' },
   { value: 'pickup', label: 'Pickup' },
-  { value: 'largesuv', label: 'Large SUV' },
-  { value: 'highend', label: 'High-end vehicle' },
+  { value: 'largesuv', label: 'Large SUV / Van' },
+  { value: 'highend', label: 'High-end Sedan' },
 ];
 
 const todayIso = () => {

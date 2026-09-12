@@ -12,7 +12,11 @@ import BookingCTA from "@/components/BookingCTA";
 import FAQSection from "@/components/FAQSection";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { PublishedServicePricingSource } from "@/lib/service-pricing";
+import {
+    toPublicVehicleKey,
+    type PublishedServicePricingSource,
+    type PublicVehiclePriceKey,
+} from "@/lib/service-pricing";
 import { LuxuryServiceCard } from "@/components/services/LuxuryServiceCard";
 import {
     mergePublishedPricingIntoPackages,
@@ -21,6 +25,23 @@ import {
 } from "@/components/services/services-catalog-data";
 
 export type { VehicleType } from "@/components/services/services-catalog-data";
+
+type CatalogPricingCategory = {
+    code: string;
+    apiKey: string;
+    legacyKey: string;
+    label: string;
+};
+
+const VEHICLE_ICONS: Record<PublicVehiclePriceKey, React.ElementType> = {
+    hatchback: CarFront,
+    sedan: Car,
+    midsized: Car,
+    suv: Truck,
+    pickup: Truck,
+    largesuv: Truck,
+    highend: Crown,
+};
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -64,28 +85,42 @@ export default function Services() {
     const { t } = useLanguage();
     const [vehicleType, setVehicleType] = useState<VehicleType>("sedan");
     const [publishedServices, setPublishedServices] = useState<PublishedServicePricingSource[]>([]);
+    const [pricingCategories, setPricingCategories] = useState<CatalogPricingCategory[]>([]);
 
     const vehicleOptions: { type: VehicleType; label: string; icon: React.ElementType }[] = useMemo(
-        () => [
-            { type: "hatchback", label: t("servicesPage.vehicles.hatchback"), icon: CarFront },
-            { type: "sedan", label: t("servicesPage.vehicles.sedan"), icon: Car },
-            { type: "midsized", label: t("servicesPage.vehicles.midsized"), icon: Car },
-            { type: "suv", label: t("servicesPage.vehicles.suv"), icon: Truck },
-            { type: "pickup", label: t("servicesPage.vehicles.pickup"), icon: Truck },
-            { type: "largesuv", label: t("servicesPage.vehicles.largesuv"), icon: Truck },
-            { type: "highend", label: t("servicesPage.vehicles.highend"), icon: Crown },
-        ],
-        [t]
+        () => {
+            const fromCatalog = pricingCategories.flatMap((category) => {
+                const publicKey = toPublicVehicleKey(category.apiKey);
+                return publicKey
+                    ? [{ type: publicKey as VehicleType, label: category.label, icon: VEHICLE_ICONS[publicKey] }]
+                    : [];
+            });
+            if (fromCatalog.length === 7) return fromCatalog;
+            return [
+                { type: "hatchback", label: t("servicesPage.vehicles.hatchback"), icon: CarFront },
+                { type: "sedan", label: t("servicesPage.vehicles.sedan"), icon: Car },
+                { type: "midsized", label: t("servicesPage.vehicles.midsized"), icon: Car },
+                { type: "suv", label: t("servicesPage.vehicles.suv"), icon: Truck },
+                { type: "pickup", label: t("servicesPage.vehicles.pickup"), icon: Truck },
+                { type: "largesuv", label: t("servicesPage.vehicles.largesuv"), icon: Truck },
+                { type: "highend", label: t("servicesPage.vehicles.highend"), icon: Crown },
+            ] as { type: VehicleType; label: string; icon: React.ElementType }[];
+        },
+        [pricingCategories, t]
     );
 
     useEffect(() => {
         let active = true;
 
-        api.get('/services/published', { meta: { suppressErrorToast: true } } as any)
+        api.get('/services/catalog', { meta: { suppressErrorToast: true } } as any)
             .then((response) => {
-                const list = response.data?.data;
+                const list = response.data?.data?.packages;
+                const categories = response.data?.data?.pricingCategories;
                 if (active && Array.isArray(list)) {
                     setPublishedServices(list);
+                }
+                if (active && Array.isArray(categories)) {
+                    setPricingCategories(categories);
                 }
             })
             .catch((error) => {

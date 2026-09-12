@@ -27,7 +27,7 @@ export interface LuxuryServiceCardProps {
 }
 
 export function LuxuryServiceCard({
-    pkg,
+    pkg: catalogPackage,
     index,
     vehicleType,
     adminHighlight = false,
@@ -36,12 +36,23 @@ export function LuxuryServiceCard({
     const { t } = useLanguage();
     const user = useOptionalAuth()?.user;
     const bookingEntryPath = getBookingEntryPath(user?.role);
-    const Icon = pkg.icon;
+    const Icon = catalogPackage.icon;
     const [hovered, setHovered] = useState(false);
+
+    const isRecommended = catalogPackage.popular || /recommended/i.test(catalogPackage.badge);
+    const pkg = {
+        ...catalogPackage,
+        ...(isRecommended
+            ? { accentFrom: '#F4B63D', accentMid: '#E6A321', accentTo: '#D58A12' }
+            : { accentFrom: '#A69F93', accentMid: '#8A8378', accentTo: '#746F67' }),
+    };
+    const originalPriceMultiplier = (
+        catalogPackage as SPFPackage & { originalPriceMultiplier?: number }
+    ).originalPriceMultiplier ?? 2;
 
     const price = pkg.prices[vehicleType];
     const tintPrice = pkg.tintPrices[vehicleType];
-    const originalPrice = pkg.originalPrices?.[vehicleType] ?? (price ? price * pkg.originalPriceMultiplier : null);
+    const originalPrice = pkg.originalPrices?.[vehicleType] ?? (price ? price * originalPriceMultiplier : null);
     if (price === null) return null;
 
     const discountLabel =
@@ -53,7 +64,7 @@ export function LuxuryServiceCard({
 
     const isFlagship = pkg.flagship;
     const isPopular = pkg.popular;
-    const isHighlighted = isPopular || isFlagship;
+    const isHighlighted = isRecommended;
 
     const preservePackageBookingIntent = () => {
         const role = String(user?.role || '').trim().toLowerCase();
@@ -168,7 +179,7 @@ export function LuxuryServiceCard({
                             transition: 'box-shadow 0.5s ease',
                         }}
                     >
-                        <Icon className="w-7 h-7 text-white relative z-10" />
+                        <Icon className={cn('w-7 h-7 relative z-10', isHighlighted ? 'text-[#07070A]' : 'text-white')} />
                         <div className="absolute inset-0 rounded-2xl bg-gradient-to-tr from-white/25 via-transparent to-transparent" />
                         {isHighlighted && (
                             <motion.div
@@ -215,9 +226,9 @@ export function LuxuryServiceCard({
                                 viewport={{ once: true }}
                                 className="text-[10px] px-2.5 py-[4px] rounded-full font-black uppercase tracking-wider"
                                 style={{
-                                    background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                                    color: '#fff',
-                                    boxShadow: '0 4px 16px rgba(239,68,68,0.4)',
+                                    background: `linear-gradient(135deg, ${pkg.accentFrom}, ${pkg.accentTo})`,
+                                    color: isHighlighted ? '#07070A' : '#ffffff',
+                                    boxShadow: `0 4px 16px ${pkg.accentFrom}35`,
                                 }}
                                 transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
                             >
@@ -336,7 +347,7 @@ export function LuxuryServiceCard({
                                 background: isHighlighted
                                     ? `linear-gradient(135deg, ${pkg.accentFrom}, ${pkg.accentTo})`
                                     : `linear-gradient(135deg, ${pkg.accentFrom}18, ${pkg.accentTo}0a)`,
-                                color: isHighlighted ? '#fff' : 'rgba(255,255,255,0.80)',
+                                color: isHighlighted ? '#07070A' : 'rgba(255,255,255,0.80)',
                                 border: isHighlighted ? `1px solid ${pkg.accentFrom}50` : `1px solid ${pkg.accentFrom}25`,
                                 letterSpacing: '0.08em',
                             }}
@@ -358,7 +369,7 @@ export function LuxuryServiceCard({
                                     background: isHighlighted
                                         ? `linear-gradient(135deg, ${pkg.accentFrom}, ${pkg.accentTo})`
                                         : `linear-gradient(135deg, ${pkg.accentFrom}18, ${pkg.accentTo}0a)`,
-                                    color: isHighlighted ? '#fff' : 'rgba(255,255,255,0.80)',
+                                    color: isHighlighted ? '#07070A' : 'rgba(255,255,255,0.80)',
                                     border: isHighlighted ? `1px solid ${pkg.accentFrom}50` : `1px solid ${pkg.accentFrom}25`,
                                     boxShadow: isHighlighted ? `0 8px 30px ${pkg.accentFrom}30` : `0 2px 12px ${pkg.accentFrom}08`,
                                     letterSpacing: '0.08em',

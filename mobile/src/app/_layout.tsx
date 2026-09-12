@@ -39,6 +39,7 @@ import { SystemStatusProvider } from '@/context/SystemStatusContext';
 import SystemStatusGate from '@/components/SystemStatusGate';
 import { FullScreenLoader } from '@/components/ui/loading';
 import { Motion } from '@/constants/motion';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 // Keep the native splash visible while AuthContext restores and validates the
 // persisted session. Failure is non-fatal: Expo can continue with auto-hide.
@@ -243,24 +244,30 @@ function GlobalWatchers({ children }: { children: React.ReactNode }) {
 export default function RootLayout() {
   return (
     <GlobalErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          <SystemStatusProvider>
-            <AuthProvider>
-              <NotificationsProvider>
-                <AppLockGuard>
-                  <PremiumToast />
-                  <GlobalWatchers>
-                    <SystemStatusGate>
-                      <InnerLayout />
-                    </SystemStatusGate>
-                  </GlobalWatchers>
-                </AppLockGuard>
-              </NotificationsProvider>
-            </AuthProvider>
-          </SystemStatusProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
+      <KeyboardProvider
+        preserveEdgeToEdge
+        statusBarTranslucent
+        navigationBarTranslucent
+      >
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider>
+            <SystemStatusProvider>
+              <AuthProvider>
+                <NotificationsProvider>
+                  <AppLockGuard>
+                    <PremiumToast />
+                    <GlobalWatchers>
+                      <SystemStatusGate>
+                        <InnerLayout />
+                      </SystemStatusGate>
+                    </GlobalWatchers>
+                  </AppLockGuard>
+                </NotificationsProvider>
+              </AuthProvider>
+            </SystemStatusProvider>
+          </ThemeProvider>
+        </QueryClientProvider>
+      </KeyboardProvider>
     </GlobalErrorBoundary>
   );
 }

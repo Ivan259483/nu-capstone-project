@@ -13,7 +13,7 @@ import {
 } from '@/lib/chat-onboarding-correction';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Variants } from 'framer-motion';
-import { chatWindowClass } from '@/components/chat/chat-theme';
+import { chatLauncherClass, chatWindowClass } from '@/components/chat/chat-theme';
 import {
     getChatGuestKey,
     getLegacyChatSessionId,
@@ -1841,7 +1841,7 @@ export default function ChatWidget({
                 onClick={handleOpenWidget}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="relative flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[#0066FF] shadow-[0_6px_24px_rgba(0,102,255,0.38)] transition-shadow hover:shadow-[0_8px_28px_rgba(0,102,255,0.45)] cursor-pointer"
+                className={chatLauncherClass}
                 aria-label={isOpen ? 'Close chat' : 'Open chat'}
             >
                 <AnimatePresence mode="wait" initial={false}>
@@ -1853,7 +1853,7 @@ export default function ChatWidget({
                             exit={{ opacity: 0, y: 4 }}
                             transition={{ duration: 0.15 }}
                         >
-                            <ChevronDown className="h-6 w-6 text-white" strokeWidth={2.25} />
+                            <ChevronDown className="h-6 w-6 text-[#07070A]" strokeWidth={2.25} />
                         </motion.span>
                     ) : (
                         <motion.span

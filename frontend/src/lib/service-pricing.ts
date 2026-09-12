@@ -58,11 +58,11 @@ export const VEHICLE_PRICE_FIELDS: {
 }[] = [
     { apiKey: 'hatchback', publicKey: 'hatchback', label: 'Hatchback', compactLabel: 'Hatchback' },
     { apiKey: 'sedan', publicKey: 'sedan', label: 'Sedan', compactLabel: 'Sedan' },
-    { apiKey: 'midsized', publicKey: 'midsized', label: 'Midsized', compactLabel: 'Midsized' },
+    { apiKey: 'midsized', publicKey: 'midsized', label: 'Midsize', compactLabel: 'Midsize' },
     { apiKey: 'suv', publicKey: 'suv', label: 'SUV', compactLabel: 'SUV' },
-    { apiKey: 'pickup', publicKey: 'pickup', label: 'Pick Up', compactLabel: 'Pick Up' },
-    { apiKey: 'largeSuv', publicKey: 'largesuv', label: 'Large SUV / Van', compactLabel: 'Large SUV' },
-    { apiKey: 'highend', publicKey: 'highend', label: 'Highend Sedan', compactLabel: 'Highend' },
+    { apiKey: 'pickup', publicKey: 'pickup', label: 'Pickup', compactLabel: 'Pickup' },
+    { apiKey: 'largeSuv', publicKey: 'largesuv', label: 'Large SUV / Van', compactLabel: 'Large SUV / Van' },
+    { apiKey: 'highend', publicKey: 'highend', label: 'High-end Sedan', compactLabel: 'High-end Sedan' },
 ];
 
 export const toApiVehicleKey = (key: string): ApiVehiclePriceKey | null => {

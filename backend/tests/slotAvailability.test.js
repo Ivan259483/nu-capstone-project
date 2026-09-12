@@ -1011,6 +1011,33 @@ test('public weekly schedule is canonical but exposes no capacity or occupancy',
   assert.equal(Object.hasOwn(body, 'bookedSlots'), false);
 });
 
+test('public weekly schedule reflects Saturday open and Sunday closed business hours', async () => {
+  const doc = await ShopAvailability.getSingleton();
+  doc.recurringSchedule = buildDefaultRecurringSchedule().map((row) => ({
+    ...row,
+    open: row.dow >= 1 && row.dow <= 6,
+    from: '08:00',
+    to: '17:00',
+    slots: row.dow >= 1 && row.dow <= 6 ? 5 : 0,
+  }));
+  await doc.save();
+
+  const { response, body } = await requestJson('/api/slots/schedule');
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.data.find((row) => row.dow === 6), {
+    dow: 6,
+    open: true,
+    from: '08:00',
+    to: '17:00',
+  });
+  assert.deepEqual(body.data.find((row) => row.dow === 0), {
+    dow: 0,
+    open: false,
+    from: '08:00',
+    to: '17:00',
+  });
+});
+
 test('legacy availability rows migrate deterministically to one canonical singleton', async () => {
   const olderId = new mongoose.Types.ObjectId();
   const newerId = new mongoose.Types.ObjectId();

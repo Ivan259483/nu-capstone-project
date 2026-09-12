@@ -136,7 +136,7 @@ export default function AuthButton({
   const containerStyle: ViewStyle = {
     width: fullWidth ? '100%' : undefined,
     height: 52,
-    borderRadius: AuthRadius.button,
+    borderRadius: isLoginBrand ? 12 : AuthRadius.button,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,

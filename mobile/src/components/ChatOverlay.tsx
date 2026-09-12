@@ -17,13 +17,18 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  KeyboardAvoidingView,
   Keyboard,
   Platform,
+  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import Animated, { FadeIn, FadeInDown, FadeOut, useSharedValue, withRepeat, withTiming, withDelay, useAnimatedStyle } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, useSharedValue, withRepeat, withTiming, withDelay, useAnimatedStyle } from 'react-native-reanimated';
+import {
+  KeyboardChatScrollView,
+  KeyboardEvents,
+  KeyboardStickyView,
+} from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,6 +40,13 @@ import {
   type SalesHandoffStatus,
 } from '@/services/api/chatbotService';
 import { Haptics } from '@/utils/haptics';
+import {
+  createLocalChatMessageId,
+  resolveChatSendState,
+  resolveChatSubmission,
+  shouldShowSuggestedChatPrompts,
+  SUGGESTED_CHAT_PROMPTS,
+} from '@/utils/chat-screen-state';
 
 interface ChatScreenProps {
   onClose: () => void;
@@ -43,7 +55,7 @@ interface ChatScreenProps {
 const ACCENT = '#FF6B35';
 const SALES_POLL_INTERVAL_MS = 5_000;
 const NEAR_BOTTOM_THRESHOLD = 112;
-const DISCLAIMER_SAFE_AREA_FOOTPRINT = 18;
+const COMPOSER_KEYBOARD_GAP = 10;
 
 function formatTime(isoString?: string) {
   if (!isoString) return '';
@@ -89,7 +101,7 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showTyping, setShowTyping] = useState(false);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [handoffStatus, setHandoffStatus] = useState<SalesHandoffStatus>('ai_handling');
   const [showConnectToSales, setShowConnectToSales] = useState(false);
@@ -97,7 +109,7 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [handoffBusy, setHandoffBusy] = useState(false);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<React.ComponentRef<typeof KeyboardChatScrollView>>(null);
   const inputRef = useRef<TextInput>(null);
   const hasInitialized = useRef(false);
   const isNearBottomRef = useRef(true);
@@ -188,20 +200,12 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
   }, [messages.length]);
 
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSubscription = Keyboard.addListener(showEvent, () => {
-      setKeyboardVisible(true);
-      if (isNearBottomRef.current) {
-        requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
-      }
+    const showSubscription = KeyboardEvents.addListener('keyboardDidShow', () => {
+      isNearBottomRef.current = true;
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
     });
-    const hideSubscription = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
 
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
+    return () => showSubscription.remove();
   }, []);
 
   const handleMessageScroll = useCallback(
@@ -243,8 +247,8 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
     });
   }, []);
 
-  const handleSend = async () => {
-    const trimmed = input.trim();
+  const handleSend = async (explicitMessage?: string) => {
+    const trimmed = resolveChatSubmission(input, explicitMessage);
     if (!trimmed || sending || loading || handoffBusy) return;
     if (handoffStatus === 'resolved' || handoffStatus === 'converted') return;
 
@@ -254,7 +258,7 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
 
     // Add user message immediately
     const userMsg: ChatMessageRecord = {
-      id: `user-${Date.now()}`,
+      id: createLocalChatMessageId('user'),
       sender: 'user',
       message: trimmed,
       createdAt: new Date().toISOString(),
@@ -279,7 +283,7 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
         } catch {}
       }
 
-      const botId = `bot-${Date.now()}`;
+      const botId = createLocalChatMessageId('bot');
       let response: Awaited<ReturnType<typeof chatbotService.sendMessage>> | null = null;
       let streamStarted = false;
       let streamedReply = '';
@@ -347,7 +351,7 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
 
       if (response.leadRequired) {
         const leadMsg: ChatMessageRecord = {
-          id: `system-${Date.now()}`,
+          id: createLocalChatMessageId('system'),
           sender: 'system',
           message: 'Please share your name and phone number to continue.',
         };
@@ -356,7 +360,7 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
     } catch (err) {
       console.warn('Chat send failed:', err);
       const errMsg: ChatMessageRecord = {
-        id: `err-${Date.now()}`,
+        id: createLocalChatMessageId('err'),
         sender: 'assistant',
         message: 'Sorry, I had trouble sending that. Please try again.',
       };
@@ -447,12 +451,30 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
     onClose();
   };
 
+  const handleComposerLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+    setComposerHeight((currentHeight) => (
+      currentHeight === nextHeight ? currentHeight : nextHeight
+    ));
+  }, []);
+
   const isSalesConversation =
     handoffStatus === 'needs_sales' || handoffStatus === 'in_conversation';
   const isClosedConversation =
     handoffStatus === 'resolved' || handoffStatus === 'converted';
-  const sendDisabled =
-    sending || !input.trim() || isClosedConversation || handoffBusy || loading;
+  const sendBlocked = sending || isClosedConversation || handoffBusy || loading;
+  const sendState = resolveChatSendState(input, sendBlocked);
+  const showSuggestedPrompts = shouldShowSuggestedChatPrompts({
+    messages,
+    handoffStatus,
+    hasError: Boolean(error),
+  });
+  const composerBottomPadding = Math.max(insets.bottom, COMPOSER_KEYBOARD_GAP);
+  const keyboardOpenedInsetOffset = Math.max(
+    composerBottomPadding - COMPOSER_KEYBOARD_GAP,
+    0,
+  );
+  const chatKeyboardOffset = Math.max(composerHeight - keyboardOpenedInsetOffset, 0);
 
   return (
     <View style={s.screen}>
@@ -491,7 +513,9 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
                 ? 'Waiting for Sales'
                 : isClosedConversation
                   ? 'Conversation resolved'
-                  : 'Online · 24/7'}
+                  : isSalesConversation
+                    ? 'Sales conversation'
+                    : 'AI Assistant'}
             </Text>
           </View>
         </View>
@@ -514,10 +538,7 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
         </TouchableOpacity>
       </LinearGradient>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={s.keyboardRegion}
-      >
+      <View style={s.keyboardRegion}>
         {/* ── Messages ── */}
         <View style={s.messagesContainer}>
           {loading ? (
@@ -526,10 +547,12 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
               <Text style={s.loadingText}>Connecting to AI assistant…</Text>
             </View>
           ) : (
-            <ScrollView
+            <KeyboardChatScrollView
               ref={scrollRef}
               style={s.messageScroll}
               contentContainerStyle={s.messageScrollContent}
+              offset={chatKeyboardOffset}
+              keyboardLiftBehavior="always"
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -623,6 +646,23 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
                 </Animated.View>
               ))}
 
+              {showSuggestedPrompts && (
+                <View style={s.suggestedPromptsContainer}>
+                  {SUGGESTED_CHAT_PROMPTS.map((prompt) => (
+                    <TouchableOpacity
+                      key={prompt}
+                      style={s.suggestedPromptChip}
+                      onPress={() => void handleSend(prompt)}
+                      activeOpacity={0.78}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Send suggested message: ${prompt}`}
+                    >
+                      <Text style={s.suggestedPromptText}>{prompt}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
               {/* Typing indicator */}
               {showTyping && (
                 <Animated.View entering={FadeIn} style={[s.bubbleWrap, s.bubbleWrapBot]}>
@@ -643,18 +683,18 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
                   <Text style={s.errorRetry}>Retry</Text>
                 </TouchableOpacity>
               )}
-            </ScrollView>
+            </KeyboardChatScrollView>
           )}
         </View>
 
         {/* ── Input ── */}
-        <View
+        <KeyboardStickyView
+          onLayout={handleComposerLayout}
+          offset={{ opened: keyboardOpenedInsetOffset }}
           style={[
             s.inputArea,
             {
-              paddingBottom: keyboardVisible
-                ? 10
-                : Math.max(insets.bottom - DISCLAIMER_SAFE_AREA_FOOTPRINT, 10),
+              paddingBottom: composerBottomPadding,
             },
           ]}
         >
@@ -739,12 +779,18 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
               </TouchableOpacity>
             )}
 
+          <Animated.Text style={s.disclaimer}>
+            {isSalesConversation
+              ? 'Messages are shared with AutoSPF+ Sales'
+              : 'Powered by AutoSPF+ AI · Responses may not be 100% accurate'}
+          </Animated.Text>
+
           <View style={s.inputRow}>
             <TextInput
               ref={inputRef}
               value={input}
               onChangeText={setInput}
-              onSubmitEditing={handleSend}
+              onSubmitEditing={() => void handleSend()}
               returnKeyType="send"
               placeholder={
                 isClosedConversation
@@ -763,37 +809,26 @@ export default function ChatScreen({ onClose }: ChatScreenProps) {
               accessibilityLabel="Message AutoSPF+ assistant"
             />
             <TouchableOpacity
-              onPress={handleSend}
-              disabled={sendDisabled}
+              onPress={() => void handleSend()}
+              disabled={sendState.disabled}
               style={[
                 s.sendBtn,
-                sendDisabled && s.sendBtnDisabled,
+                !sendState.visuallyActive && s.sendBtnDisabled,
               ]}
               activeOpacity={0.8}
               accessibilityRole="button"
               accessibilityLabel="Send message"
-              accessibilityState={{ disabled: sendDisabled }}
+              accessibilityState={{ disabled: sendState.disabled }}
             >
               <Ionicons
                 name="arrow-up"
                 size={19}
-                color={sendDisabled ? '#85858F' : '#FFFFFF'}
+                color={sendState.visuallyActive ? '#FFFFFF' : '#85858F'}
               />
             </TouchableOpacity>
           </View>
-          {!keyboardVisible && (
-            <Animated.Text
-              entering={FadeIn.duration(120)}
-              exiting={FadeOut.duration(100)}
-              style={s.disclaimer}
-            >
-              {isSalesConversation
-                ? 'Messages are shared with AutoSPF+ Sales'
-                : 'Powered by AutoSPF+ AI · Responses may not be 100% accurate'}
-            </Animated.Text>
-          )}
-        </View>
-      </KeyboardAvoidingView>
+        </KeyboardStickyView>
+      </View>
     </View>
   );
 }
@@ -1066,6 +1101,33 @@ const s = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  suggestedPromptsContainer: {
+    marginLeft: 29,
+    marginTop: 2,
+    marginBottom: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  suggestedPromptChip: {
+    flexGrow: 1,
+    flexBasis: '45%',
+    minHeight: 38,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,107,53,0.3)',
+    backgroundColor: 'rgba(255,107,53,0.08)',
+    justifyContent: 'center',
+  },
+  suggestedPromptText: {
+    color: '#F4A07F',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   errorText: {
     flex: 1,
     color: '#EF4444',
@@ -1085,6 +1147,8 @@ const s = StyleSheet.create({
     backgroundColor: '#09090E',
     paddingHorizontal: 12,
     paddingTop: 8,
+    zIndex: 2,
+    elevation: 4,
   },
   waitingBanner: {
     marginBottom: 10,
@@ -1254,7 +1318,7 @@ const s = StyleSheet.create({
     lineHeight: 12,
     color: '#5B5B68',
     fontWeight: '500',
-    marginTop: 6,
+    marginBottom: 6,
     letterSpacing: 0.3,
   },
 });

@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import Navbar from "@/components/Navbar";
 import Home from "@/pages/Home";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { chatLauncherClass } from "@/components/chat/chat-theme";
 
 const About = lazy(() => import("@/pages/About"));
 const Contact = lazy(() => import("@/pages/Contact"));
@@ -32,10 +33,10 @@ function ChatLauncher({ onClick }: { onClick: () => void }) {
             <button
                 type="button"
                 onClick={onClick}
-                className="relative flex h-[60px] w-[60px] cursor-pointer items-center justify-center rounded-full bg-[#0066FF] shadow-[0_6px_24px_rgba(0,102,255,0.38)] transition-[transform,box-shadow] hover:scale-105 hover:shadow-[0_8px_28px_rgba(0,102,255,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                className={chatLauncherClass}
                 aria-label="Open chat"
             >
-                <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7 fill-none stroke-white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7 fill-none stroke-current" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
                     <path d="M8 10h.01M12 10h.01M16 10h.01" />
                 </svg>

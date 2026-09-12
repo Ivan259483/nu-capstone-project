@@ -71,7 +71,7 @@ test('Garage onboarding shows only for a confirmed empty Garage with an unseen b
 
 test('known vehicle models classify while unknown models fail closed', () => {
   assert.equal(getVehicleTypeForModel('Bentayga'), 'SUV');
-  assert.equal(getVehicleTypeForModel('Vantage'), 'Highend Sedan');
+  assert.equal(getVehicleTypeForModel('Vantage'), 'High-end Sedan');
   assert.equal(getVehicleTypeForModel('Unlisted Prototype 42'), '');
 });
 

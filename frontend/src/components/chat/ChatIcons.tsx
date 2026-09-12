@@ -2,7 +2,7 @@ import { CHAT_BLUE } from './chat-theme';
 
 type IconProps = { className?: string; active?: boolean };
 
-/** Launcher mark: white rounded chat bubble with a blue smile */
+/** Launcher mark: dark chat bubble with a smile cut into the brand-gold surface. */
 export function LauncherBubbleIcon({ className = 'h-12 w-12' }: IconProps) {
     return (
         <svg
@@ -12,14 +12,14 @@ export function LauncherBubbleIcon({ className = 'h-12 w-12' }: IconProps) {
             aria-hidden="true"
             shapeRendering="geometricPrecision"
         >
-            <rect x="8" y="7.2" width="24.2" height="25.8" rx="6.2" fill="white" />
+            <rect x="8" y="7.2" width="24.2" height="25.8" rx="6.2" fill="#07070A" />
             <path
-                fill="white"
+                fill="#07070A"
                 d="M27.2 29.2 34.2 34.1 30.8 26.35Z"
             />
             <path
                 d="M14.6 23.1c2.9 2.25 8.75 2.25 11.7 0"
-                stroke={CHAT_BLUE}
+                stroke="#F4B63D"
                 strokeWidth="3"
                 strokeLinecap="round"
                 fill="none"

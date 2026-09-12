@@ -91,7 +91,7 @@ export default function About() {
             {/* ══════════════════════════════════
                 HERO SECTION
             ══════════════════════════════════ */}
-            <section className="relative pt-36 pb-24 overflow-hidden">
+            <section className="relative pt-36 pb-8 overflow-hidden">
                 <div className="absolute inset-0 bg-hero-pattern" />
                 <div
                     className="absolute inset-0"

@@ -789,8 +789,8 @@ export const brandModels = Object.fromEntries(Object.entries(vehicleClassificati
 export const vehicleBrands = Object.keys(vehicleClassificationMap).sort((a, b) => a.localeCompare(b)).concat('Other');
 export function getModelsForBrand(brand) { const name = canonicalVehicleIdentity(brand, '').brand; return Object.hasOwn(brandModels, name) ? brandModels[name] : []; }
 // Legacy display helpers only. Runtime pricing must use the server's reviewed definitions.
-const labels = { HATCHBACK_SMALL_CAR: 'Hatchback', SEDAN: 'Sedan', MIDSIZED: 'Midsized', SUV: 'SUV', PICKUP: 'Pick UP', LARGE_SUV_VAN: 'Large SUV / Van', HIGH_END_SEDAN: 'Highend Sedan' };
+const labels = { HATCHBACK_SMALL_CAR: 'Hatchback', SEDAN: 'Sedan', MIDSIZED: 'Midsize', SUV: 'SUV', PICKUP: 'Pickup', LARGE_SUV_VAN: 'Large SUV / Van', HIGH_END_SEDAN: 'High-end Sedan' };
 export function getDetectedVehicleType(brand, model) { return labels[resolveVehicleClassification(brand, model)] || ''; }
 export const modelTypeMap = Object.fromEntries(Object.values(vehicleClassificationMap).flatMap(models => Object.entries(models).filter(([, category]) => category).map(([model, category]) => [model, labels[category]])));
 export function getVehicleTypeForModel(model) { return Object.hasOwn(modelTypeMap, model) ? modelTypeMap[model] : ''; }
-export const FALLBACK_VEHICLE_TYPES = Object.freeze(['SUV', 'Hatchback', 'Sedan', 'Midsize', 'Large SUV / Van', 'High-end Sedan', 'Other']);
+export const FALLBACK_VEHICLE_TYPES = Object.freeze(['Hatchback', 'Sedan', 'Midsize', 'SUV', 'Pickup', 'Large SUV / Van', 'High-end Sedan']);

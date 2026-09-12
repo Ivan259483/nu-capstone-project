@@ -5,7 +5,7 @@ import VehicleClassification from '../models/vehicleClassification.model.js';
 import { canonicalVehicleIdentity, normalizeVehicleIdentity } from '../constants/vehicleDatabase.js';
 
 export const GLOBAL_VEHICLE_CLASSES = Object.freeze([
-  ['HATCHBACK_SMALL_CAR', 'Hatchback / Small Car', 'Hatchback', 'Small passenger car with a rear liftgate.'],
+  ['HATCHBACK_SMALL_CAR', 'Hatchback', 'Hatchback', 'Small passenger car with a rear liftgate.'],
   ['SEDAN', 'Sedan', 'Sedan', 'Passenger car with a separate passenger cabin and trunk.'],
   ['LIFTBACK_FASTBACK', 'Liftback / Fastback', 'Liftback / Fastback', 'Passenger car with a sloped rear profile and liftgate.'],
   ['COUPE', 'Coupe', 'Coupe', 'Fixed-roof passenger car commonly configured with two doors.'],
@@ -26,7 +26,7 @@ export const GLOBAL_VEHICLE_CLASSES = Object.freeze([
 ]);
 const globalVehicleClassByKey = new Map(GLOBAL_VEHICLE_CLASSES.map(([, vehicleClass]) => [normalizeVehicleIdentity(vehicleClass), vehicleClass]));
 for (const [alias, canonical] of Object.entries({
-  hatchback: 'Hatchback / Small Car', 'small car': 'Hatchback / Small Car',
+  hatchback: 'Hatchback', 'small car': 'Hatchback', 'hatchback / small car': 'Hatchback',
   liftback: 'Liftback / Fastback', fastback: 'Liftback / Fastback', convertible: 'Convertible / Roadster', roadster: 'Convertible / Roadster',
   'subcompact suv': 'Small SUV / Subcompact SUV', 'small suv': 'Small SUV / Subcompact SUV',
   minivan: 'MPV / Minivan', mpv: 'MPV / Minivan', 'luxury sedan': 'Luxury Sedan',

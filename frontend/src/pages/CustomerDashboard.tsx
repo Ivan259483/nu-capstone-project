@@ -204,11 +204,11 @@ function getBookingPackageAccent(packageId?: string | null) {
 const VEHICLE_OPTIONS = [
   { type: "hatchback", label: "Hatchback", icon: "lucide:car-front" },
   { type: "sedan", label: "Sedan", icon: "lucide:car" },
-  { type: "midsized", label: "Midsized", icon: "lucide:car" },
+  { type: "midsized", label: "Midsize", icon: "lucide:car" },
   { type: "suv", label: "SUV", icon: "lucide:truck" },
-  { type: "pickup", label: "Pick Up", icon: "lucide:truck" },
+  { type: "pickup", label: "Pickup", icon: "lucide:truck" },
   { type: "largesuv", label: "Large SUV / Van", icon: "lucide:truck" },
-  { type: "highend", label: "Highend Sedan", icon: "lucide:crown" },
+  { type: "highend", label: "High-end Sedan", icon: "lucide:crown" },
 ];
 
 const SCAN_FLOW_STEPS = [

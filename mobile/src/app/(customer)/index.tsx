@@ -205,7 +205,7 @@ const TRUST = [
   { icon:'shield-checkmark-outline' as const, label:'DTI Registered' },
   { icon:'ribbon-outline'           as const, label:'Licensed' },
   { icon:'checkmark-circle-outline' as const, label:'Insured' },
-  { icon:'star-outline'             as const, label:'4.9 Rating' },
+  { icon:'star-outline'             as const, label:'4.9 · 68 Reviews' },
 ];
 
 const greet = (date = new Date()) => {

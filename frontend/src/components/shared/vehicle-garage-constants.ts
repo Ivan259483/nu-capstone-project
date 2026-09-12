@@ -4,11 +4,11 @@ import { normalizePlateNumber } from '@/lib/plate';
 export const ADD_VEHICLE_TYPE_LABELS = [
   'Hatchback',
   'Sedan',
-  'Midsized',
+  'Midsize',
   'SUV',
-  'Pick UP',
+  'Pickup',
   'Large SUV / Van',
-  'Highend Sedan',
+  'High-end Sedan',
 ] as const;
 
 export const BOOKING_YEAR_OPTIONS = Array.from({ length: new Date().getFullYear() + 2 - 1886 + 1 }, (_, i) => String(new Date().getFullYear() + 2 - i));
@@ -109,9 +109,9 @@ export function getVehiclePricingCategory(type: string): VehiclePricingCategory 
 }
 
 const PRICING_CATEGORY_DETAILS: Record<VehiclePricingCategory, { priceKey: string; label: string }> = {
-  HATCHBACK_SMALL_CAR: { priceKey: 'hatchback', label: 'Hatchback / Small Car' },
+  HATCHBACK_SMALL_CAR: { priceKey: 'hatchback', label: 'Hatchback' },
   SEDAN: { priceKey: 'sedan', label: 'Sedan' },
-  MIDSIZED: { priceKey: 'midsized', label: 'Midsized' },
+  MIDSIZED: { priceKey: 'midsized', label: 'Midsize' },
   SUV: { priceKey: 'suv', label: 'SUV' },
   PICKUP: { priceKey: 'pickup', label: 'Pickup' },
   LARGE_SUV_VAN: { priceKey: 'largesuv', label: 'Large SUV / Van' },

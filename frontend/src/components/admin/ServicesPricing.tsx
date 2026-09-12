@@ -70,11 +70,11 @@ interface PackageDraft {
 const vehicleOptions: { type: VehicleType; label: string; compactLabel: string; icon: ElementType }[] = [
     { type: 'hatchback', label: 'Hatchback', compactLabel: 'Hatchback', icon: CarFront },
     { type: 'sedan', label: 'Sedan', compactLabel: 'Sedan', icon: Car },
-    { type: 'midsized', label: 'Midsized', compactLabel: 'Midsized', icon: Car },
+    { type: 'midsized', label: 'Midsize', compactLabel: 'Midsize', icon: Car },
     { type: 'suv', label: 'SUV', compactLabel: 'SUV', icon: Truck },
-    { type: 'pickup', label: 'Pick Up', compactLabel: 'Pick Up', icon: Truck },
-    { type: 'largesuv', label: 'Large SUV / Van', compactLabel: 'Large SUV', icon: Truck },
-    { type: 'highend', label: 'Highend Sedan', compactLabel: 'Highend', icon: Crown },
+    { type: 'pickup', label: 'Pickup', compactLabel: 'Pickup', icon: Truck },
+    { type: 'largesuv', label: 'Large SUV / Van', compactLabel: 'Large SUV / Van', icon: Truck },
+    { type: 'highend', label: 'High-end Sedan', compactLabel: 'High-end Sedan', icon: Crown },
 ];
 
 const priceToString = (value: number | null | undefined) => (value == null ? '' : String(value));

@@ -51,7 +51,7 @@ test('automatic detection requires a matching brand and model', () => {
 });
 
 test('fallback types use the requested customer-facing labels', () => {
-  assert.deepEqual(FALLBACK_VEHICLE_TYPES, ['SUV', 'Hatchback', 'Sedan', 'Midsize', 'Large SUV / Van', 'High-end Sedan', 'Other']);
+  assert.deepEqual(FALLBACK_VEHICLE_TYPES, ['Hatchback', 'Sedan', 'Midsize', 'SUV', 'Pickup', 'Large SUV / Van', 'High-end Sedan']);
 });
 
 test('Web and Mobile Add/Edit surfaces distinguish verified and manual classification without review dead-end copy', () => {

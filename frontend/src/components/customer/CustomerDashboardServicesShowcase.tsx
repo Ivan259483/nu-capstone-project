@@ -32,7 +32,7 @@ export function CustomerDashboardServicesShowcase({
 }: CustomerDashboardServicesShowcaseProps) {
     const [priceTier, setPriceTier] = useState<VehiclePriceKey>("hatchback");
 
-    // SPF 80 is intentionally not offered for Highend Sedan, so omit that card
+    // SPF 80 is intentionally not offered for High-end Sedan, so omit that card
     // from this catalog instead of showing its unavailable state.
     const availablePackages = useMemo(
         () => packages.filter((pkg) => !(priceTier === "highend" && pkg.id === "spf80")),

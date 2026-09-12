@@ -27,11 +27,11 @@ const LEGACY_PRICE_KEYS = {
 const VEHICLE_TYPE_ALIASES = [
   { apiKey: 'hatchback', label: 'Hatchback', patterns: [/\bhatch\s*back\b/i, /\bhatchback\b/i] },
   { apiKey: 'sedan', label: 'Sedan', patterns: [/\bsedan\b/i, /\bsaloon\b/i] },
-  { apiKey: 'midsized', label: 'Midsized', patterns: [/\bmid[\s-]?siz(?:ed|e)?\b/i, /\bmid\s*size\b/i] },
+  { apiKey: 'midsized', label: 'Midsize', patterns: [/\bmid[\s-]?siz(?:ed|e)?\b/i, /\bmid\s*size\b/i] },
   { apiKey: 'suv', label: 'SUV', patterns: [/\bsuv\b/i, /\bsport\s*utility\b/i, /\bcrossover\b/i] },
-  { apiKey: 'pickup', label: 'Pick Up', patterns: [/\bpick[\s-]?up\b/i, /\btruck\b/i] },
+  { apiKey: 'pickup', label: 'Pickup', patterns: [/\bpick[\s-]?up\b/i, /\btruck\b/i] },
   { apiKey: 'largeSuv', label: 'Large SUV / Van', patterns: [/\blarge\s*suv\b/i, /\bfull[\s-]?size\s*suv\b/i, /\bvan\b/i] },
-  { apiKey: 'highend', label: 'Highend Sedan', patterns: [/\bhigh[\s-]?end\b/i, /\bluxury\s*sedan\b/i, /\bpremium\s*sedan\b/i] },
+  { apiKey: 'highend', label: 'High-end Sedan', patterns: [/\bhigh[\s-]?end\b/i, /\bluxury\s*sedan\b/i, /\bpremium\s*sedan\b/i] },
 ];
 
 const VEHICLE_MODEL_ALIASES = [
@@ -302,7 +302,7 @@ export const buildSpfPricingKnowledge = async (preferredVehicleKey = null) => {
   return [
     '### SPF CERAMIC COATING — OFFICIAL PRICING BY VEHICLE TYPE',
     'These rates match the public Services page (/services). Promotional price is what customers pay; regular price is the pre-discount reference shown struck through on the site.',
-    'When the customer names a vehicle type (sedan, midsized, SUV, etc.), quote ONLY that section. If vehicle type is unknown, ask before quoting.',
+    'When the customer names a vehicle type (sedan, midsize, SUV, etc.), quote ONLY that section. If vehicle type is unknown, ask before quoting.',
     '',
     sections.join('\n\n'),
   ].join('\n');
@@ -442,7 +442,7 @@ export const isAutoSpfScopeMessage = (message = '', recentUserMessages = []) => 
 
 export const buildWebsiteGuide = () => [
   '### AUTOSPF+ WEBSITE — WHAT YOU MAY EXPLAIN',
-  '- **Services (/services):** SPF 80/89/99/101 packages; prices change by vehicle type (hatchback, sedan, midsized, SUV, pick up, large SUV/van, highend sedan).',
+  '- **Services (/services):** SPF 80/89/99/101 packages; prices change by vehicle type (Hatchback, Sedan, Midsize, SUV, Pickup, Large SUV / Van, High-end Sedan).',
   '- **Book Now:** Customer picks package → vehicle details → schedule → confirm. Guest users may need name & phone for quotes.',
   '- **Login / Register:** Top nav **Login**; customers use dashboard for bookings, live tracker, garage, AI scan.',
   '- **Gallery / About / Contact:** Shop proof, team story, map & contact form.',

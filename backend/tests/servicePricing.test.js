@@ -22,6 +22,34 @@ import {
   resolveBookingQuote,
   resolveServicePricing,
 } from '../services/servicePricing.service.js';
+import Service from '../models/service.model.js';
+import { getAuthoritativeCatalog } from '../controllers/service.controller.js';
+
+const CANONICAL_CATEGORY_LABELS = [
+  'Hatchback',
+  'Sedan',
+  'Midsize',
+  'SUV',
+  'Pickup',
+  'Large SUV / Van',
+  'High-end Sedan',
+];
+
+test('pricing category metadata exposes the exact canonical labels and order', () => {
+  assert.deepEqual(VEHICLE_PRICING_CATEGORIES.map(({ label }) => label), CANONICAL_CATEGORY_LABELS);
+});
+
+test('/api/services/catalog projects the canonical pricing category metadata', async () => {
+  const originalFind = Service.find;
+  Service.find = () => ({ sort: () => ({ lean: async () => [] }) });
+  let responseBody;
+  try {
+    await getAuthoritativeCatalog({}, { json: (body) => { responseBody = body; } }, (error) => { throw error; });
+  } finally {
+    Service.find = originalFind;
+  }
+  assert.deepEqual(responseBody.data.pricingCategories.map(({ label }) => label), CANONICAL_CATEGORY_LABELS);
+});
 
 const expected = {
   SPF80: {
@@ -173,6 +201,19 @@ test('legacy saved vehicles classify centrally without requiring duplicate regis
 test('legacy High-End Sedan aliases normalize to the canonical financial key', () => {
   for (const alias of ['HIGH_END_SEDAN', 'High-end Sedan', 'Highend Sedan', 'High End Sedan']) {
     assert.equal(normalizeVehiclePricingCategory(alias), VEHICLE_PRICING_CATEGORY.HIGH_END_SEDAN, alias);
+  }
+});
+
+test('legacy category spellings remain accepted without becoming display labels', () => {
+  const aliases = [
+    ['Hatchback / Small Car', VEHICLE_PRICING_CATEGORY.HATCHBACK_SMALL_CAR],
+    ['Midsized', VEHICLE_PRICING_CATEGORY.MIDSIZED],
+    ['Pick Up', VEHICLE_PRICING_CATEGORY.PICKUP],
+    ['High-End Sedan', VEHICLE_PRICING_CATEGORY.HIGH_END_SEDAN],
+    ['Highend Sedan', VEHICLE_PRICING_CATEGORY.HIGH_END_SEDAN],
+  ];
+  for (const [alias, expectedCategory] of aliases) {
+    assert.equal(normalizeVehiclePricingCategory(alias), expectedCategory, alias);
   }
 });
 

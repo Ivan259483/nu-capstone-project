@@ -16,7 +16,8 @@
     "test:haptics-policy": "node --test tests/hapticsPolicy.test.mjs",
     "test:ai-scan-workflow": "node --experimental-strip-types --test tests/aiScanWorkflowState.test.mjs",
     "test:payment-history-parity": "node --experimental-strip-types --test tests/customerPaymentHistoryParity.test.mjs",
-    "test:otp-session-handoff": "node --experimental-strip-types --test tests/otpSessionHandoff.test.mjs"
+    "test:otp-session-handoff": "node --experimental-strip-types --test tests/otpSessionHandoff.test.mjs",
+    "test:chat-screen-state": "node --experimental-strip-types --test tests/chatScreenState.test.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -59,6 +60,7 @@
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
+    "react-native-keyboard-controller": "1.21.9",
     "react-native-qrcode-svg": "^6.3.21",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",

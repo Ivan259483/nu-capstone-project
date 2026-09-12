@@ -18,7 +18,6 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInUp, ZoomIn } from 'react-native-reanimated';
 import AuthLayout from '@/components/auth/AuthLayout';
 import AuthButton from '@/components/auth/AuthButton';
@@ -30,7 +29,6 @@ import { Toast } from '@/components/ui/PremiumToast';
 import RegisterCountryCodePicker from '@/components/auth/RegisterCountryCodePicker';
 import { AuthColors, AuthFontFamily, AuthRadius, AuthTypography } from '@/constants/authTheme';
 import { authService } from '@/services/api/authService';
-import { isPasswordValid } from '@/utils/validation';
 import { REGISTER_COUNTRY_DIALS } from '@/lib/countries-dial-data';
 import { validateRegisterNationalDigits, buildRegisterE164 } from '@/lib/phoneRegister';
 import { Haptics } from '@/utils/haptics';
@@ -176,43 +174,16 @@ export default function SignUpScreen() {
   ) => {
     setter(val);
     if (errors[field]) setErrors((p) => ({ ...p, [field]: '' }));
-    if (field === 'password' && touched.confirmPassword && confirmPassword) {
-      setErrors((p) => ({
-        ...p,
-        confirmPassword: validators.confirmPassword(confirmPassword, val),
-      }));
-    }
     if (apiError) setApiError('');
   };
 
-  const pwAllValid = useMemo(() => isPasswordValid(password), [password]);
-
-  const isStepOneValid = useMemo(() => {
-    const nameOk = (v: string) => v.trim().length > 0 && !/[0-9]/.test(v);
-    const phoneOk =
-      registerPhoneNational.replace(/\D/g, '').length > 0 &&
-      validateRegisterNationalDigits(dial, registerPhoneNational).ok;
-    return nameOk(firstName) && nameOk(lastName) && phoneOk;
-  }, [firstName, lastName, dial, registerPhoneNational]);
-
-  const isStepTwoValid = useMemo(
-    () =>
-      EMAIL_RE.test(email) &&
-      pwAllValid &&
-      confirmPassword === password &&
-      confirmPassword.length > 0,
-    [email, pwAllValid, confirmPassword, password]
-  );
-
-  const isFormValid = useMemo(
-    () => isStepOneValid && isStepTwoValid,
-    [isStepOneValid, isStepTwoValid]
-  );
-
-  const canRegister = useMemo(
-    () => isFormValid && registerLegalAcknowledged,
-    [isFormValid, registerLegalAcknowledged]
-  );
+  const validatePhoneField = useCallback(() => {
+    if (!registerPhoneNational.replace(/\D/g, '').length) {
+      return 'Phone number is required.';
+    }
+    const phoneCheck = validateRegisterNationalDigits(dial, registerPhoneNational);
+    return phoneCheck.ok ? '' : phoneCheck.message || 'Invalid phone number.';
+  }, [dial, registerPhoneNational]);
 
   const handlePpfTermsScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
@@ -234,19 +205,9 @@ export default function SignUpScreen() {
     setTouched((p) => ({ ...p, firstName: true, lastName: true }));
     setRegisterPhoneTouched(true);
 
-    if (!registerPhoneNational.replace(/\D/g, '').length) {
-      setPhoneError('Phone number is required.');
-      return false;
-    }
-
-    const phoneCheck = validateRegisterNationalDigits(dial, registerPhoneNational);
-    if (!phoneCheck.ok) {
-      setPhoneError(phoneCheck.message || 'Invalid phone number.');
-      return false;
-    }
-
-    setPhoneError('');
-    return !firstNameError && !lastNameError;
+    const nextPhoneError = validatePhoneField();
+    setPhoneError(nextPhoneError);
+    return !firstNameError && !lastNameError && !nextPhoneError;
   };
 
   const handleContinueStep = () => {
@@ -284,18 +245,10 @@ export default function SignUpScreen() {
     });
     setRegisterPhoneTouched(true);
 
-    if (!registerPhoneNational.replace(/\D/g, '').length) {
-      setPhoneError('Phone number is required.');
-      return false;
-    }
-    const phoneCheck = validateRegisterNationalDigits(dial, registerPhoneNational);
-    if (!phoneCheck.ok) {
-      setPhoneError(phoneCheck.message || 'Invalid phone number.');
-      return false;
-    }
-    setPhoneError('');
+    const nextPhoneError = validatePhoneField();
+    setPhoneError(nextPhoneError);
 
-    return !Object.values(newErrors).some(Boolean);
+    return !Object.values(newErrors).some(Boolean) && !nextPhoneError;
   };
 
   const handleRegisterSubmit = async () => {
@@ -346,6 +299,7 @@ export default function SignUpScreen() {
 
   return (
     <AuthLayout
+      appearance="loginBrand"
       showBack={!showRegistrationSuccess}
       onBack={() => {
         router.back();
@@ -376,13 +330,18 @@ export default function SignUpScreen() {
           <Text style={s.successTitle}>Welcome to AutoSPF+</Text>
           <Text style={s.successSubtitle}>Your account is ready.</Text>
           <Text style={s.successBody}>{"Let's set up your first vehicle."}</Text>
-          <AuthButton title="Continue" onPress={handleRegistrationSuccessContinue} style={s.successCta} />
+          <AuthButton
+            title="Continue"
+            onPress={handleRegistrationSuccessContinue}
+            appearance="loginBrand"
+            style={s.successCta}
+          />
         </Animated.View>
       ) : (
         <>
           <AuthStepIndicator
             currentStep={step}
-            label={step === 1 ? 'Contact details' : 'Secure access'}
+            label={step === 1 ? 'Your details' : 'Account & password'}
           />
 
           {step === 1 ? (
@@ -397,6 +356,8 @@ export default function SignUpScreen() {
                 textContentType="givenName"
                 autoComplete="name-given"
                 error={touched.firstName ? errors.firstName : ''}
+                appearance="loginBrand"
+                reserveErrorSpace
               />
 
               <AuthInput
@@ -409,6 +370,8 @@ export default function SignUpScreen() {
                 textContentType="familyName"
                 autoComplete="name-family"
                 error={touched.lastName ? errors.lastName : ''}
+                appearance="loginBrand"
+                reserveErrorSpace
               />
 
               <AuthInput
@@ -426,13 +389,24 @@ export default function SignUpScreen() {
                 placeholder={dial === '63' ? '9XXXXXXXXX' : 'Phone number'}
                 value={registerPhoneNational}
                 onChangeText={handleRegisterPhoneChange}
+                onBlur={() => {
+                  setRegisterPhoneTouched(true);
+                  setPhoneError(validatePhoneField());
+                }}
                 keyboardType="phone-pad"
                 textContentType="telephoneNumber"
                 autoComplete="tel"
-                error={registerPhoneTouched ? phoneError : undefined}
+                error={registerPhoneTouched ? phoneError : ''}
+                appearance="loginBrand"
+                reserveErrorSpace
               />
 
-              <AuthButton title="Continue" onPress={handleContinueStep} style={s.stepCta} />
+              <AuthButton
+                title="Continue"
+                onPress={handleContinueStep}
+                appearance="loginBrand"
+                style={s.stepCta}
+              />
             </Animated.View>
           ) : (
             <Animated.View key="register-step-2" entering={FadeInUp.duration(240)} style={s.stepPanel}>
@@ -444,7 +418,7 @@ export default function SignUpScreen() {
                 }}
               >
                 <Ionicons name="chevron-back" size={16} color={AuthColors.textSecondary} />
-                <Text style={s.stepBackText}>Contact details</Text>
+                <Text style={s.stepBackText}>Your details</Text>
               </TouchableOpacity>
 
               <AuthInput
@@ -458,6 +432,8 @@ export default function SignUpScreen() {
                 textContentType="emailAddress"
                 autoComplete="email"
                 error={touched.email ? errors.email : ''}
+                appearance="loginBrand"
+                reserveErrorSpace
               />
 
               <AuthInput
@@ -467,14 +443,10 @@ export default function SignUpScreen() {
                 onChangeText={(v) => {
                   setPassword(v);
                   if (errors.password) setErrors((p) => ({ ...p, password: '' }));
-                  if (touched.confirmPassword && confirmPassword) {
-                    setErrors((p) => ({
-                      ...p,
-                      confirmPassword: validators.confirmPassword(confirmPassword, v),
-                    }));
+                  if (errors.confirmPassword) {
+                    setErrors((p) => ({ ...p, confirmPassword: '' }));
                   }
                   if (apiError) setApiError('');
-                  if (!touched.password) setTouched((p) => ({ ...p, password: true }));
                 }}
                 onBlur={() => handleBlur('password')}
                 isPassword
@@ -482,6 +454,8 @@ export default function SignUpScreen() {
                 autoComplete="new-password"
                 error={touched.password ? errors.password : ''}
                 containerStyle={password.length > 0 ? s.passwordInputWithMeter : undefined}
+                appearance="loginBrand"
+                reserveErrorSpace
               />
               {password.length > 0 && <AuthPasswordRequirements password={password} />}
 
@@ -495,6 +469,8 @@ export default function SignUpScreen() {
                 textContentType="newPassword"
                 autoComplete="new-password"
                 error={touched.confirmPassword ? errors.confirmPassword : ''}
+                appearance="loginBrand"
+                reserveErrorSpace
               />
 
               <View style={s.legalGroup}>
@@ -549,14 +525,11 @@ export default function SignUpScreen() {
               <AuthButton
                 title={loading ? 'Creating account…' : 'Create account'}
                 onPress={handleRegisterSubmit}
-                disabled={loading || !canRegister}
+                disabled={loading}
                 loading={loading}
+                appearance="loginBrand"
                 style={s.stepCta}
               />
-
-              {!isFormValid && !loading && (
-                <Text style={s.hint}>Complete step 2 and required acknowledgements to continue</Text>
-              )}
             </Animated.View>
           )}
         </>
@@ -669,13 +642,6 @@ const s = StyleSheet.create({
     marginTop: 10,
   },
   errorText: { color: AuthColors.error, fontFamily: AuthFontFamily.regular, fontSize: 13, lineHeight: 18 },
-  hint: {
-    color: AuthColors.textTertiary,
-    fontFamily: AuthFontFamily.regular,
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: 12,
-  },
   agreeRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',

@@ -3,11 +3,11 @@
 export const VEHICLE_BODY_TYPES = [
   'Hatchback',
   'Sedan',
-  'Midsized',
+  'Midsize',
   'SUV',
-  'Pick UP',
+  'Pickup',
   'Large SUV / Van',
-  'Highend Sedan',
+  'High-end Sedan',
 ] as const;
 
 export type VehiclePricingCategory =

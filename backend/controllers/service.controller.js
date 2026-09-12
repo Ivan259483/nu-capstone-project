@@ -29,11 +29,11 @@ const LEGACY_PRICE_KEYS = {
 const VEHICLE_LABELS = {
     hatchback: 'Hatchback',
     sedan: 'Sedan',
-    midsized: 'Midsized',
+    midsized: 'Midsize',
     suv: 'SUV',
-    pickup: 'Pick Up',
+    pickup: 'Pickup',
     largeSuv: 'Large SUV / Van',
-    highend: 'Highend Sedan',
+    highend: 'High-end Sedan',
 };
 
 const normalizeVehicleType = (vehicleType) => {

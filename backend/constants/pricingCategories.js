@@ -15,7 +15,7 @@ export const VEHICLE_PRICING_CATEGORIES = Object.freeze([
     code: VEHICLE_PRICING_CATEGORY.HATCHBACK_SMALL_CAR,
     apiKey: 'hatchback',
     legacyKey: 'hatchback',
-    label: 'Hatchback / Small Car',
+    label: 'Hatchback',
     legacyLabels: ['hatchback', 'small car', 'hatchback / small car'],
   },
   {
@@ -29,7 +29,7 @@ export const VEHICLE_PRICING_CATEGORIES = Object.freeze([
     code: VEHICLE_PRICING_CATEGORY.MIDSIZED,
     apiKey: 'midsized',
     legacyKey: 'midsized',
-    label: 'Midsized',
+    label: 'Midsize',
     legacyLabels: ['midsized', 'midsize', 'mid-sized'],
   },
   {
@@ -57,7 +57,7 @@ export const VEHICLE_PRICING_CATEGORIES = Object.freeze([
     code: VEHICLE_PRICING_CATEGORY.HIGH_END_SEDAN,
     apiKey: 'highend',
     legacyKey: 'highend',
-    label: 'High-End Sedan',
+    label: 'High-end Sedan',
     legacyLabels: ['high-end sedan', 'highend sedan', 'high end sedan', 'highend', 'high-end'],
   },
 ]);
@@ -104,11 +104,11 @@ export const getVehicleTypeLabelForPricingCategory = (value) => {
   return {
     [VEHICLE_PRICING_CATEGORY.HATCHBACK_SMALL_CAR]: 'Hatchback',
     [VEHICLE_PRICING_CATEGORY.SEDAN]: 'Sedan',
-    [VEHICLE_PRICING_CATEGORY.MIDSIZED]: 'Midsized',
+    [VEHICLE_PRICING_CATEGORY.MIDSIZED]: 'Midsize',
     [VEHICLE_PRICING_CATEGORY.SUV]: 'SUV',
     [VEHICLE_PRICING_CATEGORY.PICKUP]: 'Pickup',
     [VEHICLE_PRICING_CATEGORY.LARGE_SUV_VAN]: 'Large SUV / Van',
-    [VEHICLE_PRICING_CATEGORY.HIGH_END_SEDAN]: 'High-End Sedan',
+    [VEHICLE_PRICING_CATEGORY.HIGH_END_SEDAN]: 'High-end Sedan',
   }[category] || null;
 };
 
