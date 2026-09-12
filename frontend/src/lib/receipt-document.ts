@@ -109,8 +109,16 @@ const loadReceiptLogo = () =>
     }
 
     const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => resolve(null);
+    let settled = false;
+    const finish = (value: HTMLImageElement | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(value);
+    };
+    const timeout = window.setTimeout(() => finish(null), 1500);
+    image.onload = () => finish(image);
+    image.onerror = () => finish(null);
     image.src = RECEIPT_LOGO_URL;
   });
 

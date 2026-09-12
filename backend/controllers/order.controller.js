@@ -471,12 +471,39 @@ const ORDER_TRACKER_MEDIA_SELECT_FIELDS = [
   'serviceStaffAssignments',
   'trackerStageMedia.stage',
   'trackerStageMedia.slot',
-  'trackerStageMedia.photoUrl',
   'trackerStageMedia.description',
   'trackerStageMedia.uploadedAt',
   'trackerStageMedia.uploadedBy',
   'updatedAt',
 ].join(' ');
+
+const ORDER_TRACKER_MEDIA_SAFE_PROJECT = {
+  trackerStageMedia: {
+    $map: {
+      input: { $ifNull: ['$trackerStageMedia', []] },
+      as: 'media',
+      in: {
+        id: { $toString: '$$media._id' },
+        stage: '$$media.stage',
+        slot: '$$media.slot',
+        description: '$$media.description',
+        uploadedAt: '$$media.uploadedAt',
+        uploadedBy: '$$media.uploadedBy',
+        hasPhoto: { $gt: [{ $strLenCP: { $ifNull: ['$$media.photoUrl', ''] } }, 0] },
+        photoPending: {
+          $regexMatch: { input: { $ifNull: ['$$media.photoUrl', ''] }, regex: /^data:/ },
+        },
+        photoUrl: {
+          $cond: [
+            { $regexMatch: { input: { $ifNull: ['$$media.photoUrl', ''] }, regex: /^https:\/\//i } },
+            '$$media.photoUrl',
+            '',
+          ],
+        },
+      },
+    },
+  },
+};
 
 const parsePositiveInt = (value, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) => {
   const parsed = Number.parseInt(String(value ?? ''), 10);
@@ -1176,7 +1203,7 @@ export const getBalancePickupQueue = async (req, res, next) => {
       max: BALANCE_PICKUP_QUEUE_LIMIT,
     });
 
-    const candidateOrders = await Order.find({
+    const candidateFilter = {
       archived: { $ne: true },
       paymentStatus: { $ne: 'paid' },
       status: { $nin: ['cancelled', 'rejected', 'released', 'completed'] },
@@ -1186,21 +1213,55 @@ export const getBalancePickupQueue = async (req, res, next) => {
         { serviceTrackingStage: 'ready_pickup' },
         { 'trackerStageMedia.stage': 'ready_pickup' },
       ],
-    })
-      .select(
-        `${ORDER_LIST_SELECT_FIELDS} bookingReference qcCompletedAt posQueueStatus readyForPickupEvidenceComplete readyForPaymentAt ` +
-        'trackerStageMedia.stage trackerStageMedia.slot trackerStageMedia.photoUrl'
-      )
-      .sort({ readyForPaymentAt: 1, updatedAt: -1 })
-      .limit(limit * 3);
+    };
+    const orderProjection = Object.fromEntries(
+      `${ORDER_LIST_SELECT_FIELDS} readyForPickupEvidenceComplete`
+        .split(/\s+/).filter(Boolean).map((field) => [field, 1])
+    );
+    const candidates = await timeOperation(
+      { req, res, kind: 'db', name: 'pickupQueue.candidates' },
+      () => Order.aggregate([
+        { $match: candidateFilter },
+        { $sort: { readyForPaymentAt: 1, updatedAt: -1 } },
+        { $limit: limit * 3 },
+        { $project: {
+          ...orderProjection,
+          pickupEvidence: { $map: {
+            input: { $filter: {
+              input: { $ifNull: ['$trackerStageMedia', []] },
+              as: 'media',
+              cond: { $eq: ['$$media.stage', 'ready_pickup'] },
+            } },
+            as: 'media',
+            in: {
+              stage: '$$media.stage',
+              slot: '$$media.slot',
+              hasPhoto: { $ne: [{ $trim: {
+                input: { $ifNull: ['$$media.photoUrl', ''] },
+                // Match String.trim() used by the full-media eligibility path.
+                chars: ' \t\n\r\v\f\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff',
+              } }, ''] },
+            },
+          } },
+        } },
+      ])
+    );
 
     const rows = [];
-    for (const order of candidateOrders) {
-      const evaluation = await evaluateReadyForPickupQueueEligibility(order, {
-        persist: true,
-        emit: true,
-        notify: true,
-      });
+    for (const { pickupEvidence, ...rawOrder } of candidates) {
+      // Hydrate only real projected fields. Evidence metadata is never assigned
+      // to trackerStageMedia, so eligibility saves cannot replace stored photos.
+      const order = Order.hydrate(rawOrder, orderProjection);
+      const financial = await computeOrderFinancialState(order, { req, res });
+      const evaluation = await timeOperation(
+        { req, res, name: 'pickupQueue.eligibility' },
+        () => evaluateReadyForPickupQueueEligibility(order, {
+          persist: true,
+          emit: true,
+          notify: true,
+          pickupEvidence,
+          financialState: financial,
+        }));
       if (!evaluation.eligible) {
         if (debugQueue) {
           console.debug('[POS Queue] backend eligibility reason', {
@@ -1215,7 +1276,6 @@ export const getBalancePickupQueue = async (req, res, next) => {
         }
         continue;
       }
-      const financial = await computeOrderFinancialState(order);
       rows.push(buildBalancePickupQueueDto(order, evaluation, financial));
       if (rows.length >= limit) break;
     }
@@ -1461,29 +1521,28 @@ export const getOrderTrackerMedia = async (req, res, next) => {
       });
     }
 
+    const [mediaProjection = { trackerStageMedia: [] }] = await timeOperation(
+      { req, res, kind: 'db', name: 'trackerMedia.order.safeMediaProjection' },
+      () => Order.aggregate([
+        { $match: { _id: order._id } },
+        { $project: ORDER_TRACKER_MEDIA_SAFE_PROJECT },
+      ])
+    );
+
     const trackerStageMedia = await timeOperation(
       { req, res, kind: 'cpu', name: 'trackerMedia.customerVisibilityFilter' },
       () => (isCustomerRole(req.user.role)
-        ? getCustomerVisibleTrackerStageMedia(order)
-        : (Array.isArray(order.trackerStageMedia) ? order.trackerStageMedia : []))
+        ? getCustomerVisibleTrackerStageMedia({
+          serviceTrackingStage: order.serviceTrackingStage,
+          trackerStageMedia: mediaProjection.trackerStageMedia,
+        })
+        : (Array.isArray(mediaProjection.trackerStageMedia) ? mediaProjection.trackerStageMedia : []))
     );
 
-    // Diagnostic only (no image bytes logged): how much of this response is
-    // still inline base64 pending a Cloudinary upload. This is the metric that
-    // explains multi-second findById/serialization times on bloated orders —
-    // see PHASE 3 of the perf audit report for the root cause.
-    let inlineBase64Bytes = 0;
-    let inlineBase64Count = 0;
-    for (const entry of trackerStageMedia) {
-      const url = entry?.photoUrl;
-      if (typeof url === 'string' && url.startsWith('data:')) {
-        inlineBase64Bytes += url.length;
-        inlineBase64Count += 1;
-      }
-    }
+    const placeholderCount = trackerStageMedia.filter((entry) => entry?.photoPending).length;
     console.info(
       `[PERF] kind=media operation=trackerMedia.payload method=${req.method} path=${req.originalUrl} ` +
-      `mediaCount=${trackerStageMedia.length} inlineBase64Count=${inlineBase64Count} inlineBase64KB=${(inlineBase64Bytes / 1024).toFixed(1)}`
+      `mediaCount=${trackerStageMedia.length} placeholderCount=${placeholderCount} inlineBase64Count=0 inlineBase64KB=0.0`
     );
 
     res.json({

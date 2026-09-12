@@ -14,12 +14,9 @@ import {
 } from "@/lib/customer-payment-history";
 import {
   buildDetailedReceiptHtml,
-  createDetailedReceiptPdfBlob,
+  downloadDetailedReceiptPdf,
   printDetailedReceipt,
 } from "@/lib/receipt-document";
-
-const receiptFileName = (receiptNumber: string) =>
-  `AutoSPF-Receipt-${receiptNumber.replace(/[^a-z0-9_-]/gi, "-")}.pdf`;
 
 export function CustomerReceiptDetails({
   paymentId,
@@ -32,8 +29,7 @@ export function CustomerReceiptDetails({
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
   const [retry, setRetry] = useState(0);
-  const [pdfUrl, setPdfUrl] = useState("");
-  const [pdfRetry, setPdfRetry] = useState(0);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
   const officialReceipt = useMemo(
@@ -69,31 +65,32 @@ export function CustomerReceiptDetails({
     return () => controller.abort();
   }, [paymentId, retry]);
 
-  useEffect(() => {
-    let cancelled = false;
-    let url = "";
-    setPdfUrl("");
+  const downloadPdf = async () => {
+    if (!officialReceipt || pdfLoading) return;
     setPdfError("");
-    if (officialReceipt) {
-      createDetailedReceiptPdfBlob(officialReceipt)
-        .then((blob) => {
-          if (!cancelled) {
-            url = URL.createObjectURL(blob);
-            setPdfUrl(url);
-          }
-        })
-        .catch(() => {
-          if (!cancelled)
-            setPdfError(
-              "The PDF could not be prepared. You can still print this receipt.",
-            );
-        });
+    setPdfLoading(true);
+    try {
+      await downloadDetailedReceiptPdf(officialReceipt);
+    } catch {
+      setPdfError(
+        "The PDF could not be prepared. You can still print this receipt.",
+      );
+    } finally {
+      setPdfLoading(false);
     }
-    return () => {
-      cancelled = true;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [officialReceipt, pdfRetry]);
+  };
+
+  const openReceipt = () => {
+    if (!officialReceiptHtml) return;
+    setActionError("");
+    const win = window.open("", "_blank", "width=860,height=900");
+    if (!win) {
+      setActionError("The receipt could not be opened in a new window.");
+      return;
+    }
+    win.document.write(officialReceiptHtml);
+    win.document.close();
+  };
 
   const print = () => {
     if (!officialReceipt) return;
@@ -125,21 +122,15 @@ export function CustomerReceiptDetails({
             : "Your official AutoSPF+ service receipt."}</p>
         </div>
         <div className="customer-receipt-actions">
-          {pdfUrl && receipt ? (
-            <a
-              className="customer-payment-button is-primary"
-              href={pdfUrl}
-              download={receiptFileName(receipt.receiptNumber)}
-            >
-              <Download size={15} />
-              Download PDF
-            </a>
-          ) : (
-            <button className="customer-payment-button is-primary" disabled>
-              <Download size={15} />
-              {receipt && !pdfError ? "Preparing PDF…" : "Download PDF"}
-            </button>
-          )}
+          <button
+            className="customer-payment-button is-primary"
+            type="button"
+            disabled={!officialReceipt || pdfLoading}
+            onClick={downloadPdf}
+          >
+            <Download size={15} />
+            {pdfLoading ? "Preparing PDF…" : "Download PDF"}
+          </button>
           <button
             className="customer-payment-button"
             type="button"
@@ -149,35 +140,20 @@ export function CustomerReceiptDetails({
             <Printer size={15} />
             Print Receipt
           </button>
-          {pdfUrl ? (
-            <a
-              className="customer-payment-button is-tertiary"
-              href={pdfUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <ExternalLink size={15} />
-              Open Receipt
-            </a>
-          ) : (
-            <button className="customer-payment-button" disabled>
-              <ExternalLink size={15} />
-              Open Receipt
-            </button>
-          )}
+          <button
+            className="customer-payment-button is-tertiary"
+            type="button"
+            disabled={!officialReceipt}
+            onClick={openReceipt}
+          >
+            <ExternalLink size={15} />
+            Open Receipt
+          </button>
         </div>
       </header>
       {(actionError || pdfError) && (
         <div className="customer-payment-action-error" role="alert">
           {actionError || pdfError}
-          {pdfError && (
-            <button
-              className="customer-payment-button"
-              onClick={() => setPdfRetry((value) => value + 1)}
-            >
-              Retry PDF
-            </button>
-          )}
         </div>
       )}
       {error ? (

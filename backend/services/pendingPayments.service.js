@@ -2,7 +2,8 @@ import Billing from '../models/billing.model.js';
 import Order from '../models/order.model.js';
 import Payment from '../models/payment.model.js';
 import { computeBillingTotals, normalizeMoney } from '../utils/billingTotals.js';
-import { getSignedAmount } from './financialLedger.service.js';
+import { getSignedAmount, LEDGER_BALANCE_SELECT_FIELDS } from './financialLedger.service.js';
+import { timeOperation } from '../utils/performance.utils.js';
 
 export const PENDING_PAYMENT_STATUSES = Object.freeze([
   'pending',
@@ -108,8 +109,8 @@ export function summarizeOutstandingOrders({ orders, billingsByOrder, settledTot
   };
 }
 
-export async function getPendingPaymentsSummary() {
-  const orders = await Order.find({
+export async function getPendingPaymentsSummary(timing = {}) {
+  const orders = await timeOperation({ ...timing, kind: 'db', name: 'pendingPayments.orders' }, () => Order.find({
     archived: { $ne: true },
     approvedAt: { $ne: null },
     status: { $in: [...LEGITIMATE_ORDER_STATUSES] },
@@ -118,7 +119,7 @@ export async function getPendingPaymentsSummary() {
       '_id orderNumber bookingReference status paymentStatus archived serviceTotal totalPrice totalAmount ' +
       'subtotal discountAmount taxVatAmount additionalFees downPaymentAmount amountCollected finalPaymentAmount approvedAt'
     )
-    .lean();
+    .lean());
 
   if (orders.length === 0) {
     return summarizeOutstandingOrders({ orders: [] });
@@ -126,11 +127,12 @@ export async function getPendingPaymentsSummary() {
 
   const orderIds = orders.map((order) => order._id);
   const [billings, settledPayments] = await Promise.all([
-    Billing.find({ order: { $in: orderIds } })
+    timeOperation({ ...timing, kind: 'db', name: 'pendingPayments.billings' }, () => Billing.find({ order: { $in: orderIds } })
       .select('order lineItems discount taxVatAmount additionalFees downpayment version updatedAt')
       .sort({ version: -1, updatedAt: -1 })
-      .lean(),
-    Payment.find({ order: { $in: orderIds } }).lean(),
+      .lean()),
+    timeOperation({ ...timing, kind: 'db', name: 'pendingPayments.payments' }, () =>
+      Payment.find({ order: { $in: orderIds } }).select(LEDGER_BALANCE_SELECT_FIELDS).lean()),
   ]);
 
   const billingsByOrder = new Map();

@@ -2,6 +2,10 @@ import crypto from 'crypto';
 import Payment from '../models/payment.model.js';
 import Order from '../models/order.model.js';
 
+// Supporting balance/refund reads never need proof images or review history.
+export const LEDGER_BALANCE_SELECT_FIELDS =
+  '_id order amount amountSubmitted amountVerified amountPaid status transactionType relatedPayment';
+
 export const POSTED_POSITIVE_STATUSES = Object.freeze(['succeeded']);
 export const POSTED_REFUND_STATUSES = Object.freeze(['refunded', 'succeeded']);
 
@@ -263,8 +267,9 @@ export const buildLedgerTransaction = (payment, { orderPayments = [], order: exp
   };
 };
 
-export const getOrderLedger = async (orderId, { session = null } = {}) => {
+export const getOrderLedger = async (orderId, { session = null, select = null } = {}) => {
   let query = Payment.find({ order: orderId }).sort({ effectiveAt: 1, createdAt: 1 });
+  if (select) query = query.select(select);
   if (session) query = query.session(session);
   return query;
 };

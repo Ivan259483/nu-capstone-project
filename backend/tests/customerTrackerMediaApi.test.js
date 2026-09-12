@@ -112,3 +112,33 @@ test('customer tracker API releases the completed gate but keeps the next gate p
   assert.deepEqual(response.body.data.trackerStageMedia.map((entry) => entry.stage), ['received']);
   assert.equal(JSON.stringify(response.body).includes('unreleased-service.jpg'), false);
 });
+
+test('tracker API replaces inline media with metadata-only placeholders', async () => {
+  const customerId = new mongoose.Types.ObjectId();
+  const inlinePhoto = `data:image/jpeg;base64,${'A'.repeat(256 * 1024)}`;
+  const order = await Order.create({
+    orderNumber: 'ORD-INLINE-PLACEHOLDER',
+    bookingReference: 'ASPF-INLINE-PLACEHOLDER',
+    customer: customerId,
+    customerName: 'Inline Media Customer',
+    serviceType: 'SPF Service',
+    status: 'received',
+    serviceTrackingStage: 'received',
+    paymentStatus: 'unpaid',
+    totalPrice: 1000,
+    trackerStageMedia: [
+      { stage: 'received', slot: 'front', photoUrl: inlinePhoto },
+    ],
+  });
+
+  const response = await invokeTrackerMedia({ orderId: order._id, userId: customerId, role: 'customer' });
+  const [media] = response.body.data.trackerStageMedia;
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(media.id, order.trackerStageMedia[0]._id.toString());
+  assert.equal(media.photoUrl, '');
+  assert.equal(media.hasPhoto, true);
+  assert.equal(media.photoPending, true);
+  assert.equal(JSON.stringify(response.body).includes('data:image'), false);
+  assert.ok(Buffer.byteLength(JSON.stringify(response.body)) < 10 * 1024);
+});

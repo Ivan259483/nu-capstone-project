@@ -14,7 +14,13 @@ import {
   SUPPLIER_MANAGER_ROLES,
   POS_MANAGER_ROLES,
 } from '../constants/roles.js';
-import { getBilling, putBilling, checkoutBilling, getOrderReceiptPdf } from '../controllers/billing.controller.js';
+import {
+  getBilling,
+  getPosQueueLoad,
+  putBilling,
+  checkoutBilling,
+  getOrderReceiptPdf,
+} from '../controllers/billing.controller.js';
 
 const router = express.Router();
 
@@ -89,6 +95,13 @@ router.get(
  * @desc Load or create draft billing for an order
  */
 router.get('/:orderId/billing', authorize(...POS_MANAGER_ROLES), getBilling);
+
+/**
+ * @route GET /api/orders/:orderId/pos-queue-load
+ * @desc Lean, relation-checked POS hydration for a pickup queue order
+ * @access Private - Sales/Admin
+ */
+router.get('/:orderId/pos-queue-load', authorize(...POS_MANAGER_ROLES), getPosQueueLoad);
 
 /**
  * @route PUT /api/orders/:orderId/billing

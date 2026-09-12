@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import axios from 'axios';
 import {
   getCloudinaryRuntimeDiagnostics,
@@ -79,6 +80,19 @@ test('signed buffer upload sends the actual signed multipart fields and returns 
         assert.match(body, new RegExp(`name="${field}"`));
       }
       assert.doesNotMatch(body, /name="upload_preset"/);
+      const fieldValue = (name) => body.match(
+        new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r\\n]+)`)
+      )?.[1];
+      const folder = fieldValue('folder');
+      const publicId = fieldValue('public_id');
+      const timestamp = fieldValue('timestamp');
+      const signature = fieldValue('signature');
+      assert.equal(
+        signature,
+        crypto.createHash('sha1')
+          .update(`folder=${folder}&public_id=${publicId}&timestamp=${timestamp}server-secret`)
+          .digest('hex')
+      );
       return {
         data: {
           secure_url: 'https://res.cloudinary.com/test-cloud/image/upload/profile-photos/user_1.jpg',

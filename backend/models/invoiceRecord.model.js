@@ -24,5 +24,6 @@ const invoiceRecordSchema = new mongoose.Schema(
 );
 
 invoiceRecordSchema.index({ order: 1, createdAt: -1 });
+invoiceRecordSchema.index({ payment: 1 }, { sparse: true });
 
 export default mongoose.model('InvoiceRecord', invoiceRecordSchema);

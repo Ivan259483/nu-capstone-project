@@ -77,6 +77,27 @@ if (__DEV__) {
     );
   }
 
+  if (usedExplicitApiUrl && !/ngrok/i.test(API_BASE_URL)) {
+    const healthUrl = `${sanitizedApiUrl}/health`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    void fetch(healthUrl, { signal: ctrl.signal, headers: { Accept: 'application/json' } })
+      .then(async (response) => {
+        const body = await response.text();
+        clearTimeout(timer);
+        console.log(
+          `[Config] API health probe: ${healthUrl} -> HTTP ${response.status}; response received: yes; body: ${body.slice(0, 160)}`
+        );
+      })
+      .catch((error: unknown) => {
+        clearTimeout(timer);
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          `[Config] API health probe: ${healthUrl} -> response received: no; error: ${message}`
+        );
+      });
+  }
+
   // Ngrok must forward to Express (GET /health → { status: 'ok' }). Offline tunnel (ERR_NGROK_3200) or wrong port → 404 on /api/*.
   if (usedExplicitApiUrl && /ngrok/i.test(API_BASE_URL)) {
     const origin = sanitizedApiUrl.replace(/\/+$/, '');

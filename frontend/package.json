@@ -14,7 +14,7 @@
     "test:booking-intent": "node --experimental-strip-types --test tests/bookingIntent.test.ts",
     "test:customer-booking-funnel": "node --experimental-strip-types --test tests/customerBookingFunnel.test.ts",
     "test:customer-booking-journey": "node --experimental-strip-types --test tests/customerBookingJourney.test.ts",
-    "test:sales-analytics": "node --experimental-strip-types --test tests/transactionPayment.test.ts tests/salesAnalyticsContracts.test.ts",
+    "test:sales-analytics": "node --experimental-strip-types --test tests/transactionPayment.test.ts tests/salesAnalyticsContracts.test.ts tests/salesSync.test.ts",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
     "optimize:hero": "node scripts/optimize-hero-images.mjs",

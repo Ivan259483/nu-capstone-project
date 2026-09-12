@@ -1297,21 +1297,6 @@ export default function TrackScreen() {
     refreshBookings,
   } = useCustomerBookings(!!profile);
 
-  const {
-    data: specificBookingData,
-    isLoading: isSpecificBookingLoading,
-    isError: isSpecificBookingQueryError,
-    error: specificBookingQueryError,
-    refetch: refetchSpecificBooking,
-  } = useQuery({
-    queryKey: ['booking', routeBookingId],
-    queryFn: () => {
-      return bookingService.getBookingById(routeBookingId!);
-    },
-    enabled: !!routeBookingId && !!profile,
-    refetchInterval: 60_000,
-  });
-
   // ── Real-time socket invalidation (mirrors useLiveJobs.ts) ──
   useRealtimeSync(['orders']);
 
@@ -1333,14 +1318,24 @@ export default function TrackScreen() {
     return active[0] || null;
   }, [allBookings]);
 
-  const bookingFromQuery = useMemo(() => {
-    if (routeBookingId) return specificBookingData ?? null;
-    return defaultTrackBooking;
-  }, [routeBookingId, specificBookingData, defaultTrackBooking]);
+  const routeBookingFromList = useMemo(
+    () => routeBookingId
+      ? allBookings.find((entry) => String(entry.id || entry._id) === String(routeBookingId)) ?? null
+      : null,
+    [allBookings, routeBookingId]
+  );
 
-  const trackerMediaBookingId = bookingFromQuery?.id || bookingFromQuery?._id || '';
+  const trackerMediaBookingId = routeBookingId
+    || routeBookingFromList?.id
+    || routeBookingFromList?._id
+    || defaultTrackBooking?.id
+    || defaultTrackBooking?._id
+    || '';
   const {
     data: trackerMediaData,
+    isLoading: isTrackerMediaLoading,
+    isError: isTrackerMediaError,
+    error: trackerMediaError,
     refetch: refetchTrackerMedia,
   } = useQuery({
     queryKey: ['booking', trackerMediaBookingId, 'tracker-media'],
@@ -1348,6 +1343,11 @@ export default function TrackScreen() {
     enabled: !!trackerMediaBookingId && !!profile,
     refetchInterval: 60_000,
   });
+
+  const bookingFromQuery = useMemo(() => {
+    if (routeBookingId) return routeBookingFromList ?? trackerMediaData ?? null;
+    return defaultTrackBooking;
+  }, [routeBookingId, routeBookingFromList, trackerMediaData, defaultTrackBooking]);
 
   useEffect(() => {
     setPaymentProofLocal(null);
@@ -1384,30 +1384,29 @@ export default function TrackScreen() {
     // hydration (or a session invalidation in-flight) sends this protected
     // request with no/stale token.
     if (!profile) return undefined;
-    if (routeBookingId) void refetchSpecificBooking();
     if (trackerMediaBookingId) void refetchTrackerMedia();
     return undefined;
-  }, [profile, refetchSpecificBooking, refetchTrackerMedia, routeBookingId, trackerMediaBookingId]));
+  }, [profile, refetchTrackerMedia, trackerMediaBookingId]));
 
   const isLoading =
-    isBookingsQueryLoading || (!!routeBookingId && isSpecificBookingLoading);
+    isBookingsQueryLoading || (!!routeBookingId && !routeBookingFromList && isTrackerMediaLoading);
 
   const showLoadError =
     !isLoading &&
     ((!routeBookingId && isBookingsQueryError) ||
-      (!!routeBookingId && isSpecificBookingQueryError));
+      (!!routeBookingId && !routeBookingFromList && isTrackerMediaError));
 
   const loadErrorMessage = useMemo(() => {
     if (!showLoadError) return '';
-    if (routeBookingId && isSpecificBookingQueryError) {
-      return getApiErrorMessage(specificBookingQueryError, 'Could not load this booking.');
+    if (routeBookingId && isTrackerMediaError) {
+      return getApiErrorMessage(trackerMediaError, 'Could not load this booking.');
     }
     return getApiErrorMessage(bookingsQueryError, 'Could not load your bookings. Check your connection and API URL.');
   }, [
     showLoadError,
     routeBookingId,
-    isSpecificBookingQueryError,
-    specificBookingQueryError,
+    isTrackerMediaError,
+    trackerMediaError,
     bookingsQueryError,
   ]);
 
@@ -1561,7 +1560,6 @@ export default function TrackScreen() {
     if (!profile) return;
     await Promise.all([
       refreshBookings(),
-      routeBookingId ? refetchSpecificBooking() : Promise.resolve(),
       trackerMediaBookingId ? refetchTrackerMedia() : Promise.resolve(),
     ]);
   };
@@ -1583,7 +1581,7 @@ export default function TrackScreen() {
         setPaymentProofLocal(img);
         await Promise.all([
           refreshBookings(),
-          routeBookingId ? refetchSpecificBooking() : Promise.resolve(),
+          trackerMediaBookingId ? refetchTrackerMedia() : Promise.resolve(),
         ]);
       }
     } catch (err: any) {

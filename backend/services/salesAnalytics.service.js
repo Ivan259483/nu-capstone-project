@@ -2,6 +2,7 @@ import Order from '../models/order.model.js';
 import Payment from '../models/payment.model.js';
 import User from '../models/user.model.js';
 import Vehicle from '../models/vehicle.model.js';
+import { timeOperation } from '../utils/performance.utils.js';
 import { isCustomerRole } from '../constants/roles.js';
 import {
   allocateAmountToServices,
@@ -300,7 +301,24 @@ export const salesReportToCsv = (report) => {
   return [header, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\r\n');
 };
 
-export const loadSalesReport = async (query = {}) => {
+// Keep report/CSV financial inputs explicit: orders and payments can contain
+// multi-megabyte tracker photos, proof images, and proof history.
+export const SALES_REPORT_ORDER_FIELDS =
+  '_id orderNumber bookingReference customer customerName customerPhone serviceType status approvedAt cancelledAt ' +
+  'vehicle vehicleYear vehicleMake vehicleModel vehicleColor vehiclePlate serviceId serviceTotal totalPrice totalAmount ' +
+  'items subtotal discountAmount taxVatAmount additionalFees archived';
+export const SALES_REPORT_PAYMENT_FIELDS =
+  '_id invoiceId order customer vehicle service transactionType status amount amountSubmitted amountVerified amountPaid ' +
+  'method splitPayments submittedAt effectiveAt reviewedAt paidAt createdAt updatedAt relatedPayment refundReason ' +
+  'reviewReason reviewedBy staffAssigned items grandTotal subtotal discountAmount taxVatAmount additionalFees';
+
+export const loadSalesReport = async (query = {}, timing = {}) => {
+  const report = await loadSalesReportWithRows(query, timing);
+  delete report._rows;
+  return report;
+};
+
+export const loadSalesReportWithRows = async (query = {}, timing = {}) => {
   const range = parseReportingRange(query);
   const serviceMetric = String(query.serviceMetric || 'orders').toLowerCase();
   if (!['orders', 'booked_value'].includes(serviceMetric)) {
@@ -309,34 +327,20 @@ export const loadSalesReport = async (query = {}) => {
     throw error;
   }
   const [orderDocs, paymentDocs] = await Promise.all([
-    Order.find()
+    timeOperation({ ...timing, kind: 'db', name: 'salesReport.orders' }, () => Order.find()
+      .select(SALES_REPORT_ORDER_FIELDS)
       .populate('customer', 'name email phone phoneNumber contactNumber mobileNumber role isDeleted')
       .populate('vehicle', 'year make model color plateNumber vehicleType')
-      .populate('serviceId', 'name price'),
-    Payment.find()
+      .populate('serviceId', 'name price')),
+    timeOperation({ ...timing, kind: 'db', name: 'salesReport.payments' }, () => Payment.find()
+      .select(SALES_REPORT_PAYMENT_FIELDS)
       .populate('customer', 'name email phone phoneNumber contactNumber mobileNumber role isDeleted')
-      .populate('order', 'orderNumber bookingReference customer customerName customerPhone serviceType status approvedAt cancelledAt vehicle vehicleYear vehicleMake vehicleModel vehicleColor vehiclePlate serviceId serviceTotal totalPrice totalAmount items archived')
+      .populate('order', SALES_REPORT_ORDER_FIELDS)
       .populate('vehicle', 'year make model color plateNumber vehicleType')
-      .populate('service', 'name price'),
+      .populate('service', 'name price')),
   ]);
-  const report = buildSalesReportFromRecords({ orders: orderDocs, payments: paymentDocs, range, serviceMetric });
-  delete report._rows;
-  return report;
-};
-
-export const loadSalesReportWithRows = async (query = {}) => {
-  const range = parseReportingRange(query);
-  const serviceMetric = String(query.serviceMetric || 'orders').toLowerCase();
-  if (!['orders', 'booked_value'].includes(serviceMetric)) {
-    const error = new Error('serviceMetric must be orders or booked_value.');
-    error.statusCode = 400;
-    throw error;
-  }
-  const [orders, payments] = await Promise.all([
-    Order.find().populate('customer', 'name email phone role isDeleted').populate('vehicle serviceId'),
-    Payment.find().populate('customer', 'name email phone role isDeleted').populate('order').populate('vehicle service'),
-  ]);
-  return buildSalesReportFromRecords({ orders, payments, range, serviceMetric });
+  return timeOperation({ ...timing, kind: 'cpu', name: 'salesReport.aggregate' }, () =>
+    buildSalesReportFromRecords({ orders: orderDocs, payments: paymentDocs, range, serviceMetric }));
 };
 
 const encodeCustomerKey = (kind, id) => `${kind}.${Buffer.from(String(id)).toString('base64url')}`;

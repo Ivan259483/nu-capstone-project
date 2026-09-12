@@ -8,6 +8,8 @@ import { apiClient } from '@/services/api/client';
 interface ApiEnvelope<T> {
   success: boolean;
   data: T;
+  transactions?: T;
+  summary?: PaymentHistorySummary;
   message?: string;
   totalSpent?: number;
   totalCount?: number;
@@ -70,24 +72,41 @@ export interface PaymentReceipt {
 
 export interface PaymentHistoryResponse {
   payments: PaymentRecord[];
+  summary: PaymentHistorySummary;
   totalSpent: number;
   totalCount: number;
   currency: string;
+}
+
+export interface PaymentHistorySummary {
+  totalPaid: number;
+  paymentCount: number;
+  refundTotal: number;
+  totalReceived: number;
 }
 
 export const paymentService = {
   /**
    * Fetch the authenticated customer's payment history.
    */
-  async getMyPayments(limit = 50): Promise<PaymentHistoryResponse> {
+  async getMyPayments(limit = 500): Promise<PaymentHistoryResponse> {
     const response = await apiClient.get<ApiEnvelope<PaymentRecord[]>>('/payments/my', {
       params: { limit },
     });
 
+    const payments = response.data.transactions || response.data.data || [];
+    const summary = {
+      totalPaid: Number(response.data.summary?.totalPaid ?? response.data.totalSpent ?? 0),
+      paymentCount: Number(response.data.summary?.paymentCount ?? response.data.totalCount ?? 0),
+      refundTotal: Number(response.data.summary?.refundTotal ?? 0),
+      totalReceived: Number(response.data.summary?.totalReceived ?? 0),
+    };
+
     return {
-      payments: response.data.data || [],
-      totalSpent: response.data.totalSpent || 0,
-      totalCount: response.data.totalCount || 0,
+      payments,
+      summary,
+      totalSpent: summary.totalPaid,
+      totalCount: summary.paymentCount,
       currency: response.data.currency || 'PHP',
     };
   },

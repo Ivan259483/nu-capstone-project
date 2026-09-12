@@ -38,7 +38,7 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn, FadeInDown, FadeInUp, FadeInRight, SlideInRight,
@@ -71,12 +71,8 @@ import {
 } from '@/utils/customer-home-rail-step';
 import { useNotifications } from '@/context/NotificationsContext';
 import { TabBarContentHeight } from '@/constants/theme';
-import {
-  customerBookingDetailQueryKey,
-  useCustomerBookings,
-} from '@/hooks/useCustomerBookings';
+import { useCustomerBookings } from '@/hooks/useCustomerBookings';
 import { resolveCustomerPaymentState } from '@/utils/customer-payment-state';
-import { bookingService } from '@/services/api/bookingService';
 import { getPublishedServicePricePair } from '@/utils/service-offer-pricing';
 import { getCustomerTrackerTeam } from '@/utils/customer-tracker-details';
 import { resolveCustomerTrackerStage } from '@/utils/customer-tracker-stage';
@@ -1409,8 +1405,6 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { unreadCount } = useNotifications();
-  const queryClient = useQueryClient();
-
   const {
     data: bookings = [],
     isRefetching,
@@ -1463,15 +1457,6 @@ export default function HomeScreen() {
   }, [bookings]);
 
   const heroStep = job ? resolveCustomerHomeRailStep(job) : 0;
-
-  useEffect(() => {
-    if (!job?.id) return;
-    void queryClient.prefetchQuery({
-      queryKey: customerBookingDetailQueryKey(job.id),
-      queryFn: () => bookingService.getBookingById(job.id),
-      staleTime: 15_000,
-    });
-  }, [job?.id, queryClient]);
 
   const name = getFirstName(profile?.full_name);
 

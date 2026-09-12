@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { useRefreshResource } from './useRefreshResource';
+import { fetchSalesDashboard, fetchSalesLedger } from '@/lib/salesSync';
 import api from '@/lib/api';
 import { getSharedSocket } from './useRealtimeSync';
 import type { PaymentMethod, Transaction, TransactionStatus } from '@/lib/salesData';
@@ -103,45 +105,19 @@ const emptyReport: SalesAnalyticsReport = {
 };
 
 export function useSalesAnalytics() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [dashboardReport, setDashboardReport] = useState<SalesAnalyticsReport>(emptyReport);
-  const [isLoading, setIsLoading] = useState(true);
-  const fetchInFlight = useRef(false);
-
+  const ledger = useRefreshResource<Transaction[]>([], async () => {
+    const rows = await fetchSalesLedger((path, options) => api.get(path, options));
+    return rows.map(mapLedgerTransaction);
+  });
+  const report = useRefreshResource<SalesAnalyticsReport>(emptyReport, () =>
+    fetchSalesDashboard((path, options) => api.get(path, options)));
+  const transactions = ledger.data;
+  const dashboardReport = report.data;
+  const refreshLedger = ledger.refresh;
+  const refreshReport = report.refresh;
   const refetch = useCallback(async () => {
-    if (fetchInFlight.current) return;
-    fetchInFlight.current = true;
-    try {
-      const [ledgerResponse, reportResponse] = await Promise.all([
-        api.get('/payments', {
-          params: { page: 1, limit: 100, sortBy: 'effectiveAt', sortOrder: 'desc' },
-          meta: { suppressErrorToast: true },
-        } as any),
-        api.get('/sales-analytics/report', {
-          params: { range: '30d', serviceMetric: 'orders' },
-          meta: { suppressErrorToast: true },
-        } as any),
-      ]);
-      const remainingPages = Math.max(0, Number(ledgerResponse.data?.pagination?.pages || 1) - 1);
-      const additionalResponses = remainingPages > 0
-        ? await Promise.all(Array.from({ length: remainingPages }, (_, index) => api.get('/payments', {
-            params: { page: index + 2, limit: 100, sortBy: 'effectiveAt', sortOrder: 'desc' },
-            meta: { suppressErrorToast: true },
-          } as any)))
-        : [];
-      const ledgerRows = [ledgerResponse, ...additionalResponses]
-        .flatMap((response) => Array.isArray(response.data?.data) ? response.data.data : []);
-      setTransactions(ledgerRows.map(mapLedgerTransaction));
-      if (reportResponse.data?.success && reportResponse.data?.data) {
-        setDashboardReport(reportResponse.data.data as SalesAnalyticsReport);
-      }
-    } catch (error) {
-      console.error('Failed to load canonical sales analytics:', error);
-    } finally {
-      fetchInFlight.current = false;
-      setIsLoading(false);
-    }
-  }, []);
+    await Promise.all([refreshLedger(), refreshReport()]);
+  }, [refreshLedger, refreshReport]);
 
   useEffect(() => {
     void refetch();
@@ -205,7 +181,14 @@ export function useSalesAnalytics() {
   return {
     transactions,
     dashboardReport,
-    isLoading,
+    isLoading: !ledger.hasLoaded && !ledger.error,
+    isReportLoading: !report.hasLoaded && !report.error,
+    isReportRefreshing: report.isRefreshing,
+    isLedgerRefreshing: ledger.isRefreshing,
+    hasReport: report.hasLoaded,
+    hasLedger: ledger.hasLoaded,
+    reportError: report.error,
+    ledgerError: ledger.error,
     refetch,
     ...legacy,
   };

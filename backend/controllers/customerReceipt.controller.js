@@ -1,6 +1,9 @@
 import mongoose from "mongoose";
 import Payment from "../models/payment.model.js";
 import InvoiceRecord from "../models/invoiceRecord.model.js";
+import Order from "../models/order.model.js";
+import User from "../models/user.model.js";
+import Vehicle from "../models/vehicle.model.js";
 import { COMPANY_BRANDING } from "../constants/companyBranding.js";
 import {
   getPaymentEffectiveAt,
@@ -69,57 +72,297 @@ export async function findCustomerPaymentInvoices(payments) {
   return result;
 }
 
+/** Lightweight receipt availability lookup for payment-history lists. */
+export async function findCustomerPaymentInvoiceMetadata(payments) {
+  const eligible = payments.filter((payment) =>
+    customerReceiptEligible(payment) && payment.transactionType !== "reservation_fee",
+  );
+  if (!eligible.length) return new Map();
+
+  const paymentIds = eligible.map((payment) => payment._id);
+  const invoiceIds = eligible.map((payment) => payment.invoiceRecord).filter(Boolean);
+  const invoices = await InvoiceRecord.aggregate([
+    {
+      $match: {
+        $or: [
+          { payment: { $in: paymentIds } },
+          { _id: { $in: invoiceIds } },
+        ],
+      },
+    },
+    {
+      $project: {
+        invoiceNumber: 1,
+        order: 1,
+        payment: 1,
+        hasLineItems: {
+          $gt: [{ $size: { $ifNull: ["$snapshot.lineItems", []] } }, 0],
+        },
+        hasComputed: { $ne: [{ $ifNull: ["$snapshot.computed", null] }, null] },
+      },
+    },
+  ]);
+
+  const result = new Map();
+  for (const payment of eligible) {
+    const invoice = invoices.find((candidate) => {
+      const sameOrder = String(candidate.order) === String(payment.order?._id || payment.order);
+      const samePayment = candidate.payment
+        ? String(candidate.payment) === String(payment._id)
+        : String(candidate._id) === String(payment.invoiceRecord);
+      return sameOrder && samePayment && candidate.hasLineItems && candidate.hasComputed;
+    });
+    if (invoice) result.set(String(payment._id), invoice);
+  }
+  return result;
+}
+
+const RECEIPT_PAYMENT_FIELDS = [
+  "_id",
+  "invoiceId",
+  "invoiceRecord",
+  "order",
+  "customer",
+  "vehicle",
+  "service",
+  "amount",
+  "amountSubmitted",
+  "amountVerified",
+  "amountPaid",
+  "balanceRemaining",
+  "status",
+  "transactionType",
+  "method",
+  "splitPayments",
+  "submittedAt",
+  "effectiveAt",
+  "reviewedAt",
+  "reviewedBy",
+  "staffAssigned",
+  "createdAt",
+].join(" ");
+
+const RECEIPT_ORDER_FIELDS = [
+  "_id",
+  "orderNumber",
+  "bookingReference",
+  "customer",
+  "customerName",
+  "customerPhone",
+  "serviceType",
+  "vehicle",
+  "vehicleYear",
+  "vehicleMake",
+  "vehicleModel",
+  "vehicleColor",
+  "vehiclePlate",
+  "pricingSnapshot",
+].join(" ");
+
+const RECEIPT_VEHICLE_FIELDS =
+  "_id year make model color plateNumber vehicleType";
+
+const receiptError = (res, status, code, message) =>
+  res.status(status).json({ success: false, code, message });
+
 /** Read only, customer-owned receipt for one specific payment. */
 export const getMyPaymentReceipt = async (req, res, next) => {
+  const receiptStartedAt = performance.now();
+  const receiptStartedIso = new Date().toISOString();
+  const receiptTimings = {
+    transactionLookup: 0,
+    paymentLookup: 0,
+    orderLookup: 0,
+    customerLookup: 0,
+    vehicleLookup: 0,
+    serviceLookup: 0,
+    invoiceLookup: 0,
+    populateRelations: 0,
+    receiptPayload: 0,
+    htmlGeneration: 0,
+    pdfGeneration: 0,
+    externalAssets: 0,
+  };
+  let receiptContext = {
+    paymentId: String(req.params.paymentId || ""),
+    transactionId: "unknown",
+    orderId: "unknown",
+  };
+  let receiptLogged = false;
+  const endpointUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  const logReceiptComplete = (outcome) => {
+    if (receiptLogged) return;
+    receiptLogged = true;
+    const responseStatus = outcome === "connection_closed" && !res.headersSent
+      ? "no response"
+      : String(res.statusCode);
+    console.info(
+      `[RECEIPT] complete outcome=${outcome}\n` +
+      `receipt/payment id: ${receiptContext.paymentId}\n` +
+      `transaction id: ${receiptContext.transactionId}\n` +
+      `booking/order id: ${receiptContext.orderId}\n` +
+      `endpoint URL: ${endpointUrl}\n` +
+      `start time: ${receiptStartedIso}\n` +
+      `response time: ${(performance.now() - receiptStartedAt).toFixed(1)} ms\n` +
+      `HTTP status: ${responseStatus}\n` +
+      `find transaction: ${receiptTimings.transactionLookup.toFixed(1)} ms\n` +
+      `find payment: ${receiptTimings.paymentLookup.toFixed(1)} ms\n` +
+      `find order/booking: ${receiptTimings.orderLookup.toFixed(1)} ms\n` +
+      `find customer: ${receiptTimings.customerLookup.toFixed(1)} ms\n` +
+      `find vehicle: ${receiptTimings.vehicleLookup.toFixed(1)} ms\n` +
+      `find service: ${receiptTimings.serviceLookup.toFixed(1)} ms\n` +
+      `find receipt/invoice: ${receiptTimings.invoiceLookup.toFixed(1)} ms\n` +
+      `populate relations: ${receiptTimings.populateRelations.toFixed(1)} ms\n` +
+      `generate receipt payload: ${receiptTimings.receiptPayload.toFixed(1)} ms\n` +
+      `generate HTML: ${receiptTimings.htmlGeneration.toFixed(1)} ms\n` +
+      `generate PDF: ${receiptTimings.pdfGeneration.toFixed(1)} ms\n` +
+      `external asset/image fetches: ${receiptTimings.externalAssets.toFixed(1)} ms\n` +
+      `total endpoint duration: ${(performance.now() - receiptStartedAt).toFixed(1)} ms`,
+    );
+  };
+  console.info(
+    `[RECEIPT] start receipt/payment id=${receiptContext.paymentId} endpoint=${endpointUrl} start=${receiptStartedIso}`,
+  );
+  res.once("finish", () => logReceiptComplete("finished"));
+  res.once("close", () => logReceiptComplete("connection_closed"));
   try {
     if (!mongoose.isValidObjectId(req.params.paymentId)) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid payment reference" });
+      return receiptError(
+        res,
+        400,
+        "RECEIPT_INVALID_REFERENCE",
+        "Invalid receipt reference.",
+      );
     }
+
+    const paymentStartedAt = performance.now();
     const payment = await Payment.findOne({
       _id: req.params.paymentId,
       customer: req.user.id,
     })
-      .populate("customer", `name email ${USER_PHONE_SELECT_FIELDS}`)
-      .populate("staffAssigned", "name")
-      .populate("reviewedBy", "name")
-      .populate({
-        path: "order",
-        populate: {
-          path: "vehicle",
-          select: "year make model color plateNumber vehicleType",
-        },
-      });
+      .select(RECEIPT_PAYMENT_FIELDS)
+      .lean();
+    receiptTimings.paymentLookup = performance.now() - paymentStartedAt;
     if (!payment)
-      return res
-        .status(404)
-        .json({ success: false, message: "Payment not found" });
+      return receiptError(
+        res,
+        404,
+        "RECEIPT_NOT_FOUND",
+        "Receipt could not be found.",
+      );
+
+    receiptContext = {
+      paymentId: String(payment._id),
+      transactionId: String(payment.invoiceId || payment._id),
+      orderId: String(payment.order || "unknown"),
+    };
+    if (!customerReceiptEligible(payment))
+      return receiptError(
+        res,
+        404,
+        "RECEIPT_NOT_FOUND",
+        "Receipt could not be found.",
+      );
+
+    const orderPromise = (async () => {
+      const startedAt = performance.now();
+      const result = await Order.findOne({
+        _id: payment.order,
+        customer: req.user.id,
+      }).select(RECEIPT_ORDER_FIELDS);
+      receiptTimings.orderLookup = performance.now() - startedAt;
+      return result;
+    })();
+    const customerPromise = (async () => {
+      const startedAt = performance.now();
+      const result = await User.findById(payment.customer)
+        .select(`name email ${USER_PHONE_SELECT_FIELDS}`);
+      receiptTimings.customerLookup = performance.now() - startedAt;
+      return result;
+    })();
+    const staffPromise = payment.staffAssigned
+      ? User.findById(payment.staffAssigned).select("name").lean()
+      : null;
+    const reviewerPromise = payment.reviewedBy
+      ? User.findById(payment.reviewedBy).select("name").lean()
+      : null;
+    const relationsPromise = (async () => {
+      const startedAt = performance.now();
+      const result = await Promise.all([staffPromise, reviewerPromise]);
+      receiptTimings.populateRelations += performance.now() - startedAt;
+      return result;
+    })();
+    const [orderDocument, customerDocument, [staff, reviewer]] =
+      await Promise.all([
+        orderPromise,
+        customerPromise,
+        relationsPromise,
+      ]);
+
+    if (!orderDocument)
+      return receiptError(
+        res,
+        404,
+        "RECEIPT_ORDER_MISSING",
+        "Order for this receipt could not be found.",
+      );
+    if (!customerDocument)
+      return receiptError(
+        res,
+        404,
+        "RECEIPT_CUSTOMER_MISSING",
+        "Customer for this receipt could not be found.",
+      );
+
+    const order = orderDocument.toObject();
+    const customer = customerDocument.toObject();
+    const vehicleStartedAt = performance.now();
+    const vehicleId = payment.vehicle || order.vehicle;
+    const vehicleDocument = vehicleId
+      ? await Vehicle.findById(vehicleId).select(RECEIPT_VEHICLE_FIELDS).lean()
+      : null;
+    receiptTimings.vehicleLookup = performance.now() - vehicleStartedAt;
+    if (vehicleDocument) order.vehicle = vehicleDocument;
+
     const acknowledgementNumber = reservationReceiptNumber(payment);
     if (acknowledgementNumber) {
       const snapshot = hydrateReceiptSnapshot({}, {
-        ...(payment.order?.toObject?.() || {}),
-        customer: payment.customer,
+        ...order,
+        customer,
       });
       const vehicle = snapshot.vehicle;
+      if (![vehicle.year, vehicle.make, vehicle.model, vehicle.plate].some(Boolean))
+        return receiptError(
+          res,
+          422,
+          "RECEIPT_VEHICLE_MISSING",
+          "Vehicle snapshot missing for this receipt.",
+        );
+      if (!order.serviceType)
+        return receiptError(
+          res,
+          422,
+          "RECEIPT_SERVICE_MISSING",
+          "Service snapshot missing for this receipt.",
+        );
       const amount = getVerifiedAmount(payment);
-      res.setHeader("Cache-Control", "private, no-store");
-      return res.json({ success: true, data: {
+      const payloadStartedAt = performance.now();
+      const payload = {
         receiptKind: "reservation_payment",
         receiptNumber: acknowledgementNumber,
         transactionNumber: payment.invoiceId,
         transactionType: payment.transactionType,
-        bookingReference: payment.order?.bookingReference || "",
-        orderNumber: payment.order?.orderNumber || "",
+        bookingReference: order.bookingReference || "",
+        orderNumber: order.orderNumber || "",
         issuedAt: getPaymentEffectiveAt(payment),
         paymentDate: getPaymentEffectiveAt(payment),
-        staffName: payment.reviewedBy?.name || payment.staffAssigned?.name || "",
+        staffName: reviewer?.name || staff?.name || "",
         paymentMethod: payment.method,
         paymentStatus: payment.status,
         splitPayments: payment.splitPayments || [],
         customer: {
-          name: payment.customer?.name || payment.order?.customerName || "",
-          email: payment.customer?.email || "",
+          name: customer.name || order.customerName || "",
+          email: customer.email || "",
           phone: snapshot.customerPhone || "",
         },
         vehicle: {
@@ -128,7 +371,7 @@ export const getMyPaymentReceipt = async (req, res, next) => {
           color: vehicle.color || "",
           classification: vehicle.type || "",
         },
-        servicePackage: payment.order?.serviceType || "",
+        servicePackage: order.serviceType,
         company: {
           name: COMPANY_BRANDING.brandName,
           address: COMPANY_BRANDING.address,
@@ -146,35 +389,75 @@ export const getMyPaymentReceipt = async (req, res, next) => {
         totalPaid: amount,
         totalReceived: amount,
         balanceDue: 0,
-        notes: [payment.order?.serviceType ? `Service: ${payment.order.serviceType}.` : "",
-          "Acknowledgement of your initial booking payment. This reservation fee is credited toward your service bill."].filter(Boolean).join(" "),
-      } });
+        notes: [
+          `Service: ${order.serviceType}.`,
+          "Acknowledgement of your initial booking payment. This reservation fee is credited toward your service bill.",
+        ].join(" "),
+      };
+      receiptTimings.receiptPayload = performance.now() - payloadStartedAt;
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.json({ success: true, data: payload });
     }
-    const invoices = await findCustomerPaymentInvoices([payment]);
-    const invoice = invoices.get(String(payment._id));
-    if (!invoice)
-      return res.status(404).json({
-        success: false,
-        message:
-          "An official receipt is not available for this transaction yet.",
-      });
 
+    const invoiceStartedAt = performance.now();
+    const invoiceReferenceMatch = payment.invoiceRecord
+      ? {
+          _id: payment.invoiceRecord,
+          $or: [
+            { payment: payment._id },
+            { payment: null },
+            { payment: { $exists: false } },
+          ],
+        }
+      : null;
+    const invoice = await InvoiceRecord.findOne({
+      order: payment.order,
+      $or: [
+        { payment: payment._id },
+        ...(invoiceReferenceMatch ? [invoiceReferenceMatch] : []),
+      ],
+    })
+      .select("invoiceNumber order payment snapshot createdAt createdBy signatures.salesName")
+      .lean();
+    receiptTimings.invoiceLookup = performance.now() - invoiceStartedAt;
+    if (
+      !invoice ||
+      !invoice.snapshot?.lineItems?.length ||
+      !invoice.snapshot?.computed
+    )
+      return receiptError(
+        res,
+        404,
+        "RECEIPT_NOT_FOUND",
+        "Receipt could not be found.",
+      );
+
+    const invoiceCreatorStartedAt = performance.now();
+    const invoiceCreator = invoice.createdBy
+      ? await User.findById(invoice.createdBy).select("name").lean()
+      : null;
+    receiptTimings.populateRelations +=
+      performance.now() - invoiceCreatorStartedAt;
+
+    const payloadStartedAt = performance.now();
     const snapshot = hydrateReceiptSnapshot(invoice.snapshot, {
-      ...(payment.order?.toObject?.() || {}),
-      customer: payment.customer,
+      ...order,
+      customer,
     });
     const computed = snapshot.computed;
     const vehicle = snapshot.vehicle || {};
     const number = (value) =>
       Number.isFinite(Number(value)) ? Number(value) : 0;
+    const transactionStartedAt = performance.now();
     const orderPayments = await Payment.find({
-      order: payment.order._id,
+      order: payment.order,
       customer: req.user.id,
     })
       .select(
         "transactionType status amount amountVerified amountPaid effectiveAt reviewedAt createdAt relatedPayment",
       )
       .lean();
+    receiptTimings.transactionLookup = performance.now() - transactionStartedAt;
     const priorPayments = resolveReceiptPriorPayments(snapshot, payment, orderPayments);
     const reservationFee = resolveReceiptReservationFee(
       { ...snapshot, downpayment: priorPayments },
@@ -189,6 +472,7 @@ export const getMyPaymentReceipt = async (req, res, next) => {
           computed.grandTotal - priorPayments - amountPaid,
       ),
     );
+    receiptTimings.receiptPayload = performance.now() - payloadStartedAt;
     res.setHeader("Cache-Control", "private, no-store");
     return res.json({
       success: true,
@@ -198,18 +482,18 @@ export const getMyPaymentReceipt = async (req, res, next) => {
         transactionNumber: payment.invoiceId,
         transactionType: payment.transactionType,
         bookingReference:
-          snapshot.bookingReference || payment.order?.bookingReference || "",
-        orderNumber: snapshot.orderNumber || payment.order?.orderNumber || "",
+          snapshot.bookingReference || order.bookingReference || "",
+        orderNumber: snapshot.orderNumber || order.orderNumber || "",
         issuedAt:
           snapshot.issuedAt ||
           invoice.createdAt ||
           getPaymentEffectiveAt(payment),
         staffName:
           snapshot.payment?.staff?.name ||
-          payment.staffAssigned?.name ||
-          payment.reviewedBy?.name ||
+          staff?.name ||
+          reviewer?.name ||
           invoice.signatures?.salesName ||
-          invoice.createdBy?.name ||
+          invoiceCreator?.name ||
           "",
         paymentDate: getPaymentEffectiveAt(payment),
         paymentMethod: payment.method,
@@ -218,10 +502,10 @@ export const getMyPaymentReceipt = async (req, res, next) => {
         customer: {
           name:
             snapshot.customerName ||
-            payment.customer?.name ||
-            payment.order?.customerName ||
+            customer.name ||
+            order.customerName ||
             "",
-          email: snapshot.customerEmail || payment.customer?.email || "",
+          email: snapshot.customerEmail || customer.email || "",
           phone: snapshot.customerPhone || "",
         },
         vehicle: {
@@ -238,7 +522,7 @@ export const getMyPaymentReceipt = async (req, res, next) => {
           .join(", "),
         coverage: resolveCustomerReceiptCoverage(
           snapshot,
-          payment.order.pricingSnapshot,
+          order.pricingSnapshot,
         ),
         company: {
           name: COMPANY_BRANDING.brandName,
@@ -267,6 +551,18 @@ export const getMyPaymentReceipt = async (req, res, next) => {
       },
     });
   } catch (error) {
-    next(error);
+    console.error("[RECEIPT] details failed", {
+      paymentId: receiptContext.paymentId,
+      transactionId: receiptContext.transactionId,
+      orderId: receiptContext.orderId,
+      message: error?.message || String(error),
+    });
+    if (res.headersSent) return next(error);
+    return receiptError(
+      res,
+      500,
+      "RECEIPT_DETAILS_FAILED",
+      "Receipt details could not be loaded.",
+    );
   }
 };

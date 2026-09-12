@@ -105,7 +105,7 @@ export const normalizeBooking = (raw: any): Booking => {
         customerId: String(customerId || ''),
         customerName: String(customerName || ''),
         customerPhone: String(customerPhone || ''),
-        vehicleId: String(raw?.vehicleId || raw?.vehicle || ''),
+        vehicleId: String(raw?.vehicleId || raw?.vehicle?._id || raw?.vehicle || ''),
         vehicleInfo: String(vehicleInfo || ''),
         serviceId: String(raw?.serviceId || raw?.service || ''),
         serviceName: String(serviceName || ''),
@@ -295,6 +295,22 @@ export const OrderService = {
         const response = await api.get(`/bookings/${id}`);
         if (response.data.success && response.data.data) {
             response.data.data = normalizeBooking(response.data.data);
+        }
+        return response.data;
+    },
+
+    /** Lean, relation-checked payload for Sales pickup queue hydration. */
+    async getPosQueueLoad(id: string) {
+        const sid = String(id || '').trim();
+        if (!sid) {
+            return { success: false, message: 'Missing queued order id', code: 'POS_QUEUE_INVALID_ID' };
+        }
+        const response = await api.get(`/orders/${encodeURIComponent(sid)}/pos-queue-load`, {
+            timeout: 15_000,
+            meta: { suppressErrorToast: true },
+        } as any);
+        if (response.data.success && response.data.data?.order) {
+            response.data.data.order = normalizeBooking(response.data.data.order);
         }
         return response.data;
     },

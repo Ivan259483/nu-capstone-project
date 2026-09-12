@@ -238,6 +238,7 @@ export interface Booking {
   }[];
   /** Live tracker stage photos / notes (QC uploads) — see `customer-tracker-stage-media.ts`. */
   trackerStageMedia?: {
+    id?: string;
     stage: string;
     slot?: string;
     photoUrl?: string;
@@ -245,6 +246,7 @@ export interface Booking {
     uploadedAt?: string;
     uploadedBy?: string;
     hasPhoto?: boolean;
+    photoPending?: boolean;
   }[];
   // ═══ Workflow Pipeline ═══
     workflowStep?: number;

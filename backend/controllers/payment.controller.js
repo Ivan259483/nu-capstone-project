@@ -40,6 +40,7 @@ import {
 import { normalizePaymentMethod } from '../utils/paymentMethod.utils.js';
 import {
   buildLedgerTransaction,
+  LEDGER_BALANCE_SELECT_FIELDS,
   createRefundLedgerEntry,
   findRefundByIdempotency,
   getOrderLedger,
@@ -53,11 +54,15 @@ import {
   summarizeLedgerRows,
 } from '../services/financialLedger.service.js';
 import { getVisitEvidenceAt } from '../services/salesAnalytics.service.js';
+import { timeOperation } from '../utils/performance.utils.js';
 import { parseReportingRange } from '../utils/reportingRange.utils.js';
 import PaymentReconciliationEvent from '../models/paymentReconciliationEvent.model.js';
 import { getSystemState } from '../services/systemState.service.js';
 import { beginTrackedSystemMutation } from '../middleware/systemLifecycle.middleware.js';
-import { findCustomerPaymentInvoices, reservationReceiptNumber } from './customerReceipt.controller.js';
+import {
+  findCustomerPaymentInvoiceMetadata,
+  reservationReceiptNumber,
+} from './customerReceipt.controller.js';
 import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
 
 const LOW_STOCK_THRESHOLD = 10;
@@ -81,6 +86,32 @@ const FRONTEND_URL = (() => {
 })();
 const RECEIPT_CUSTOMER_SELECT = `name email ${USER_PHONE_SELECT_FIELDS}`;
 const RECEIPT_VEHICLE_SELECT = 'year make model color plateNumber vehicleType';
+const CUSTOMER_PAYMENT_HISTORY_SELECT = [
+  '_id',
+  'invoiceId',
+  'order',
+  'vehicle',
+  'service',
+  'amount',
+  'status',
+  'transactionType',
+  'amountSubmitted',
+  'amountVerified',
+  'amountPaid',
+  'method',
+  'submittedAt',
+  'effectiveAt',
+  'reviewedAt',
+  'relatedPayment',
+  'items',
+  'subtotal',
+  'discountAmount',
+  'grandTotal',
+  'invoiceRecord',
+  'createdAt',
+].join(' ');
+const CUSTOMER_PAYMENT_HISTORY_SUMMARY_SELECT =
+  '_id amount amountSubmitted amountVerified amountPaid status transactionType effectiveAt reviewedAt createdAt';
 
 const QUEUE_STALE_ERROR_CODE = 'POS_QUEUE_STALE';
 const CHECKOUT_DUPLICATE_ERROR_CODE = 'CHECKOUT_ALREADY_COMPLETED';
@@ -1085,48 +1116,141 @@ export const getSalesToday = async (req, res, next) => {
  * Includes total spent and payment count for convenience.
  */
 export const getMyPayments = async (req, res, next) => {
+  const historyStartedAt = performance.now();
+  const timing = {
+    paymentsFetch: 0,
+    transactionsFetch: 0,
+    bookingOrderLookup: 0,
+    receiptsFetch: 0,
+    refundsFetch: 0,
+    responseNormalization: 0,
+  };
+  console.info(`[PAYMENT HISTORY] start customer=${req.user?.id || 'unknown'}`);
+  res.once('finish', () => {
+    console.info(
+      `[PAYMENT HISTORY] complete customer=${req.user?.id || 'unknown'} status=${res.statusCode}\n` +
+      `payments fetch: ${timing.paymentsFetch.toFixed(1)} ms\n` +
+      `transactions fetch: ${timing.transactionsFetch.toFixed(1)} ms\n` +
+      `booking/order lookup: ${timing.bookingOrderLookup.toFixed(1)} ms\n` +
+      `receipts fetch: ${timing.receiptsFetch.toFixed(1)} ms\n` +
+      `refunds fetch: ${timing.refundsFetch.toFixed(1)} ms\n` +
+      `response normalization: ${timing.responseNormalization.toFixed(1)} ms\n` +
+      `total: ${(performance.now() - historyStartedAt).toFixed(1)} ms`
+    );
+  });
   try {
     const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Authentication required' });
     }
 
-    const limit = Math.min(100, Math.max(1, Math.floor(Number(req.query?.limit) || 50)));
+    const limit = Math.min(500, Math.max(1, Math.floor(Number(req.query?.limit) || 100)));
     const page = Math.max(1, Math.floor(Number(req.query?.page) || 1));
-    const allPayments = await Payment.find({ customer: userId })
-      .sort({ effectiveAt: -1, submittedAt: -1, createdAt: -1 })
-      .populate(
-        'order',
-        'orderNumber bookingReference customer customerName customerPhone serviceType status vehicle vehicleYear vehicleMake vehicleModel vehicleColor vehiclePlate totalPrice totalAmount serviceTotal items approvedAt cancelledAt arrivedAt'
-      )
-      .populate('vehicle', 'year make model color plateNumber vehicleType')
-      .populate('service', 'name price')
-      .populate('staffAssigned', 'name email')
-      .populate('reviewedBy', 'name email');
+    const skip = (page - 1) * limit;
+    const measure = async (key, operation) => {
+      const startedAt = performance.now();
+      try {
+        return await operation();
+      } finally {
+        timing[key] = performance.now() - startedAt;
+      }
+    };
+
+    const [pagePayments, summaryRows] = await Promise.all([
+      measure('paymentsFetch', () => Payment.find({ customer: userId })
+        .select(CUSTOMER_PAYMENT_HISTORY_SELECT)
+        .sort({ effectiveAt: -1, submittedAt: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()),
+      measure('refundsFetch', () => Payment.find({ customer: userId })
+        .select(CUSTOMER_PAYMENT_HISTORY_SUMMARY_SELECT)
+        .lean()),
+    ]);
+
+    const orderIds = [...new Set(pagePayments.map((payment) => String(payment.order || '')).filter(Boolean))];
+    const [populatedPayments, orderPayments, invoices] = await Promise.all([
+      measure('bookingOrderLookup', () => Payment.populate(pagePayments, [
+        {
+          path: 'order',
+          select: 'orderNumber bookingReference customer customerName customerPhone serviceType status vehicle vehicleYear vehicleMake vehicleModel vehicleColor vehiclePlate totalPrice totalAmount serviceTotal items approvedAt cancelledAt arrivedAt',
+        },
+        { path: 'vehicle', select: 'year make model color plateNumber vehicleType' },
+        { path: 'service', select: 'name price' },
+      ])),
+      measure('transactionsFetch', () => orderIds.length
+        ? Payment.find({ order: { $in: orderIds } }).select(LEDGER_BALANCE_SELECT_FIELDS).lean()
+        : []),
+      measure('receiptsFetch', () => findCustomerPaymentInvoiceMetadata(pagePayments)),
+    ]);
+
     const byOrder = new Map();
-    allPayments.forEach((payment) => {
-      const orderId = String(payment.order?._id || payment.order || '');
+    orderPayments.forEach((payment) => {
+      const orderId = String(payment.order || '');
       if (!byOrder.has(orderId)) byOrder.set(orderId, []);
       byOrder.get(orderId).push(payment);
     });
-    const pagePayments = allPayments.slice((page - 1) * limit, page * limit);
-    const invoices = await findCustomerPaymentInvoices(pagePayments);
-    const payments = pagePayments.map((payment) => ({
-      ...buildLedgerTransaction(payment, {
+
+    const normalizationStartedAt = performance.now();
+    const payments = populatedPayments.map((payment) => {
+      const transaction = buildLedgerTransaction(payment, {
         orderPayments: byOrder.get(String(payment.order?._id || payment.order || '')) || [],
-      }),
-      receiptAvailable: Boolean(reservationReceiptNumber(payment)) || invoices.has(String(payment._id)),
-      receiptNumber: reservationReceiptNumber(payment) || invoices.get(String(payment._id))?.invoiceNumber || null,
-    }));
-    const totalSpent = roundMoney(allPayments.reduce((sum, payment) => sum + getSignedAmount(payment), 0));
-    const totalCount = allPayments.filter(isPostedPayment).length;
+      });
+      return {
+        paymentId: transaction.paymentId,
+        transactionId: transaction.transactionId,
+        invoiceId: transaction.invoiceId,
+        orderId: transaction.orderId,
+        orderNumber: transaction.orderNumber,
+        bookingReference: transaction.bookingReference,
+        transactionType: transaction.transactionType,
+        paymentStatus: transaction.paymentStatus,
+        amountSubmitted: transaction.amountSubmitted,
+        amountVerified: transaction.amountVerified,
+        signedAmount: transaction.signedAmount,
+        effectiveAt: transaction.effectiveAt,
+        submittedAt: transaction.submittedAt,
+        createdAt: transaction.createdAt,
+        method: transaction.method,
+        vehicleInfo: transaction.vehicleInfo,
+        vehiclePlate: transaction.vehiclePlate,
+        services: transaction.services,
+        outstandingBalance: transaction.outstandingBalance,
+        receiptAvailable: Boolean(reservationReceiptNumber(payment)) || invoices.has(String(payment._id)),
+        receiptNumber: reservationReceiptNumber(payment) || invoices.get(String(payment._id))?.invoiceNumber || null,
+      };
+    });
+    const postedPayments = summaryRows.filter((payment) =>
+      isPostedPayment(payment) && payment.transactionType !== 'refund');
+    const refundRows = summaryRows.filter((payment) =>
+      isPostedPayment(payment) && payment.transactionType === 'refund');
+    const totalReceived = roundMoney(postedPayments.reduce(
+      (sum, payment) => sum + getSignedAmount(payment), 0));
+    const refundTotal = roundMoney(refundRows.reduce(
+      (sum, payment) => sum + Math.abs(getSignedAmount(payment)), 0));
+    const totalSpent = roundMoney(totalReceived - refundTotal);
+    const totalCount = postedPayments.length;
+    const summary = {
+      totalPaid: totalSpent,
+      paymentCount: totalCount,
+      refundTotal,
+      totalReceived,
+    };
+    timing.responseNormalization = performance.now() - normalizationStartedAt;
 
     res.json({
       success: true,
       data: payments,
+      transactions: payments,
+      summary,
       totalSpent,
       totalCount,
-      pagination: { page, limit, total: allPayments.length, pages: Math.ceil(allPayments.length / limit) },
+      pagination: {
+        page,
+        limit,
+        total: summaryRows.length,
+        pages: Math.max(1, Math.ceil(summaryRows.length / limit)),
+      },
       currency: 'PHP',
     });
   } catch (error) {
@@ -1258,7 +1382,7 @@ export const getAllPayments = async (req, res, next) => {
       : 'createdAt';
     const sortDirection = String(query.sortOrder || query.direction).toLowerCase() === 'asc' ? 1 : -1;
     const [paymentDocs, total, summaryRows, pendingPayments] = await Promise.all([
-      Payment.find(filter)
+      timeOperation({ req, res, kind: 'db', name: 'ledger.page' }, () => Payment.find(filter)
         .select('-proofImage -statusHistory.proofImage')
         .sort({ [sortBy]: sortDirection, _id: sortDirection })
         .skip((page - 1) * limit)
@@ -1272,13 +1396,17 @@ export const getAllPayments = async (req, res, next) => {
         .populate('vehicle', 'year make model color plateNumber vehicleType')
         .populate('service', 'name price')
         .populate('staffAssigned', 'name email')
-        .populate('reviewedBy', 'name email'),
-      Payment.countDocuments(filter),
-      Payment.find(filter).select('amount amountSubmitted amountVerified amountPaid status transactionType effectiveAt reviewedAt createdAt'),
-      getPendingPaymentsSummary(),
+        .populate('reviewedBy', 'name email')),
+      timeOperation({ req, res, kind: 'db', name: 'ledger.count' }, () => Payment.countDocuments(filter)),
+      timeOperation({ req, res, kind: 'db', name: 'ledger.summary' }, () =>
+        Payment.find(filter).select('amount amountSubmitted amountVerified amountPaid status transactionType effectiveAt reviewedAt createdAt')),
+      getPendingPaymentsSummary({ req, res }),
     ]);
     const orderIds = [...new Set(paymentDocs.map((payment) => String(payment.order?._id || payment.order || '')).filter(Boolean))];
-    const orderPayments = orderIds.length ? await Payment.find({ order: { $in: orderIds } }) : [];
+    const orderPayments = orderIds.length ? await timeOperation(
+      { req, res, kind: 'db', name: 'ledger.orderPayments' },
+      () => Payment.find({ order: { $in: orderIds } }).select(LEDGER_BALANCE_SELECT_FIELDS)
+    ) : [];
     const byOrder = new Map();
     orderPayments.forEach((payment) => {
       const key = String(payment.order);

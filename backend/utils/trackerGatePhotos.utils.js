@@ -73,7 +73,22 @@ export function getFilledGatePhotoSlots(order, stage) {
 }
 
 export function readyPickupSlotProgress(order) {
-  const filledSlots = getFilledGatePhotoSlots(order, 'ready_pickup');
+  return summarizeReadyPickupSlots(getFilledGatePhotoSlots(order, 'ready_pickup'));
+}
+
+// Queue reads use database-derived presence metadata, kept outside Order media.
+// Reuse the same slot normalization and distinct-slot rules as photo uploads.
+export function readyPickupSlotProgressFromEvidence(evidence = []) {
+  const slots = new Set();
+  for (const entry of evidence) {
+    if (entry?.stage !== 'ready_pickup' || entry.hasPhoto !== true) continue;
+    const slot = normalizePhotoSlot(entry.slot, entry.stage);
+    if (slot && REQUIRED_READY_PICKUP_SLOTS.includes(slot)) slots.add(slot);
+  }
+  return summarizeReadyPickupSlots([...slots]);
+}
+
+function summarizeReadyPickupSlots(filledSlots) {
   const filled = new Set(filledSlots);
   return {
     readyPickupSlotCount: filledSlots.length,

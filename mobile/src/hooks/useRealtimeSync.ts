@@ -11,12 +11,15 @@ import { isForwardTrackerStageTransition } from '@/utils/customer-live-tracker-p
 // ── Collection → query key matching ──────────────────────────────────
 const COLLECTION_QUERY_MAP: Record<string, string[]> = {
   orders: ['bookings', 'booking', 'orders', 'dashboard'],
+  payments: ['payments'],
+  invoicerecords: ['payments'],
   products: ['products'],
   services: ['services'],
 };
 
 /** Debounce bursts from db_change + orderUpdated + booking:status on the same edit. */
 const ORDERS_REFRESH_DEBOUNCE_MS = 700;
+const PAYMENTS_REFRESH_DEBOUNCE_MS = 300;
 
 let sharedSocket: Socket | null = null;
 let sharedSocketPromise: Promise<Socket> | null = null;
@@ -24,6 +27,7 @@ let socketListenersAttached = false;
 let subscribers: ((payload: any) => void)[] = [];
 let globalQueryClient: QueryClient | null = null;
 let ordersRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let paymentsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 const ORDER_REALTIME_PATCH_FIELDS = [
   'status',
@@ -217,6 +221,16 @@ function scheduleOrdersRefresh(source: string, subscriberPayload?: Record<string
   }, ORDERS_REFRESH_DEBOUNCE_MS);
 }
 
+function schedulePaymentsRefresh(source: string, subscriberPayload: Record<string, unknown>): void {
+  if (paymentsRefreshTimer) clearTimeout(paymentsRefreshTimer);
+
+  paymentsRefreshTimer = setTimeout(() => {
+    paymentsRefreshTimer = null;
+    invalidateCollectionQueries('payments', source);
+    subscribers.forEach((sub) => sub(subscriberPayload));
+  }, PAYMENTS_REFRESH_DEBOUNCE_MS);
+}
+
 function attachGlobalSocketListeners(socket: Socket): void {
   if (socketListenersAttached) return;
   socketListenersAttached = true;
@@ -225,6 +239,11 @@ function attachGlobalSocketListeners(socket: Socket): void {
     if (payload.collection === 'orders') {
       patchOrderQueryCaches(payload);
       scheduleOrdersRefresh(`${payload.collection} db_change`, payload);
+      return;
+    }
+
+    if (payload.collection === 'payments' || payload.collection === 'invoicerecords') {
+      schedulePaymentsRefresh(`${payload.collection} db_change`, payload);
       return;
     }
 
@@ -291,6 +310,10 @@ export function useRealtimeSync(
       if (ordersRefreshTimer) {
         clearTimeout(ordersRefreshTimer);
         ordersRefreshTimer = null;
+      }
+      if (paymentsRefreshTimer) {
+        clearTimeout(paymentsRefreshTimer);
+        paymentsRefreshTimer = null;
       }
       return;
     }

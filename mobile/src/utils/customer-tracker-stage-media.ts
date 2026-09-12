@@ -49,12 +49,15 @@ export const QC_COMPLETE_TRACKER_STAGE_DESCRIPTION =
   "Your vehicle has passed final quality inspection. We're preparing it for pickup.";
 
 export type TrackerStageMediaEntry = {
+  id?: string;
   stage?: string;
   slot?: string;
   photoUrl?: string;
   description?: string;
   uploadedAt?: string;
   uploadedBy?: string;
+  hasPhoto?: boolean;
+  photoPending?: boolean;
 };
 
 /** Five exterior/detail angles plus optional Vehicle Arrive checklist; Quality Check uses qc_form only. */

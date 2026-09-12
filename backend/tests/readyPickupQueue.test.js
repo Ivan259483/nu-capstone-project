@@ -179,6 +179,81 @@ test('ready pickup slots are normalized and counted once per required slot', asy
   assert.deepEqual(progress.missingSlots, []);
 });
 
+test('POS queue hydration excludes inline media and returns canonical customer, vehicle, service, and billing data', async () => {
+  const sales = await seedUser('sales');
+  const inlinePhoto = `data:image/jpeg;base64,${'A'.repeat(256 * 1024)}`;
+  const { order } = await seedEligibleOrder({
+    order: {
+      trackerStageMedia: REQUIRED_READY_PICKUP_SLOTS.map((slot) => ({
+        stage: 'ready_pickup',
+        slot,
+        photoUrl: inlinePhoto,
+      })),
+    },
+  });
+
+  const { response, body } = await requestJson(`/api/bookings/${order._id}/pos-queue-load`, {
+    headers: { Authorization: `Bearer ${tokenFor(sales)}` },
+  });
+
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.success, true);
+  assert.equal(body.data.order._id, order._id.toString());
+  assert.equal(body.data.order.customer.name, 'customer User');
+  assert.equal(body.data.order.vehicleMake, 'Toyota');
+  assert.equal(body.data.order.vehicleModel, 'Vios');
+  assert.equal(body.data.order.vehiclePlate, 'ABC1234');
+  assert.equal(body.data.order.serviceType, 'SPF 80 - Essential');
+  assert.equal(body.data.billing.computed.balanceDue, 800);
+  assert.equal(JSON.stringify(body).includes('data:image/jpeg;base64'), false);
+  assert.ok(JSON.stringify(body).length < 30_000);
+});
+
+test('POS queue hydration returns specific relation errors without returning a partial payload', async () => {
+  const sales = await seedUser('sales');
+  const auth = { Authorization: `Bearer ${tokenFor(sales)}` };
+
+  const notFoundResult = await requestJson(
+    `/api/bookings/${new mongoose.Types.ObjectId()}/pos-queue-load`,
+    { headers: auth }
+  );
+  assert.equal(notFoundResult.response.status, 404);
+  assert.equal(notFoundResult.body.code, 'POS_QUEUE_ORDER_NOT_FOUND');
+
+  const missingCustomer = await seedEligibleOrder();
+  await User.deleteOne({ _id: missingCustomer.customer._id });
+  const customerResult = await requestJson(`/api/bookings/${missingCustomer.order._id}/pos-queue-load`, {
+    headers: auth,
+  });
+  assert.equal(customerResult.response.status, 422);
+  assert.equal(customerResult.body.code, 'POS_QUEUE_CUSTOMER_MISSING');
+
+  const missingVehicle = await seedEligibleOrder();
+  await Order.updateOne(
+    { _id: missingVehicle.order._id },
+    { $set: { vehicle: null, vehicleMake: '', vehicleModel: '' } }
+  );
+  const vehicleResult = await requestJson(`/api/bookings/${missingVehicle.order._id}/pos-queue-load`, {
+    headers: auth,
+  });
+  assert.equal(vehicleResult.response.status, 422);
+  assert.equal(vehicleResult.body.code, 'POS_QUEUE_VEHICLE_MISSING');
+
+  const missingService = await seedEligibleOrder();
+  await Promise.all([
+    Order.updateOne(
+      { _id: missingService.order._id },
+      { $set: { serviceType: '', items: [], serviceId: null } }
+    ),
+    Billing.updateOne({ order: missingService.order._id }, { $set: { lineItems: [] } }),
+  ]);
+  const serviceResult = await requestJson(`/api/bookings/${missingService.order._id}/pos-queue-load`, {
+    headers: auth,
+  });
+  assert.equal(serviceResult.response.status, 422);
+  assert.equal(serviceResult.body.code, 'POS_QUEUE_SERVICE_MISSING');
+});
+
 test('evaluator queues eligible order and preserves readyForPaymentAt on repeated runs', async () => {
   const { order } = await seedEligibleOrder();
 

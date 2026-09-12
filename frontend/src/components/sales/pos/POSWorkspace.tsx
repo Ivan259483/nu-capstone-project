@@ -9,6 +9,8 @@ import type { BillingDiscount, BillingDoc } from '@/lib/billing-service';
 import InvoiceA4, { type InvoiceA4Snapshot } from '@/components/sales/billing/InvoiceA4';
 import { Customer, Vehicle, CartItem, formatPeso, formatVehicleTypeLabel } from '@/lib/salesData';
 import { useServices, VehicleType, getEffectivePrice } from '@/hooks/useServices';
+import { useRefreshResource } from '@/hooks/useRefreshResource';
+import { parsePickupQueueResponse } from '@/lib/salesSync';
 import {
   BillingService,
   extractInvoiceSnapshot,
@@ -22,6 +24,7 @@ import { resolveReceiptPhone } from '@/lib/receipt-phone';
 import { normalizePlateNumber } from '@/lib/plate';
 import { useAuth } from '@/contexts/AuthContext';
 import { VehicleService, mapApiVehicleToPosVehicle } from '@/lib/vehicle-service';
+import { BACKEND_API_URL } from '@/lib/api';
 import {
   idString,
   isValidMongoObjectId,
@@ -98,6 +101,38 @@ type HydratedQueuedOrderState = {
   billingComputed: BillingComputed | null;
   queuedContext: QueuedOrderContext;
 };
+
+type QueuedOrderLoadFailure = {
+  row: any;
+  orderId: string;
+  message: string;
+};
+
+type PosQueueLoadLog = {
+  queueItemId: string;
+  orderId: string;
+  bookingId: string;
+  reference: string;
+  endpoint: string;
+  httpStatus: number | string;
+  responseBody: unknown;
+};
+
+function logPosQueueLoad(entry: PosQueueLoadLog): void {
+  console.info(
+    [
+      '[POS QUEUE LOAD]',
+      `queue item id: ${entry.queueItemId || '(missing)'}`,
+      `order id: ${entry.orderId || '(missing)'}`,
+      `booking id: ${entry.bookingId || '(missing)'}`,
+      `reference: ${entry.reference || '(missing)'}`,
+      `endpoint: ${entry.endpoint}`,
+      `HTTP status: ${entry.httpStatus}`,
+      'response body:',
+    ].join('\n'),
+    entry.responseBody
+  );
+}
 
 const emptyBillingCharges = (): PosBillingCharges => ({
   discount: { discountType: 'fixed', value: 0 },
@@ -342,11 +377,15 @@ function cartItemsFromBillingOrOrder(orderId: string, order: any, billing: Billi
 function CheckInQueuePanel({
   bookings,
   loading,
+  hasLoaded,
+  error,
   onOpenSearch,
   onRefresh,
 }: {
   bookings: any[];
   loading: boolean;
+  hasLoaded: boolean;
+  error: string | null;
   onOpenSearch: () => void;
   onRefresh: () => void;
 }) {
@@ -367,9 +406,9 @@ function CheckInQueuePanel({
           <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
             queueCount > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
           }`}>
-            {loading ? 'Syncing...' : `${queueCount} due`}
+            {hasLoaded ? `${queueCount} due` : error ? 'Unavailable' : 'Syncing...'}
           </span>
-          {first && !loading && (
+          {first && (
             <span className="ml-1 min-w-0 truncate rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
               {(first.customerName || 'Customer').split(' ')[0]} · Sales/POS · {formatPeso(money(first.remainingBalance))}
             </span>
@@ -381,12 +420,16 @@ function CheckInQueuePanel({
             e.stopPropagation();
             onRefresh();
           }}
-          className={`h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:bg-white hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${queueCount > 0 || loading ? 'flex' : 'hidden sm:flex'}`}
+          className={`h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:bg-white hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${queueCount > 0 || loading || error ? 'flex' : 'hidden sm:flex'}`}
           aria-label="Refresh pickup queue"
+          disabled={loading}
         >
           {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
         </button>
       </div>
+      {error && <p role="alert" className="mt-1 px-1.5 text-xs text-amber-700">
+        {hasLoaded ? 'Pickup queue refresh failed. Showing last loaded entries.' : 'Pickup queue could not load. Try refreshing.'}
+      </p>}
     </div>
   );
 }
@@ -462,8 +505,14 @@ export default function POSWorkspace({
   const [linkedOrderId, setLinkedOrderId] = useState<string | null>(null);
   /** Manually selected unpaid order (dropdown); queue selection uses `linkedOrderId`. */
   const [posBillingOrderId, setPosBillingOrderId] = useState<string | null>(null);
-  const [unpaidOrders, setUnpaidOrders] = useState<any[]>([]);
-  const [unpaidOrdersLoading, setUnpaidOrdersLoading] = useState(false);
+  const queue = useRefreshResource<any[]>([], async () => {
+    const { OrderService } = await import('@/lib/order-service');
+    const response = await OrderService.getBalancePickupQueue({ suppressErrorToast: true, limit: 100 });
+    return parsePickupQueueResponse(response);
+  });
+  const unpaidOrders = queue.data;
+  const unpaidOrdersLoading = queue.isRefreshing || (!queue.hasLoaded && !queue.error);
+  const refreshQueue = queue.refresh;
   const [selectedOrderStale, setSelectedOrderStale] = useState(false);
   const [billingSyncNonce, setBillingSyncNonce] = useState(0);
   const [lastInvoiceSnap, setLastInvoiceSnap] = useState<InvoiceA4Snapshot | null>(null);
@@ -471,6 +520,8 @@ export default function POSWorkspace({
   const [queuedOrderContext, setQueuedOrderContext] = useState<QueuedOrderContext | null>(null);
   const [pendingQueuedOrder, setPendingQueuedOrder] = useState<any | null>(null);
   const [hydratingOrderId, setHydratingOrderId] = useState<string | null>(null);
+  const [queuedOrderLoadFailure, setQueuedOrderLoadFailure] = useState<QueuedOrderLoadFailure | null>(null);
+  const skipNextHydratedBillingPersistRef = useRef(false);
 
   const handleBillingChargesChange = useCallback((payload: BillingChargesPayload) => {
     setBillingCharges({
@@ -516,39 +567,33 @@ export default function POSWorkspace({
     }
   }, [queuedOrderContext?.orderId]);
 
+  // Requests may finish after the cashier selects another order. Apply queue
+  // eligibility to the current selection, and never clear checkout on failure.
+  const queueSelectionRef = useRef({ effectiveOrderId, queuedOrderContext, clearQueuedOrderContext });
+  queueSelectionRef.current = { effectiveOrderId, queuedOrderContext, clearQueuedOrderContext };
   const loadUnpaidOrders = useCallback(async (options?: { notifyStale?: boolean; clearStale?: boolean }) => {
-    setUnpaidOrdersLoading(true);
-    try {
-      const { OrderService } = await import('@/lib/order-service');
-      const res = await OrderService.getBalancePickupQueue({
-        suppressErrorToast: true,
-        limit: 100,
-      });
-      if (res.success && Array.isArray(res.data)) {
-        const queueRows = res.data.filter((o: any) => o.paymentStatus !== 'paid');
-        setUnpaidOrders(queueRows);
-        if (effectiveOrderId) {
-          const stillEligible = queueRows.some((o: any) => idString(normalizeQueuedPickupOrder(o).orderId) === effectiveOrderId);
-          setSelectedOrderStale(!stillEligible);
-          if (!stillEligible && options?.notifyStale) {
-            showStaleToastOnce(effectiveOrderId);
-          }
-          if (!stillEligible && options?.clearStale && idString(queuedOrderContext?.orderId) === effectiveOrderId) {
-            clearQueuedOrderContext();
-          }
-        } else {
-          setSelectedOrderStale(false);
+    const queueRows = await refreshQueue();
+    if (queueRows) {
+      const selection = queueSelectionRef.current;
+      const orderId = selection.effectiveOrderId;
+      if (orderId) {
+        const stillEligible = queueRows.some((o: any) => idString(normalizeQueuedPickupOrder(o).orderId) === orderId);
+        setSelectedOrderStale(!stillEligible);
+        if (!stillEligible && options?.notifyStale) {
+          showStaleToastOnce(orderId);
         }
+        if (!stillEligible && options?.clearStale && idString(selection.queuedOrderContext?.orderId) === orderId) {
+          selection.clearQueuedOrderContext();
+        }
+      } else {
+        setSelectedOrderStale(false);
       }
-    } catch {
-      /* silent */
     }
-    setUnpaidOrdersLoading(false);
-  }, [clearQueuedOrderContext, effectiveOrderId, queuedOrderContext?.orderId, showStaleToastOnce]);
+  }, [refreshQueue, showStaleToastOnce]);
 
   useEffect(() => {
     loadUnpaidOrders();
-  }, [loadUnpaidOrders]);
+  }, [loadUnpaidOrders, effectiveOrderId]);
 
   useEffect(() => {
     const socket = getSharedSocket();
@@ -598,9 +643,26 @@ export default function POSWorkspace({
     async (seedRow: any): Promise<HydratedQueuedOrderState> => {
       const selectedQueueRow = normalizeQueuedPickupOrder(seedRow);
       const orderId = idString(selectedQueueRow.orderId);
+      const endpointPath = `/orders/${encodeURIComponent(orderId)}/pos-queue-load`;
+      const logContext = {
+        queueItemId: idString(seedRow?._id) || idString(seedRow?.id),
+        orderId,
+        bookingId: idString(selectedQueueRow.bookingId),
+        reference: selectedQueueRow.bookingReference,
+        endpoint: `${BACKEND_API_URL}${endpointPath}`,
+      };
       posQueueDebug('[POS Queue] normalized row', selectedQueueRow);
       posQueueDebug('[POS Queue] selected orderId', orderId);
       if (!orderId || !isValidMongoObjectId(orderId)) {
+        logPosQueueLoad({
+          ...logContext,
+          httpStatus: 'NOT_SENT',
+          responseBody: {
+            success: false,
+            code: 'POS_QUEUE_INVALID_ID',
+            message: selectedQueueRow.disabledReason || 'Invalid queue record',
+          },
+        });
         const invalidError = new Error(selectedQueueRow.disabledReason || 'Invalid queue record');
         (invalidError as Error & { code?: string }).code = 'POS_QUEUE_INVALID';
         throw invalidError;
@@ -629,17 +691,38 @@ export default function POSWorkspace({
       }
       const freshRow = freshNormalized.raw;
 
-      const [orderRes, billingRes] = await Promise.all([
-        OrderService.getOrderById(orderId),
-        BillingService.getBilling(orderId),
-      ]);
-      const order = orderRes.success ? (orderRes.data as any) : null;
-      const billing =
-        billingRes.success && 'data' in billingRes && billingRes.data
-          ? (billingRes.data as BillingDoc)
-          : null;
+      let hydrateRes: any;
+      try {
+        logPosQueueLoad({
+          ...logContext,
+          httpStatus: 'PENDING',
+          responseBody: { message: 'Awaiting POS queue hydration response' },
+        });
+        hydrateRes = await OrderService.getPosQueueLoad(orderId);
+        logPosQueueLoad({
+          ...logContext,
+          httpStatus: 200,
+          responseBody: hydrateRes,
+        });
+      } catch (error: any) {
+        const timedOut = error?.code === 'ECONNABORTED' || /timeout/i.test(String(error?.message || ''));
+        logPosQueueLoad({
+          ...logContext,
+          httpStatus: error?.response?.status ?? (timedOut ? 'TIMEOUT' : 'NO_HTTP_RESPONSE'),
+          responseBody: error?.response?.data ?? {
+            success: false,
+            code: timedOut ? 'POS_QUEUE_LOAD_TIMEOUT' : 'POS_QUEUE_LOAD_NETWORK_ERROR',
+            message: error?.message || 'No HTTP response received',
+          },
+        });
+        throw error;
+      }
+      const order = hydrateRes.success ? (hydrateRes.data?.order as any) : null;
+      const billing = hydrateRes.success ? (hydrateRes.data?.billing as BillingDoc | null) : null;
       if (!order || !billing) {
-        throw new Error('Order or billing could not be loaded');
+        const payloadError = new Error(hydrateRes?.message || 'Queued order payload is incomplete');
+        (payloadError as Error & { code?: string }).code = hydrateRes?.code || 'POS_QUEUE_LOAD_INCOMPLETE';
+        throw payloadError;
       }
 
       const cart = cartItemsFromBillingOrOrder(orderId, order, billing, services);
@@ -654,7 +737,9 @@ export default function POSWorkspace({
 
       let garageVehicles: Vehicle[] = [];
       try {
-        const vehRes = await VehicleService.getVehiclesForUser(baseCustomer.id);
+        const vehRes = await VehicleService.getVehiclesForUser(baseCustomer.id, {
+          suppressErrorToast: true,
+        });
         if (vehRes.success && Array.isArray(vehRes.data)) {
           garageVehicles = vehRes.data.map(mapApiVehicleToPosVehicle);
         }
@@ -710,6 +795,10 @@ export default function POSWorkspace({
 
   useEffect(() => {
     if (!effectiveOrderId || hydratingOrderId || cartItems.length === 0) return undefined;
+    if (skipNextHydratedBillingPersistRef.current) {
+      skipNextHydratedBillingPersistRef.current = false;
+      return undefined;
+    }
     const t = window.setTimeout(() => {
       void (async () => {
         const put = await BillingService.putBilling(effectiveOrderId, {
@@ -788,6 +877,9 @@ export default function POSWorkspace({
   ]);
 
   const applyHydratedQueuedOrder = useCallback((hydrated: HydratedQueuedOrderState) => {
+    // Hydration already contains the persisted billing document. Do not write
+    // the same line items back immediately just because React state changed.
+    skipNextHydratedBillingPersistRef.current = true;
     setSelectedCustomer(hydrated.customer);
     setSelectedVehicle(hydrated.vehicle);
     setManualVehicleType(null);
@@ -824,22 +916,30 @@ export default function POSWorkspace({
         toast.error('Could not load this queued order. Please refresh the queue.');
         return false;
       }
+      setQueuedOrderLoadFailure(null);
       setHydratingOrderId(orderId);
       try {
         const hydrated = await buildHydratedQueuedOrderState(row);
         applyHydratedQueuedOrder(hydrated);
         setPendingQueuedOrder(null);
+        setQueuedOrderLoadFailure(null);
         toast.success(`Loaded pickup payment: ${hydrated.customer.name}`);
         void loadUnpaidOrders();
         return true;
       } catch (err: any) {
-        if (err?.code === 'POS_QUEUE_STALE') {
-          showStaleToastOnce(orderId);
-          if (idString(queuedOrderContext?.orderId) === orderId) clearQueuedOrderContext();
-          void loadUnpaidOrders({ notifyStale: false });
-        } else {
-          toast.error('Could not load this queued order. Please refresh the queue.');
-        }
+        const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
+        const message = err?.response?.data?.message
+          || (timedOut ? 'Queued order loading timed out on the server.' : err?.message)
+          || 'Could not load this queued order.';
+        setQueuedOrderLoadFailure({ row, orderId, message });
+        if (err?.code === 'POS_QUEUE_STALE') showStaleToastOnce(orderId);
+        toast.error(message, {
+          description: 'The Pickup Payment Queue remains available.',
+          action: {
+            label: 'Retry',
+            onClick: () => { void loadQueuedOrder(row); },
+          },
+        });
         return false;
       } finally {
         setHydratingOrderId(null);
@@ -848,9 +948,7 @@ export default function POSWorkspace({
     [
       applyHydratedQueuedOrder,
       buildHydratedQueuedOrderState,
-      clearQueuedOrderContext,
       loadUnpaidOrders,
-      queuedOrderContext?.orderId,
       showStaleToastOnce,
     ]
   );
@@ -1524,6 +1622,8 @@ export default function POSWorkspace({
         <CheckInQueuePanel
           bookings={unpaidOrders}
           loading={unpaidOrdersLoading}
+          hasLoaded={queue.hasLoaded}
+          error={queue.error}
           onOpenSearch={() => customerPanelRef.current?.focusQueueSearch()}
           onRefresh={() => void loadUnpaidOrders()}
         />
@@ -1545,8 +1645,12 @@ export default function POSWorkspace({
               queueLoading={unpaidOrdersLoading}
               hydratingOrderId={hydratingOrderId}
               pendingQueuedOrder={pendingQueuedOrder}
+              queuedOrderLoadFailure={queuedOrderLoadFailure}
               selectedQueuedOrderId={queuedOrderContext?.orderId ?? null}
               onRequestLoadQueuedOrder={requestLoadQueuedOrder}
+              onRetryQueuedOrder={() => {
+                if (queuedOrderLoadFailure?.row) void loadQueuedOrder(queuedOrderLoadFailure.row);
+              }}
               onConfirmPendingQueuedOrder={confirmPendingQueuedOrder}
               onCancelPendingQueuedOrder={() => setPendingQueuedOrder(null)}
               onSelectCustomer={(c) => {

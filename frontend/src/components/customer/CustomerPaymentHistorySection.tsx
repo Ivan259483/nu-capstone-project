@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   ArrowDown,
@@ -16,7 +16,6 @@ import { CustomerPaymentService } from "@/lib/customer-payment-service";
 import {
   formatPaymentDate,
   matchesPaymentSearch,
-  paymentRecordSummary,
   receiptAvailabilityMessage,
   paymentAmount,
   paymentDate,
@@ -26,11 +25,13 @@ import {
   paymentTypeLabel,
   type CustomerPaymentTransaction,
 } from "@/lib/customer-payment-history";
+import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { sanitizeVehiclePlate } from "@/lib/vehicle-display";
 import { CustomerReceiptDetails } from "./CustomerReceiptDetails";
 import "./customer-payment-history.css";
 
 const PAGE_SIZE = 10;
+const PAYMENT_HISTORY_REALTIME_COLLECTIONS = ["payments", "invoicerecords"];
 
 function Status({ transaction }: { transaction: CustomerPaymentTransaction }) {
   const status = paymentStatusDetails(transaction);
@@ -77,7 +78,12 @@ export function CustomerPaymentHistorySection() {
   const receiptId = params.get("paymentReceipt");
   const [data, setData] = useState<{
     transactions: CustomerPaymentTransaction[];
-    totalPaid: number;
+    summary: {
+      totalPaid: number;
+      paymentCount: number;
+      refundTotal: number;
+      totalReceived: number;
+    };
   } | null>(null);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
@@ -86,10 +92,29 @@ export function CustomerPaymentHistorySection() {
   const [status, setStatus] = useState("all");
   const [range, setRange] = useState("all");
   const [page, setPage] = useState(1);
+  const realtimeRefreshTimer = useRef<number | null>(null);
+
+  const handlePaymentHistoryChange = useCallback(() => {
+    if (realtimeRefreshTimer.current !== null) {
+      window.clearTimeout(realtimeRefreshTimer.current);
+    }
+    realtimeRefreshTimer.current = window.setTimeout(() => {
+      realtimeRefreshTimer.current = null;
+      setReload((value) => value + 1);
+    }, 300);
+  }, []);
+
+  useRealtimeSync(PAYMENT_HISTORY_REALTIME_COLLECTIONS, handlePaymentHistoryChange);
+
+  useEffect(() => () => {
+    if (realtimeRefreshTimer.current !== null) {
+      window.clearTimeout(realtimeRefreshTimer.current);
+    }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
+    if (!data) setLoading(true);
     setError("");
     CustomerPaymentService.getHistory(controller.signal)
       .then((result) => {
@@ -125,10 +150,6 @@ export function CustomerPaymentHistorySection() {
       );
   }, [data, query, status, range]);
 
-  const summary = useMemo(
-    () => paymentRecordSummary(data?.transactions || []),
-    [data],
-  );
   const filtersActive = Boolean(query || status !== "all" || range !== "all");
   const clearFilters = () => {
     setQuery("");
@@ -243,21 +264,21 @@ export function CustomerPaymentHistorySection() {
         <div className="customer-payment-summary-primary">
           <span>Total Paid</span>
           <strong>
-            {loading || error ? "—" : paymentMoney(data?.totalPaid || 0)}
+            {loading || error ? "—" : paymentMoney(data?.summary.totalPaid || 0)}
           </strong>
           <p>Payments received, less refunds</p>
         </div>
         <div>
           <span>Payments</span>
           <strong>
-            {loading || error ? "—" : paymentMoney(summary.received)}
+            {loading || error ? "—" : String(data?.summary.paymentCount || 0)}
           </strong>
           <p>Verified payments · all time</p>
         </div>
         <div>
           <span>Refunds</span>
           <strong>
-            {loading || error ? "—" : paymentMoney(summary.refunded)}
+            {loading || error ? "—" : paymentMoney(data?.summary.refundTotal || 0)}
           </strong>
           <p>Returned payments · all time</p>
         </div>
@@ -372,7 +393,7 @@ export function CustomerPaymentHistorySection() {
         ) : error ? (
           <div className="customer-payment-empty" role="alert">
             <Receipt size={28} />
-            <h3>Unable to load payments.</h3>
+            <h3>Could not load payment history</h3>
             <p>Please try again.</p>
             <button
               className="customer-payment-button"

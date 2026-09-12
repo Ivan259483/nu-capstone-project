@@ -33,7 +33,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { processQueue } from '@/services/offlineQueue';
-import { apiClient, getApiStatusCode } from '@/services/api/client';
+import { apiClient, getApiStatusCode, hasCompletedNetworkRetries } from '@/services/api/client';
 import { isCustomerRole } from '@/services/api/roles';
 import { SystemStatusProvider } from '@/context/SystemStatusContext';
 import SystemStatusGate from '@/components/SystemStatusGate';
@@ -206,6 +206,7 @@ const queryClient = new QueryClient({
     queries: {
       retry: (failureCount, error) => {
         if (getApiStatusCode(error) === 401) return false;
+        if (hasCompletedNetworkRetries(error)) return false;
         return failureCount < 2;
       },
       refetchOnWindowFocus: true,

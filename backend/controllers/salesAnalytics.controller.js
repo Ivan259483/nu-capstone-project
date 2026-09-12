@@ -10,7 +10,7 @@ import {
 
 export const getSalesAnalyticsReport = async (req, res, next) => {
   try {
-    const data = await loadSalesReport(req.query || {});
+    const data = await loadSalesReport(req.query || {}, { req, res });
     res.json({ success: true, data });
   } catch (error) {
     next(error);
@@ -19,7 +19,7 @@ export const getSalesAnalyticsReport = async (req, res, next) => {
 
 export const downloadSalesAnalyticsCsv = async (req, res, next) => {
   try {
-    const report = await loadSalesReportWithRows(req.query || {});
+    const report = await loadSalesReportWithRows(req.query || {}, { req, res });
     const csv = salesReportToCsv(report);
     const suffix = report.range.from && report.range.to
       ? `${report.range.from}_${report.range.to}`
@@ -68,4 +68,3 @@ export const getSalesCustomerTransactions = async (req, res, next) => {
     next(error);
   }
 };
-

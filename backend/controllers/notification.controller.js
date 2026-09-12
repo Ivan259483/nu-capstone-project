@@ -6,16 +6,10 @@ import Notification, {
 import NotificationUserState from '../models/notificationUserState.model.js';
 import {
   getNotificationAudiencesForRole,
-  isCustomerRole,
   normalizeToCanonical,
 } from '../constants/roles.js';
-import {
-  getSalesBookingApprovalNotificationQuery,
-  syncMissingSalesBalancePickupNotifications,
-} from '../utils/bookingManagerNotifications.utils.js';
-import { syncMissingCustomerStageNotifications } from '../utils/customerStageNotifications.utils.js';
-import { syncMissingCustomerReceiptNotifications } from '../utils/customerReceiptNotification.utils.js';
-import { runInBackground, timeOperation } from '../utils/performance.utils.js';
+import { getSalesBookingApprovalNotificationQuery } from '../utils/bookingManagerNotifications.utils.js';
+import { timeOperation } from '../utils/performance.utils.js';
 import { getIO } from '../utils/socket.utils.js';
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -567,45 +561,6 @@ async function enrichedNotificationById(role, userId, notificationId) {
   return rows[0] || null;
 }
 
-async function syncNotificationsForCurrentUser(role, userId) {
-  if (isCustomerRole(role)) {
-    try {
-      await syncMissingCustomerStageNotifications(userId);
-    } catch (error) {
-      console.warn('[notifications] Stage sync failed:', error.message);
-    }
-    try {
-      await syncMissingCustomerReceiptNotifications(userId);
-    } catch (error) {
-      console.warn('[notifications] Receipt sync failed:', error.message);
-    }
-  }
-
-  if (normalizeToCanonical(role) === 'sales') {
-    try {
-      await syncMissingSalesBalancePickupNotifications();
-    } catch (error) {
-      console.warn('[notifications] Balance pickup sync failed:', error.message);
-    }
-  }
-}
-
-const scheduledNotificationSyncs = new Set();
-
-function scheduleNotificationSync(req, role, userId) {
-  const key = `${normalizeToCanonical(role)}:${String(userId)}`;
-  if (scheduledNotificationSyncs.has(key)) return;
-  scheduledNotificationSyncs.add(key);
-
-  runInBackground({ req, kind: 'background', name: 'notifications.backfillSync' }, async () => {
-    try {
-      await syncNotificationsForCurrentUser(role, userId);
-    } finally {
-      scheduledNotificationSyncs.delete(key);
-    }
-  });
-}
-
 /**
  * Searchable, filterable and paginated notifications for the current user.
  * Mutable state is enriched from NotificationUserState before filters run.
@@ -701,10 +656,6 @@ export const getNotifications = async (req, res, next) => {
       },
     });
 
-    // Backfills repair legacy gaps but are not part of reading the inbox. Queue
-    // them only after the page has been serialized to avoid DB contention with
-    // the response aggregation itself.
-    scheduleNotificationSync(req, role, userId);
   } catch (error) {
     next(error);
   }

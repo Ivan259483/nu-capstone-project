@@ -10,6 +10,8 @@ import { getBackendSocketUrl, getStoredAuthToken } from '@/lib/api';
 // corresponding query cache keys so the next read gets fresh data.
 const COLLECTION_CACHE_MAP: Record<string, string[]> = {
   orders: ['/bookings', '/orders'],
+  payments: ['/payments/my'],
+  invoicerecords: ['/payments/my'],
   products: ['/products'],
   services: ['/services'],
   users: ['/users'],

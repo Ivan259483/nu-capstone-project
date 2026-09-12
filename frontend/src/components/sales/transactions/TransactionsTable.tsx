@@ -154,7 +154,7 @@ export default function TransactionsTable() {
   const [refundSubmitting, setRefundSubmitting] = useState(false);
   const [rangeReport, setRangeReport] = useState<SalesAnalyticsReport | null>(null);
 
-  const { transactions: TRANSACTIONS, isLoading, refetch } = useSalesContext();
+  const { transactions: TRANSACTIONS, isLoading, hasLedger, ledgerError, isLedgerRefreshing, refetch } = useSalesContext();
 
   useEffect(() => {
     if (!dateFrom || !dateTo) return;
@@ -300,6 +300,10 @@ export default function TransactionsTable() {
 
   return (
     <>
+      {ledgerError && <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <span>{hasLedger ? 'Ledger refresh failed. Showing last loaded transactions.' : 'Ledger could not load.'}</span>
+        <button type="button" onClick={() => void refetch()} disabled={isLedgerRefreshing} className="font-semibold underline disabled:opacity-50">Retry</button>
+      </div>}
       {/* Summary Strip */}
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
@@ -318,7 +322,7 @@ export default function TransactionsTable() {
           <SalesStatCard
             key={s.key}
             title={s.title}
-            metric={s.value}
+            metric={hasLedger ? s.value : '—'}
             label={s.sub}
             accent={s.accent}
             icon={s.icon}
@@ -491,6 +495,8 @@ export default function TransactionsTable() {
                     </div>
                   </td>
                 </tr>
+              ) : !hasLedger && ledgerError ? (
+                <tr><td colSpan={13} className="px-6 py-16 text-center text-sm text-slate-500">Transactions are unavailable. Retry loading the ledger.</td></tr>
               ) : paginated.length === 0 ? (
                 <tr>
                   <td colSpan={13} className="px-6 py-16 text-center">

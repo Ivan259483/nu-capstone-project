@@ -34,7 +34,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '@/hooks/useThemeContext';
 import { Palette, BorderRadius } from '@/constants/theme';
 import { getApiErrorMessage } from '@/services/api/client';
-import type { BookingRecord } from '@/services/api/types';
 import {
   matchesPaymentSearch,
   paymentDateFilterCutoff,
@@ -46,11 +45,9 @@ import {
   paymentTypeLabel,
   receiptAvailabilityMessage,
   sortPaymentsNewestFirst,
-  summarizePaymentHistory,
   type PaymentDateFilter,
   type PaymentFilterGroup,
 } from '@/utils/customer-payment-history';
-import { useCustomerBookings } from '@/hooks/useCustomerBookings';
 import { paymentService, type PaymentReceipt, type PaymentRecord } from '@/services/api/paymentService';
 import { OfficialPaymentReceipt } from '@/components/payments/OfficialPaymentReceipt';
 import { buildMobileReceiptHtml, mobileReceiptFileName } from '@/lib/receipt-html';
@@ -164,29 +161,21 @@ function CopyIdButton({ value, colors }: { value: string; colors: ThemeColors })
 
 function TransactionCard({
   payment,
-  booking,
   colors,
   isDark,
   onViewReceipt,
   receiptLoading,
 }: {
   payment: PaymentRecord;
-  booking?: BookingRecord;
   colors: ThemeColors;
   isDark: boolean;
   onViewReceipt: (paymentId: string) => void;
   receiptLoading: boolean;
 }) {
-  const vehicle =
-    payment.vehicleInfo ||
-    [booking?.vehicleYear, booking?.vehicleMake, booking?.vehicleModel].filter(Boolean).join(' ') ||
-    'Vehicle not recorded';
+  const vehicle = payment.vehicleInfo || 'Vehicle not recorded';
   const dateStr = paymentEffectiveDate(payment);
   const serviceLabel =
-    payment.services.map((service) => service.name).filter(Boolean).join(', ') ||
-    booking?.serviceName ||
-    booking?.serviceType ||
-    'Service payment';
+    payment.services.map((service) => service.name).filter(Boolean).join(', ') || 'Service payment';
   const refunded = payment.transactionType === 'refund';
   const paid = payment.paymentStatus === 'succeeded' && !refunded;
   const statusColor = refunded
@@ -291,10 +280,6 @@ export default function PaymentsScreen() {
   const receiptRequestRef = useRef(0);
 
   const {
-    data: bookings = [],
-    refreshBookings,
-  } = useCustomerBookings(true);
-  const {
     data: paymentHistory,
     isLoading: loading,
     isRefetching,
@@ -303,12 +288,12 @@ export default function PaymentsScreen() {
     refetch: refreshPayments,
   } = useQuery({
     queryKey: ['payments', 'customer-history'],
-    queryFn: () => paymentService.getMyPayments(100),
+    queryFn: () => paymentService.getMyPayments(500),
     refetchInterval: 60_000,
   });
   const payments = useMemo(() => paymentHistory?.payments || [], [paymentHistory?.payments]);
   const error = isError
-    ? getApiErrorMessage(paymentError, 'Failed to load payment history')
+    ? getApiErrorMessage(paymentError, 'Could not load payment history')
     : null;
 
   const sorted = useMemo(() => sortPaymentsNewestFirst(payments), [payments]);
@@ -321,11 +306,12 @@ export default function PaymentsScreen() {
     });
   }, [sorted, typeFilter, dateFilter, query]);
 
-  const summary = useMemo(
-    () => summarizePaymentHistory(payments, paymentHistory?.totalSpent || 0),
-    [payments, paymentHistory?.totalSpent],
-  );
-  const grossPayments = summary.reservationTotal + summary.servicePaymentTotal;
+  const summary = paymentHistory?.summary || {
+    totalPaid: 0,
+    paymentCount: 0,
+    refundTotal: 0,
+    totalReceived: 0,
+  };
   const receiptCount = useMemo(() => payments.filter((payment) => payment.receiptAvailable).length, [payments]);
   const filtersActive = Boolean(query || typeFilter !== 'all' || dateFilter !== 'all');
 
@@ -335,16 +321,15 @@ export default function PaymentsScreen() {
     setDateFilter('all');
   }, []);
 
-  const bookingForPayment = useCallback((payment: PaymentRecord) =>
-    bookings.find((booking) => String(booking.id || booking._id) === payment.orderId),
-  [bookings]);
-
   const refreshAll = useCallback(async () => {
-    await Promise.all([refreshPayments(), refreshBookings()]);
-  }, [refreshBookings, refreshPayments]);
+    await refreshPayments();
+  }, [refreshPayments]);
+
+  const hasFocusedOnce = useRef(false);
 
   useFocusEffect(useCallback(() => {
-    void refreshAll();
+    if (hasFocusedOnce.current) void refreshAll();
+    else hasFocusedOnce.current = true;
     return undefined;
   }, [refreshAll]));
 
@@ -443,14 +428,14 @@ export default function PaymentsScreen() {
       <View style={[styles.emptyIconWrap, { backgroundColor: colors.cardAlt }]}>
         <Ionicons name="cloud-offline-outline" size={34} color={colors.textMuted} />
       </View>
-      <Text style={[styles.emptyTitle, { color: colors.text }]}>Unable to load</Text>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>Could not load payment history</Text>
       <Text style={[styles.emptySub, { color: colors.textMuted }]}>{error}</Text>
       <TouchableOpacity
         style={[styles.retryBtn, { borderColor: colors.border }]}
         onPress={() => void refreshAll()}
       >
         <Ionicons name="refresh" size={14} color={colors.text} />
-        <Text style={[styles.retryText, { color: colors.text }]}>Retry</Text>
+        <Text style={[styles.retryText, { color: colors.text }]}>Try again</Text>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -516,7 +501,7 @@ export default function PaymentsScreen() {
                   <View style={styles.summaryCol}>
                     <Text style={[styles.summaryColLabel, { color: colors.textMuted }]}>Payments</Text>
                     <Text style={[styles.summaryColValue, { color: colors.text }]}>
-                      {formatCurrency(grossPayments)}
+                      {summary.paymentCount}
                     </Text>
                   </View>
                   <View style={[styles.summaryColDivider, { backgroundColor: colors.border }]} />
@@ -525,10 +510,10 @@ export default function PaymentsScreen() {
                     <Text
                       style={[
                         styles.summaryColValue,
-                        { color: summary.refunds > 0 ? (isDark ? PURPLE_DARK : PURPLE) : colors.textMuted },
+                        { color: summary.refundTotal > 0 ? (isDark ? PURPLE_DARK : PURPLE) : colors.textMuted },
                       ]}
                     >
-                      {formatCurrency(summary.refunds)}
+                      {formatCurrency(summary.refundTotal)}
                     </Text>
                   </View>
                 </View>
@@ -611,7 +596,6 @@ export default function PaymentsScreen() {
             >
               <TransactionCard
                 payment={item}
-                booking={bookingForPayment(item)}
                 colors={colors}
                 isDark={isDark}
                 onViewReceipt={openReceipt}

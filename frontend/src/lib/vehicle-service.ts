@@ -21,9 +21,11 @@ function mapVehicleId<T extends { _id?: string; id?: string }>(data: T | null | 
 }
 
 export const VehicleService = {
-    async getVehicles(forUserId?: string) {
-        const params = forUserId ? { params: { forUserId } } : {};
-        const response = await api.get('/customers/vehicles', params);
+    async getVehicles(forUserId?: string, options?: { suppressErrorToast?: boolean }) {
+        const response = await api.get('/customers/vehicles', {
+            ...(forUserId ? { params: { forUserId } } : {}),
+            meta: { suppressErrorToast: options?.suppressErrorToast ?? false },
+        } as any);
         // Map _id to id consistently
         if (response.data.success && Array.isArray(response.data.data)) {
             response.data.data = response.data.data.map((v: any) => ({
@@ -35,8 +37,8 @@ export const VehicleService = {
     },
 
     /** Staff: list vehicles for a customer user id */
-    async getVehiclesForUser(customerUserId: string) {
-        return this.getVehicles(customerUserId);
+    async getVehiclesForUser(customerUserId: string, options?: { suppressErrorToast?: boolean }) {
+        return this.getVehicles(customerUserId, options);
     },
 
     async addVehicle(vehicleData: Record<string, unknown>) {

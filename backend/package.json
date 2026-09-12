@@ -23,6 +23,7 @@
         "audit:encryption": "node scripts/audit-encrypted-records.js",
         "indexes:performance": "node scripts/create-performance-indexes.js",
         "reconcile:ledger": "node scripts/reconcile-financial-ledger.js",
+        "backfill:notifications": "node scripts/backfill-notifications.js",
         "restore:backup": "node scripts/restore-autospf-backup.js",
         "test": "node --test tests/*.test.js"
     },

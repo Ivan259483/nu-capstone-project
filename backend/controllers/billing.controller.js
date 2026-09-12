@@ -18,13 +18,56 @@ import { hydrateReceiptSnapshot } from '../utils/receiptSnapshot.utils.js';
 import { resolveCustomerReceiptCoverage } from '../utils/customerReceiptDetails.utils.js';
 import { normalizePosPaymentMethod } from '../utils/paymentMethod.utils.js';
 import {
+  LEDGER_BALANCE_SELECT_FIELDS,
   getOrderLedger,
   getOrderServiceTotal,
   summarizeLedgerRows,
 } from '../services/financialLedger.service.js';
+import { timeOperation } from '../utils/performance.utils.js';
 
 const RECEIPT_CUSTOMER_SELECT = `name email ${USER_PHONE_SELECT_FIELDS}`;
 const RECEIPT_VEHICLE_SELECT = 'year make model color plateNumber vehicleType';
+const POS_QUEUE_ORDER_SELECT = [
+  '_id',
+  'orderNumber',
+  'bookingReference',
+  'customer',
+  'customerName',
+  'customerPhone',
+  'vehicle',
+  'vehicleYear',
+  'vehicleMake',
+  'vehicleModel',
+  'vehicleColor',
+  'vehiclePlate',
+  'vehicleType',
+  'vehicleClass',
+  'vehicleCategory',
+  'serviceId',
+  'serviceType',
+  'items.product',
+  'items.name',
+  'items.quantity',
+  'items.price',
+  'subtotal',
+  'discountAmount',
+  'taxVatAmount',
+  'additionalFees',
+  'serviceTotal',
+  'pricingSnapshot',
+  'totalAmount',
+  'totalPrice',
+  'downPaymentAmount',
+  'finalPaymentAmount',
+  'paymentStatus',
+  'paymentMethod',
+  'posQueueStatus',
+  'readyForPaymentAt',
+  'qcCompletedAt',
+].join(' ');
+
+const sendPosQueueLoadError = (res, status, code, message) =>
+  res.status(status).json({ success: false, message, code });
 
 function mapLineItem(raw) {
   let serviceId = null;
@@ -79,6 +122,124 @@ async function applyLedgerCredit(billing, ledgerRows = null) {
   applyComputed(billing);
   return ledger;
 }
+
+/**
+ * GET /api/orders/:orderId/pos-queue-load
+ * Lean, relation-checked payload used only when Sales loads a pickup queue row.
+ * Media/proof/workflow fields are intentionally absent from the positive projection.
+ */
+export const getPosQueueLoad = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    if (!mongoose.isValidObjectId(orderId)) {
+      return sendPosQueueLoadError(res, 400, 'POS_QUEUE_INVALID_ID', 'Invalid queued order id');
+    }
+
+    const order = await timeOperation(
+      { req, res, kind: 'db', name: 'posQueueLoad.order' },
+      () => Order.findById(orderId)
+        .select(POS_QUEUE_ORDER_SELECT)
+        .populate('customer', RECEIPT_CUSTOMER_SELECT)
+        .populate('vehicle', `${RECEIPT_VEHICLE_SELECT} pricingCategory`)
+        .populate('items.product', 'name price category duration billingGroup')
+    );
+
+    if (!order) {
+      return sendPosQueueLoadError(res, 404, 'POS_QUEUE_ORDER_NOT_FOUND', 'Queued order not found');
+    }
+
+    const customer = order.customer && typeof order.customer === 'object' ? order.customer : null;
+    if (!customer?._id) {
+      return sendPosQueueLoadError(
+        res,
+        422,
+        'POS_QUEUE_CUSTOMER_MISSING',
+        'Customer profile missing for queued order'
+      );
+    }
+
+    const linkedVehicle = order.vehicle && typeof order.vehicle === 'object' ? order.vehicle : null;
+    const hasVehicleSnapshot = Boolean(
+      String(order.vehicleMake || linkedVehicle?.make || '').trim()
+      && String(order.vehicleModel || linkedVehicle?.model || '').trim()
+    );
+    if (!hasVehicleSnapshot) {
+      return sendPosQueueLoadError(
+        res,
+        422,
+        'POS_QUEUE_VEHICLE_MISSING',
+        'Vehicle snapshot missing for queued order'
+      );
+    }
+
+    let billing;
+    let ledgerRows;
+    try {
+      [billing, ledgerRows] = await Promise.all([
+        timeOperation(
+          { req, res, kind: 'db', name: 'posQueueLoad.billing' },
+          () => Billing.findOne({ order: orderId })
+        ),
+        timeOperation(
+          { req, res, kind: 'db', name: 'posQueueLoad.payments' },
+          () => getOrderLedger(orderId, { select: LEDGER_BALANCE_SELECT_FIELDS })
+        ),
+      ]);
+    } catch (error) {
+      error.statusCode = 503;
+      error.code = 'POS_QUEUE_PAYMENT_LOOKUP_FAILED';
+      error.message = 'Payment history could not be loaded for queued order';
+      throw error;
+    }
+
+    if (!billing) {
+      billing = await timeOperation(
+        { req, res, kind: 'db', name: 'posQueueLoad.billing.create' },
+        () => Billing.create({
+          order: orderId,
+          lineItems: [],
+          status: 'pending',
+          downpayment: normalizeMoney(order.downPaymentAmount || 0),
+        })
+      );
+    }
+
+    const hasServiceSnapshot = Boolean(
+      billing.lineItems?.length
+      || order.items?.some((item) => item?.name || item?.product?.name)
+      || String(order.serviceType || '').trim()
+    );
+    if (!hasServiceSnapshot) {
+      return sendPosQueueLoadError(
+        res,
+        422,
+        'POS_QUEUE_SERVICE_MISSING',
+        'Service snapshot missing for queued order'
+      );
+    }
+
+    await applyLedgerCredit(billing, ledgerRows);
+    await timeOperation(
+      { req, res, kind: 'db', name: 'posQueueLoad.billing.save' },
+      () => billing.save()
+    );
+
+    const orderPayload = order.toObject({ virtuals: true });
+    orderPayload.vehiclePlate = resolvePlainVehiclePlate(
+      order.vehiclePlate || linkedVehicle?.plateNumber
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        order: orderPayload,
+        billing,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 function pushBillingEvent(billing, req, action, summary, payload = null) {
   billing.events.push({

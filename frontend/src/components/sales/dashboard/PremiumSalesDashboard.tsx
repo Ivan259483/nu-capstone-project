@@ -53,7 +53,12 @@ const comparison = (metric?: MetricComparison): DashboardKpiComparison => {
 
 export default function PremiumSalesDashboard({ onNavigate }: PremiumSalesDashboardProps) {
   const { user } = useAuth();
-  const { dashboardReport: report, isLoading } = useSalesContext();
+  const {
+    dashboardReport: report, hasReport, hasLedger, reportError, ledgerError,
+    isReportRefreshing, isLedgerRefreshing, refetch,
+  } = useSalesContext();
+  const syncError = reportError || ledgerError;
+  const synchronizing = isReportRefreshing || isLedgerRefreshing || !hasReport || !hasLedger;
   const firstName = (user?.name || 'Sales').split(' ')[0] || 'Sales';
   const todayLabel = new Intl.DateTimeFormat('en-PH', {
     timeZone: 'Asia/Manila', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -90,9 +95,9 @@ export default function PremiumSalesDashboard({ onNavigate }: PremiumSalesDashbo
         <div>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-3xl font-bold tracking-tight">Welcome back, {firstName}</h1>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              {isLoading ? 'Synchronizing ledger' : 'Ledger synchronized'}
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${syncError ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>
+              <span className={`h-2 w-2 rounded-full ${syncError ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+              {syncError ? 'Refresh failed' : synchronizing ? 'Synchronizing ledger' : 'Ledger synchronized'}
             </span>
           </div>
           <p className="mt-1 text-sm font-medium text-slate-500">{todayLabel}. One financial source now powers Reports, Customers, and Transactions.</p>
@@ -107,15 +112,23 @@ export default function PremiumSalesDashboard({ onNavigate }: PremiumSalesDashbo
         </div>
       </div>
 
+      {syncError && <div role="alert" className="flex items-center justify-between gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <span>
+          {reportError && (hasReport ? 'Metrics refresh failed. Showing last loaded metrics. ' : 'Metrics could not load. ')}
+          {ledgerError && (hasLedger ? 'Ledger refresh failed. Showing last loaded transactions.' : 'Ledger could not load.')}
+        </span>
+        <button type="button" onClick={() => void refetch()} disabled={isReportRefreshing || isLedgerRefreshing} className="shrink-0 font-semibold underline disabled:opacity-50">Retry</button>
+      </div>}
+
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Canonical sales key performance indicators">
         {cards.map((card) => (
           <DashboardKpiCard
             key={card.label}
             title={card.label}
-            value={isLoading ? '—' : card.value}
+            value={hasReport ? card.value : '—'}
             icon={card.Icon}
             accentColor={card.color}
-            comparison={card.comparison}
+            comparison={hasReport ? card.comparison : undefined}
             subtitle={card.detail}
             sparklineData={card.sparkline}
           />
@@ -138,7 +151,7 @@ export default function PremiumSalesDashboard({ onNavigate }: PremiumSalesDashbo
             className="rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md"
           >
             <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{React.createElement(Icon as typeof UsersRound, { size: 14 })}{String(label)}</span>
-            <span className="mt-2 block text-lg font-bold tabular-nums text-slate-900">{isLoading ? '—' : String(value)}</span>
+            <span className="mt-2 block text-lg font-bold tabular-nums text-slate-900">{hasReport ? String(value) : '—'}</span>
           </button>
         ))}
       </section>
@@ -180,7 +193,7 @@ export default function PremiumSalesDashboard({ onNavigate }: PremiumSalesDashbo
                 <p className="mt-2 text-xs font-semibold text-emerald-700">{peso(service.collected)} collected</p>
               </div>
             ))}
-            {!isLoading && !report.topServices.length && <p className="py-20 text-center text-sm text-slate-400">No confirmed service demand yet.</p>}
+            {hasReport && !report.topServices.length && <p className="py-20 text-center text-sm text-slate-400">No confirmed service demand yet.</p>}
           </div>
         </section>
       </div>

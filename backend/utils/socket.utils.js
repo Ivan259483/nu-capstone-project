@@ -133,6 +133,8 @@ let io;
 // ── Collections the frontend actually watches ────────────────────────
 const WATCHED_COLLECTIONS = new Set([
   'orders',
+  'payments',
+  'invoicerecords',
   'products',
   'services',
   'shopavailabilities',

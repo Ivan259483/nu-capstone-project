@@ -3,6 +3,13 @@ import { API_BASE_URL } from '@/config/env';
 import { authStorage } from '@/services/storage/authStorage';
 import { enqueueRequest } from '../offlineQueue';
 import { Toast } from '@/components/ui/PremiumToast';
+import {
+  getNetworkRetryDelayMs,
+  NETWORK_RETRY_LIMIT,
+  shareInFlightRequest,
+} from './retryPolicy';
+
+type RetryableAxiosRequestConfig = AxiosRequestConfig & { _retryCount?: number };
 
 type AuthInvalidHandler = ((details: { status: number | undefined; path: string; message: string }) => Promise<void> | void) | null;
 type SystemStatusHandler = ((details: {
@@ -103,6 +110,39 @@ export const apiClient = axios.create({
   },
 });
 
+// Identical GET callers share one active transport. Request interceptors still
+// run per caller, so authorization remains current while focus/realtime refreshes
+// cannot overlap the same endpoint and parameter set.
+const baseAdapter = axios.getAdapter(apiClient.defaults.adapter);
+const activeGetTransports = new Map<string, Promise<any>>();
+
+const stableRequestParams = (params: unknown): string => {
+  if (!params) return '';
+  if (params instanceof URLSearchParams) return params.toString();
+  if (typeof params !== 'object') return String(params);
+  return JSON.stringify(
+    Object.entries(params as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+};
+
+apiClient.defaults.adapter = async (config) => {
+  if (String(config.method || 'get').toLowerCase() !== 'get') {
+    return baseAdapter(config);
+  }
+
+  const headers = config.headers as any;
+  const authorization = String(headers?.get?.('Authorization') || headers?.Authorization || '');
+  const key = [
+    config.baseURL || '',
+    config.url || '',
+    stableRequestParams(config.params),
+    config.responseType || '',
+    authorization,
+  ].join('|');
+  return shareInFlightRequest(activeGetTransports, key, () => baseAdapter(config));
+};
+
 apiClient.interceptors.request.use(async (config) => {
   const token = await authStorage.getToken();
   if (token) {
@@ -118,7 +158,7 @@ apiClient.interceptors.request.use(async (config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<{ message?: string; code?: string }>) => {
-    const config = error.config as AxiosRequestConfig & { _retryCount?: number };
+    const config = error.config as RetryableAxiosRequestConfig;
     const status = error.response?.status;
     const path = config?.url || '';
     const message = (error.response?.data as any)?.message || error.message || 'Unknown API error';
@@ -248,16 +288,20 @@ apiClient.interceptors.response.use(
       }
     }
 
-    // \u2500\u2500 Auto-retry on network errors (max 1 retry) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    // Network timeouts/errors retry with bounded exponential backoff.
     if (
       !error.response &&
+      !axios.isCancel(error) &&
       !isSensitiveAuthRequest &&
+      String(config?.method || 'get').toLowerCase() === 'get' &&
       config &&
-      (config._retryCount || 0) < 1
+      (config._retryCount || 0) < NETWORK_RETRY_LIMIT
     ) {
-      config._retryCount = (config._retryCount || 0) + 1;
-      // Exponential backoff: 500ms
-      await new Promise((r) => setTimeout(r, 500));
+      const retryNumber = (config._retryCount || 0) + 1;
+      config._retryCount = retryNumber;
+      await new Promise((resolve) => {
+        setTimeout(resolve, getNetworkRetryDelayMs(retryNumber));
+      });
       return apiClient(config);
     }
 
@@ -412,3 +456,10 @@ export const getApiStatusCode = (error: unknown): number | null => {
   }
   return null;
 };
+
+/** React Query must not start a second retry cycle after Axios finishes its network backoff. */
+export const hasCompletedNetworkRetries = (error: unknown): boolean => (
+  axios.isAxiosError(error)
+  && !error.response
+  && Number((error.config as RetryableAxiosRequestConfig | undefined)?._retryCount || 0) > 0
+);

@@ -5,8 +5,10 @@ import InvoiceRecord from '../models/invoiceRecord.model.js';
 import {
   REQUIRED_READY_PICKUP_SLOTS,
   readyPickupSlotProgress,
+  readyPickupSlotProgressFromEvidence,
 } from './trackerGatePhotos.utils.js';
 import { computeBillingTotals, normalizeMoney } from './billingTotals.js';
+import { timeOperation } from './performance.utils.js';
 import { notifySalesBalancePickupQueue } from './bookingManagerNotifications.utils.js';
 import { getIO } from './socket.utils.js';
 import {
@@ -88,7 +90,7 @@ function financialTotalFromOrder(order) {
  * Shared server-side financial state for POS queue and checkout guards.
  * Reads only persisted Order, Billing, Payment, and InvoiceRecord data.
  */
-export async function computeOrderFinancialState(orderOrId) {
+export async function computeOrderFinancialState(orderOrId, timing = null) {
   const order = await findOrder(orderOrId);
   if (!order?._id) {
     return {
@@ -108,12 +110,15 @@ export async function computeOrderFinancialState(orderOrId) {
     };
   }
 
+  const read = (name, operation) => timing
+    ? timeOperation({ ...timing, kind: 'db', name: `pickupQueue.${name}` }, operation)
+    : operation();
   const [billing, payments, invoiceRecord] = await Promise.all([
-    Billing.findOne({ order: order._id }),
-    Payment.find({ order: order._id })
+    read('billing', () => Billing.findOne({ order: order._id })),
+    read('payments', () => Payment.find({ order: order._id })
       .select('_id amount amountSubmitted amountVerified amountPaid transactionType relatedPayment downpayment grandTotal balanceRemaining status checkoutReference metadata effectiveAt reviewedAt createdAt')
-      .sort({ createdAt: -1 }),
-    InvoiceRecord.findOne({ order: order._id }).sort({ createdAt: -1 }),
+      .sort({ createdAt: -1 })),
+    read('invoice', () => InvoiceRecord.findOne({ order: order._id }).sort({ createdAt: -1 })),
   ]);
 
   let totalAmount = 0;
@@ -228,7 +233,7 @@ function buildResult(overrides) {
  * Source of truth for POS Balance / Pickup Queue eligibility.
  *
  * @param {import('mongoose').Document|string} orderOrId
- * @param {{ persist?: boolean, emit?: boolean, notify?: boolean, debug?: boolean }} options
+ * @param {{ persist?: boolean, emit?: boolean, notify?: boolean, debug?: boolean, pickupEvidence?: Array, financialState?: object }} options
  */
 export async function evaluateReadyForPickupQueueEligibility(orderOrId, options = {}) {
   const {
@@ -249,8 +254,10 @@ export async function evaluateReadyForPickupQueueEligibility(orderOrId, options 
     readyForPaymentAt: order.readyForPaymentAt || null,
   };
 
-  const slotProgress = readyPickupSlotProgress(order);
-  const financial = await computeOrderFinancialState(order);
+  const slotProgress = options.pickupEvidence === undefined
+    ? readyPickupSlotProgress(order)
+    : readyPickupSlotProgressFromEvidence(options.pickupEvidence);
+  const financial = options.financialState || await computeOrderFinancialState(order);
   const status = keyOf(order.status);
   const stage = keyOf(order.serviceTrackingStage);
   const paymentStatus = keyOf(order.paymentStatus);

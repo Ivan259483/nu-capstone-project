@@ -168,12 +168,15 @@ export interface BookingRecord {
   };
   notes?: string;
   trackerStageMedia?: {
+    id?: string;
     stage?: string;
     slot?: string;
     photoUrl?: string;
     description?: string;
     uploadedAt?: string;
     uploadedBy?: string;
+    hasPhoto?: boolean;
+    photoPending?: boolean;
   }[];
   serviceTrackingStage?: string | null;
   serviceTrackingUpdatedAt?: string;

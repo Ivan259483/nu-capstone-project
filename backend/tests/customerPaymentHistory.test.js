@@ -18,6 +18,7 @@ const { default: InvoiceRecord } = await import(
   "../models/invoiceRecord.model.js"
 );
 const { default: paymentRoutes } = await import("../routes/payment.routes.js");
+const LARGE_INLINE_IMAGE = `data:image/jpeg;base64,${"R".repeat(1_800_000)}`;
 let mongo,
   server,
   baseUrl,
@@ -80,6 +81,14 @@ before(async () => {
     vehiclePlate: "ABC 1234",
     status: "completed",
     paymentStatus: "paid",
+    trackerStageMedia: [
+      {
+        stage: "confirmed",
+        slot: "front",
+        photoUrl: LARGE_INLINE_IMAGE,
+        description: "Large legacy tracker image",
+      },
+    ],
   });
   const base = {
     order: order._id,
@@ -104,6 +113,14 @@ before(async () => {
       amount: 8499,
       amountVerified: 8499,
       method: "cash",
+      proofImage: LARGE_INLINE_IMAGE,
+      statusHistory: [
+        {
+          status: "succeeded",
+          amountVerified: 8499,
+          proofImage: LARGE_INLINE_IMAGE,
+        },
+      ],
       effectiveAt: new Date("2026-09-05T04:00:00Z"),
     },
     {
@@ -114,7 +131,11 @@ before(async () => {
       amountVerified: 0,
       method: "gcash",
       status: "pending",
-      proofImage: "https://example.test/proof.png",
+      proofImage: `data:image/jpeg;base64,${"A".repeat(1_800_000)}`,
+      statusHistory: [{
+        status: "pending",
+        proofImage: `data:image/jpeg;base64,${"B".repeat(1_800_000)}`,
+      }],
       submittedAt: new Date("2026-09-05T05:00:00Z"),
     },
     {
@@ -188,7 +209,16 @@ test("history uses verified payments and signed refunds, not completed-order fla
   const { status, body } = await request("/my");
   assert.equal(status, 200);
   assert.equal(body.totalSpent, 8899);
+  assert.deepEqual(body.summary, {
+    totalPaid: 8899,
+    paymentCount: 2,
+    refundTotal: 100,
+    totalReceived: 8999,
+  });
+  assert.deepEqual(body.transactions, body.data);
   assert.equal(body.data.length, 4);
+  assert.equal(JSON.stringify(body).includes("data:image"), false);
+  assert.equal(JSON.stringify(body).includes("proofImage"), false);
   const unverified = body.data.find(
     (row) => row.paymentId === String(pending._id),
   );
@@ -228,8 +258,14 @@ test("history exposes separate reservation and service receipts and supports sub
 });
 
 test("receipt returns saved itemization and the transaction amount, separate from earlier payments", async () => {
+  const startedAt = performance.now();
   const { status, body } = await request(`/my/${finalPayment._id}/receipt`);
+  const responseMs = performance.now() - startedAt;
   assert.equal(status, 200);
+  assert.ok(responseMs < 3000, `large-media receipt took ${responseMs.toFixed(1)}ms`);
+  assert.equal(JSON.stringify(body).includes("data:image"), false);
+  assert.equal(JSON.stringify(body).includes("proofImage"), false);
+  assert.equal(JSON.stringify(body).includes("trackerStageMedia"), false);
   assert.equal(body.data.customer.name, "Saved Receipt Customer");
   assert.equal(body.data.customer.email, "saved@example.test");
   assert.equal(body.data.vehicle.description, "2024 Bentley Bentayga");
@@ -298,12 +334,15 @@ test("unauthenticated requests and another customer cannot read receipts or paym
 });
 
 test("missing, invalid and pending receipts are unavailable", async () => {
-  assert.equal((await request("/my/not-an-id/receipt")).status, 400);
-  assert.equal(
-    (await request(`/my/${new mongoose.Types.ObjectId()}/receipt`)).status,
-    404,
-  );
-  assert.equal((await request(`/my/${pending._id}/receipt`)).status, 404);
+  const invalid = await request("/my/not-an-id/receipt");
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.body.code, "RECEIPT_INVALID_REFERENCE");
+  const missing = await request(`/my/${new mongoose.Types.ObjectId()}/receipt`);
+  assert.equal(missing.status, 404);
+  assert.equal(missing.body.code, "RECEIPT_NOT_FOUND");
+  const pendingReceipt = await request(`/my/${pending._id}/receipt`);
+  assert.equal(pendingReceipt.status, 404);
+  assert.equal(pendingReceipt.body.code, "RECEIPT_NOT_FOUND");
 });
 
 test("reservation acknowledgement uses its verified payment and creates no payment or invoice records", async () => {

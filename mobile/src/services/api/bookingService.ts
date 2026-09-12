@@ -1,4 +1,5 @@
 import { apiClient, cachedGet, TTL } from '@/services/api/client';
+import { API_BASE_URL } from '@/config/env';
 import type { ApiEnvelope, BookingRecord, ServiceOption } from '@/services/api/types';
 import { isBookingCountedAsActiveOnHome } from '@/utils/customerBookingLifecycle';
 import { pickCustomerLiveTrackerBooking } from '@/utils/customer-live-tracker-pick';
@@ -185,13 +186,36 @@ export const bookingService = {
    * Fetch the lightweight customer-facing live tracker media for a booking.
    */
   async getBookingTrackerMedia(bookingId: string): Promise<BookingRecord> {
+    const endpoint = `/bookings/${encodeURIComponent(bookingId)}/tracker-media`;
+    const fullRequestUrl = `${API_BASE_URL}${endpoint}`;
+    if (__DEV__) {
+      console.log(
+        `[MOBILE TRACKER REQUEST]\nresolved EXPO_PUBLIC_API_URL: ${process.env.EXPO_PUBLIC_API_URL || '(unset)'}\nfull request URL: ${fullRequestUrl}\nHTTP method: GET`
+      );
+    }
     try {
       const response = await apiClient.get<ApiEnvelope<any>>(
-        `/bookings/${encodeURIComponent(bookingId)}/tracker-media`,
+        endpoint,
         { meta: { suppressExpectedErrorLog: true } } as any
       );
+      if (__DEV__) {
+        console.log(
+          `[MOBILE TRACKER RESPONSE]\nfull request URL: ${fullRequestUrl}\nHTTP status: ${response.status}\nresponse received: yes\nAxios error.code: (none)\nAxios error.message: (none)`
+        );
+      }
       return normalizeBooking(response.data.data);
     } catch (error) {
+      if (__DEV__) {
+        const axiosError = error as {
+          code?: string;
+          message?: string;
+          response?: { status?: number; data?: unknown };
+        };
+        const responseBody = axiosError.response?.data;
+        console.warn(
+          `[MOBILE TRACKER RESPONSE]\nfull request URL: ${fullRequestUrl}\nHTTP status: ${axiosError.response?.status ?? '(none)'}\nresponse received: ${axiosError.response ? 'yes' : 'no'}\nAxios error.code: ${axiosError.code || '(none)'}\nAxios error.message: ${axiosError.message || String(error)}\nresponse body: ${typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody ?? null)}`
+        );
+      }
       if (hasHttpStatus(error, 404)) {
         return this.getBookingById(bookingId);
       }

@@ -49,8 +49,10 @@ interface Props {
   queueLoading?: boolean;
   hydratingOrderId?: string | null;
   pendingQueuedOrder?: any | null;
+  queuedOrderLoadFailure?: { orderId: string; message: string } | null;
   selectedQueuedOrderId?: string | null;
   onRequestLoadQueuedOrder?: (row: any) => Promise<boolean> | boolean;
+  onRetryQueuedOrder?: () => void;
   onConfirmPendingQueuedOrder?: () => Promise<boolean> | boolean;
   onCancelPendingQueuedOrder?: () => void;
   onSelectCustomer: (c: Customer) => void;
@@ -204,8 +206,10 @@ const CustomerVehiclePanel = forwardRef<CustomerVehiclePanelHandle, Props>(funct
   queueLoading = false,
   hydratingOrderId = null,
   pendingQueuedOrder = null,
+  queuedOrderLoadFailure = null,
   selectedQueuedOrderId = null,
   onRequestLoadQueuedOrder,
+  onRetryQueuedOrder,
   onConfirmPendingQueuedOrder,
   onCancelPendingQueuedOrder,
   onSelectCustomer,
@@ -397,6 +401,8 @@ const CustomerVehiclePanel = forwardRef<CustomerVehiclePanelHandle, Props>(funct
     if (loaded) {
       setQuery(row.customerName || queueReference(row));
       setShowDropdown(false);
+    } else {
+      setShowDropdown(true);
     }
   };
 
@@ -656,6 +662,24 @@ const CustomerVehiclePanel = forwardRef<CustomerVehiclePanelHandle, Props>(funct
                     )}
                   </div>
                 </div>
+
+                {queuedOrderLoadFailure ? (
+                  <div role="alert" className="flex items-start justify-between gap-3 border-b border-red-100 bg-red-50 px-3 py-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-red-800">Queued order was not loaded</p>
+                      <p className="mt-1 text-[11px] text-red-700">{queuedOrderLoadFailure.message}</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={Boolean(hydratingOrderId)}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => onRetryQueuedOrder?.()}
+                      className="shrink-0 rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-800 hover:bg-red-100 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {hydratingOrderId ? 'Retrying…' : 'Retry'}
+                    </button>
+                  </div>
+                ) : null}
 
                 {filteredQueue.length === 0 ? (
                   <div className="border-b border-slate-100 px-4 py-4 text-center">
