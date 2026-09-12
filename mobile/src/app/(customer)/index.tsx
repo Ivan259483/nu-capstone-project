@@ -912,15 +912,21 @@ function TrustSection() {
   return (
     <Animated.View entering={FadeIn.delay(285).duration(500)}>
       <View style={$.trustStrip}>
-        {TRUST.map((t, i) => (
-          <React.Fragment key={t.label}>
-            {i > 0 && <View style={$.trustDivider} />}
-            <View style={$.trustItem}>
-              <Ionicons name={t.icon} size={11} color={D.A} />
-              <Text style={$.trustTxt} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{t.label}</Text>
-            </View>
-          </React.Fragment>
-        ))}
+        <View style={$.trustGroup}>
+          {TRUST.map((t, i) => (
+            <React.Fragment key={t.label}>
+              {i > 0 && (
+                <View style={$.trustGap}>
+                  <View style={$.trustDivider} />
+                </View>
+              )}
+              <View style={$.trustItem}>
+                <Ionicons name={t.icon} size={11} color={D.A} />
+                <Text style={$.trustTxt} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>{t.label}</Text>
+              </View>
+            </React.Fragment>
+          ))}
+        </View>
       </View>
     </Animated.View>
   );
@@ -1699,12 +1705,14 @@ const $ = StyleSheet.create({
 
   // ── TRUST ────────────────────────────────────────────────────
   trustStrip:{
-    height:44, flexDirection:'row', alignItems:'center', borderRadius:RADIUS.control,
-    backgroundColor:D.w04, borderWidth:1, borderColor:D.w07, paddingHorizontal:6,
+    height:44, maxWidth:'100%', alignSelf:'center', flexDirection:'row', alignItems:'center', borderRadius:RADIUS.control,
+    justifyContent:'center', backgroundColor:D.w04, borderWidth:1, borderColor:D.w07, paddingHorizontal:32,
   },
-  trustItem:{ flex:1, minWidth:0, flexDirection:'row', alignItems:'center', justifyContent:'center', gap:4 },
+  trustGroup:{ flexDirection:'row', alignItems:'center', justifyContent:'center', flexShrink:1, minWidth:0 },
+  trustGap:{ width:32, alignSelf:'stretch', alignItems:'center', justifyContent:'center' },
+  trustItem:{ flexDirection:'row', alignItems:'center', gap:8, flexShrink:1, minWidth:0 },
   trustDivider:{ width:StyleSheet.hairlineWidth, height:14, backgroundColor:D.w07 },
-  trustTxt:{ flex:1, minWidth:0, fontSize:8.5, color:D.w38, fontWeight:'700', textAlign:'center' },
+  trustTxt:{ flexShrink:1, minWidth:0, fontSize:8.5, color:D.w38, fontWeight:'700' },
 
   // ── EYEBROW ──────────────────────────────────────────────────
   eyeRow: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:SPACE.md },
