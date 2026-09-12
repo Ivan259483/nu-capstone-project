@@ -61,16 +61,16 @@ import {
 } from '@/utils/customer-live-tracker-pick';
 import {
   getCustomerStageSlotPhotos,
-  MOBILE_TRACKER_STEP_MEDIA_STAGE,
   resolveTrackerStageDescription,
   type TrackerMediaStage,
 } from '@/utils/customer-tracker-stage-media';
-import { resolveCustomerTrackerStage } from '@/utils/customer-tracker-stage';
+import { CUSTOMER_TRACKER_STEPS, resolveCustomerTrackerStage } from '@/utils/customer-tracker-stage';
 import { resolveCustomerPaymentState } from '@/utils/customer-payment-state';
 import {
   PAYMENT_PROOF_PICKER_OPTIONS,
   paymentProofDataUrlFromAsset,
 } from '@/utils/payment-proof-image';
+import { getCustomerTrackerTimestamps, getCustomerTrackerTeam } from '@/utils/customer-tracker-details';
 import { Haptics } from '@/utils/haptics';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
@@ -92,44 +92,7 @@ const C = {
   greenBrd:  'rgba(34,197,94,0.25)',
 } as const;
 
-// ─── 5-Step Pipeline (mirrors CustomerDashboard.tsx TRACKER_STEPS) ────────────
-const TRACKER_STEPS = [
-  {
-    id: 'confirmed',
-    label: 'Appointment Confirmed',
-    sub: 'Booking secured',
-    detail: 'Appointment locked and ready for shop intake.',
-    icon: 'calendar-outline',
-  },
-  {
-    id: 'received',
-    label: 'Vehicle Arrived',
-    sub: 'Shop intake complete',
-    detail: 'Vehicle is checked in and prepared for the service bay.',
-    icon: 'car-outline',
-  },
-  {
-    id: 'in_progress',
-    label: 'Service In Progress',
-    sub: 'Technician working now',
-    detail: 'Certified technicians are working on your vehicle now.',
-    icon: 'construct-outline',
-  },
-  {
-    id: 'completed',
-    label: 'Quality Check',
-    sub: 'Final inspection',
-    detail: 'QC verifies finish quality before pickup readiness.',
-    icon: 'shield-checkmark-outline',
-  },
-  {
-    id: 'paid',
-    label: 'Ready for Pickup',
-    sub: 'Handover ready',
-    detail: 'Final handover is ready for customer pickup.',
-    icon: 'checkmark-done-outline',
-  },
-] as const;
+const TRACKER_STEPS = CUSTOMER_TRACKER_STEPS;
 
 // ── Canonical stage → 5-step index ───────────────────────────────────────────
 // The customer pipeline is five steps; the QC gate pipeline is four. An operational gate
@@ -223,17 +186,7 @@ function formatTime(iso?: string | null): string {
   return `${months[d.getMonth()]} ${d.getDate()}, ${time}`;
 }
 
-function getStepTimestamps(booking: any): string[] {
-  const base      = booking?.approvedAt || booking?.createdAt || '';
-  const ingress   = booking?.jobOrder?.ingressDateTime || booking?.updatedAt || base;
-  const workStart = booking?.customerStatusUpdatedAt || booking?.updatedAt || ingress;
-  const qcAt      = booking?.qcCompletedAt || booking?.updatedAt || workStart;
-  const readyAt   = booking?.paidAt || booking?.updatedAt || qcAt;
-  return [base, ingress, workStart, qcAt, readyAt];
-}
-
 function getEtaLabel(booking: any): string {
-  if (booking?.bookingTime) return booking.bookingTime;
   const eta = booking?.estimatedCompletion || booking?.jobOrder?.targetReleaseDate;
   if (eta) {
     const d = new Date(eta);
@@ -1552,11 +1505,11 @@ export default function TrackScreen() {
     !!booking &&
     (bookingShowsCustomerLiveTracker(booking) || isDefaultTrackBookingRow(booking?.status || ''));
 
-  const stepTimestamps = booking ? getStepTimestamps(booking) : ['', '', '', '', ''];
+  const stepTimestamps = booking ? getCustomerTrackerTimestamps(booking) : ['', '', '', '', ''];
   const etaLabel       = booking ? getEtaLabel(booking) : '—';
   const activeStepIdx = Math.min(Math.max(stepIdx, 0), TRACKER_STEPS.length - 1);
   const activeStep = TRACKER_STEPS[activeStepIdx] || TRACKER_STEPS[0];
-  const activeMediaStage = MOBILE_TRACKER_STEP_MEDIA_STAGE[activeStep.id] ?? null;
+  const activeMediaStage = activeStep.id;
   const trackerAccent = atSecuredSlotStage || readyForPickupComplete || postPayComplete
     ? C.green
     : C.orange;
@@ -1593,24 +1546,10 @@ export default function TrackScreen() {
     vehicleColor,
   ].filter(Boolean).join(' / ') || 'Vehicle profile syncing';
 
-  // Team badge: prefer serviceStaffAssignments[] then assignedDetailer
-  const staffAssignments: any[] = booking?.serviceStaffAssignments || [];
-  const teamLabel = (() => {
-    if (staffAssignments.length > 0) {
-      return staffAssignments
-        .map((a: any) => (a.name || '').split(' ')[0])
-        .filter(Boolean)
-        .join(' & ');
-    }
-    if (booking?.assignedDetailer?.name) {
-      return booking.assignedDetailer.name.split(' ')[0];
-    }
-    return '';
-  })();
-  const assignedStaffCount = staffAssignments.filter((a: any) => String(a?.name || '').trim()).length;
-  const teamSummaryLabel = assignedStaffCount > 0
-    ? `${assignedStaffCount} specialist${assignedStaffCount === 1 ? '' : 's'} assigned`
-    : teamLabel || 'QC team online';
+  const teamLabel = getCustomerTrackerTeam(booking, activeStep.id);
+  const teamSummaryLabel = teamLabel;
+  const trackingComplete = readyForPickupComplete || postPayComplete || activeStep.id === 'ready_pickup';
+  const pickupTimeLabel = formatTime(stepTimestamps[TRACKER_STEPS.length - 1]);
 
   const pastBookings = allBookings.filter(
     (b) => (!booking || b.id !== booking.id) &&
@@ -1829,20 +1768,24 @@ export default function TrackScreen() {
         /* ───────────────── Active Tracking ──────────── */
         ) : (
           <>
-            {/* ── Top row: LIVE TRACKING + Est. Time pill ── */}
+            {/* ── Service status and pickup readiness / completion estimate ── */}
             <Animated.View entering={FadeInDown.delay(60).duration(200)} style={s.headerRow}>
-              <LiveBadge />
-              <View style={s.etaPill}>
-                <Ionicons name="time-outline" size={11} color={C.orange} />
-                <Text style={s.etaText}>Est. {etaLabel}</Text>
-              </View>
-            </Animated.View>
-
-            {/* ── Step counter ── */}
-            <Animated.View entering={FadeInDown.delay(80).duration(200)}>
-              <Text style={s.stepCounter}>
-                Step {Math.min(Math.max(stepIdx + 1, 1), 5)} of 5
-              </Text>
+              {trackingComplete ? (
+                <Text style={[s.etaText, { color: C.green }]}>READY FOR PICKUP</Text>
+              ) : <LiveBadge />}
+              {trackingComplete ? (
+                <View style={[s.etaPill, { borderColor: C.greenBrd, backgroundColor: C.greenDim }]}>
+                  <Ionicons name="checkmark-circle-outline" size={11} color={C.green} />
+                  <Text style={[s.etaText, { color: C.green }]}>
+                    {pickupTimeLabel ? `Pickup ready · ${pickupTimeLabel}` : 'Pickup time pending'}
+                  </Text>
+                </View>
+              ) : etaLabel !== '—' ? (
+                <View style={s.etaPill}>
+                  <Ionicons name="time-outline" size={11} color={C.orange} />
+                  <Text style={s.etaText}>Est. {etaLabel}</Text>
+                </View>
+              ) : null}
             </Animated.View>
 
             {/* ── Circular progress ring ── */}
@@ -1890,7 +1833,7 @@ export default function TrackScreen() {
                       (readyForPickupComplete || atSecuredSlotStage) && s.stageStepTextComplete,
                     ]}
                   >
-                    Step {Math.min(Math.max(stepIdx + 1, 1), 5)} / 5
+                    Step {activeStepIdx + 1} of {TRACKER_STEPS.length}
                   </Text>
                 </View>
               </View>
@@ -1942,7 +1885,7 @@ export default function TrackScreen() {
                     timestamp={stepTimestamps[i]}
                     isLast={i === TRACKER_STEPS.length - 1}
                     booking={booking}
-                    mediaStage={MOBILE_TRACKER_STEP_MEDIA_STAGE[step.id] ?? null}
+                    mediaStage={step.id}
                     finalStepComplete={readyForPickupComplete || postPayComplete}
                     appointmentSecuredComplete={appointmentSecuredComplete}
                   />
@@ -1960,7 +1903,7 @@ export default function TrackScreen() {
                   router.push('/(screens)/appointments');
                 }}
               >
-                <Ionicons name="list-outline" size={15} color={C.textMut} />
+                <Ionicons name="list-outline" size={15} color={C.text} />
                 <Text style={s.actionText}>All Bookings</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -1971,7 +1914,7 @@ export default function TrackScreen() {
                   router.push('/(screens)/waiver');
                 }}
               >
-                <Ionicons name="document-text-outline" size={15} color={C.textMut} />
+                <Ionicons name="document-text-outline" size={15} color={C.text} />
                 <Text style={s.actionText}>Sign Waiver</Text>
               </TouchableOpacity>
             </Animated.View>
@@ -1990,7 +1933,7 @@ export default function TrackScreen() {
 const s = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 32,
     gap: 20,
   },
 
@@ -2041,6 +1984,7 @@ const s = StyleSheet.create({
 
   // Active tracking header
   headerRow: {
+    flexWrap: 'wrap', gap: 8,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
   etaPill: {
@@ -2049,11 +1993,6 @@ const s = StyleSheet.create({
     borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5,
   },
   etaText: { fontSize: 11, fontWeight: '700', color: C.orange },
-
-  stepCounter: {
-    fontSize: 12, fontWeight: '600', color: C.textDim, letterSpacing: 0.5,
-    marginTop: -8,
-  },
 
   // Ring
   ringWrap: { alignItems: 'center' },
@@ -2177,9 +2116,9 @@ const s = StyleSheet.create({
   actionsRow: { flexDirection: 'row', gap: 10 },
   actionBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: C.surface, borderRadius: 12, borderWidth: 1,
-    borderColor: C.border, paddingVertical: 12,
+    backgroundColor: 'transparent', borderRadius: 12, borderWidth: 1,
+    borderColor: C.textSec, paddingVertical: 12,
   },
-  actionText: { fontSize: 12, fontWeight: '600', color: C.textMut },
+  actionText: { fontSize: 12, fontWeight: '600', color: C.text },
 
 });

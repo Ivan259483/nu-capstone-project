@@ -100,10 +100,13 @@ export default function AuthButton({
 
   const handlePressIn = () => {
     if (isDisabled || reduceMotion) return;
+    // Reanimated SharedValue.value is intentionally mutable inside handlers.
+    // eslint-disable-next-line react-hooks/immutability
     scale.value = withTiming(AuthMotion.scale.authPress, {
       duration: reducedMotionDuration(reduceMotion, AuthMotion.duration.standard),
       easing: AuthMotion.easing.authStandard,
     });
+    // eslint-disable-next-line react-hooks/immutability
     opacity.value = withTiming(0.9, {
       duration: reducedMotionDuration(reduceMotion, AuthMotion.duration.standard),
       easing: AuthMotion.easing.authStandard,
@@ -111,10 +114,13 @@ export default function AuthButton({
   };
 
   const handlePressOut = () => {
+    // Reanimated SharedValue.value is intentionally mutable inside handlers.
+    // eslint-disable-next-line react-hooks/immutability
     scale.value = withTiming(1, {
       duration: reducedMotionDuration(reduceMotion, AuthMotion.duration.standard),
       easing: AuthMotion.easing.authStandard,
     });
+    // eslint-disable-next-line react-hooks/immutability
     opacity.value = withTiming(1, {
       duration: reducedMotionDuration(reduceMotion, AuthMotion.duration.standard),
       easing: AuthMotion.easing.authStandard,

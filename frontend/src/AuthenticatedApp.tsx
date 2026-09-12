@@ -370,12 +370,18 @@ function _ConditionalChatWidget() {
     );
 }
 
+function _AuthenticatedToaster() {
+    const { pathname } = useLocation();
+    if (/^\/sales(?:\/|$)/.test(pathname)) return null;
+    return <Toaster position="top-center" />;
+}
+
 const AuthenticatedApp = () => (
     <QueryClientProvider client={queryClient}>
         <LanguageProvider>
             <AuthProvider>
                 <TooltipProvider>
-                    <Toaster position="top-center" />
+                    <_AuthenticatedToaster />
                     <IconifyLoader />
                     <SystemStatusGate />
                     <AppRoutes />

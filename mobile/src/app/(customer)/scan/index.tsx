@@ -23,7 +23,6 @@ import {
   PipelineStepper,
   ScannerBackground,
   ScannerHeader,
-  ScanZoneOverlay,
   scannerColors,
   scannerPrimaryGradient,
 } from '@/features/ai-scan/components/PremiumScanner';
@@ -138,7 +137,7 @@ export default function AiScanEntry() {
       <PipelineStepper currentIndex={0} />
 
       <ScrollView
-        style={{ flex: 1 }}
+        style={styles.scrollViewport}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.scroll,
@@ -158,7 +157,7 @@ export default function AiScanEntry() {
 
         <Animated.View entering={FadeInDown.duration(420).delay(80)}>
           <GlassPanel style={styles.scanCard} contentStyle={styles.scanCardInner} intense>
-            <ScanZoneOverlay label="AI Ready Scan Zone" hint={liveHint} />
+            <Text style={styles.captureHint}>{liveHint}</Text>
             <View style={styles.scanActions}>
               <Pressable style={styles.cameraAction} onPress={captureWithCamera}>
                 <LinearGradient
@@ -237,7 +236,7 @@ export default function AiScanEntry() {
           inline
           primaryLabel="Start AI Inspection"
           primaryIcon="sparkles"
-          disabled={images.length === 0}
+          primaryVariant="solid"
           onPrimaryPress={startInspection}
           secondaryLabel={images.length > 0 ? 'Add More Angles' : undefined}
           onSecondaryPress={images.length > 0 ? captureWithCamera : undefined}
@@ -248,6 +247,10 @@ export default function AiScanEntry() {
 }
 
 const styles = StyleSheet.create({
+  scrollViewport: {
+    flex: 1,
+    marginTop: 16,
+  },
   scroll: {
     paddingHorizontal: 16,
     paddingTop: 18,
@@ -278,6 +281,12 @@ const styles = StyleSheet.create({
   scanCardInner: {
     padding: 12,
     gap: 12,
+  },
+  captureHint: {
+    color: scannerColors.textSoft,
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '600',
   },
   scanActions: {
     flexDirection: 'row',

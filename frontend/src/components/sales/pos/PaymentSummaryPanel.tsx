@@ -49,12 +49,14 @@ interface Props {
   gcashAmountReceived: string;
   gcashReference: string;
   validationAttempted?: boolean;
+  cashValidationVisible?: boolean;
   validationMessage?: string;
   onDiscountChange: (discount: BillingDiscount) => void;
   onVatChange: (v: number) => void;
   onPaymentMethodChange: (v: string) => void;
   onTransactionNotesChange?: (v: string) => void;
   onCashReceivedChange: (v: string) => void;
+  onCashReceivedBlur?: () => void;
   onGcashAmountReceivedChange: (v: string) => void;
   onGcashReferenceChange: (v: string) => void;
   onClearQueuedOrder?: () => void;
@@ -97,12 +99,14 @@ export default function PaymentSummaryPanel({
   gcashAmountReceived,
   gcashReference,
   validationAttempted = false,
+  cashValidationVisible = false,
   validationMessage = '',
   onDiscountChange,
   onVatChange,
   onPaymentMethodChange,
   onTransactionNotesChange,
   onCashReceivedChange,
+  onCashReceivedBlur,
   onGcashAmountReceivedChange,
   onGcashReferenceChange,
   onClearQueuedOrder,
@@ -190,7 +194,7 @@ export default function PaymentSummaryPanel({
           ) : null}
         </div>
 
-        <div className={isCompact ? 'max-h-[min(62vh,680px)] space-y-3 overflow-y-auto overscroll-contain px-3 py-3' : 'min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4'}>
+        <div className={isCompact ? 'max-h-[min(62vh,680px)] space-y-3 overflow-y-auto overscroll-contain px-3 py-3' : 'min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 pb-8 pt-4'}>
           {cartItems.length > 0 ? (
             <div className="space-y-2" aria-label="Transaction line items">
               {cartItems.map((item) => (
@@ -217,56 +221,6 @@ export default function PaymentSummaryPanel({
                 <span className="text-slate-600">Subtotal</span>
                 <span className="font-semibold tabular-nums text-slate-900">{formatPeso(subtotal)}</span>
               </div>
-
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="inline-flex items-center gap-1.5 text-slate-600"><Tag size={13} /> Discount</span>
-                {discount > 0 ? (
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold tabular-nums text-emerald-700">−{formatPeso(discount)}</span>
-                    <button type="button" onClick={openDiscountEditor} className="text-[11px] font-bold text-blue-700 hover:text-blue-800">Edit</button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={openDiscountEditor}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  >
-                    <Plus size={12} /> Add discount
-                  </button>
-                )}
-              </div>
-              {discount > 0 && discountConfig.reason ? (
-                <p className="text-right text-[10px] text-slate-400">{discountConfig.reason}</p>
-              ) : null}
-
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="inline-flex items-center gap-1.5 text-slate-600"><Landmark size={13} /> VAT / tax</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold tabular-nums text-slate-900">{formatPeso(vatAmount)}</span>
-                  <button type="button" onClick={() => setVatOpen((open) => !open)} className="text-[11px] font-bold text-slate-500 hover:text-blue-700">
-                    {vatOpen ? 'Done' : 'Adjust'}
-                  </button>
-                </div>
-              </div>
-              {vatOpen ? (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <label htmlFor="pos-vat-adjustment" className="mb-1.5 block text-[11px] font-semibold text-slate-700">VAT / tax amount</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">₱</span>
-                    <input
-                      id="pos-vat-adjustment"
-                      type="number"
-                      inputMode="decimal"
-                      min={0}
-                      step="0.01"
-                      value={vatAmount || ''}
-                      onChange={(event) => onVatChange(Math.max(0, Number(event.target.value) || 0))}
-                      className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-7 pr-3 text-right text-xs tabular-nums text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    />
-                  </div>
-                  <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">Uses the existing billing tax calculation; no automatic tax rate is assumed.</p>
-                </div>
-              ) : null}
             </div>
           ) : null}
 
@@ -295,8 +249,46 @@ export default function PaymentSummaryPanel({
               </>
             ) : (
               <>
-                <div className="flex items-center justify-between text-xs text-slate-500"><span>Discount</span><span>−{formatPeso(discount)}</span></div>
-                <div className="flex items-center justify-between text-xs text-slate-500"><span>VAT / tax</span><span>{formatPeso(vatAmount)}</span></div>
+                <div className="flex items-center justify-between gap-3 text-xs text-slate-500">
+                  <span className="inline-flex items-center gap-1.5"><Tag size={13} /> Discount</span>
+                  <div className="flex items-center gap-2">
+                    <span className={discount > 0 ? 'font-semibold tabular-nums text-emerald-700' : 'tabular-nums'}>−{formatPeso(discount)}</span>
+                    <button type="button" onClick={openDiscountEditor} className="inline-flex items-center gap-1 font-bold text-blue-700 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+                      {discount > 0 ? 'Edit' : <><Plus size={12} /> Add discount</>}
+                    </button>
+                  </div>
+                </div>
+                {discount > 0 && discountConfig.reason ? (
+                  <p className="text-right text-[10px] text-slate-400">{discountConfig.reason}</p>
+                ) : null}
+                <div className="flex items-center justify-between gap-3 text-xs text-slate-500">
+                  <span className="inline-flex items-center gap-1.5"><Landmark size={13} /> VAT / tax</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold tabular-nums text-slate-900">{formatPeso(vatAmount)}</span>
+                    <button type="button" onClick={() => setVatOpen((open) => !open)} className="font-bold text-slate-500 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+                      {vatOpen ? 'Done' : 'Adjust'}
+                    </button>
+                  </div>
+                </div>
+                {vatOpen ? (
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <label htmlFor="pos-vat-adjustment" className="mb-1.5 block text-[11px] font-semibold text-slate-700">VAT / tax amount</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">₱</span>
+                      <input
+                        id="pos-vat-adjustment"
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="0.01"
+                        value={vatAmount || ''}
+                        onChange={(event) => onVatChange(Math.max(0, Number(event.target.value) || 0))}
+                        className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-7 pr-3 text-right text-xs tabular-nums text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+                    <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">Uses the existing billing tax calculation; no automatic tax rate is assumed.</p>
+                  </div>
+                ) : null}
               </>
             )}
             <div className="flex items-end justify-between gap-3 border-t border-slate-200 pt-2">
@@ -343,6 +335,7 @@ export default function PaymentSummaryPanel({
                     step="0.01"
                     value={cashReceived}
                     onChange={(event) => onCashReceivedChange(event.target.value)}
+                    onBlur={onCashReceivedBlur}
                     placeholder="0.00"
                     className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-8 pr-3 text-right text-sm font-bold tabular-nums text-slate-950 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                   />
@@ -356,13 +349,15 @@ export default function PaymentSummaryPanel({
                   ))}
                 </div>
               </div>
-              {receivedCash >= payAmount && payAmount > 0 ? (
-                <div className="flex items-center justify-between border-t border-emerald-100 pt-2.5"><span className="text-xs font-bold text-emerald-800">Change</span><span className="text-lg font-black tabular-nums text-emerald-700">{formatPeso(cashChange)}</span></div>
-              ) : cashReceived ? (
-                <p className="flex items-start gap-1.5 text-[11px] font-semibold text-red-600" role="alert"><AlertCircle size={13} className="mt-0.5 shrink-0" /> Cash received is {formatPeso(cashShort)} short.</p>
-              ) : validationAttempted ? (
-                <p className="flex items-start gap-1.5 text-[11px] font-semibold text-red-600" role="alert"><AlertCircle size={13} className="mt-0.5 shrink-0" /> Enter the cash received.</p>
-              ) : null}
+              <div className="min-h-[1.125rem]">
+                {receivedCash >= payAmount && payAmount > 0 ? (
+                  <div className="flex items-center justify-between border-t border-emerald-100 pt-2.5"><span className="text-xs font-bold text-emerald-800">Change</span><span className="text-lg font-black tabular-nums text-emerald-700">{formatPeso(cashChange)}</span></div>
+                ) : cashValidationVisible && cashReceived ? (
+                  <p className="flex items-start gap-1.5 text-[11px] font-semibold text-red-600" role="alert"><AlertCircle size={13} className="mt-0.5 shrink-0" /> Cash received is {formatPeso(cashShort)} short.</p>
+                ) : cashValidationVisible ? (
+                  <p className="flex items-start gap-1.5 text-[11px] font-semibold text-red-600" role="alert"><AlertCircle size={13} className="mt-0.5 shrink-0" /> Enter the cash received.</p>
+                ) : null}
+              </div>
             </div>
           ) : (
             <div className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/45 p-3.5">

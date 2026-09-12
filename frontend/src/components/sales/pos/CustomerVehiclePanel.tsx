@@ -220,6 +220,7 @@ const CustomerVehiclePanel = forwardRef<CustomerVehiclePanelHandle, Props>(funct
   const [activeOptionIndex, setActiveOptionIndex] = useState(0);
   const [paymentSummary, setPaymentSummary] = useState<CustomerPaymentSummary>(EMPTY_PAYMENT_SUMMARY);
   const [paymentSummaryLoading, setPaymentSummaryLoading] = useState(false);
+  const [paymentSummaryUnavailable, setPaymentSummaryUnavailable] = useState(false);
   const [recentServicesOpen, setRecentServicesOpen] = useState(false);
 
   const [garageOpen, setGarageOpen] = useState(false);
@@ -282,19 +283,24 @@ const CustomerVehiclePanel = forwardRef<CustomerVehiclePanelHandle, Props>(funct
     const customerId = String(selectedCustomer?.id || '').trim();
     if (!customerId) {
       setPaymentSummary(EMPTY_PAYMENT_SUMMARY);
+      setPaymentSummaryUnavailable(false);
       setRecentServicesOpen(false);
       return undefined;
     }
 
     const controller = new AbortController();
     setPaymentSummaryLoading(true);
+    setPaymentSummaryUnavailable(false);
     setPaymentSummary(EMPTY_PAYMENT_SUMMARY);
     void api.get(`/payments/customer/${encodeURIComponent(customerId)}/summary`, {
       signal: controller.signal,
       meta: { suppressErrorToast: true },
     } as any)
       .then(({ data }) => {
-        if (!data?.success || !data.data) return;
+        if (!data?.success || !data.data) {
+          setPaymentSummaryUnavailable(true);
+          return;
+        }
         setPaymentSummary({
           totalSpent: Math.max(0, Number(data.data.totalSpent) || 0),
           visitCount: Math.max(0, Number(data.data.visitCount) || 0),
@@ -305,6 +311,7 @@ const CustomerVehiclePanel = forwardRef<CustomerVehiclePanelHandle, Props>(funct
       .catch((error) => {
         if (error?.name !== 'CanceledError' && error?.name !== 'AbortError') {
           setPaymentSummary(EMPTY_PAYMENT_SUMMARY);
+          setPaymentSummaryUnavailable(true);
         }
       })
       .finally(() => {
@@ -785,20 +792,24 @@ const CustomerVehiclePanel = forwardRef<CustomerVehiclePanelHandle, Props>(funct
 
               <div className="grid grid-cols-3 gap-2 mt-3">
                 <div className="bg-slate-50 rounded-lg p-2 text-center">
-                  <p className="text-sm font-bold text-slate-900">{paymentSummaryLoading ? '…' : paymentSummary.visitCount}</p>
+                  <p className="flex min-h-5 items-center justify-center text-sm font-bold text-slate-900">
+                    {paymentSummaryLoading ? <span className="h-4 w-7 animate-pulse rounded bg-slate-200" aria-label="Loading visit count" /> : paymentSummaryUnavailable ? '—' : paymentSummary.visitCount}
+                  </p>
                   <p className="text-[10px] text-slate-500">Visits</p>
                 </div>
                 <div className="bg-slate-50 rounded-lg p-2 text-center">
-                  <p className="text-xs font-bold text-blue-700">
-                    {paymentSummaryLoading ? '…' : paymentSummary.totalSpent === 0 ? '₱0' : formatPeso(paymentSummary.totalSpent)}
+                  <p className="flex min-h-5 items-center justify-center text-xs font-bold text-blue-700">
+                    {paymentSummaryLoading ? <span className="h-4 w-11 animate-pulse rounded bg-slate-200" aria-label="Loading total spent" /> : paymentSummaryUnavailable ? '—' : paymentSummary.totalSpent === 0 ? '₱0' : formatPeso(paymentSummary.totalSpent)}
                   </p>
                   <p className="text-[10px] text-slate-500">Spent</p>
                 </div>
                 <div className="bg-slate-50 rounded-lg p-2 text-center">
-                  <p className="text-[10px] font-bold text-slate-900">
+                  <p className="flex min-h-5 items-center justify-center text-[10px] font-bold text-slate-900">
                     {paymentSummaryLoading
-                      ? '…'
-                      : paymentSummary.lastVisit
+                      ? <span className="h-3.5 w-10 animate-pulse rounded bg-slate-200" aria-label="Loading last visit" />
+                      : paymentSummaryUnavailable
+                        ? '—'
+                        : paymentSummary.lastVisit
                         ? new Date(paymentSummary.lastVisit).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
                         : '—'}
                   </p>

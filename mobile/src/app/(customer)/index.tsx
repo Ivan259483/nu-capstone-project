@@ -67,6 +67,7 @@ import {
 } from '@/utils/customer-live-tracker-pick';
 import {
   resolveCustomerHomeRailStep,
+  CUSTOMER_HOME_RAIL_LABELS,
 } from '@/utils/customer-home-rail-step';
 import { useNotifications } from '@/context/NotificationsContext';
 import { TabBarContentHeight } from '@/constants/theme';
@@ -76,6 +77,9 @@ import {
 } from '@/hooks/useCustomerBookings';
 import { resolveCustomerPaymentState } from '@/utils/customer-payment-state';
 import { bookingService } from '@/services/api/bookingService';
+import { getPublishedServicePricePair } from '@/utils/service-offer-pricing';
+import { getCustomerTrackerTeam } from '@/utils/customer-tracker-details';
+import { resolveCustomerTrackerStage } from '@/utils/customer-tracker-stage';
 import { Haptics } from '@/utils/haptics';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -195,11 +199,10 @@ const TYPE = {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // STATIC DATA
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Home 8-step rail labels (must match `CUSTOMER_HOME_RAIL_LABELS` in customer-home-rail-step.ts)
-const STEPS = ['Booked', 'Confirmed', 'Assigned', 'Checked in', 'In Service', 'QC', 'Payment', 'Released'];
+const STEPS = CUSTOMER_HOME_RAIL_LABELS;
 
 const TRUST = [
-  { icon:'shield-checkmark-outline' as const, label:'LTFRB' },
+  { icon:'shield-checkmark-outline' as const, label:'DTI Registered' },
   { icon:'ribbon-outline'           as const, label:'Licensed' },
   { icon:'checkmark-circle-outline' as const, label:'Insured' },
   { icon:'star-outline'             as const, label:'4.9 Rating' },
@@ -235,12 +238,9 @@ function getTrackingContext(job: BookingRecord, step: number): {
   icon: keyof typeof Ionicons.glyphMap;
   text: string;
 } {
-  const assignedName =
-    job.assignedDetailer?.name?.trim() ||
-    job.serviceStaffAssignments?.find((assignment) => assignment.name?.trim())?.name?.trim();
-
-  if (assignedName) {
-    return { icon:'person-outline', text:`Technician · ${assignedName}` };
+  const team = getCustomerTrackerTeam(job, resolveCustomerTrackerStage(job).stage);
+  if (team !== 'Assignment pending') {
+    return { icon:'person-outline', text:`Team · ${team}` };
   }
 
   const updatedValue =
@@ -268,18 +268,15 @@ function getTrackingContext(job: BookingRecord, step: number): {
   }
 
   const stageContext = [
-    'Booking received',
     'Service booking confirmed',
-    'Technician assignment pending',
     'Vehicle arrived at the shop',
     'Service work is in progress',
     'Quality inspection underway',
-    'Awaiting payment confirmation',
-    'Vehicle ready for release',
+    'Vehicle ready for pickup',
   ] as const;
 
   return {
-    icon:step === 3 ? 'location-outline' : 'information-circle-outline',
+    icon:step === 1 ? 'location-outline' : 'information-circle-outline',
     text:stageContext[step] ?? 'Service status updated',
   };
 }
@@ -407,11 +404,13 @@ function Eye({ label, cta, onCta }: { label: string; cta?: string; onCta?: () =>
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// MOLECULE: premium 8-stage progress rail
+// MOLECULE: shared customer progress rail
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Rail({ step }: { step: number }) {
   const safeStep = Math.min(Math.max(step, 0), STEPS.length - 1);
-  const nextLabel = safeStep < STEPS.length - 1 ? STEPS[safeStep + 1] : 'Complete';
+  const complete = safeStep === STEPS.length - 1;
+  const completedCount = complete ? STEPS.length : safeStep;
+  const nextLabel = !complete ? STEPS[safeStep + 1] : 'Pickup';
 
   return (
     <View style={rl.wrap}>
@@ -424,8 +423,8 @@ function Rail({ step }: { step: number }) {
       </View>
       <View style={rl.segments}>
         {STEPS.map((lbl, i) => {
-          const done = i < safeStep;
-          const active = i === safeStep;
+          const done = complete || i < safeStep;
+          const active = !complete && i === safeStep;
           return (
             <Animated.View
               key={lbl}
@@ -442,9 +441,9 @@ function Rail({ step }: { step: number }) {
             size={12}
             color={safeStep > 0 ? D.G : D.w24}
           />
-          <Text style={rl.doneText}>{safeStep} completed</Text>
+          <Text style={rl.doneText}>{completedCount} completed</Text>
         </View>
-        <Text style={rl.nextText}>Next · {nextLabel}</Text>
+        <Text style={rl.nextText}>{complete ? 'Ready for pickup' : `Next · ${nextLabel}`}</Text>
       </View>
     </View>
   );
@@ -542,8 +541,8 @@ function resolveHomeHeroMode(job: BookingRecord | null, step: number): HomeHeroM
   const status = String(job.status || '').trim().toLowerCase().replace(/-/g, '_');
   const paymentPaid = String(job.paymentStatus || '').trim().toLowerCase() === 'paid';
   if (bookingIsReadyForPickup(job)) return 'ready';
-  if (!paymentPaid && (status === 'ready_for_payment' || status === 'completed' || step >= 6)) return 'payment';
-  if (step >= 3) return 'active';
+  if (!paymentPaid && (status === 'ready_for_payment' || status === 'completed')) return 'payment';
+  if (step >= 1) return 'active';
   return 'upcoming';
 }
 
@@ -1067,7 +1066,7 @@ function ServicesSection({
       ) : (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingRight:22}}>
         {visibleServices.map((service, i) => {
-          const vehiclePriceKey = getServiceVehiclePriceKey(vehicle?.vehicleType);
+          const vehiclePriceKey = getServiceVehiclePriceKey(vehicle?.pricingCategory);
           const exactVehiclePrice = vehiclePriceKey
             ? getServicePriceForVehicle(service, vehicle?.pricingCategory)
             : null;
@@ -1132,7 +1131,7 @@ function ServicesSection({
                   </View>
                 </View>
                 <Text style={$.svcName} numberOfLines={2}>{service.name}</Text>
-                <Text style={$.svcTag} numberOfLines={1}>{metadata || ' '}</Text>
+                <Text style={$.svcTag} numberOfLines={2} ellipsizeMode="tail">{metadata || ' '}</Text>
                 <View style={[$.svcFoot, USE_STACKED_SERVICE_FOOTER && $.svcFootNarrow]}>
                   <View style={[$.svcPrBadge, USE_STACKED_SERVICE_FOOTER && $.svcPrBadgeNarrow]}>
                     <Text
@@ -1163,19 +1162,6 @@ function ServicesSection({
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const PUBLISHED_OFFER_BADGE = /(offer|limited|deal|promo|discount|save)/i;
 
-function getPublishedServiceOriginalPrice(service: ServiceOption, vehicle: Vehicle | null): number | null {
-  const vehiclePriceKey = getServiceVehiclePriceKey(vehicle?.vehicleType);
-  if (vehiclePriceKey) {
-    const original = Number(service.pricing?.[vehiclePriceKey]?.original);
-    return Number.isFinite(original) && original > 0 ? original : null;
-  }
-
-  const originals = Object.values(service.pricing || {})
-    .map((price) => Number(price?.original))
-    .filter((price) => Number.isFinite(price) && price > 0);
-  return originals.length ? Math.min(...originals) : null;
-}
-
 function getPublishedOffer(services: ServiceOption[], vehicle: Vehicle | null) {
   for (const service of services) {
     const badgeCandidates = [service.catalogCard?.discountBadge, service.catalogCard?.badge]
@@ -1184,14 +1170,11 @@ function getPublishedOffer(services: ServiceOption[], vehicle: Vehicle | null) {
     const badge = badgeCandidates.find((candidate) => PUBLISHED_OFFER_BADGE.test(candidate));
     if (!badge) continue;
 
-    const vehiclePriceKey = getServiceVehiclePriceKey(vehicle?.vehicleType);
-    const currentPrice = vehiclePriceKey
-      ? getServicePriceForVehicle(service, vehicle?.pricingCategory)
-      : getServiceStartingPrice(service);
-    const originalPrice = getPublishedServiceOriginalPrice(service, vehicle);
-    const savings = currentPrice !== null && originalPrice !== null && originalPrice > currentPrice
-      ? originalPrice - currentPrice
-      : null;
+    const vehiclePriceKey = getServiceVehiclePriceKey(vehicle?.pricingCategory);
+    const pair = vehicle && !vehiclePriceKey
+      ? null
+      : getPublishedServicePricePair(service, vehiclePriceKey);
+    const savings = pair?.savings ?? null;
 
     return {
       service,
@@ -1244,7 +1227,7 @@ function PromoSection({
                 <Text style={$.promoBadgeTxt}>{offer.badge}</Text>
               </View>
               <Text style={$.promoTitle} numberOfLines={1}>{offer.service.name}</Text>
-              <Text style={$.promoSub} numberOfLines={1}>{offer.subtitle}</Text>
+              <Text style={$.promoSub} numberOfLines={2} ellipsizeMode="tail">{offer.subtitle}</Text>
               <View style={$.promoSaveRow}>
                 <Ionicons name="pricetag-outline" size={10} color={D.AL} />
                 <Text style={$.promoSaveTxt}>{offer.detail}</Text>
@@ -1759,13 +1742,13 @@ const $ = StyleSheet.create({
   svcBadge: { color:D.AL, fontSize:8, fontWeight:'900', letterSpacing:1 },
   svcBadgeRecommendedText:{ color:D.G },
   svcName:  { minHeight:40, fontSize:16.5, fontWeight:'800', color:'#fff', lineHeight:20, letterSpacing:-0.35 },
-  svcTag:   { minHeight:16, fontSize:10, lineHeight:14, color:'rgba(255,255,255,0.62)', fontWeight:'600', letterSpacing:0.15, marginBottom:6 },
+  svcTag:   { minHeight:28, fontSize:10, lineHeight:14, color:'rgba(255,255,255,0.62)', fontWeight:'600', letterSpacing:0.15, marginBottom:6 },
   svcFoot:  { flexDirection:'row', alignItems:'center', width:'100%', gap:6 },
   svcFootNarrow:{ flexDirection:'column', alignItems:'stretch' },
   svcPrBadge:{ flex:1, minWidth:0, backgroundColor:'rgba(0,0,0,0.20)', paddingHorizontal:7, paddingVertical:5, borderRadius:10 },
   svcPrBadgeNarrow:{ flex:0, alignSelf:'stretch' },
   svcPr:    { fontSize:11, color:'rgba(255,255,255,0.80)', fontWeight:'700' },
-  svcBookPill:{ flexShrink:0, minHeight:32, backgroundColor:'rgba(255,255,255,0.16)', borderWidth:1, borderColor:'rgba(255,255,255,0.12)', paddingHorizontal:10, paddingVertical:6, borderRadius:12, alignItems:'center', justifyContent:'center' },
+  svcBookPill:{ flexShrink:0, minHeight:32, backgroundColor:D.A, borderWidth:1, borderColor:D.A, paddingHorizontal:10, paddingVertical:6, borderRadius:12, alignItems:'center', justifyContent:'center' },
   svcBookPillNarrow:{ alignSelf:'stretch' },
   svcBookTxt: { fontSize:10, fontWeight:'800', color:'#fff', letterSpacing:0.6 },
 

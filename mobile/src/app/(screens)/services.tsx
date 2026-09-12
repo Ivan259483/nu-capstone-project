@@ -1,3 +1,4 @@
+import { getDisplaySavings } from '@/utils/service-offer-pricing';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ScrollView,
@@ -92,7 +93,7 @@ const getPriceView = (
   return {
     price,
     original,
-    savings: original !== null ? original - price : null,
+    savings: getDisplaySavings(price, original),
   };
 };
 

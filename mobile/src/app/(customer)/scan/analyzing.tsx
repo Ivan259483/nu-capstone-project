@@ -25,7 +25,6 @@ import {
   PipelineStepper,
   ScannerBackground,
   ScannerHeader,
-  ScanZoneOverlay,
   scannerColors,
 } from '@/features/ai-scan/components/PremiumScanner';
 import { aiScanStore, useAiScanStore } from '@/features/ai-scan/scanStore';
@@ -165,7 +164,9 @@ export default function AnalyzingScreen() {
           <GlassPanel style={styles.visualPanel} contentStyle={styles.visualInner} intense>
             {heroImage ? <Image source={{ uri: heroImage }} style={styles.heroImage} /> : null}
             <View style={styles.heroVeil} />
-            <ScanZoneOverlay label="Damage Detection" hint={DETECTION_MESSAGE} compact />
+            <View style={styles.detectionChip}>
+              <AiPill label="Damage Detection" icon="analytics-outline" />
+            </View>
             <View style={styles.progressOverlay}>
               <ProgressRing progress={progress} />
             </View>
@@ -258,6 +259,10 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  detectionChip: {
+    alignSelf: 'center',
+    paddingTop: 4,
   },
   ringOuter: {
     width: 154,

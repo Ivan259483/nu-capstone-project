@@ -10,6 +10,7 @@
  * Step 3: Review · Step 4: Terms · Step 5: Payment
  */
 
+import { getDisplaySavings } from '@/utils/service-offer-pricing';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
@@ -3941,7 +3942,7 @@ export default function BookScreen() {
                         : 'Unable to load price';
                       const promotionSavings = pkg.price.status === 'available'
                         && pkg.originalPrice !== null
-                        && pkg.originalPrice > pkg.price.value
+                        && getDisplaySavings(pkg.price.value, pkg.originalPrice) !== null
                         ? pkg.originalPrice - pkg.price.value
                         : null;
                       return (
@@ -5092,7 +5093,8 @@ export default function BookScreen() {
                 <Text style={packageDetailsStyles.priceUnavailable}>Unable to load price</Text>
               )}
               {packageDetails.price.status === 'available'
-                && packageDetails.originalPrice !== null ? (
+                && packageDetails.originalPrice !== null
+                && getDisplaySavings(packageDetails.price.value, packageDetails.originalPrice) !== null ? (
                 <View style={packageDetailsStyles.promotionRow}>
                   <Text style={packageDetailsStyles.originalPrice}>
                     Was ₱{packageDetails.originalPrice.toLocaleString()}

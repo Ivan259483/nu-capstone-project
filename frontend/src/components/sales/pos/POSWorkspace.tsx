@@ -30,6 +30,10 @@ import {
   posQueueDebug,
 } from '@/lib/pos-pickup-queue';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import {
+  computePosPaymentDisplayTotals,
+  posPaymentTotalsReconcile,
+} from '@/lib/pos-payment-summary';
 
 function resolveVehicleType(pricingCategory?: string | null): VehicleType | null {
   const pricingCategoryMap: Record<string, VehicleType> = {
@@ -64,7 +68,6 @@ type PosCartItem = CartItem & {
 };
 
 type QueuedFinancialState = {
-  originalTotal: number;
   discountTotal: number;
   taxVatTotal: number;
   additionalFeesTotal: number;
@@ -203,7 +206,6 @@ function financialFromQueueAndBilling(row: any, billing?: BillingDoc | null): Qu
     });
   }
   return {
-    originalTotal: grandTotal,
     discountTotal,
     taxVatTotal,
     additionalFeesTotal,
@@ -434,6 +436,7 @@ export default function POSWorkspace({
   const [gcashAmountReceived, setGcashAmountReceived] = useState('');
   const [gcashReference, setGcashReference] = useState('');
   const [paymentValidationAttempted, setPaymentValidationAttempted] = useState(false);
+  const [cashFieldTouched, setCashFieldTouched] = useState(false);
   const [pickupPaymentResult, setPickupPaymentResult] = useState<{ receiptId: string; customer: string; vehicleReleaseAvailable: boolean } | null>(null);
   const [completedTxnId, setCompletedTxnId] = useState<string>('');
   /** Snapshot for receipt after payment (cart is cleared in same flow). */
@@ -800,6 +803,7 @@ export default function POSWorkspace({
     setGcashAmountReceived('');
     setGcashReference('');
     setPaymentValidationAttempted(false);
+    setCashFieldTouched(false);
     setLastInvoiceSnap(null);
     setLastInvoiceNumber(null);
     setBillingSyncNonce((n) => n + 1);
@@ -988,6 +992,7 @@ export default function POSWorkspace({
     setCashReceived('');
     setGcashAmountReceived('');
     setPaymentValidationAttempted(false);
+    setCashFieldTouched(false);
     if (!nextVehicleType) {
       setCartItems((currentItems) => currentItems.filter((item) => item.source === 'pickup_queue' || item.orderLinked));
       toast.error('PRICE_CATEGORY_REQUIRED: configure this vehicle before adding services.');
@@ -1003,6 +1008,7 @@ export default function POSWorkspace({
     setCashReceived('');
     setGcashAmountReceived('');
     setPaymentValidationAttempted(false);
+    setCashFieldTouched(false);
     setCartItems((currentItems) => currentItems.map((item) => repriceManualCartItem(item, nextVehicleType)));
     if (hadManualItems) toast.info('Cart pricing updated for the selected vehicle class.');
   };
@@ -1038,17 +1044,37 @@ export default function POSWorkspace({
     const queuedFinancial =
       idString(queuedOrderContext?.orderId) === effectiveOrderId ? queuedOrderContext.financial : null;
     if (queuedFinancial) {
+      const discountTotal = billingComputedLive?.discountTotal ?? queuedFinancial.discountTotal;
+      const taxVatTotal = billingComputedLive?.taxVatTotal ?? queuedFinancial.taxVatTotal;
+      const additionalFeesTotal = billingComputedLive?.additionalFeesTotal ?? queuedFinancial.additionalFeesTotal;
+      const displayTotals = computePosPaymentDisplayTotals({
+        lineItems: cartItems,
+        discountTotal,
+        taxVatTotal,
+        additionalFeesTotal,
+        amountPaid: queuedFinancial.amountPaid,
+      });
+      if (!posPaymentTotalsReconcile(displayTotals.expectedTotalDue, queuedFinancial.remainingBalance)) {
+        posQueueDebug('[POS Queue] displayed totals do not reconcile with authoritative balance', {
+          ...displayTotals,
+          discountTotal,
+          taxVatTotal,
+          additionalFeesTotal,
+          amountPaid: queuedFinancial.amountPaid,
+          authoritativeTotalDue: queuedFinancial.remainingBalance,
+        });
+      }
       return {
-        originalTotal: queuedFinancial.originalTotal,
+        originalTotal: displayTotals.originalTotal,
         grandTotal: billingComputedLive?.grandTotal ?? queuedFinancial.grandTotal,
         reservationApplied: queuedFinancial.downpaymentApplied,
         amountPaid: queuedFinancial.amountPaid,
         balanceDue: queuedFinancial.remainingBalance,
         remainingBalance: queuedFinancial.remainingBalance,
         totalDue: queuedFinancial.totalDue,
-        discountTotal: billingComputedLive?.discountTotal ?? queuedFinancial.discountTotal,
-        taxVatTotal: billingComputedLive?.taxVatTotal ?? queuedFinancial.taxVatTotal,
-        additionalFeesTotal: billingComputedLive?.additionalFeesTotal ?? queuedFinancial.additionalFeesTotal,
+        discountTotal,
+        taxVatTotal,
+        additionalFeesTotal,
         queued: true,
       };
     }
@@ -1056,7 +1082,7 @@ export default function POSWorkspace({
       billingComputedLive ??
       totalsFromCharges(buildLineItemsFromCart() as BillingLineItem[]);
     return {
-      originalTotal: computed.grandTotal,
+      originalTotal: computed.subtotal,
       grandTotal: computed.grandTotal,
       reservationApplied: billingCharges.downpayment,
       amountPaid: billingCharges.downpayment,
@@ -1070,7 +1096,7 @@ export default function POSWorkspace({
     };
   }, [
     effectiveOrderId,
-    cartItems.length,
+    cartItems,
     billingComputedLive,
     billingCharges.downpayment,
     queuedOrderContext,
@@ -1114,9 +1140,20 @@ export default function POSWorkspace({
     selectedVehicle,
   ]);
 
+  const cashTenderValidationMessage = useMemo(() => {
+    if (paymentMethod !== 'cash' || currentPayAmount <= 0 || cashReceivedAmount >= currentPayAmount) return '';
+    return cashReceivedAmount > 0
+      ? `Cash received is ${formatPeso(currentPayAmount - cashReceivedAmount)} short.`
+      : 'Enter the cash received.';
+  }, [cashReceivedAmount, currentPayAmount, paymentMethod]);
+
+  const paymentSummaryValidationMessage =
+    paymentValidationMessage === cashTenderValidationMessage ? '' : paymentValidationMessage;
+
   const handlePaymentMethodChange = useCallback((method: string) => {
     setPaymentMethod(method);
     setPaymentValidationAttempted(false);
+    setCashFieldTouched(false);
     if (method === 'gcash') {
       setGcashAmountReceived((current) => current || currentPayAmount.toFixed(2));
     }
@@ -1446,6 +1483,7 @@ export default function POSWorkspace({
     setGcashAmountReceived('');
     setGcashReference('');
     setPaymentValidationAttempted(false);
+    setCashFieldTouched(false);
     setTransactionNotes('');
     setShowReceipt(false);
     setShowPaymentConfirm(false);
@@ -1523,6 +1561,7 @@ export default function POSWorkspace({
                 setGcashAmountReceived('');
                 setGcashReference('');
                 setPaymentValidationAttempted(false);
+                setCashFieldTouched(false);
                 resetPosTransaction();
               }}
               onSelectVehicle={selectVehicleAndRefreshPricing}
@@ -1572,14 +1611,16 @@ export default function POSWorkspace({
                 gcashAmountReceived={gcashAmountReceived}
                 gcashReference={gcashReference}
                 validationAttempted={paymentValidationAttempted}
-                validationMessage={paymentValidationMessage}
+                cashValidationVisible={cashFieldTouched || paymentValidationAttempted}
+                validationMessage={paymentSummaryValidationMessage}
                 onTransactionNotesChange={setTransactionNotes}
                 onDiscountChange={(discount) => setBillingCharges((charges) => ({ ...charges, discount }))}
                 onVatChange={(v) =>
                   setBillingCharges((c) => ({ ...c, taxVatAmount: Math.max(0, v) }))
                 }
                 onPaymentMethodChange={handlePaymentMethodChange}
-                onCashReceivedChange={(value) => { setCashReceived(value); setPaymentValidationAttempted(false); }}
+                onCashReceivedChange={setCashReceived}
+                onCashReceivedBlur={() => setCashFieldTouched(true)}
                 onGcashAmountReceivedChange={(value) => { setGcashAmountReceived(value); setPaymentValidationAttempted(false); }}
                 onGcashReferenceChange={(value) => { setGcashReference(value); setPaymentValidationAttempted(false); }}
                 onProcessPayment={handleProcessPayment}

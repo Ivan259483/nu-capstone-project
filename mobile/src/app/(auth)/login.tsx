@@ -254,6 +254,9 @@ export default function LoginScreen() {
   useEffect(() => {
     const value = Array.isArray(reason) ? reason[0] : reason;
     if (value !== 'challenge-expired') return;
+    // The router parameter is external navigation state that must be consumed
+    // once and surfaced through the form's existing feedback channel.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFeedback({
       type: 'error',
       title: 'Verification session expired',

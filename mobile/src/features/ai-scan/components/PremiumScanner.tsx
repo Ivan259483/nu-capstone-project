@@ -223,7 +223,7 @@ export function PipelineStepper({
                   color={complete ? '#fff' : color}
                 />
               </View>
-              <Text style={[styles.stepLabel, { color }]} numberOfLines={1}>
+              <Text style={[styles.stepLabel, { color }]}>
                 {step.label}
               </Text>
             </View>
@@ -422,6 +422,7 @@ export function BottomActionBar({
   primaryLabel,
   onPrimaryPress,
   primaryIcon = 'arrow-forward',
+  primaryVariant = 'gradient',
   disabled = false,
   secondaryLabel,
   onSecondaryPress,
@@ -431,6 +432,7 @@ export function BottomActionBar({
   primaryLabel: string;
   onPrimaryPress: () => void;
   primaryIcon?: keyof typeof Ionicons.glyphMap;
+  primaryVariant?: 'gradient' | 'solid';
   disabled?: boolean;
   secondaryLabel?: string;
   onSecondaryPress?: () => void;
@@ -463,7 +465,9 @@ export function BottomActionBar({
           colors={
             disabled
               ? ['rgba(255,255,255,0.10)', 'rgba(255,255,255,0.06)']
-              : [...scannerPrimaryGradient]
+              : primaryVariant === 'solid'
+                ? [scannerColors.orange, scannerColors.orange]
+                : [...scannerPrimaryGradient]
           }
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -599,7 +603,8 @@ const styles = StyleSheet.create({
   stepItem: {
     alignItems: 'center',
     gap: 5,
-    width: 44,
+    minWidth: 30,
+    flexShrink: 0,
   },
   stepNode: {
     width: 30,
@@ -622,9 +627,10 @@ const styles = StyleSheet.create({
     borderColor: scannerColors.orange,
   },
   stepLabel: {
-    fontSize: 8,
+    fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 0.6,
+    letterSpacing: 0,
+    textAlign: 'center',
     textTransform: 'uppercase',
   },
   stepRail: {

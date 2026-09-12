@@ -101,6 +101,23 @@ const STAGE_PRESENTATION: Record<
   },
 };
 
+/** Shared gate array for mobile Home and Tracker. */
+const STAGE_DECORATION = {
+  confirmed: { sub: 'Booking secured', icon: 'calendar-outline' },
+  received: { sub: 'Shop intake complete', icon: 'car-outline' },
+  in_progress: { sub: 'Technician working now', icon: 'construct-outline' },
+  quality_check: { sub: 'Final inspection', icon: 'shield-checkmark-outline' },
+  ready_pickup: { sub: 'Handover ready', icon: 'checkmark-done-outline' },
+} as const;
+
+export const CUSTOMER_TRACKER_STEPS = CUSTOMER_TRACKER_STAGE_ORDER.map((id) => ({
+  id,
+  label: STAGE_PRESENTATION[id].label,
+  shortLabel: STAGE_PRESENTATION[id].shortLabel,
+  detail: STAGE_PRESENTATION[id].description,
+  ...STAGE_DECORATION[id],
+}));
+
 /**
  * Every legitimate backend alias resolved to exactly one canonical stage.
  * Aliases come from `serviceTrackingStage`, `status` and `customerStatus`.

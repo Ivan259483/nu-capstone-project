@@ -5,6 +5,7 @@ export default function ToastProvider() {
   return (
     <Toaster
       position="bottom-right"
+      offset={{ right: 24, bottom: 216 }}
       toastOptions={{
         style: {
           fontFamily: 'DM Sans, Inter, sans-serif',
