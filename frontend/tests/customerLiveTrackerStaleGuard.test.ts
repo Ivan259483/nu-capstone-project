@@ -123,3 +123,73 @@ test('legacy completed handover is terminal only after payment is confirmed', ()
   assert.equal(bookingHasCompletedCustomerHandover(paidAndCompleted), true);
   assert.equal(bookingShowsCustomerLiveTracker(paidAndCompleted), false);
 });
+
+// ── Terminal close-out of the customer live tracker ───────────────────────────
+// AutoSPF+ collects the final POS balance only after the order reaches Ready for
+// Pickup, so settling that balance completes the job. The backend writes
+// status/serviceTrackingStage/customerStatus = 'completed' with paymentStatus = 'paid';
+// every customer-facing surface must drop the order from active tracking on that,
+// including on a cold load where there is no socket event to react to.
+
+const READY_FOR_PICKUP_UNPAID = {
+  _id: 'order-kevin',
+  status: 'ready_for_payment',
+  serviceTrackingStage: 'ready_pickup',
+  customerStatus: 'ready',
+  paymentStatus: 'partially_paid',
+};
+
+const SETTLED_TERMINAL = {
+  _id: 'order-kevin',
+  status: 'completed',
+  serviceTrackingStage: 'completed',
+  customerStatus: 'completed',
+  paymentStatus: 'paid',
+};
+
+test('Ready for Pickup with an outstanding balance is still an active tracker job', () => {
+  assert.equal(bookingHasCompletedCustomerHandover(READY_FOR_PICKUP_UNPAID), false);
+  assert.equal(bookingShowsCustomerLiveTracker(READY_FOR_PICKUP_UNPAID), true);
+  assert.equal(pickCustomerLiveTrackerBooking([READY_FOR_PICKUP_UNPAID])?._id, 'order-kevin');
+});
+
+test('final settlement closes the tracker and the picker returns nothing on a cold load', () => {
+  assert.equal(bookingHasCompletedCustomerHandover(SETTLED_TERMINAL), true);
+  assert.equal(bookingShowsCustomerLiveTracker(SETTLED_TERMINAL), false);
+  // This is the hard-refresh / logout-login path: state comes only from the database
+  // row, with no socket event in play, and it must still yield no active tracker.
+  assert.equal(pickCustomerLiveTrackerBooking([SETTLED_TERMINAL]), undefined);
+});
+
+test('payment alone does not close the tracker while the job is still in the shop', () => {
+  const paidButStillInQC = {
+    _id: 'order-other',
+    status: 'ready_for_payment',
+    serviceTrackingStage: 'quality_check',
+    customerStatus: 'ready',
+    paymentStatus: 'paid',
+  };
+  assert.equal(bookingHasCompletedCustomerHandover(paidButStillInQC), false);
+  assert.equal(bookingShowsCustomerLiveTracker(paidButStillInQC), true);
+});
+
+test('a stale ready_pickup event cannot reopen a completed order', () => {
+  assert.equal(
+    isForwardTrackerStageTransition(SETTLED_TERMINAL, {
+      serviceTrackingStage: 'ready_pickup',
+      status: 'ready_for_payment',
+    }),
+    false
+  );
+  assert.equal(trackerStageRankOf(SETTLED_TERMINAL) > trackerStageRankOf(READY_FOR_PICKUP_UNPAID), true);
+});
+
+test('a settled order never wins the picker over a genuinely active one', () => {
+  const stillActive = {
+    _id: 'order-active',
+    status: 'in_progress',
+    serviceTrackingStage: 'in_progress',
+    paymentStatus: 'partially_paid',
+  };
+  assert.equal(pickCustomerLiveTrackerBooking([SETTLED_TERMINAL, stillActive])?._id, 'order-active');
+});

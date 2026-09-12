@@ -21,7 +21,8 @@
     "test:guided-views": "node --experimental-strip-types --test tests/guidedViews.test.mjs",
     "test:multi-view-inspection": "node --experimental-strip-types --test tests/multiViewInspection.test.mjs",
     "test:ai-scan-zero-detection": "node --experimental-strip-types --test tests/aiScanZeroDetection.test.mjs",
-    "test:ai-scan-3d-preparation": "node --experimental-strip-types --test tests/aiScan3DPreparation.test.mjs"
+    "test:ai-scan-3d-preparation": "node --experimental-strip-types --test tests/aiScan3DPreparation.test.mjs",
+    "test:tracker-parity": "node --experimental-strip-types --test tests/customerTrackerProgressParity.test.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

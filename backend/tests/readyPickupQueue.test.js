@@ -429,12 +429,17 @@ test('final QC gate creates a Sales task; payment enables handover without compl
   assert.equal(paid.amountCollected, 7999);
   assert.equal(paid.downPaymentAmount, 500);
   assert.equal(paid.finalPaymentAmount, 7499);
-  assert.equal(paid.status, 'ready_for_payment');
-  assert.equal(paid.serviceTrackingStage, 'ready_pickup');
+  // Business rule: the final balance is collected only after Ready for Pickup, so
+  // settling it to zero completes the job. This is the exact field triple the shared
+  // customer-live-tracker predicate reads to drop the order from active tracking.
+  assert.equal(paid.status, 'completed');
+  assert.equal(paid.serviceTrackingStage, 'completed');
+  assert.equal(paid.customerStatus, 'completed');
+  assert.ok(paid.completedAt instanceof Date, 'completion timestamp is set');
   assert.equal(paid.posQueueStatus, null);
   const paymentUpdate = socketEvents.find(({ room, event, payload }) => room === 'realtime:staff' && event === 'orderUpdated' && payload.paymentStatus === 'paid');
   assert.ok(paymentUpdate, 'QC receives payment confirmation without MongoDB change streams');
-  assert.equal(paymentUpdate.payload.serviceTrackingStage, 'ready_pickup');
+  assert.equal(paymentUpdate.payload.serviceTrackingStage, 'completed');
   assert.equal(paymentUpdate.payload.posQueueStatus, null);
   assert.ok(paymentUpdate.payload.invoiceId);
   assert.equal(JSON.stringify(paymentUpdate.payload).includes('data:image'), false);
@@ -444,7 +449,7 @@ test('final QC gate creates a Sales task; payment enables handover without compl
   assert.equal(qcJobs.response.status, 200);
   const paidJob = qcJobs.body.jobs[0];
   assert.equal(paidJob.paymentStatus, 'paid');
-  assert.equal(paidJob.orderStatus, 'ready_for_payment');
+  assert.equal(paidJob.orderStatus, 'completed');
   assert.ok(paidJob.invoiceId);
   assert.equal(paidJob.readyForPickupEvidenceComplete, true);
   const paymentQueue = await requestJson('/api/bookings/queue/balance-pickup', { headers: salesHeaders });
@@ -460,6 +465,13 @@ test('final QC gate creates a Sales task; payment enables handover without compl
   assert.equal(duplicate.body.paymentCommitted, true);
   assert.equal(duplicate.body.data.paymentId, checkout.body.data.paymentId);
   assert.equal(await Payment.countDocuments({ order: order._id, transactionType: 'service_balance' }), 1);
+  // A retry must not reopen the tracker or pull the order back to ready_pickup.
+  const afterRetry = await Order.findById(order._id);
+  assert.equal(afterRetry.status, 'completed');
+  assert.equal(afterRetry.serviceTrackingStage, 'completed');
+  assert.equal(afterRetry.customerStatus, 'completed');
+  assert.equal(afterRetry.completedAt.getTime(), paid.completedAt.getTime());
+  assert.equal(afterRetry.posQueueStatus, null);
   const finalPayment = await Payment.findOne({ order: order._id, transactionType: 'service_balance' });
   assert.equal(finalPayment.amount, 7499);
   assert.equal(finalPayment.downpayment, 500);

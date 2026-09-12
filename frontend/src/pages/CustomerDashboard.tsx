@@ -824,7 +824,7 @@ export default function CustomerDashboard() {
   // When QC advances a stage, the backend emits booking:status to user:${id} room.
   // When QC/POS emits status (e.g. ready_for_payment) or payment fields, merge so the tracker stays in sync between polls.
   const handleBookingStatus = useCallback((event: BookingStatusEvent) => {
-    const { bookingId, serviceTrackingStage, serviceStaffAssignments, trackerStageMedia, status, paymentStatus, invoiceId } = event;
+    const { bookingId, serviceTrackingStage, serviceStaffAssignments, trackerStageMedia, status, paymentStatus, customerStatus, completedAt, invoiceId } = event;
     if (!bookingId) return;
     setMyBookings((prev: any[]) => {
       const next = prev.map((b: any) => {
@@ -839,6 +839,8 @@ export default function CustomerDashboard() {
           ...(allowStagePatch && serviceTrackingStage !== undefined ? { serviceTrackingStage } : {}),
           ...(allowStagePatch && status !== undefined ? { status } : {}),
           ...(paymentStatus !== undefined ? { paymentStatus } : {}),
+          ...(allowStagePatch && customerStatus !== undefined ? { customerStatus } : {}),
+          ...(completedAt !== undefined ? { completedAt } : {}),
           ...(invoiceId !== undefined ? { invoiceId } : {}),
           ...(serviceStaffAssignments?.length ? { serviceStaffAssignments } : {}),
           ...(trackerStageMedia !== undefined ? { trackerStageMedia } : {}),

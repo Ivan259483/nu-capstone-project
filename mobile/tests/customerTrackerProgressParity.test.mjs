@@ -216,3 +216,42 @@ test('the QC gate index is translated the same way on both platforms', () => {
   assert.equal(webStepForGate('quality_check'), 4);
   assert.equal(mobileStepForGate('quality_check'), 4);
 });
+
+// ── Terminal close-out parity: Web and Mobile must agree ──────────────────────
+// After the final POS balance settles on an order already at Ready for Pickup, the
+// backend marks it completed. Both clients must stop treating it as an active job,
+// on realtime events and on a cold load alike.
+
+const SETTLED_TERMINAL_ROW = {
+  _id: 'order-kevin',
+  status: 'completed',
+  serviceTrackingStage: 'completed',
+  customerStatus: 'completed',
+  paymentStatus: 'paid',
+};
+
+const READY_UNPAID_ROW = {
+  _id: 'order-kevin',
+  status: 'ready_for_payment',
+  serviceTrackingStage: 'ready_pickup',
+  customerStatus: 'ready',
+  paymentStatus: 'partially_paid',
+};
+
+test('settled pickup order is terminal on both Web and Mobile', () => {
+  assert.equal(webHandoverComplete(SETTLED_TERMINAL_ROW), true);
+  assert.equal(mobileHandoverComplete(SETTLED_TERMINAL_ROW), true);
+  assert.equal(webShowsTracker(SETTLED_TERMINAL_ROW), false);
+  assert.equal(mobileShowsTracker(SETTLED_TERMINAL_ROW), false);
+});
+
+test('unsettled Ready for Pickup stays active on both Web and Mobile', () => {
+  assert.equal(webShowsTracker(READY_UNPAID_ROW), true);
+  assert.equal(mobileShowsTracker(READY_UNPAID_ROW), true);
+});
+
+test('a stale ready_pickup event reopens the tracker on neither client', () => {
+  const stale = { serviceTrackingStage: 'ready_pickup', status: 'ready_for_payment' };
+  assert.equal(isWebForwardTransition(SETTLED_TERMINAL_ROW, stale), false);
+  assert.equal(isMobileForwardTransition(SETTLED_TERMINAL_ROW, stale), false);
+});
