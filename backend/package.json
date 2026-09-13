@@ -25,6 +25,7 @@
         "reconcile:ledger": "node scripts/reconcile-financial-ledger.js",
         "backfill:notifications": "node scripts/backfill-notifications.js",
         "restore:backup": "node scripts/restore-autospf-backup.js",
+        "provision:app-review-account": "node scripts/provision-app-review-account.js",
         "test": "node --test tests/*.test.js"
     },
     "keywords": [

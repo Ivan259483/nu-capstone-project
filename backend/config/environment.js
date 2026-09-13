@@ -173,6 +173,20 @@ export const config = {
   loginOtpMaxSends: parseInt(process.env.LOGIN_OTP_MAX_SENDS || '5', 10),
   staffVerificationTokenExpiry: parseInt(process.env.STAFF_VERIFICATION_TOKEN_EXPIRY || '86400', 10), // 24 hours in seconds
   passwordSetupTokenExpiry: parseInt(process.env.PASSWORD_SETUP_TOKEN_EXPIRY || '3600', 10), // 1 hour in seconds
+
+  // Apple App Store review account (see constants/appReview.exempt.js). A fixed
+  // login-OTP code for the single appreview@autospf.test account only — that
+  // address cannot receive real email. Empty/unset disables the mechanism
+  // entirely; every other account is unaffected either way.
+  appReviewLoginOtpCode: (() => {
+    const raw = String(process.env.APP_REVIEW_LOGIN_OTP_CODE || '').trim();
+    if (!raw) return '';
+    if (!/^\d{4,8}$/.test(raw)) {
+      console.warn('[CONFIG] Ignoring invalid APP_REVIEW_LOGIN_OTP_CODE — must be 4-8 digits.');
+      return '';
+    }
+    return raw;
+  })(),
 };
 
 export default config;

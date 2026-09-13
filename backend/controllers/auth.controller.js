@@ -20,6 +20,7 @@ import { logActivity } from '../utils/logActivity.utils.js';
 import firebaseAdmin, { firebaseTokenVerifier } from '../config/firebaseAdmin.js';
 import { parseRegisterPhone, parseOptionalProfilePhone } from '../utils/phone.utils.js';
 import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
+import { isAppReviewAccountEmail } from '../constants/appReview.exempt.js';
 import { attachPhoneForClient } from '../utils/phone-client.utils.js';
 import { attachProfileImageForClient } from '../utils/profile-image.utils.js';
 import { startChatRegistrationForCustomer } from '../services/chatRegistration.service.js';
@@ -2069,10 +2070,17 @@ export const login = async (req, res, next) => {
       allOtpRoles: LOGIN_OTP_REQUIRED_ROLES,
     });
     if (requiresLoginOtp(user.role)) {
+      // Scoped to exactly one Apple App Store review account — see
+      // constants/appReview.exempt.js. Inert unless APP_REVIEW_LOGIN_OTP_CODE
+      // is configured, so every other login keeps the normal random/emailed OTP.
+      const isAppReviewChallenge = Boolean(
+        config.appReviewLoginOtpCode && isAppReviewAccountEmail(user.email)
+      );
       authOtpLog(req, 'login_otp_flow_entered', {
         email: maskEmail(emailNormalized),
         userId: user._id.toString(),
         role: user.role,
+        appReviewChallenge: isAppReviewChallenge,
       });
       const issuanceLock = await acquireLoginOtpIssuanceLock(user._id);
       authOtpLog(req, 'login_otp_issuance_lock_acquired', {
@@ -2195,7 +2203,9 @@ export const login = async (req, res, next) => {
         replacesExistingRecord: Boolean(existingLoginOtp),
         priorSendCount,
       });
-      const otp = await generateOtpDifferentFromHash(existingLoginOtp?.otpHash, config.otpLength);
+      const otp = isAppReviewChallenge
+        ? config.appReviewLoginOtpCode
+        : await generateOtpDifferentFromHash(existingLoginOtp?.otpHash, config.otpLength);
       const otpHash = await timeOperation(
         { req, res, kind: 'cpu', name: 'login.otp.bcryptHash' },
         () => bcrypt.hash(otp, 10)
@@ -2238,20 +2248,32 @@ export const login = async (req, res, next) => {
         challengeExpiresAt: otpRecord.expiresAt?.toISOString?.() || null,
       });
 
-      // Do not expose a challenge unless delivery succeeds.
-      authOtpLog(req, 'login_otp_email_starting', {
-        userId: user._id.toString(),
-        email: maskEmail(user.email),
-        otpRecordId: otpRecord._id.toString(),
-      });
-      const emailResult = await timeOperation(
-        { req, res, kind: 'external', name: 'login.email.sendOtp' },
-        () => sendOtpEmail(user.email, otp, {
-          purpose: 'login',
-          otpRecordId: otpRecord._id,
-          requestId,
-        })
-      );
+      // Do not expose a challenge unless delivery succeeds. The app-review
+      // account's address cannot receive real mail, so its fixed code is
+      // never actually emailed — the reviewer already has it from the
+      // App Store Connect review notes.
+      let emailResult;
+      if (isAppReviewChallenge) {
+        authOtpLog(req, 'login_otp_app_review_static_code_used', {
+          userId: user._id.toString(),
+          otpRecordId: otpRecord._id.toString(),
+        });
+        emailResult = { success: true, provider: 'app_review_static' };
+      } else {
+        authOtpLog(req, 'login_otp_email_starting', {
+          userId: user._id.toString(),
+          email: maskEmail(user.email),
+          otpRecordId: otpRecord._id.toString(),
+        });
+        emailResult = await timeOperation(
+          { req, res, kind: 'external', name: 'login.email.sendOtp' },
+          () => sendOtpEmail(user.email, otp, {
+            purpose: 'login',
+            otpRecordId: otpRecord._id,
+            requestId,
+          })
+        );
+      }
       if (!emailResult.success) {
         authOtpLog(req, 'login_otp_email_failed', {
           userId: user._id.toString(),
@@ -3129,8 +3151,15 @@ export const resendLoginOtp = async (req, res) => {
       });
     }
 
-    // Generate fresh OTP
-    const otp = await generateOtpDifferentFromHash(existing.otpHash, config.otpLength);
+    // Generate fresh OTP. Scoped to exactly one Apple App Store review
+    // account (see constants/appReview.exempt.js) — inert unless
+    // APP_REVIEW_LOGIN_OTP_CODE is configured.
+    const isAppReviewChallenge = Boolean(
+      config.appReviewLoginOtpCode && isAppReviewAccountEmail(user.email)
+    );
+    const otp = isAppReviewChallenge
+      ? config.appReviewLoginOtpCode
+      : await generateOtpDifferentFromHash(existing.otpHash, config.otpLength);
     const otpHash = await bcrypt.hash(otp, 10);
     const previousState = {
       otpHash: existing.otpHash,
@@ -3167,10 +3196,12 @@ export const resendLoginOtp = async (req, res) => {
       });
     }
 
-    const emailResult = await sendOtpEmail(user.email, otp, {
-      purpose: 'login',
-      otpRecordId: otpRecord._id,
-    });
+    const emailResult = isAppReviewChallenge
+      ? { success: true, provider: 'app_review_static' }
+      : await sendOtpEmail(user.email, otp, {
+          purpose: 'login',
+          otpRecordId: otpRecord._id,
+        });
     if (!emailResult.success) {
       await OTP.updateOne(
         { _id: otpRecord._id, otpHash },
