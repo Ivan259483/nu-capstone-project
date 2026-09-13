@@ -112,6 +112,7 @@ export async function ensurePendingReservationPayment({
   paymentReference = null,
   submittedBy = null,
   session = null,
+  proofImageAssets = null,
 }) {
   const submittedAmount = normalizeReservationAmount(
     amount,
@@ -137,6 +138,7 @@ export async function ensurePendingReservationPayment({
       provider: 'customer_proof',
       ...(paymentReference ? { paymentReference } : {}),
       proofImage,
+      proofImageAssets,
       submittedAt: new Date(),
       metadata: {
         bookingId: String(order._id),
@@ -146,7 +148,7 @@ export async function ensurePendingReservationPayment({
       statusHistory: [{
         status: 'pending',
         amountSubmitted: submittedAmount,
-        proofImage,
+        hadProofImage: Boolean(proofImage),
         changedAt: new Date(),
         changedBy: submittedBy || null,
       }],
@@ -172,6 +174,7 @@ export async function ensurePendingReservationPayment({
   payment.provider = 'customer_proof';
   payment.paymentReference = paymentReference || payment.paymentReference || null;
   payment.proofImage = proofImage;
+  payment.proofImageAssets = proofImageAssets;
   payment.submittedAt = new Date();
   payment.reviewedAt = null;
   payment.reviewedBy = null;
@@ -180,7 +183,7 @@ export async function ensurePendingReservationPayment({
   payment.statusHistory.push({
     status: 'pending',
     amountSubmitted: submittedAmount,
-    proofImage,
+    hadProofImage: Boolean(proofImage),
     changedAt: new Date(),
     changedBy: submittedBy || null,
   });

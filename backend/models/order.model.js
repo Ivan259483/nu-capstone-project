@@ -184,6 +184,14 @@ const orderSchema = new mongoose.Schema(
       type: String, // GCash screenshot URL / file path
       default: null,
     },
+    paymentProofAssets: {
+      thumbnailUrl: { type: String, default: null },
+      compressedUrl: { type: String, default: null },
+      originalUrl: { type: String, default: null },
+      fileSize: { type: Number, default: null },
+      mimeType: { type: String, default: null },
+      processedAt: { type: Date, default: null },
+    },
     approvedAt: Date,
     approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     arrivedAt: Date,

@@ -11,8 +11,17 @@ import api from '@/lib/api';
 import {
     AVAILABILITY_UPDATED_EVENT,
     ensureAvailabilityRealtimeSync,
-    syncAvailabilityCaches,
 } from '@/lib/availabilitySync';
+import {
+    BOOKING_NOT_SUBMITTED_LABEL,
+    BOOKING_TIME_CONFLICT_MESSAGE,
+    buildBookingConflictEventId,
+    buildBookingTransportEventId,
+    createBookingFailureNotificationGuard,
+    createBookingRequestId,
+    type BookingFailureEvent,
+    type BookingFailureSource,
+} from '@/lib/booking-failure';
 
 /* ─────────────────────── Constants ─────────────────────── */
 const vehicleTypes = ["sedan", "suv", "truck", "van", "sports"] as const;
@@ -23,6 +32,11 @@ const DATE_NO_LONGER_AVAILABLE_MESSAGE = 'The selected appointment date is no lo
 
 function toLocalDateKey(date: Date): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function getManilaDateKey(date = new Date()): string {
+    const shifted = new Date(date.getTime() + (8 * 60 * 60 * 1000));
+    return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}-${String(shifted.getUTCDate()).padStart(2, '0')}`;
 }
 
 function isIsoDate(value: unknown): value is string {
@@ -102,12 +116,54 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
     const selectedDateRef = useRef(date);
     const selectedTimeRef = useRef(time);
     const businessDateRef = useRef(businessDate);
+    const submissionInFlightRef = useRef(false);
+    const availabilityRefreshQueuedRef = useRef(false);
+    const selectionRevisionRef = useRef(0);
+    const bookingRequestRef = useRef<{ fingerprint: string; id: string } | null>(null);
+    const bookingFailureGuardRef = useRef<ReturnType<typeof createBookingFailureNotificationGuard> | null>(null);
+    if (!bookingFailureGuardRef.current) {
+        bookingFailureGuardRef.current = createBookingFailureNotificationGuard((event) => {
+            toast.error(event.title, {
+                id: event.notificationId ?? event.eventId,
+                description: event.message,
+                duration: 5000,
+            });
+        });
+    }
     selectedDateRef.current = date;
     selectedTimeRef.current = time;
     businessDateRef.current = businessDate;
 
+    const beginNewBookingSelection = useCallback(() => {
+        selectionRevisionRef.current += 1;
+        bookingRequestRef.current = null;
+        bookingFailureGuardRef.current?.reset();
+    }, []);
+
+    const handleBookingFailureOnce = useCallback((
+        event: BookingFailureEvent,
+        options: { clearTime?: boolean; returnToSchedule?: boolean } = {},
+    ) => {
+        const handled = bookingFailureGuardRef.current?.notifyOnce(event) ?? false;
+        if (!handled) return false;
+
+        if (options.clearTime !== false) {
+            selectedTimeRef.current = '';
+            setTime('');
+        }
+        setAvailabilityErrorCode(event.errorCode || null);
+        setAvailabilityError(
+            options.clearTime === false
+                ? event.message
+                : `${BOOKING_NOT_SUBMITTED_LABEL}. ${event.message}`,
+        );
+        if (options.returnToSchedule !== false) setStep(1);
+        return true;
+    }, []);
+
     const fetchAvailableDates = useCallback(async (
         selectedIso: string | null = selectedDateRef.current,
+        options: { silent?: boolean; source?: BookingFailureSource; preserveFailureMessage?: boolean } = {},
     ): Promise<boolean> => {
         if (!isOpen || !user) {
             setAvailabilityError('Sign in to load live appointment availability.');
@@ -118,7 +174,7 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
         setDatesLoading(true);
         try {
             const knownBusinessDate = parseIsoAsLocalDate(businessDateRef.current);
-            const startDate = knownBusinessDate || new Date();
+            const startDate = knownBusinessDate || parseIsoAsLocalDate(getManilaDateKey()) || new Date();
             startDate.setHours(0, 0, 0, 0);
             // On the first request include the preceding local day. That covers the
             // one-day timezone boundary until the server returns its business date.
@@ -135,7 +191,7 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
             const payload = response.data || {};
             const nextBusinessDate = isIsoDate(payload.businessDate)
                 ? payload.businessDate
-                : businessDateRef.current || toLocalDateKey(new Date());
+                : businessDateRef.current || getManilaDateKey();
             const nextBusinessTimeZone = typeof payload.businessTimeZone === 'string'
                 ? payload.businessTimeZone
                 : typeof payload.timeZone === 'string'
@@ -199,38 +255,67 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
                 const message = emergencyClosed
                     ? EMERGENCY_CLOSURE_MESSAGE
                     : selectedDateOption?.message || DATE_NO_LONGER_AVAILABLE_MESSAGE;
-                setDate('');
-                setTime('');
                 setTimeSlots([]);
-                setStep(1);
-                setAvailabilityErrorCode(emergencyClosed ? 'EMERGENCY_CLOSED' : null);
-                setAvailabilityError(message);
-                toast.error(message, { id: emergencyClosed ? 'quick-book-emergency' : 'quick-book-date-unavailable' });
+                const currentTime = selectedTimeRef.current;
+                handleBookingFailureOnce({
+                    eventId: buildBookingConflictEventId({
+                        bookingRequestId: null,
+                        selectionRevision: selectionRevisionRef.current,
+                        date: selectedIso,
+                        time: currentTime,
+                    }),
+                    selectionRevision: selectionRevisionRef.current,
+                    date: selectedIso,
+                    time: currentTime,
+                    errorCode: emergencyClosed ? 'EMERGENCY_CLOSED' : 'DATE_UNAVAILABLE',
+                    source: options.source || 'availability',
+                    title: BOOKING_NOT_SUBMITTED_LABEL,
+                    message,
+                });
                 return false;
             }
 
-            setAvailabilityErrorCode(null);
-            setAvailabilityError(
-                nextDates.some((entry) => entry.isSelectable)
-                    ? ''
-                    : 'No bookable appointment dates are currently available.',
-            );
+            if (!options.preserveFailureMessage) {
+                setAvailabilityErrorCode(null);
+                setAvailabilityError(
+                    nextDates.some((entry) => entry.isSelectable)
+                        ? ''
+                        : 'No bookable appointment dates are currently available.',
+                );
+            }
             return true;
         } catch (error) {
             if (requestId !== rangeRequestRef.current) return false;
             console.error('Failed to load appointment dates', error);
             setAvailableDates([]);
-            setTime('');
             setTimeSlots([]);
-            setAvailabilityErrorCode(null);
-            setAvailabilityError('Live appointment availability could not be loaded. Please try again.');
+            if (!options.preserveFailureMessage) {
+                setAvailabilityErrorCode(null);
+                setAvailabilityError('Live appointment availability could not be loaded. Please try again.');
+            }
+            if (!options.silent) {
+                const attemptId = createBookingRequestId('quick-book-calendar');
+                handleBookingFailureOnce({
+                    eventId: buildBookingTransportEventId(attemptId),
+                    selectionRevision: selectionRevisionRef.current,
+                    date: selectedIso || '',
+                    time: selectedTimeRef.current,
+                    errorCode: 'AVAILABILITY_UNVERIFIED',
+                    source: 'transport',
+                    title: 'Could not load calendar availability',
+                    message: 'Booking is paused until live availability can be verified. Please try again.',
+                }, { clearTime: false, returnToSchedule: false });
+            }
             return false;
         } finally {
             if (requestId === rangeRequestRef.current) setDatesLoading(false);
         }
-    }, [isOpen, user]);
+    }, [handleBookingFailureOnce, isOpen, user]);
 
-    const fetchTimeSlotsForDate = useCallback(async (targetDate: string): Promise<boolean> => {
+    const fetchTimeSlotsForDate = useCallback(async (
+        targetDate: string,
+        options: { silent?: boolean; source?: BookingFailureSource; preserveFailureMessage?: boolean } = {},
+    ): Promise<boolean> => {
         if (!isOpen || !user || !targetDate) return false;
 
         const requestId = ++slotRequestRef.current;
@@ -264,19 +349,43 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
                 const message = emergencyClosed
                     ? EMERGENCY_CLOSURE_MESSAGE
                     : payload?.message || payload?.error || 'No bookable time options are configured for this date.';
-                setDate('');
-                setTime('');
                 setTimeSlots([]);
-                setStep(1);
-                setAvailabilityErrorCode(emergencyClosed ? 'EMERGENCY_CLOSED' : getAvailabilityErrorCode(payload));
-                setAvailabilityError(message);
-                if (emergencyClosed) toast.error(message, { id: 'quick-book-emergency' });
+                const currentTime = selectedTimeRef.current;
+                if (currentTime) {
+                    handleBookingFailureOnce({
+                        eventId: buildBookingConflictEventId({
+                            bookingRequestId: null,
+                            selectionRevision: selectionRevisionRef.current,
+                            date: targetDate,
+                            time: currentTime,
+                        }),
+                        selectionRevision: selectionRevisionRef.current,
+                        date: targetDate,
+                        time: currentTime,
+                        errorCode: emergencyClosed ? 'EMERGENCY_CLOSED' : getAvailabilityErrorCode(payload),
+                        source: options.source || 'availability',
+                        title: BOOKING_NOT_SUBMITTED_LABEL,
+                        message: emergencyClosed ? message : BOOKING_TIME_CONFLICT_MESSAGE,
+                    });
+                } else {
+                    setStep(1);
+                    if (!options.preserveFailureMessage) {
+                        setAvailabilityErrorCode(emergencyClosed ? 'EMERGENCY_CLOSED' : getAvailabilityErrorCode(payload));
+                        setAvailabilityError(message);
+                    }
+                }
                 return false;
             }
 
-            setTimeSlots(slots);
-            setAvailabilityErrorCode(null);
-            setAvailabilityError('');
+            setTimeSlots(slots.filter((slot: any) => (
+                slot.status !== 'FULL'
+                && slot.status !== 'OVER_CAPACITY'
+                && Number(slot.available) > 0
+            )));
+            if (!options.preserveFailureMessage) {
+                setAvailabilityErrorCode(null);
+                setAvailabilityError('');
+            }
             const currentTime = selectedTimeRef.current;
             if (currentTime) {
                 const currentSlot: any = slots.find((slot: any) => slot.time === currentTime);
@@ -287,9 +396,20 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
                     && Number.isFinite(remaining)
                     && remaining > 0;
                 if (!stillAvailable) {
-                    setTime('');
-                    toast.error('The selected time is no longer available. Please choose another time.', {
-                        id: 'quick-book-time-unavailable',
+                    handleBookingFailureOnce({
+                        eventId: buildBookingConflictEventId({
+                            bookingRequestId: null,
+                            selectionRevision: selectionRevisionRef.current,
+                            date: targetDate,
+                            time: currentTime,
+                        }),
+                        selectionRevision: selectionRevisionRef.current,
+                        date: targetDate,
+                        time: currentTime,
+                        errorCode: 'SLOT_FULL',
+                        source: options.source || 'availability',
+                        title: BOOKING_NOT_SUBMITTED_LABEL,
+                        message: BOOKING_TIME_CONFLICT_MESSAGE,
                     });
                 }
             }
@@ -297,15 +417,34 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
         } catch (error) {
             if (requestId !== slotRequestRef.current) return false;
             console.error('Failed to load appointment time slots', error);
-            setTime('');
             setTimeSlots([]);
-            setAvailabilityErrorCode(null);
-            setAvailabilityError('Available times could not be loaded. Please try another date.');
+            if (!options.preserveFailureMessage) {
+                setAvailabilityErrorCode(null);
+                setAvailabilityError('Available times could not be loaded. Please try another date.');
+            }
+            if (!options.silent) {
+                const attemptId = createBookingRequestId('quick-book-slots');
+                handleBookingFailureOnce({
+                    eventId: buildBookingTransportEventId(attemptId),
+                    selectionRevision: selectionRevisionRef.current,
+                    date: targetDate,
+                    time: selectedTimeRef.current,
+                    errorCode: 'AVAILABILITY_UNVERIFIED',
+                    source: 'transport',
+                    title: 'Could not load available times',
+                    message: 'Booking is paused until live availability can be verified. Please try again.',
+                }, { clearTime: false, returnToSchedule: false });
+            }
             return false;
         } finally {
             if (requestId === slotRequestRef.current) setSlotsLoading(false);
         }
-    }, [isOpen, user]);
+    }, [handleBookingFailureOnce, isOpen, user]);
+
+    const fetchAvailableDatesRef = useRef(fetchAvailableDates);
+    const fetchTimeSlotsForDateRef = useRef(fetchTimeSlotsForDate);
+    fetchAvailableDatesRef.current = fetchAvailableDates;
+    fetchTimeSlotsForDateRef.current = fetchTimeSlotsForDate;
 
     useEffect(() => {
         if (!isOpen) return;
@@ -318,6 +457,9 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
         setAvailabilityErrorCode(null);
         setBusinessDate('');
         setBusinessTimeZone('');
+        availabilityRefreshQueuedRef.current = false;
+        submissionInFlightRef.current = false;
+        beginNewBookingSelection();
         businessDateRef.current = '';
         if (user) {
             setName(user.name || '');
@@ -346,7 +488,7 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
             rangeRequestRef.current += 1;
             slotRequestRef.current += 1;
         };
-    }, [fetchAvailableDates, isOpen, preselectedServiceId, user]);
+    }, [beginNewBookingSelection, fetchAvailableDates, isOpen, preselectedServiceId, user]);
 
     useEffect(() => {
         if (!isOpen || !user || !date) {
@@ -361,20 +503,30 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
         if (!isOpen) return;
         ensureAvailabilityRealtimeSync();
         const handleAvailabilityUpdate = () => {
+            if (submissionInFlightRef.current) {
+                availabilityRefreshQueuedRef.current = true;
+                return;
+            }
             const selectedIso = selectedDateRef.current;
-            void fetchAvailableDates(selectedIso).then((selectedDateStillAvailable) => {
+            void fetchAvailableDatesRef.current(selectedIso, { silent: true, source: 'realtime' }).then((selectedDateStillAvailable) => {
                 if (
                     selectedDateStillAvailable
                     && selectedIso
                     && selectedDateRef.current === selectedIso
                 ) {
-                    void fetchTimeSlotsForDate(selectedIso);
+                    void fetchTimeSlotsForDateRef.current(selectedIso, { silent: true, source: 'realtime' });
                 }
             });
         };
         window.addEventListener(AVAILABILITY_UPDATED_EVENT, handleAvailabilityUpdate);
         return () => window.removeEventListener(AVAILABILITY_UPDATED_EVENT, handleAvailabilityUpdate);
-    }, [fetchAvailableDates, fetchTimeSlotsForDate, isOpen]);
+    }, [isOpen]);
+
+    const closeQuickBook = () => {
+        availabilityRefreshQueuedRef.current = false;
+        beginNewBookingSelection();
+        onClose();
+    };
 
     if (!isOpen) return null;
 
@@ -412,6 +564,18 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
             return;
         }
 
+        if (submissionInFlightRef.current) return;
+        const requestFingerprint = [service, date, time, model].join('|');
+        if (bookingRequestRef.current?.fingerprint !== requestFingerprint) {
+            bookingRequestRef.current = {
+                fingerprint: requestFingerprint,
+                id: createBookingRequestId('quick-booking'),
+            };
+        }
+        const bookingRequestId = bookingRequestRef.current.id;
+        const submissionAttemptId = createBookingRequestId('quick-booking-attempt');
+        submissionInFlightRef.current = true;
+        availabilityRefreshQueuedRef.current = false;
         setSubmitting(true);
         try {
             const payload = {
@@ -430,57 +594,114 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
                     product: selectedService?.id || service,
                     quantity: 1,
                     price: selectedService?.basePrice || 0
-                }])
+                }]),
+                bookingRequestId,
             };
             
-            const response = await OrderService.createOrder(payload);
+            const response = await OrderService.createOrder(payload, { idempotencyKey: bookingRequestId });
 
             if (response?.success) {
+                availabilityRefreshQueuedRef.current = false;
+                bookingFailureGuardRef.current?.reset();
                 toast.success("Booking confirmed! See you soon.");
-                syncAvailabilityCaches();
-                onClose();
+                closeQuickBook();
             } else {
                 const responsePayload: any = response || {};
                 const emergencyClosed = isEmergencyClosurePayload(responsePayload);
+                const errorCode = getAvailabilityErrorCode(responsePayload);
+                const isConflict = responsePayload?.status === 409 || errorCode === 'SLOT_FULL' || emergencyClosed;
                 const message = emergencyClosed
                     ? EMERGENCY_CLOSURE_MESSAGE
-                    : responsePayload?.message || 'Failed to submit booking';
-                if (emergencyClosed) {
-                    setDate('');
-                    setTime('');
-                    setTimeSlots([]);
-                    setStep(1);
-                    setAvailabilityErrorCode('EMERGENCY_CLOSED');
-                    setAvailabilityError(message);
-                    void fetchAvailableDates(null).then(() => {
-                        setAvailabilityErrorCode('EMERGENCY_CLOSED');
-                        setAvailabilityError(message);
+                    : errorCode === 'SLOT_FULL'
+                        ? BOOKING_TIME_CONFLICT_MESSAGE
+                        : responsePayload?.message || 'Failed to submit booking';
+                if (isConflict) {
+                    handleBookingFailureOnce({
+                        eventId: buildBookingConflictEventId({
+                            bookingRequestId,
+                            selectionRevision: selectionRevisionRef.current,
+                            date,
+                            time,
+                        }),
+                        bookingRequestId,
+                        selectionRevision: selectionRevisionRef.current,
+                        date,
+                        time,
+                        errorCode,
+                        source: 'submit',
+                        title: BOOKING_NOT_SUBMITTED_LABEL,
+                        message,
                     });
+                    availabilityRefreshQueuedRef.current = false;
+                    void fetchAvailableDatesRef.current(null, { silent: true, preserveFailureMessage: true });
+                    void fetchTimeSlotsForDateRef.current(date, { silent: true, preserveFailureMessage: true });
+                } else {
+                    handleBookingFailureOnce({
+                        eventId: buildBookingTransportEventId(submissionAttemptId),
+                        bookingRequestId,
+                        selectionRevision: selectionRevisionRef.current,
+                        date,
+                        time,
+                        source: 'transport',
+                        title: 'Booking failed',
+                        message,
+                    }, { clearTime: false, returnToSchedule: false });
                 }
-                toast.error(message);
             }
         } catch (error: any) {
             const errorPayload = error?.response?.data || {};
             const status = Number(error?.response?.status || 0);
             const emergencyClosed = isEmergencyClosurePayload(errorPayload);
+            const errorCode = getAvailabilityErrorCode(errorPayload);
             const backendMessage = emergencyClosed
                 ? EMERGENCY_CLOSURE_MESSAGE
-                : errorPayload?.message || error?.message || 'Error submitting booking';
-            if (emergencyClosed || status === 409) {
-                setDate('');
-                setTime('');
-                setTimeSlots([]);
-                setStep(1);
-                setAvailabilityErrorCode(emergencyClosed ? 'EMERGENCY_CLOSED' : getAvailabilityErrorCode(errorPayload));
-                setAvailabilityError(backendMessage);
-                void fetchAvailableDates(null).then(() => {
-                    setAvailabilityErrorCode(emergencyClosed ? 'EMERGENCY_CLOSED' : getAvailabilityErrorCode(errorPayload));
-                    setAvailabilityError(backendMessage);
+                : errorCode === 'SLOT_FULL'
+                    ? BOOKING_TIME_CONFLICT_MESSAGE
+                    : errorPayload?.message || error?.message || 'Error submitting booking';
+            if ((emergencyClosed || status === 409) && errorCode !== 'BOOKING_REQUEST_REUSED') {
+                handleBookingFailureOnce({
+                    eventId: buildBookingConflictEventId({
+                        bookingRequestId,
+                        selectionRevision: selectionRevisionRef.current,
+                        date,
+                        time,
+                    }),
+                    bookingRequestId,
+                    selectionRevision: selectionRevisionRef.current,
+                    date,
+                    time,
+                    errorCode: emergencyClosed ? 'EMERGENCY_CLOSED' : errorCode,
+                    source: 'submit',
+                    title: BOOKING_NOT_SUBMITTED_LABEL,
+                    message: backendMessage,
                 });
+                availabilityRefreshQueuedRef.current = false;
+                void fetchAvailableDatesRef.current(null, { silent: true, preserveFailureMessage: true });
+                void fetchTimeSlotsForDateRef.current(date, { silent: true, preserveFailureMessage: true });
+            } else {
+                handleBookingFailureOnce({
+                    eventId: buildBookingTransportEventId(submissionAttemptId),
+                    bookingRequestId,
+                    selectionRevision: selectionRevisionRef.current,
+                    date,
+                    time,
+                    errorCode,
+                    source: 'transport',
+                    title: 'Booking failed',
+                    message: backendMessage,
+                }, { clearTime: false, returnToSchedule: false });
             }
-            toast.error(backendMessage);
         } finally {
+            submissionInFlightRef.current = false;
             setSubmitting(false);
+            if (availabilityRefreshQueuedRef.current) {
+                availabilityRefreshQueuedRef.current = false;
+                const selectedIso = selectedDateRef.current;
+                void fetchAvailableDatesRef.current(null, { silent: true, preserveFailureMessage: true });
+                if (selectedIso) {
+                    void fetchTimeSlotsForDateRef.current(selectedIso, { silent: true, preserveFailureMessage: true });
+                }
+            }
         }
     };
 
@@ -494,7 +715,8 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
                         Quick Book
                     </h2>
                     <button 
-                        onClick={onClose}
+                        onClick={closeQuickBook}
+                        disabled={submitting}
                         className="text-muted-foreground hover:text-foreground hover:bg-muted/50 p-2 rounded-full transition-colors"
                     >
                         <X className="w-5 h-5" />
@@ -565,6 +787,7 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
                                                     aria-label={`${iso}: ${statusLabel}`}
                                                     onClick={() => {
                                                         if (!dateOption.isSelectable) return;
+                                                        beginNewBookingSelection();
                                                         setDate(iso);
                                                         setTime('');
                                                         setTimeSlots([]);
@@ -632,7 +855,11 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
                                                         key={slot.time}
                                                         type="button"
                                                         disabled={full}
-                                                        onClick={() => !full && setTime(slot.time)}
+                                                        onClick={() => {
+                                                            if (full) return;
+                                                            beginNewBookingSelection();
+                                                            setTime(slot.time);
+                                                        }}
                                                         className={cn(
                                                             "rounded-xl border py-3 text-sm font-medium transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50",
                                                             time === slot.time
@@ -672,7 +899,7 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
                                 <div>
                                     <p className="text-xs text-muted-foreground">Appointment</p>
                                     <p className="text-sm font-bold">{selectedService?.name}</p>
-                                    <p className="text-xs">{new Date(date).toLocaleDateString()} @ {time}</p>
+                                    <p className="text-xs">{parseIsoAsLocalDate(date)?.toLocaleDateString('en-PH') || date} @ {time}</p>
                                 </div>
                                 <button onClick={() => setStep(1)} className="text-xs text-primary underline">Edit</button>
                             </div>
@@ -684,7 +911,7 @@ export default function QuickBookModal({ isOpen, onClose, preselectedServiceId }
                                     <Button className="w-full bg-primary text-primary-foreground" asChild>
                                         <a href="/login?redirect=/services">Log In Now</a>
                                     </Button>
-                                    <Button variant="ghost" className="w-full mt-2" onClick={onClose}>Cancel</Button>
+                                    <Button variant="ghost" className="w-full mt-2" onClick={closeQuickBook}>Cancel</Button>
                                 </div>
                             ) : (
                                 <>

@@ -38,6 +38,17 @@ const isIsoDate = (value: unknown): value is string => (
     typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
 );
 
+// `new Date('YYYY-MM-DD')` parses as UTC midnight, so `.toLocaleDateString()`
+// on a device set west of UTC renders the day *before* the one actually
+// booked. Build the Date from local year/month/day components instead so the
+// review screen always matches the bookingDate string sent to the backend.
+const parseIsoAsLocalDate = (value: string): Date | null => {
+    if (!isIsoDate(value)) return null;
+    const [year, month, day] = value.split('-').map(Number);
+    const parsed = new Date(year, month - 1, day);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 const getAvailabilityErrorCode = (payload: any): string | null => {
     const value = payload?.errorCode;
     return typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : null;
@@ -303,6 +314,57 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
         if (!waiverSigned) {
             toast.error("Please sign the digital waiver to proceed.");
             return;
+        }
+
+        // Cached `availableSlots` can lag behind the authoritative schedule while
+        // the customer fills out payment/waiver steps (socket push is best-effort).
+        // Re-verify the exact selected slot against the live backend immediately
+        // before creating the reservation, instead of only finding out via a 409.
+        setIsSubmitting(true);
+        try {
+            const { data: freshAvailability } = await api.get<AvailableSlotsResponse>('/orders/available-slots', {
+                params: { date },
+                meta: { suppressErrorToast: true },
+            } as any);
+            const freshPayload = freshAvailability as any;
+            if (isEmergencyClosurePayload(freshPayload)) {
+                setAvailableSlots([]);
+                setDateUnavailable(true);
+                setAvailabilityErrorCode('EMERGENCY_CLOSED');
+                setAvailabilityMessage(EMERGENCY_CLOSURE_MESSAGE);
+                setStep(3);
+                setAvailabilityRevision((current) => current + 1);
+                toast.error(EMERGENCY_CLOSURE_MESSAGE);
+                return;
+            }
+            const freshSlots = Array.isArray(freshAvailability?.slots) ? freshAvailability.slots : [];
+            const freshSlot = freshSlots.find((slot) => slot.time === time);
+            const freshAvailableCount = Number(freshSlot?.available);
+            const stillAvailable = !!freshAvailability?.success
+                && !freshPayload?.unavailable
+                && !!freshSlot
+                && freshSlot.status !== 'FULL'
+                && freshSlot.status !== 'OVER_CAPACITY'
+                && Number.isFinite(freshAvailableCount)
+                && freshAvailableCount > 0;
+            if (!stillAvailable) {
+                const message = freshPayload?.message || freshPayload?.error
+                    || 'The selected time is no longer available. Please select another time.';
+                setTime('');
+                setDateUnavailable(true);
+                setAvailabilityErrorCode(getAvailabilityErrorCode(freshPayload));
+                setAvailabilityMessage(message);
+                setStep(3);
+                setAvailabilityRevision((current) => current + 1);
+                toast.error(message);
+                return;
+            }
+        } catch (error) {
+            console.error('Pre-submit availability check failed:', error);
+            toast.error('Could not verify live availability. Please try again.');
+            return;
+        } finally {
+            setIsSubmitting(false);
         }
 
         // Placeholder for a validation function, if needed.
@@ -682,7 +744,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                             </div>
                             <div>
                                 <p className="text-sm text-zinc-500">Date & Time</p>
-                                <p className="font-medium text-white">{new Date(date).toLocaleDateString()}</p>
+                                <p className="font-medium text-white">{parseIsoAsLocalDate(date)?.toLocaleDateString() ?? date}</p>
                                 <p className="text-sm text-zinc-400">{time}</p>
                             </div>
                         </div>
@@ -737,7 +799,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                         </div>
                         <div className="text-right">
                             <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Date & Time</p>
-                            <p className="font-semibold text-white">{new Date(date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                            <p className="font-semibold text-white">{parseIsoAsLocalDate(date)?.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) ?? date}</p>
                             <p className="text-sm text-zinc-400">{time}</p>
                         </div>
                     </div>

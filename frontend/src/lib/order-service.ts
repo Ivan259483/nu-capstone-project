@@ -190,6 +190,7 @@ export const normalizeBooking = (raw: any): Booking => {
         // GCash payment proof — must be preserved for Sales approval flow
         downpaymentProof: raw?.downpaymentProof,
         paymentProofUrl: raw?.paymentProofUrl,
+        paymentProofAssets: raw?.paymentProofAssets ?? null,
         hasPaymentProof: raw?.hasPaymentProof ?? Boolean(raw?.paymentProofUrl || raw?.downpaymentProof),
         rejectionReason: raw?.rejectionReason,
         bookingReference: raw?.bookingReference,
@@ -387,9 +388,20 @@ export const OrderService = {
      * @param {any} orderData - The booking details (vehicle, service, date, etc).
      * @returns {Promise<{success: boolean, data: Booking}>}
      */
-    async createOrder(orderData: any) {
+    async createOrder(
+        orderData: any,
+        opts?: { onUploadProgress?: (percent: number) => void; idempotencyKey?: string },
+    ) {
+        const payloadRequestId = typeof FormData !== 'undefined' && orderData instanceof FormData
+            ? orderData.get('bookingRequestId')
+            : orderData?.bookingRequestId;
+        const idempotencyKey = String(opts?.idempotencyKey || payloadRequestId || '').trim();
         const response = await api.post('/bookings', orderData, {
             meta: { suppressErrorToast: true } as any,
+            headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+            onUploadProgress: opts?.onUploadProgress
+                ? (evt) => opts.onUploadProgress!(Math.round((evt.loaded / (evt.total || evt.loaded)) * 100))
+                : undefined,
         } as any);
 
         if (!response.data.success) {

@@ -16,6 +16,8 @@ import {
   stashLiveTrackerDeepLinkJobId,
 } from '@/lib/qc-job-workflow';
 import { useQCData } from '@/hooks/useQCData';
+import { useQCWorkspace } from '@/hooks/useQCWorkspace';
+import { DEFAULT_QC_QUERY, type QCQueueQuery } from '@/lib/qc-workspace';
 import { useQualityNotifications } from '@/hooks/useQualityNotifications';
 import type { SystemNotification } from '@/lib/notification-service';
 
@@ -468,8 +470,18 @@ export default function QCDashboardPanel() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
+  const [qcQuery, setQcQuery] = useState<QCQueueQuery>(DEFAULT_QC_QUERY);
   const loadQcSummary = activeView === 'dashboard';
   const qualityNotifications = useQualityNotifications();
+
+  const {
+    data: qcWorkspaceData,
+    loading: qcWorkspaceLoading,
+    error: qcWorkspaceError,
+    connected: qcWorkspaceConnected,
+    settled: qcWorkspaceSettled,
+    refresh: refreshQcWorkspace,
+  } = useQCWorkspace(qcQuery, globalSearch, scope, statsRangeDays);
 
   const {
     jobs,
@@ -586,8 +598,18 @@ export default function QCDashboardPanel() {
   const pendingCount = jobs.filter((j) => j.status === 'pending-review' || j.status === 'in-review').length;
   const aiPendingCount = jobs.filter((j) => j.aiFlag).length;
 
-  const handleSelectJob = (jobId: string) => {
-    const job = jobs.find((j) => j.id === jobId);
+  const handleSelectJob = (jobId: string | null) => {
+    if (!jobId) {
+      setSelectedJobId(null);
+      return;
+    }
+
+    // QCJobsTable renders from the workspace query (useQCWorkspace), which is
+    // scoped/paginated independently of the dashboard's own `jobs` list — a
+    // job visible there may not be present in `jobs` yet.
+    const job =
+      jobs.find((j) => j.id === jobId) ||
+      qcWorkspaceData?.jobs.find((j) => j.id === jobId);
     if (!job) return;
 
     setSelectedJobId(jobId);
@@ -657,11 +679,22 @@ export default function QCDashboardPanel() {
               </div>
             </div>
             <QCJobsTable
-              jobs={jobs}
-              loading={jobsLoading}
+              data={qcWorkspaceData}
+              loading={qcWorkspaceLoading}
+              settled={qcWorkspaceSettled}
+              error={qcWorkspaceError}
+              connected={qcWorkspaceConnected}
+              query={qcQuery}
+              onQueryChange={setQcQuery}
+              selectedJobId={selectedJobId}
               onSelectJob={handleSelectJob}
               searchQuery={globalSearch}
               onSearchQueryChange={setGlobalSearch}
+              onRetry={refreshQcWorkspace}
+              onApprove={approveJob}
+              onReturn={returnJob}
+              onOpenLiveTracker={handleOpenJobInLiveTracker}
+              scope={scope}
             />
           </div>
         );

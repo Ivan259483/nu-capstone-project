@@ -174,6 +174,14 @@ export interface Booking {
     // GCash / payment proof fields
     downpaymentProof?: string;
     paymentProofUrl?: string;
+    paymentProofAssets?: {
+        thumbnailUrl?: string;
+        compressedUrl?: string;
+        originalUrl?: string;
+        fileSize?: number;
+        mimeType?: string;
+        processedAt?: string;
+    } | null;
     hasPaymentProof?: boolean;
     rejectionReason?: string;
     assignedDetailer?: User | string | null; // Populated or ID

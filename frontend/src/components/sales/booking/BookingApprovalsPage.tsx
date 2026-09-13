@@ -41,6 +41,19 @@ import {
   isInlinePaymentProof,
   paymentProofDataUrlToBlob,
 } from '@/lib/sales-payment-proof';
+import {
+  getCachedProofObjectUrl,
+  setCachedProofObjectUrl,
+} from '@/lib/sales-payment-proof-cache';
+
+type PaymentProofAssets = {
+  thumbnailUrl?: string;
+  compressedUrl?: string;
+  originalUrl?: string;
+  fileSize?: number;
+  mimeType?: string;
+  processedAt?: string;
+};
 
 const DOWNPAYMENT = 500;
 const moneyFormatter = new Intl.NumberFormat('en-PH', {
@@ -175,6 +188,7 @@ async function loadBookingWithProof(
   const pd = (pr?.success && pr?.data ? pr.data : {}) as {
     downpaymentProof?: string;
     paymentProofUrl?: string;
+    paymentProofAssets?: PaymentProofAssets | null;
   };
 
   if (!res?.success || !res.data) {
@@ -185,6 +199,10 @@ async function loadBookingWithProof(
     ...res.data,
     downpaymentProof: pd?.downpaymentProof ?? (d?.downpaymentProof as string | undefined),
     paymentProofUrl: pd?.paymentProofUrl ?? (d?.paymentProofUrl as string | undefined),
+    // Prefer the heavier gcash-proof-fields response (full asset tier object); fall back to the
+    // lean approval-preview response, which per the backend change only carries `thumbnailUrl`
+    // when the heavier call hasn't resolved yet or has failed.
+    paymentProofAssets: pd?.paymentProofAssets ?? (d?.paymentProofAssets as PaymentProofAssets | null | undefined) ?? null,
     hasPaymentProof: Boolean(
       pd?.downpaymentProof ||
         pd?.paymentProofUrl ||
@@ -369,8 +387,12 @@ function ViewerControl({ label, onClick, disabled, children }: {
   );
 }
 
-function ProofViewer({ proofUrl, loading, error, onRetry, onReadyChange }: {
+function ProofViewer({ proofUrl, thumbnailUrl, orderId, loading, error, onRetry, onReadyChange }: {
   proofUrl: string;
+  /** Lean, fast-loading preview shown while the full compressed-tier image is still loading. */
+  thumbnailUrl?: string;
+  /** Order id used to key the in-session decoded-image cache. */
+  orderId?: string;
   loading?: boolean;
   error?: string;
   onRetry: () => void;
@@ -389,19 +411,36 @@ function ProofViewer({ proofUrl, loading, error, onRetry, onReadyChange }: {
   useEffect(() => {
     setZoom(1);
     setRotation(0);
-    setImageState(proofUrl ? 'loading' : 'idle');
     onReadyChange?.(false);
 
     if (!proofUrl) {
+      setImageState('idle');
       setDisplayUrl('');
       return undefined;
     }
 
     if (!isInlinePaymentProof(proofUrl)) {
+      setImageState('loading');
       setDisplayUrl(proofUrl);
       return undefined;
     }
 
+    // Only trust the cache on this viewer's first load attempt (retryKey === 0). A same-session
+    // modal reopen remounts ProofViewer fresh (retryKey resets to 0), so a hit here means "we
+    // already decoded this exact proof value this session" — safe to skip straight to 'loaded'.
+    // An explicit manual Retry (retryKey > 0) always re-decodes, so a real render failure isn't
+    // masked by replaying the same cached object URL.
+    if (retryKey === 0 && orderId) {
+      const cached = getCachedProofObjectUrl(orderId, proofUrl);
+      if (cached) {
+        setDisplayUrl(cached);
+        setImageState('loaded');
+        onReadyChange?.(true);
+        return undefined;
+      }
+    }
+
+    setImageState('loading');
     const blob = paymentProofDataUrlToBlob(proofUrl);
     if (!blob) {
       setDisplayUrl('');
@@ -411,8 +450,12 @@ function ProofViewer({ proofUrl, loading, error, onRetry, onReadyChange }: {
 
     const objectUrl = URL.createObjectURL(blob);
     setDisplayUrl(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [proofUrl, retryKey, onReadyChange]);
+    if (orderId) setCachedProofObjectUrl(orderId, proofUrl, objectUrl);
+    // No revoke here: once cached, only the cache module's own LRU eviction (or a future
+    // setCachedProofObjectUrl overwrite for this orderId) revokes the object URL. Revoking on
+    // unmount/cleanup would break the cache hit on a same-session modal reopen.
+    return undefined;
+  }, [proofUrl, retryKey, onReadyChange, orderId]);
 
   useEffect(() => {
     if (!displayUrl) return undefined;
@@ -574,8 +617,19 @@ function ProofViewer({ proofUrl, loading, error, onRetry, onReadyChange }: {
             ) : null}
             {isLoading ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950 text-white">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-white/75">Loading proof</p>
+                {thumbnailUrl ? (
+                  <img
+                    src={thumbnailUrl}
+                    alt=""
+                    aria-hidden="true"
+                    draggable={false}
+                    className="absolute inset-0 h-full w-full object-contain opacity-50 blur-[1px]"
+                  />
+                ) : null}
+                <div className="relative flex flex-col items-center gap-3">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-white/75">Loading proof</p>
+                </div>
               </div>
             ) : null}
           </div>
@@ -662,7 +716,12 @@ function ProofModal({ booking, loading, error, onRetry, onClose, onApprove, onRe
   const total = getTotal(booking);
   const paid = getReservationPayment(booking);
   const balance = Math.max(0, total - paid);
-  const proofUrl = getProofUrl(booking);
+  const proofAssets = booking.paymentProofAssets as PaymentProofAssets | null | undefined;
+  // Prefer the new tiered compressed-image URL when the backend supplies it; otherwise fall
+  // back to legacy behavior unchanged (base64 downpaymentProof / paymentProofUrl).
+  const proofUrl = proofAssets?.compressedUrl || getProofUrl(booking);
+  const thumbnailUrl = proofAssets?.thumbnailUrl || '';
+  const orderId = mongoOrderIdString(booking) || String(booking._id ?? booking.id ?? '').trim();
   const ref = getReference(booking);
   const metadata = getPaymentMetadata(booking);
   const [checks, setChecks] = useState<Record<string, boolean>>({});
@@ -702,7 +761,7 @@ function ProofModal({ booking, loading, error, onRetry, onClose, onApprove, onRe
 
       <div className="relative grid h-[min(94dvh,900px)] w-full max-w-[1380px] grid-rows-[minmax(260px,40dvh)_minmax(0,1fr)] overflow-hidden rounded-[24px] bg-white shadow-[0_34px_100px_rgba(15,23,42,0.38)] animate-in fade-in zoom-in-95 duration-200 lg:grid-cols-[minmax(0,1.65fr)_minmax(360px,1fr)] lg:grid-rows-1">
         <div className="min-h-0 bg-slate-950 p-2.5 sm:p-3">
-          <ProofViewer proofUrl={proofUrl} loading={loading} error={error} onRetry={onRetry} onReadyChange={handleProofReadyChange} />
+          <ProofViewer proofUrl={proofUrl} thumbnailUrl={thumbnailUrl} orderId={orderId} loading={loading} error={error} onRetry={onRetry} onReadyChange={handleProofReadyChange} />
         </div>
 
         <aside className="flex min-h-0 flex-col bg-white shadow-[inset_16px_0_32px_-28px_rgba(15,23,42,0.12)]">

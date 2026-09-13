@@ -15,6 +15,7 @@ import ScheduledClosure from '../models/scheduledClosure.model.js';
 import BookingSlotCounter from '../models/bookingSlotCounter.model.js';
 import { emitAvailabilityUpdated } from '../utils/availabilityBroadcast.utils.js';
 import {
+  getBusinessDateBoundary,
   getBusinessClock,
   getClockInTimeZone,
   getEffectiveEmergencyClosureState,
@@ -86,13 +87,11 @@ function fromMinutes(totalMins) {
 }
 
 function startOfLocalDayFromDateString(dateStr) {
-  const [y, m, d] = String(dateStr).split('-').map(Number);
-  return new Date(y, m - 1, d, 0, 0, 0, 0);
+  return getBusinessDateBoundary(String(dateStr), 'start');
 }
 
 function endOfLocalDayFromDateString(dateStr) {
-  const [y, m, d] = String(dateStr).split('-').map(Number);
-  return new Date(y, m - 1, d, 23, 59, 59, 999);
+  return getBusinessDateBoundary(String(dateStr), 'end');
 }
 
 function getLocalDateString(date = new Date()) {
@@ -653,8 +652,8 @@ async function getTimeSlotAvailability(
     return {
       ok: false,
       errorCode: 'SLOT_FULL',
-      message: 'This time slot has already been booked. Please select another time.',
-      error: 'This time slot has already been booked. Please select another time.',
+      message: 'This time slot is no longer available. Please choose another available schedule.',
+      error: 'This time slot is no longer available. Please choose another available schedule.',
       slot,
     };
   }
@@ -1230,8 +1229,8 @@ export async function reserveBookingSlot(
       return {
         ok: false,
         errorCode: 'SLOT_FULL',
-        message: 'This time slot has already been booked. Please select another time.',
-        error: 'This time slot has already been booked. Please select another time.',
+        message: 'This time slot is no longer available. Please choose another available schedule.',
+        error: 'This time slot is no longer available. Please choose another available schedule.',
       };
     }
 
@@ -1268,8 +1267,8 @@ export async function reserveBookingSlot(
       return {
         ok: false,
         errorCode: 'SLOT_FULL',
-        message: 'This time slot has already been booked. Please select another time.',
-        error: 'This time slot has already been booked. Please select another time.',
+        message: 'This time slot is no longer available. Please choose another available schedule.',
+        error: 'This time slot is no longer available. Please choose another available schedule.',
         slot: currentAvailability.slot,
       };
     }

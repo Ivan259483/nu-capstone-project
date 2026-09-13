@@ -1,4 +1,5 @@
 import { apiClient, cachedGet, TTL } from '@/services/api/client';
+import type { AxiosProgressEvent } from 'axios';
 import { API_BASE_URL } from '@/config/env';
 import type { ApiEnvelope, BookingRecord, ServiceOption } from '@/services/api/types';
 import { isBookingCountedAsActiveOnHome } from '@/utils/customerBookingLifecycle';
@@ -144,6 +145,7 @@ export const bookingService = {
     downpaymentProof?: string;
     reservationPaymentAmount?: number;
     bookingRequestId?: string;
+    onUploadProgress?: (percent: number) => void;
   }): Promise<BookingRecord> {
     const bookingDate = normalizeBookingDateForApi(params.date);
 
@@ -170,11 +172,19 @@ export const bookingService = {
       items: [],
     };
 
+    const { onUploadProgress } = params;
     const response = await apiClient.post<ApiEnvelope<any>>('/bookings', payload, {
       headers: params.bookingRequestId
         ? { 'Idempotency-Key': params.bookingRequestId }
         : undefined,
-    });
+      _skipOfflineQueue: true,
+      meta: { suppressErrorToast: true },
+      onUploadProgress: (progressEvent: AxiosProgressEvent) => {
+        if (onUploadProgress && progressEvent.total) {
+          onUploadProgress(Math.round((progressEvent.loaded / progressEvent.total) * 100));
+        }
+      },
+    } as any);
     return normalizeBooking(response.data.data);
   },
 

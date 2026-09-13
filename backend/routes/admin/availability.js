@@ -7,6 +7,8 @@ import ShopAvailability, {
 import ScheduledClosure from '../../models/scheduledClosure.model.js';
 import { emitAvailabilityUpdated } from '../../utils/availabilityBroadcast.utils.js';
 import {
+  getBusinessDateBoundary,
+  getBusinessDateKey,
   getBusinessClock,
   getEffectiveEmergencyClosureState,
 } from '../../utils/businessAvailability.utils.js';
@@ -55,21 +57,17 @@ async function notifyAvailabilityChange({
 }
 
 function startOfLocalDay(value) {
-  const date = new Date(value);
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  const dateKey = getBusinessDateKey(value);
+  return dateKey ? getBusinessDateBoundary(dateKey, 'start') : new Date(Number.NaN);
 }
 
 function endOfLocalDay(value) {
-  const date = new Date(value);
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+  const dateKey = getBusinessDateKey(value);
+  return dateKey ? getBusinessDateBoundary(dateKey, 'end') : new Date(Number.NaN);
 }
 
 function formatLocalDate(value) {
-  const date = new Date(value);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return getBusinessDateKey(value) || '';
 }
 
 function sanitizeClosureInput(input, index = 0) {

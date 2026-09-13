@@ -75,8 +75,18 @@ import {
 } from '@/constants/bookingTerms';
 import {
   PAYMENT_PROOF_PICKER_OPTIONS,
-  paymentProofDataUrlFromAsset,
+  compressPaymentProofAsset,
+  paymentProofDataUrlFromCompressedAsset,
 } from '@/utils/payment-proof-image';
+import {
+  BOOKING_NOT_SUBMITTED_LABEL,
+  BOOKING_TIME_CONFLICT_MESSAGE,
+  buildBookingConflictEventId,
+  buildBookingTransportEventId,
+  createBookingFailureNotificationGuard,
+  type BookingFailureEvent,
+  type BookingFailureSource,
+} from '@/utils/booking-failure';
 
 // ─── Kinetic Gallery Design Tokens ───────────────────────────────────────────
 
@@ -1058,6 +1068,14 @@ const getLocalIsoDate = (date: Date) => {
   return `${y}-${m}-${d}`;
 };
 
+const getManilaIsoDate = (date = new Date()) => {
+  const shifted = new Date(date.getTime() + (8 * 60 * 60 * 1000));
+  const y = shifted.getUTCFullYear();
+  const m = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(shifted.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 const getDateFromIso = (value: string): Date | null => {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
@@ -1075,7 +1093,7 @@ const getUpcomingDateWindow = (
   selectedDate: string | null,
   businessDate: string | null,
 ): string[] => {
-  const earliestDate = isIsoDate(businessDate) ? businessDate : getLocalIsoDate(new Date());
+  const earliestDate = isIsoDate(businessDate) ? businessDate : getManilaIsoDate();
   const centeredStart = isIsoDate(selectedDate) ? addDaysToIso(selectedDate, -2) : earliestDate;
   const start = centeredStart < earliestDate ? earliestDate : centeredStart;
   return Array.from({ length: 5 }, (_, index) => addDaysToIso(start, index));
@@ -1472,7 +1490,7 @@ function MonthCalendar({
 
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
-  const todayKey = isIsoDate(businessDate) ? businessDate : getLocalIsoDate(new Date());
+  const todayKey = isIsoDate(businessDate) ? businessDate : getManilaIsoDate();
   const earliestMonthKey = todayKey.slice(0, 7);
   const previousMonth = new Date(year, month - 1, 1);
   const canGoPrevious = `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, '0')}` >= earliestMonthKey;
@@ -1814,7 +1832,19 @@ export default function BookScreen() {
   const restoredStepRef = useRef<number | null>(null);
   const prefillAppliedRef = useRef(false);
   const bookingSubmissionInFlightRef = useRef(false);
+  const availabilityRefreshQueuedRef = useRef(false);
+  const selectionRevisionRef = useRef(0);
   const bookingRequestRef = useRef<{ fingerprint: string; id: string } | null>(null);
+  const bookingFailureGuardRef = useRef<ReturnType<typeof createBookingFailureNotificationGuard> | null>(null);
+  if (!bookingFailureGuardRef.current) {
+    bookingFailureGuardRef.current = createBookingFailureNotificationGuard((event) => {
+      Toast.show({
+        title: event.title,
+        message: event.message,
+        type: 'error',
+      });
+    });
+  }
 
   const closePackageDetails = useCallback(() => {
     setPackageDetailsKey(null);
@@ -1825,6 +1855,7 @@ export default function BookScreen() {
 
   // Step 2 — Payment proof
   const [downpaymentProof, setDownpaymentProof] = useState<string | null>(null);
+  const [isCompressingProof, setIsCompressingProof] = useState(false);
 
   // Step 4 (UI: step 5 of 6) — Terms & Conditions
   const [agreedToTerms, setAgreedToTerms] = useState(false);
@@ -1882,6 +1913,10 @@ export default function BookScreen() {
   // General
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  type SubmissionStage = 'idle' | 'compressing' | 'uploading' | 'processing' | 'saving' | 'done';
+  const [submissionStage, setSubmissionStage] = useState<SubmissionStage>('idle');
+  const [uploadPercent, setUploadPercent] = useState(0);
+  const [lastSubmissionFailed, setLastSubmissionFailed] = useState(false);
 
   useEffect(() => {
     if (step === 0) setIsContinuing(false);
@@ -1912,6 +1947,34 @@ export default function BookScreen() {
   selectedDateRef.current = selectedDate;
   selectedTimeRef.current = selectedTime;
   stepRef.current = step;
+
+  const beginNewScheduleSelection = useCallback(() => {
+    selectionRevisionRef.current += 1;
+    bookingRequestRef.current = null;
+    bookingFailureGuardRef.current?.reset();
+  }, []);
+
+  const handleBookingFailureOnce = useCallback((
+    event: BookingFailureEvent,
+    options: { clearTime?: boolean; returnToSchedule?: boolean } = {},
+  ) => {
+    const handled = bookingFailureGuardRef.current?.notifyOnce(event) ?? false;
+    if (!handled) return false;
+
+    Haptics.formSubmitError();
+    if (options.clearTime !== false) {
+      selectedTimeRef.current = null;
+      setSelectedTime(null);
+      setDraftDirty(true);
+    }
+    setScheduleMessage(
+      options.clearTime === false
+        ? event.message
+        : `${BOOKING_NOT_SUBMITTED_LABEL}. ${event.message}`,
+    );
+    if (options.returnToSchedule !== false) setStep(2);
+    return true;
+  }, []);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -1951,13 +2014,17 @@ export default function BookScreen() {
     }, [])
   );
 
-  const fetchMonthAvailability = useCallback(async (y: number, m: number) => {
+  const fetchMonthAvailability = useCallback(async (
+    y: number,
+    m: number,
+    options: { silent?: boolean } = {},
+  ) => {
     const requestKey = `${y}-${m}`;
     const requestId = (monthAvailabilityRequestRef.current[requestKey] || 0) + 1;
     monthAvailabilityRequestRef.current[requestKey] = requestId;
     pendingMonthAvailabilityRef.current.add(requestKey);
     setMonthAvailLoading(true);
-    const fallbackBusinessDate = businessDate || getLocalIsoDate(new Date());
+    const fallbackBusinessDate = businessDate || getManilaIsoDate();
     const daysInM = new Date(y, m + 1, 0).getDate();
     const result: DayAvailabilityMap = {};
 
@@ -2072,8 +2139,18 @@ export default function BookScreen() {
         };
       }
     } catch {
-      if (requestId === monthAvailabilityRequestRef.current[requestKey]) {
-        Toast.show('Could not load live calendar availability. Please try again.', 'error');
+      if (requestId === monthAvailabilityRequestRef.current[requestKey] && !options.silent) {
+        const attemptId = `mobile-calendar:${Crypto.randomUUID()}`;
+        handleBookingFailureOnce({
+          eventId: buildBookingTransportEventId(attemptId),
+          selectionRevision: selectionRevisionRef.current,
+          date: selectedDateRef.current || '',
+          time: selectedTimeRef.current || '',
+          errorCode: 'AVAILABILITY_UNVERIFIED',
+          source: 'transport',
+          title: 'Could not load calendar availability',
+          message: 'Booking is paused until live availability can be verified. Please try again.',
+        }, { clearTime: false, returnToSchedule: false });
       }
     }
     finally {
@@ -2083,14 +2160,17 @@ export default function BookScreen() {
         setMonthAvailLoading(pendingMonthAvailabilityRef.current.size > 0);
       }
     }
-  }, [businessDate]);
+  }, [businessDate, handleBookingFailureOnce]);
 
-  const fetchSlotsForDate = useCallback(async (iso: string) => {
+  const fetchSlotsForDate = useCallback(async (
+    iso: string,
+    options: { silent?: boolean; source?: BookingFailureSource; preserveFailureMessage?: boolean } = {},
+  ) => {
     if (!iso) return;
     const requestId = ++slotAvailabilityRequestRef.current;
     setSlotsLoading(true);
     setSlotStatuses([]);
-    setScheduleMessage('');
+    if (!options.preserveFailureMessage) setScheduleMessage('');
     try {
       const res = await apiClient.get(`/orders/available-slots?date=${iso}`);
       if (requestId !== slotAvailabilityRequestRef.current) return;
@@ -2112,15 +2192,28 @@ export default function BookScreen() {
 
       if (emergencyClosed) {
         setSlotStatuses([]);
-        selectedTimeRef.current = null;
-        setSelectedTime(null);
-        setScheduleMessage(EMERGENCY_CLOSURE_MESSAGE);
         setMonthAvailability((current) => ({
           ...current,
           [iso]: getDayAvailabilityFromSlots(current[iso], normalized, 0),
         }));
-        setStep(2);
-        Toast.show(EMERGENCY_CLOSURE_MESSAGE, 'error');
+        const currentTime = selectedTimeRef.current || '';
+        if (!options.preserveFailureMessage) {
+          handleBookingFailureOnce({
+            eventId: buildBookingConflictEventId({
+              bookingRequestId: null,
+              selectionRevision: selectionRevisionRef.current,
+              date: iso,
+              time: currentTime,
+            }),
+            selectionRevision: selectionRevisionRef.current,
+            date: iso,
+            time: currentTime,
+            errorCode: 'EMERGENCY_CLOSED',
+            source: options.source || 'availability',
+            title: BOOKING_NOT_SUBMITTED_LABEL,
+            message: EMERGENCY_CLOSURE_MESSAGE,
+          });
+        }
         return;
       }
 
@@ -2137,51 +2230,63 @@ export default function BookScreen() {
         availableTimes,
       );
 
-      setSlotStatuses(derived);
+      setSlotStatuses(derived.filter((slot) => slot.status === 'AVAILABLE'));
       setMonthAvailability((current) => ({
         ...current,
         [iso]: getDayAvailabilityFromSlots(current[iso], normalized, availableTimes),
       }));
       if (lostSelectedTime) {
-        selectedTimeRef.current = null;
-        setSelectedTime(null);
-        const previousSlot = derived.find((slot) => slot.time === previouslySelectedTime);
-        const conflictMessage = refreshedDayAvailability.status === 'full'
-          ? `${formatIsoDateForDisplay(iso)} is now fully booked. Choose another available date.`
-          : refreshedDayAvailability.status === 'closed'
-            ? `${formatIsoDateForDisplay(iso)} is now closed. Choose another available date.`
-            : previousSlot?.status === 'FULL'
-              ? `${previouslySelectedTime} was just booked. Choose another available time to continue.`
-              : `${previouslySelectedTime} is no longer available. Choose another available time to continue.`;
-        setScheduleMessage(conflictMessage);
-        Toast.show(conflictMessage, 'warning');
+        handleBookingFailureOnce({
+          eventId: buildBookingConflictEventId({
+            bookingRequestId: null,
+            selectionRevision: selectionRevisionRef.current,
+            date: iso,
+            time: previouslySelectedTime || '',
+          }),
+          selectionRevision: selectionRevisionRef.current,
+          date: iso,
+          time: previouslySelectedTime || '',
+          errorCode: 'SLOT_FULL',
+          source: options.source || 'availability',
+          title: BOOKING_NOT_SUBMITTED_LABEL,
+          message: BOOKING_TIME_CONFLICT_MESSAGE,
+        });
       }
-      setSelectedTime((current) => (
-        current && !derived.some((slot) => slot.time === current && slot.status === 'AVAILABLE')
-          ? null
-          : current
-      ));
 
-      if (!lostSelectedTime && message) {
+      if (!options.preserveFailureMessage && !lostSelectedTime && message) {
         setScheduleMessage(message);
-      } else if (!lostSelectedTime && derived.length === 0) {
+      } else if (!options.preserveFailureMessage && !lostSelectedTime && derived.length === 0) {
         setScheduleMessage('No bookable time options were generated for this date.');
       }
     } catch {
       if (requestId === slotAvailabilityRequestRef.current) {
         setSlotStatuses([]);
-        selectedTimeRef.current = null;
-        setSelectedTime(null);
-        setScheduleMessage('Live time availability could not be confirmed. Please try again.');
+        if (!options.preserveFailureMessage) {
+          setScheduleMessage('Live time availability could not be confirmed. Please try again.');
+        }
+        if (!options.silent) {
+          const attemptId = `mobile-slots:${Crypto.randomUUID()}`;
+          handleBookingFailureOnce({
+            eventId: buildBookingTransportEventId(attemptId),
+            selectionRevision: selectionRevisionRef.current,
+            date: iso,
+            time: selectedTimeRef.current || '',
+            errorCode: 'AVAILABILITY_UNVERIFIED',
+            source: 'transport',
+            title: 'Could not load available times',
+            message: 'Booking is paused until live availability can be verified. Please try again.',
+          }, { clearTime: false, returnToSchedule: false });
+        }
       }
     } finally {
       if (requestId === slotAvailabilityRequestRef.current) setSlotsLoading(false);
     }
-  }, []);
+  }, [handleBookingFailureOnce]);
 
   const selectScheduleDate = useCallback((iso: string) => {
     if (!iso) return;
     if (selectedDateRef.current !== iso) {
+      beginNewScheduleSelection();
       selectedDateRef.current = iso;
       selectedTimeRef.current = null;
       setSelectedDate(iso);
@@ -2192,7 +2297,7 @@ export default function BookScreen() {
     setScheduleMessage('');
     void fetchSlotsForDate(iso);
 
-  }, [fetchSlotsForDate]);
+  }, [beginNewScheduleSelection, fetchSlotsForDate]);
 
   useEffect(() => {
     if (step !== 2) return;
@@ -2227,7 +2332,7 @@ export default function BookScreen() {
     }
   }, [fetchSlotsForDate, step]);
 
-  const refreshCurrentAvailability = useCallback(() => {
+  const refreshCurrentAvailability = useCallback((options: { silent?: boolean } = {}) => {
     if (stepRef.current !== 2) return;
     const visibleMonth = visibleCalendarMonthRef.current;
     const months = getUpcomingDateWindow(selectedDateRef.current, businessDate).reduce<{ year: number; month: number }[]>(
@@ -2243,9 +2348,9 @@ export default function BookScreen() {
       },
       [visibleMonth],
     );
-    void Promise.all(months.map((entry) => fetchMonthAvailability(entry.year, entry.month)));
+    void Promise.all(months.map((entry) => fetchMonthAvailability(entry.year, entry.month, options)));
     if (selectedDateRef.current) {
-      void fetchSlotsForDate(selectedDateRef.current);
+      void fetchSlotsForDate(selectedDateRef.current, { silent: options.silent });
     }
   }, [businessDate, fetchMonthAvailability, fetchSlotsForDate]);
 
@@ -2268,16 +2373,20 @@ export default function BookScreen() {
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     const refreshAvailability = () => {
+      if (bookingSubmissionInFlightRef.current) {
+        availabilityRefreshQueuedRef.current = true;
+        return;
+      }
       if (selectedDateRef.current) setSlotsLoading(true);
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
         if (disposed) return;
         const { year, month } = visibleCalendarMonthRef.current;
-        void fetchMonthAvailability(year, month);
+        void fetchMonthAvailability(year, month, { silent: true });
         if (selectedDateRef.current) {
-          void fetchSlotsForDate(selectedDateRef.current);
+          void fetchSlotsForDate(selectedDateRef.current, { silent: true, source: 'realtime' });
         }
-      }, 150);
+      }, 250);
     };
 
     const handleDbChange = (payload: { collection?: string }) => {
@@ -2530,7 +2639,10 @@ export default function BookScreen() {
     setShowFullCalendar(false);
     setPhoneError('');
     setDraftDirty(false);
+    availabilityRefreshQueuedRef.current = false;
+    selectionRevisionRef.current += 1;
     bookingRequestRef.current = null;
+    bookingFailureGuardRef.current?.reset();
     restoredStepRef.current = null;
   }, [backendUser?.phone, profile?.phone, vehicles]);
 
@@ -2986,8 +3098,14 @@ export default function BookScreen() {
       };
     }
     const bookingRequestId = bookingRequestRef.current.id;
+    const submissionAttemptId = `mobile-booking-attempt:${Crypto.randomUUID()}`;
     bookingSubmissionInFlightRef.current = true;
+    availabilityRefreshQueuedRef.current = false;
     setIsSubmitting(true);
+
+    setLastSubmissionFailed(false);
+    setUploadPercent(0);
+    setSubmissionStage('uploading');
 
     try {
       await bookingService.createBooking({
@@ -3006,14 +3124,21 @@ export default function BookScreen() {
         downpaymentProof: downpaymentProof || undefined,
         reservationPaymentAmount: 500,
         bookingRequestId,
+        onUploadProgress: (percent) => {
+          setUploadPercent(percent);
+          if (percent >= 100) setSubmissionStage('processing');
+        },
       });
 
-
+      setSubmissionStage('saving');
+      availabilityRefreshQueuedRef.current = false;
+      bookingFailureGuardRef.current?.reset();
       invalidateCache('/bookings');
       reset();
+      setSubmissionStage('done');
       router.push('/(customer)/track');
     } catch (error: any) {
-      Haptics.formSubmitError();
+      setLastSubmissionFailed(true);
       const errorPayload = error?.response?.data || {};
       const status = Number(error?.response?.status || 0);
       const errorCode = String(errorPayload?.errorCode || '').toUpperCase();
@@ -3029,14 +3154,27 @@ export default function BookScreen() {
         : status === 409 && dailyCapacityReached && selectedDate
           ? `${formatIsoDateForDisplay(selectedDate)} is now fully booked. Choose another available date.`
           : status === 409 && conflictedTime
-            ? `${conflictedTime} was just booked. Choose another available time to continue.`
+            ? BOOKING_TIME_CONFLICT_MESSAGE
             : getApiErrorMessage(error, 'Something went wrong. Please try again.');
-      if (emergencyClosed || status === 409) {
+      if ((emergencyClosed || status === 409) && errorCode !== 'BOOKING_REQUEST_REUSED') {
         const affectedDate = selectedDate;
-        selectedTimeRef.current = null;
-        setSelectedTime(null);
-        setScheduleMessage(message);
-        setStep(2);
+        handleBookingFailureOnce({
+          eventId: buildBookingConflictEventId({
+            bookingRequestId,
+            selectionRevision: selectionRevisionRef.current,
+            date: affectedDate,
+            time: conflictedTime,
+          }),
+          bookingRequestId,
+          selectionRevision: selectionRevisionRef.current,
+          date: affectedDate,
+          time: conflictedTime,
+          errorCode,
+          source: 'submit',
+          title: BOOKING_NOT_SUBMITTED_LABEL,
+          message,
+        });
+        availabilityRefreshQueuedRef.current = false;
         if (affectedDate && emergencyClosed) {
           setMonthAvailability((current) => ({
             ...current,
@@ -3054,17 +3192,34 @@ export default function BookScreen() {
           }));
         }
         const { year, month } = visibleCalendarMonthRef.current;
-        void fetchMonthAvailability(year, month);
+        void fetchMonthAvailability(year, month, { silent: true });
         if (affectedDate) {
-          void fetchSlotsForDate(affectedDate).then(() => {
-            if (selectedDateRef.current === affectedDate) setScheduleMessage(message);
-          });
+          void fetchSlotsForDate(affectedDate, { silent: true, preserveFailureMessage: true });
         }
+      } else {
+        handleBookingFailureOnce({
+          eventId: buildBookingTransportEventId(submissionAttemptId),
+          bookingRequestId,
+          selectionRevision: selectionRevisionRef.current,
+          date: selectedDate,
+          time: selectedTime,
+          errorCode,
+          source: 'transport',
+          title: 'Booking failed',
+          message,
+        }, { clearTime: false, returnToSchedule: false });
       }
-      Toast.show(message, 'error');
     } finally {
       bookingSubmissionInFlightRef.current = false;
       setIsSubmitting(false);
+      setSubmissionStage('idle');
+      setUploadPercent(0);
+      if (availabilityRefreshQueuedRef.current && selectedDateRef.current) {
+        availabilityRefreshQueuedRef.current = false;
+        const { year, month } = visibleCalendarMonthRef.current;
+        void fetchMonthAvailability(year, month, { silent: true });
+        void fetchSlotsForDate(selectedDateRef.current, { silent: true, preserveFailureMessage: true });
+      }
     }
   };
 
@@ -3266,7 +3421,7 @@ export default function BookScreen() {
         normalized,
         refreshedAvailableTimes,
       );
-      setSlotStatuses(refreshedSlots);
+      setSlotStatuses(refreshedSlots.filter((slot) => slot.status === 'AVAILABLE'));
       setMonthAvailability((current) => ({
         ...current,
         [requestedDate]: getDayAvailabilityFromSlots(
@@ -3284,30 +3439,45 @@ export default function BookScreen() {
         || refreshedDayAvailability.status !== 'available'
         || selectedSlot?.status !== 'AVAILABLE'
       ) {
-        Haptics.formSubmitError();
-        selectedTimeRef.current = null;
-        setSelectedTime(null);
-        setDraftDirty(true);
         const conflictMessage = normalized.emergencyClosed
           ? EMERGENCY_CLOSURE_MESSAGE
           : refreshedDayAvailability.status === 'full'
             ? `${formatIsoDateForDisplay(requestedDate)} is now fully booked. Choose another available date.`
             : refreshedDayAvailability.status === 'closed'
               ? `${formatIsoDateForDisplay(requestedDate)} is now closed. Choose another available date.`
-              : selectedSlot?.status === 'FULL'
-                ? `${requestedTime} was just booked. Choose another available time to continue.`
-                : `${requestedTime} is no longer available. Choose another available time to continue.`;
-        setScheduleMessage(conflictMessage);
+              : BOOKING_TIME_CONFLICT_MESSAGE;
+        handleBookingFailureOnce({
+          eventId: buildBookingConflictEventId({
+            bookingRequestId: null,
+            selectionRevision: selectionRevisionRef.current,
+            date: requestedDate,
+            time: requestedTime,
+          }),
+          selectionRevision: selectionRevisionRef.current,
+          date: requestedDate,
+          time: requestedTime,
+          errorCode: normalized.errorCode || 'SLOT_FULL',
+          source: 'availability',
+          title: BOOKING_NOT_SUBMITTED_LABEL,
+          message: conflictMessage,
+        });
         const { year, month } = visibleCalendarMonthRef.current;
-        void fetchMonthAvailability(year, month);
-        Toast.show(conflictMessage, normalized.emergencyClosed ? 'error' : 'warning');
+        void fetchMonthAvailability(year, month, { silent: true });
         return;
       }
       if (!normalized.dailyAvailability) {
-        Haptics.formSubmitError();
         const capacityMessage = 'Daily booking capacity could not be confirmed. Please try again.';
-        setScheduleMessage(capacityMessage);
-        Toast.show(capacityMessage, 'error');
+        const attemptId = `mobile-schedule:${Crypto.randomUUID()}`;
+        handleBookingFailureOnce({
+          eventId: buildBookingTransportEventId(attemptId),
+          selectionRevision: selectionRevisionRef.current,
+          date: requestedDate,
+          time: requestedTime,
+          errorCode: 'AVAILABILITY_UNVERIFIED',
+          source: 'transport',
+          title: 'Could not verify daily capacity',
+          message: capacityMessage,
+        }, { clearTime: false, returnToSchedule: false });
         return;
       }
 
@@ -3360,8 +3530,17 @@ export default function BookScreen() {
       }
       setStep(3);
     } catch (error) {
-      Haptics.formSubmitError();
-      Toast.show(getApiErrorMessage(error, 'Unable to verify this arrival time. Please try again.'), 'error');
+      const attemptId = `mobile-schedule:${Crypto.randomUUID()}`;
+      handleBookingFailureOnce({
+        eventId: buildBookingTransportEventId(attemptId),
+        selectionRevision: selectionRevisionRef.current,
+        date: requestedDate,
+        time: requestedTime,
+        errorCode: 'AVAILABILITY_UNVERIFIED',
+        source: 'transport',
+        title: 'Could not verify this arrival time',
+        message: getApiErrorMessage(error, 'Unable to verify this arrival time. Please try again.'),
+      }, { clearTime: false, returnToSchedule: false });
     } finally {
       setIsScheduleContinuing(false);
     }
@@ -3375,10 +3554,27 @@ export default function BookScreen() {
     if (scheduleIsKnownAvailable) {
       setStep(targetStep);
     } else {
-      Toast.show('Your saved appointment time changed. Please choose an available slot.', 'warning');
+      const draftTime = selectedTimeRef.current || pendingDraft?.selectedTime || '';
+      handleBookingFailureOnce({
+        eventId: buildBookingConflictEventId({
+          bookingRequestId: null,
+          selectionRevision: selectionRevisionRef.current,
+          date: selectedDate,
+          time: draftTime,
+        }),
+        selectionRevision: selectionRevisionRef.current,
+        date: selectedDate,
+        time: draftTime,
+        errorCode: 'SLOT_FULL',
+        source: 'availability',
+        title: BOOKING_NOT_SUBMITTED_LABEL,
+        message: BOOKING_TIME_CONFLICT_MESSAGE,
+      });
     }
   }, [
     monthAvailLoading,
+    handleBookingFailureOnce,
+    pendingDraft?.selectedTime,
     scheduleIsKnownAvailable,
     selectedDate,
     selectedDayAvailability,
@@ -4373,6 +4569,7 @@ export default function BookScreen() {
                           status={status}
                           selected={selectedTime === t}
                           onSelect={() => {
+                            beginNewScheduleSelection();
                             selectedTimeRef.current = t;
                             setSelectedTime(t);
                             setScheduleMessage('');
@@ -4742,7 +4939,16 @@ export default function BookScreen() {
             const effectivePrice: number = selectedService?.price ?? 0;
             const RESERVATION_FEE = 500;
             const balance = Math.max(0, effectivePrice - RESERVATION_FEE);
-            const canSubmit = !!downpaymentProof && !isSubmitting && canConfirmBooking;
+            const canSubmit = !!downpaymentProof && !isSubmitting && !isCompressingProof && canConfirmBooking;
+            const submissionStageLabel = submissionStage === 'compressing'
+              ? 'Compressing photo…'
+              : submissionStage === 'uploading'
+                ? `Uploading ${uploadPercent}%…`
+                : submissionStage === 'processing'
+                  ? 'Confirming booking…'
+                  : submissionStage === 'saving'
+                    ? 'Saving booking…'
+                    : null;
             return (
               <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
                 <View style={ss.editorialHeader}>
@@ -4790,20 +4996,32 @@ export default function BookScreen() {
                   </View>
                   <TouchableOpacity
                     activeOpacity={0.85}
+                    disabled={isCompressingProof}
                     style={[pay.uploadBox, downpaymentProof && pay.uploadBoxDone]}
                     onPress={async () => {
                       try {
                         const result = await ImagePicker.launchImageLibraryAsync(PAYMENT_PROOF_PICKER_OPTIONS);
                         if (!result.canceled && result.assets[0]) {
-                          setDownpaymentProof(paymentProofDataUrlFromAsset(result.assets[0]));
-
+                          setIsCompressingProof(true);
+                          try {
+                            const compressed = await compressPaymentProofAsset(result.assets[0]);
+                            setDownpaymentProof(paymentProofDataUrlFromCompressedAsset(compressed));
+                          } finally {
+                            setIsCompressingProof(false);
+                          }
                         }
                       } catch (error) {
+                        setIsCompressingProof(false);
                         Alert.alert('Receipt Not Selected', getApiErrorMessage(error));
                       }
                     }}
                   >
-                    {downpaymentProof ? (
+                    {isCompressingProof ? (
+                      <View style={pay.uploadInner}>
+                        <PremiumLoader size="small" tone="accent" accessibilityLabel="Compressing photo" />
+                        <Text style={pay.uploadPromptSub}>Compressing photo…</Text>
+                      </View>
+                    ) : downpaymentProof ? (
                       <>
                         <Image source={{ uri: downpaymentProof }} style={pay.proofThumb} resizeMode="contain" />
                         <View style={pay.proofOverlay}>
@@ -4830,6 +5048,23 @@ export default function BookScreen() {
                     <Text style={{ fontWeight: '700' }}>on the day of your appointment</Text> at our shop.
                   </Text>
                 </View>
+
+                {isSubmitting && submissionStageLabel ? (
+                  <Text style={pay.uploadPromptSub}>{submissionStageLabel}</Text>
+                ) : null}
+
+                {lastSubmissionFailed && !isSubmitting ? (
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={handleConfirm}
+                    style={ss.retryBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Retry Upload"
+                  >
+                    <Ionicons name="refresh" size={16} color={PRIMARY} />
+                    <Text style={ss.retryBtnText}>Retry Upload</Text>
+                  </TouchableOpacity>
+                ) : null}
 
                 <View style={ss.btnRow}>
                   <TouchableOpacity activeOpacity={0.85} onPress={goBack} disabled={isSubmitting} style={[ss.outlineBtn, { flex: 1 }]}>
@@ -5390,6 +5625,25 @@ const ss = StyleSheet.create({
 
   // ── Button Row ──
   btnRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
+
+  // ── Retry Upload (shown after a failed submission, so the user can resubmit
+  //    the already-compressed proof without re-picking a photo) ──
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 20,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: PRIMARY,
+    backgroundColor: 'rgba(99,102,241,0.08)',
+  },
+  retryBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: PRIMARY,
+  },
 
   // ── Loading & Empty ──
   loadingBox: { alignItems: 'center', paddingVertical: 48, gap: 14 },

@@ -107,6 +107,7 @@ import { buildCustomerStagePayload } from '../utils/customerTrackerStage.utils.j
 import { LIVE_TRACKING_CLOSE_REASONS, closeCustomerLiveTracking } from '../constants/orderLifecycle.js';
 import { withFetchableTrackerPhotoUrls } from '../utils/trackerMediaPhotoUrl.utils.js';
 import { buildResponsiveTrackerMedia } from './tracker.controller.js';
+import { processPaymentProofImage } from '../utils/paymentProofImage.utils.js';
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
   { name: 'Surface Decontamination', status: 'pending' },
@@ -561,7 +562,15 @@ const getBookingListSort = ({ sortBy, sortOrder }) => {
 const ORDER_APPROVAL_PREVIEW_PROJECTION =
   '-damageAnnotations -damagePhotos -photos -ingressChecklist -customerWaiver -serviceProper -qcChecklist -egressData -operationsChecklist -warrantyAndReceipt -workflow -jobOrder -staffNotes -rating -inventoryReservation -serviceSteps -trackerStageMedia -legalCompliance';
 
-/** Modal context only — proof loaded via `getOrderGcashProofFields` so the first round-trip stays small and Axios can finish. */
+/**
+ * Modal context only — proof loaded via `getOrderGcashProofFields` so the first round-trip stays
+ * small and Axios can finish. This is an exclusion-only select string; `paymentProofAssets`
+ * (including its `thumbnailUrl`) is never excluded here, so it already comes through without
+ * needing a `+field` re-inclusion — mixing `+field` into an all-exclusion select flips Mongoose's
+ * query into inclusion mode, which MongoDB rejects outright once any other `-field` exclusion
+ * (e.g. `-damageAnnotations`) is also present ("Cannot do exclusion on field X in inclusion
+ * projection"), a 500 that was masking the payment-proof image as unreachable in the Sales modal.
+ */
 const ORDER_APPROVAL_CONTEXT_PROJECTION =
   `${ORDER_APPROVAL_PREVIEW_PROJECTION} -downpaymentProof -paymentProofUrl -notes`;
 
@@ -1027,11 +1036,15 @@ async function releaseOrderSlotIfConsumed(orderLike) {
 }
 
 function slotErrorResponsePayload(slotCheck, fallbackCode = 'SLOT_FULL') {
+  const errorCode = slotCheck.errorCode || fallbackCode;
+  const defaultMessage = errorCode === 'SLOT_FULL'
+    ? 'This time slot is no longer available. Please choose another available schedule.'
+    : 'Selected time slot is no longer available.';
   return {
     success: false,
-    errorCode: slotCheck.errorCode || fallbackCode,
-    message: slotCheck.message || 'Selected time slot is no longer available.',
-    error: slotCheck.error || slotCheck.message || 'Selected time slot is no longer available.',
+    errorCode,
+    message: errorCode === 'SLOT_FULL' ? defaultMessage : slotCheck.message || defaultMessage,
+    error: errorCode === 'SLOT_FULL' ? defaultMessage : slotCheck.error || slotCheck.message || defaultMessage,
   };
 }
 
@@ -1685,6 +1698,7 @@ export const getOrderGcashProofFields = async (req, res, next) => {
           assignedDetailer: 1,
           status: 1,
           archived: 1,
+          paymentProofAssets: 1,
           proofImage: {
             $cond: [
               { $gt: [{ $strLenCP: { $ifNull: ['$paymentProofUrl', ''] } }, 0] },
@@ -1712,11 +1726,12 @@ export const getOrderGcashProofFields = async (req, res, next) => {
     }
 
     let paymentProofUrl = order.proofImage || null;
+    let reservationPayment = null;
     if (!paymentProofUrl) {
-      const reservationPayment = await Payment.findOne({
+      reservationPayment = await Payment.findOne({
         order: order._id,
         transactionType: 'reservation_fee',
-      }).select('proofImage').lean();
+      }).select('proofImage proofImageAssets').lean();
       paymentProofUrl = reservationPayment?.proofImage || null;
     }
 
@@ -1724,7 +1739,10 @@ export const getOrderGcashProofFields = async (req, res, next) => {
       success: true,
       // Return one canonical copy. Older responses duplicated the same base64
       // string in both fields, doubling JSON parsing and transfer work.
-      data: { paymentProofUrl },
+      data: {
+        paymentProofUrl,
+        paymentProofAssets: order.paymentProofAssets || reservationPayment?.proofImageAssets || null,
+      },
     });
   } catch (error) {
     next(error);
@@ -2147,6 +2165,19 @@ export const createOrder = async (req, res, next) => {
       });
     }
 
+    // Tiered {thumbnail, compressed, original} pipeline runs before any Mongo
+    // transaction opens (persistBookingWithReservationPayment starts its own
+    // session below). Never throws — a null result falls back to today's raw
+    // base64 storage behavior.
+    let paymentProofAssets = null;
+    let storedPaymentProof = resolvedPaymentProof;
+    if (resolvedPaymentProof && resolvedPaymentProof.startsWith('data:image/')) {
+      paymentProofAssets = await processPaymentProofImage(resolvedPaymentProof, {
+        publicIdPrefix: `order_${bookingRequestId || Date.now()}`,
+      });
+      if (paymentProofAssets) storedPaymentProof = paymentProofAssets.compressedUrl;
+    }
+
     const submittedReservationAmount = resolvedPaymentProof
       ? normalizeReservationAmount(
           reservationPaymentAmountInput,
@@ -2177,9 +2208,10 @@ export const createOrder = async (req, res, next) => {
           await ensurePendingReservationPayment({
             order: existingBooking,
             amount: submittedReservationAmount,
-            proofImage: resolvedPaymentProof,
+            proofImage: storedPaymentProof,
             paymentMethod: 'gcash',
             submittedBy: req.user.id,
+            proofImageAssets: paymentProofAssets,
           });
         }
         return res.status(200).json({
@@ -2277,8 +2309,9 @@ export const createOrder = async (req, res, next) => {
       sourceConversationId: sourceConversationId || undefined,
       bookingRequestId: bookingRequestId || undefined,
       isWalkIn: isAuthorizedWalkIn,
-      downpaymentProof: resolvedPaymentProof,
-      paymentProofUrl: resolvedPaymentProof,
+      downpaymentProof: storedPaymentProof,
+      paymentProofUrl: storedPaymentProof,
+      paymentProofAssets,
       paymentMethod: resolvedPaymentProof ? 'gcash' : undefined,
     };
 
@@ -2292,9 +2325,10 @@ export const createOrder = async (req, res, next) => {
           orderPayload,
           reservationPayment: {
             amount: submittedReservationAmount,
-            proofImage: resolvedPaymentProof,
+            proofImage: storedPaymentProof,
             paymentMethod: 'gcash',
             submittedBy: req.user.id,
+            proofImageAssets: paymentProofAssets,
           },
         })
       : { order: await Order.create(orderPayload) };
@@ -4999,6 +5033,19 @@ export const uploadPaymentProof = async (req, res, next) => {
       });
     }
 
+    // Tiered {thumbnail, compressed, original} pipeline runs before any Mongo
+    // work below (this resubmission path uses a CAS findOneAndUpdate, not a
+    // transaction). Never throws — a null result falls back to today's raw
+    // base64 storage behavior.
+    let paymentProofAssets = null;
+    let storedPaymentProofUrl = paymentProofUrl;
+    if (paymentProofUrl && paymentProofUrl.startsWith('data:image/')) {
+      paymentProofAssets = await processPaymentProofImage(paymentProofUrl, {
+        publicIdPrefix: `order_resubmit_${id}_${Date.now()}`,
+      });
+      if (paymentProofAssets) storedPaymentProofUrl = paymentProofAssets.compressedUrl;
+    }
+
     let order = await Order.findById(id);
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
@@ -5071,8 +5118,9 @@ export const uploadPaymentProof = async (req, res, next) => {
       { _id: order._id, __v: order.__v, status: previousStatus },
       {
         $set: {
-          downpaymentProof: paymentProofUrl,
-          paymentProofUrl,
+          downpaymentProof: storedPaymentProofUrl,
+          paymentProofUrl: storedPaymentProofUrl,
+          paymentProofAssets,
           paymentMethod: 'gcash',
           status: 'pending_confirmation',
           rejectionReason: null,
@@ -5094,9 +5142,10 @@ export const uploadPaymentProof = async (req, res, next) => {
         await ensurePendingReservationPayment({
           order: current,
           amount: submittedReservationAmount,
-          proofImage: paymentProofUrl,
+          proofImage: storedPaymentProofUrl,
           paymentMethod: 'gcash',
           submittedBy: req.user.id,
+          proofImageAssets: paymentProofAssets,
         });
         return res.status(200).json({
           success: true,
@@ -5115,9 +5164,10 @@ export const uploadPaymentProof = async (req, res, next) => {
     await ensurePendingReservationPayment({
       order,
       amount: submittedReservationAmount,
-      proofImage: paymentProofUrl,
+      proofImage: storedPaymentProofUrl,
       paymentMethod: 'gcash',
       submittedBy: req.user.id,
+      proofImageAssets: paymentProofAssets,
     });
     emitOrderCapacityChange(previousOccupancy, order, 'appointment_resubmitted');
 
@@ -5332,7 +5382,7 @@ export const approveBooking = async (req, res, next) => {
         status: 'succeeded',
         amountSubmitted: reservationPayment.amountSubmitted,
         amountVerified: approvedAmount,
-        proofImage: reservationPayment.proofImage,
+        hadProofImage: Boolean(reservationPayment.proofImage),
         changedAt: reviewedAt,
         changedBy: req.user.id,
       });
@@ -5481,7 +5531,7 @@ export const rejectBooking = async (req, res, next) => {
         status: 'rejected',
         amountSubmitted: reservationPayment.amountSubmitted,
         amountVerified: 0,
-        proofImage: reservationPayment.proofImage,
+        hadProofImage: Boolean(reservationPayment.proofImage),
         reason: reservationPayment.reviewReason,
         changedAt: reviewedAt,
         changedBy: req.user.id,

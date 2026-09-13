@@ -8,6 +8,8 @@ import { invalidate } from '@/lib/queryCache';
 import type { RangeSlotSummary } from '@/components/sales/calendar/calendarService';
 
 export const AVAILABILITY_UPDATED_EVENT = 'autospf:availability-updated';
+const AVAILABILITY_EVENT_DEBOUNCE_MS = 250;
+let availabilityEventTimer: number | null = null;
 
 export type CustomerDayAvailabilityStatus = 'available' | 'full' | 'closed';
 
@@ -26,7 +28,11 @@ export function syncAvailabilityCaches(): void {
   clearCalendarSlotsCache();
   invalidate('/orders/available-slots');
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(AVAILABILITY_UPDATED_EVENT));
+    if (availabilityEventTimer) window.clearTimeout(availabilityEventTimer);
+    availabilityEventTimer = window.setTimeout(() => {
+      availabilityEventTimer = null;
+      window.dispatchEvent(new CustomEvent(AVAILABILITY_UPDATED_EVENT));
+    }, AVAILABILITY_EVENT_DEBOUNCE_MS);
   }
 }
 

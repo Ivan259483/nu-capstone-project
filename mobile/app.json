@@ -9,7 +9,7 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "icon": "./assets/icon.png",
-      "bundleIdentifier": "com.autospf.plus",
+      "bundleIdentifier": "com.ivantadena.autospfplus2026",
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "AutoSPF+ connects to the Metro JavaScript bundler on your Mac during local development (same Wi‑Fi).",
         "NSCameraUsageDescription": "Camera is used for vehicle scanning and AR damage inspection.",

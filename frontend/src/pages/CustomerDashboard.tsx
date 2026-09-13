@@ -11,9 +11,18 @@ import {
   AVAILABILITY_UPDATED_EVENT,
   ensureAvailabilityRealtimeSync,
   mapRangeSummaryToCustomerDay,
-  syncAvailabilityCaches,
 } from '@/lib/availabilitySync';
 import { getAvailabilityBadge } from '@/lib/availabilityBadge';
+import {
+  BOOKING_NOT_SUBMITTED_LABEL,
+  BOOKING_TIME_CONFLICT_MESSAGE,
+  buildBookingConflictEventId,
+  buildBookingTransportEventId,
+  createBookingFailureNotificationGuard,
+  createBookingRequestId,
+  type BookingFailureEvent,
+  type BookingFailureSource,
+} from '@/lib/booking-failure';
 import api, { BACKEND_API_URL, ensureBackendAuthToken, getStoredAuthToken } from '../lib/api';
 import { resolveMediaUrl } from '../lib/media-url';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
@@ -392,10 +401,19 @@ function displayServiceTitle(raw: unknown, fallback = 'Service'): string {
   return s;
 }
 
+function parseBookingCalendarDate(dateRaw: unknown): Date | null {
+  if (!dateRaw) return null;
+  const raw = String(dateRaw).trim();
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const parsed = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function formatBookingDayLabel(dateRaw: unknown): string {
-  if (!dateRaw) return 'Date to be confirmed';
-  const d = new Date(dateRaw as string);
-  if (Number.isNaN(d.getTime())) return 'Date to be confirmed';
+  const d = parseBookingCalendarDate(dateRaw);
+  if (!d) return 'Date to be confirmed';
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
@@ -1045,12 +1063,15 @@ export default function CustomerDashboard() {
     const upcomingStatuses = ['pending_confirmation', 'pending', 'confirmed', 'approved', 'assigned'];
     const upcoming = myOrders
       .filter((o: any) => upcomingStatuses.includes(norm(o.status)) && (o.date || o.bookingDate))
-      .sort((a: any, b: any) => new Date(a.date || a.bookingDate).getTime() - new Date(b.date || b.bookingDate).getTime());
+      .sort((a: any, b: any) => (
+        (parseBookingCalendarDate(a.date || a.bookingDate)?.getTime() || 0)
+        - (parseBookingCalendarDate(b.date || b.bookingDate)?.getTime() || 0)
+      ));
     let nextAppointment = '';
     if (upcoming.length > 0) {
-      const d = new Date(upcoming[0].date || upcoming[0].bookingDate);
+      const d = parseBookingCalendarDate(upcoming[0].date || upcoming[0].bookingDate);
       const timeStr = upcoming[0].time || upcoming[0].bookingTime || '';
-      nextAppointment = `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${timeStr ? `, ${timeStr}` : ''}`;
+      nextAppointment = `${d?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || 'Date to be confirmed'}${timeStr ? `, ${timeStr}` : ''}`;
     }
 
     const doneStatuses = ['completed', 'released', 'done', 'delivered'];
@@ -1091,6 +1112,8 @@ export default function CustomerDashboard() {
   const [bookingOpen, setBookingOpen] = useState(false);
   const [bookingStep, setBookingStep] = useState(1);
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
+  const [bookingSubmitStage, setBookingSubmitStage] = useState<'idle' | 'uploading' | 'processing' | 'saving' | 'done'>('idle');
+  const [bookingUploadPercent, setBookingUploadPercent] = useState(0);
   const [bookingDone, setBookingDone] = useState(false);
   const [bookingVehicleType, setBookingVehicleType] = useState<string>('');
   const [bookingSelectedVehicleIdx, setBookingSelectedVehicleIdx] = useState<number>(-1);
@@ -1417,6 +1440,33 @@ export default function CustomerDashboard() {
     contactNo: '',
     date: '', time: '', notes: '',
   });
+  const bookingFormRef = useRef(bookingForm);
+  const bookingOpenRef = useRef(bookingOpen);
+  const bookingDoneRef = useRef(bookingDone);
+  const bookingSubmissionInFlightRef = useRef(false);
+  const bookingAvailabilityRefreshQueuedRef = useRef(false);
+  const bookingSelectionRevisionRef = useRef(0);
+  const bookingRequestRef = useRef<{ fingerprint: string; id: string } | null>(null);
+  const bookingFailureGuardRef = useRef<ReturnType<typeof createBookingFailureNotificationGuard> | null>(null);
+  if (!bookingFailureGuardRef.current) {
+    bookingFailureGuardRef.current = createBookingFailureNotificationGuard((event) => {
+      toast.error(event.title, {
+        id: event.notificationId ?? event.eventId,
+        description: event.message,
+        duration: 5000,
+        action: event.action,
+      });
+    });
+  }
+  bookingFormRef.current = bookingForm;
+  bookingOpenRef.current = bookingOpen;
+  bookingDoneRef.current = bookingDone;
+
+  const beginNewBookingSelection = useCallback(() => {
+    bookingSelectionRevisionRef.current += 1;
+    bookingRequestRef.current = null;
+    bookingFailureGuardRef.current?.reset();
+  }, []);
 
   const updatePackageScrollState = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -1514,6 +1564,8 @@ export default function CustomerDashboard() {
   const [bookingCalMonth, setBookingCalMonth] = useState(() => {
     const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), 1);
   });
+  const bookingCalMonthRef = useRef(bookingCalMonth);
+  bookingCalMonthRef.current = bookingCalMonth;
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [step2Errors, setStep2Errors] = useState<Record<string, string>>({});
   // Structured per-slot statuses for the selected date
@@ -1690,6 +1742,7 @@ export default function CustomerDashboard() {
   }
 
   function startBookingFunnel(preSelectedVehicle?: any) {
+    beginNewBookingSelection();
     const requestedVehicleId = getFunnelVehicleId(preSelectedVehicle);
     const autoSelectedVehicle = preSelectedVehicle
       || (garageLoadState === 'loaded_one' ? vehicles[0] : null);
@@ -1699,6 +1752,8 @@ export default function CustomerDashboard() {
     setServicesVehicleId(resolvedId);
     setShowOnboarding(false);
     dismissCustomerOverlaysForBooking();
+    bookingOpenRef.current = true;
+    bookingDoneRef.current = false;
     setBookingOpen(true);
     setBookingStep(1);
     setBookingDone(false);
@@ -1765,7 +1820,9 @@ export default function CustomerDashboard() {
       return;
     }
 
+    beginNewBookingSelection();
     dismissCustomerOverlaysForBooking();
+    bookingOpenRef.current = true; bookingDoneRef.current = false;
     setBookingOpen(true); setBookingStep(1); setBookingDone(false);
     setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null);
     setSlotStatuses([]); setSlotError(''); setMonthAvailability({});
@@ -1898,7 +1955,10 @@ export default function CustomerDashboard() {
   }
 
   function closeBookingModal() {
-    if (bookingSubmitting) return;
+    if (bookingSubmissionInFlightRef.current) return;
+    beginNewBookingSelection();
+    bookingAvailabilityRefreshQueuedRef.current = false;
+    bookingOpenRef.current = false;
     setBookingOpen(false);
     resetCustomerBookingPackageIntent(
       window.sessionStorage,
@@ -1954,10 +2014,37 @@ export default function CustomerDashboard() {
     };
   }, [bookingStep]);
 
-  const fetchSlotsForDate = async (dateIso: string, currentSelectedTime?: string) => {
+  const handleBookingFailureOnce = useCallback((
+    event: BookingFailureEvent,
+    options: { clearTime?: boolean; returnToSchedule?: boolean } = {},
+  ) => {
+    const handled = bookingFailureGuardRef.current?.notifyOnce(event) ?? false;
+    if (!handled) return false;
+
+    if (options.clearTime !== false) {
+      setBookingForm((current) => (
+        !event.date || current.date === event.date
+          ? { ...current, time: '' }
+          : current
+      ));
+    }
+    setSlotError(
+      options.clearTime === false
+        ? event.message
+        : `${BOOKING_NOT_SUBMITTED_LABEL}. ${event.message}`,
+    );
+    if (options.returnToSchedule !== false) setBookingStep(3);
+    return true;
+  }, []);
+
+  const fetchSlotsForDate = async (
+    dateIso: string,
+    currentSelectedTime?: string,
+    options: { silent?: boolean; source?: BookingFailureSource; preserveFailureMessage?: boolean } = {},
+  ) => {
     if (!dateIso) return;
     setSlotsLoading(true);
-    setSlotError('');
+    if (!options.preserveFailureMessage) setSlotError('');
     try {
       const slotHeaders: HeadersInit = { Accept: 'application/json' };
       const slotToken = getStoredAuthToken();
@@ -1984,11 +2071,25 @@ export default function CustomerDashboard() {
         const message = errorCode === 'EMERGENCY_CLOSED'
           ? 'Bookings for today have been temporarily closed. Please select another available date.'
           : availabilityMessage || 'This date is unavailable for booking.';
-        setSlotError(message);
-        setBookingForm((current) => ({ ...current, time: '' }));
-        setBookingStep((current) => (current > 3 ? 3 : current));
         if (currentSelectedTime) {
-          toast.warning('Selected schedule unavailable', { description: message, duration: 5000 });
+          handleBookingFailureOnce({
+            eventId: buildBookingConflictEventId({
+              bookingRequestId: null,
+              selectionRevision: bookingSelectionRevisionRef.current,
+              date: dateIso,
+              time: currentSelectedTime,
+            }),
+            selectionRevision: bookingSelectionRevisionRef.current,
+            date: dateIso,
+            time: currentSelectedTime,
+            errorCode,
+            source: options.source || 'availability',
+            title: BOOKING_NOT_SUBMITTED_LABEL,
+            message,
+          });
+        } else {
+          if (!options.preserveFailureMessage) setSlotError(message);
+          setBookingStep((current) => (current > 3 ? 3 : current));
         }
       }
 
@@ -2029,7 +2130,7 @@ export default function CustomerDashboard() {
         });
         return rows;
       }, []);
-      setSlotStatuses(derived);
+      setSlotStatuses(derived.filter((slot) => slot.status === 'AVAILABLE'));
 
       // Check if the currently selected time became unavailable
       if (currentSelectedTime) {
@@ -2037,29 +2138,51 @@ export default function CustomerDashboard() {
           s => normalizeBookingTimeKey(s.time) === normalizeBookingTimeKey(currentSelectedTime)
         )?.status;
         if (nowStatus !== 'AVAILABLE' && !unavailable) {
-          const msg = `"${currentSelectedTime}" is no longer available. Please select another time.`;
-          setSlotError(msg);
-          setBookingForm(f => ({ ...f, time: '' }));
-          toast.warning('Selected time unavailable', { description: msg, duration: 4000 });
+          handleBookingFailureOnce({
+            eventId: buildBookingConflictEventId({
+              bookingRequestId: null,
+              selectionRevision: bookingSelectionRevisionRef.current,
+              date: dateIso,
+              time: currentSelectedTime,
+            }),
+            selectionRevision: bookingSelectionRevisionRef.current,
+            date: dateIso,
+            time: currentSelectedTime,
+            errorCode: 'SLOT_FULL',
+            source: options.source || 'availability',
+            title: BOOKING_NOT_SUBMITTED_LABEL,
+            message: BOOKING_TIME_CONFLICT_MESSAGE,
+          });
         }
       }
     } catch (error) {
       setSlotStatuses([]);
-      setSlotError(error instanceof Error ? error.message : 'Could not verify available times.');
-      if (currentSelectedTime) {
-        setBookingForm((current) => ({ ...current, time: '' }));
-        setBookingStep((current) => (current > 3 ? 3 : current));
+      if (!options.preserveFailureMessage) {
+        setSlotError(error instanceof Error ? error.message : 'Could not verify available times.');
       }
-      toast.warning('Could not load available times', {
-        description: 'Booking is paused until live availability can be verified. Please try again.',
-        duration: 4000,
-      });
+      if (!options.silent) {
+        const attemptId = createBookingRequestId('web-availability');
+        handleBookingFailureOnce({
+          eventId: buildBookingTransportEventId(attemptId),
+          selectionRevision: bookingSelectionRevisionRef.current,
+          date: dateIso,
+          time: currentSelectedTime || '',
+          errorCode: 'AVAILABILITY_UNVERIFIED',
+          source: 'transport',
+          title: 'Could not load available times',
+          message: 'Booking is paused until live availability can be verified. Please try again.',
+        }, { clearTime: false, returnToSchedule: false });
+      }
     } finally {
       setSlotsLoading(false);
     }
   };
 
-  const fetchMonthAvailability = async (year: number, month: number) => {
+  const fetchMonthAvailability = async (
+    year: number,
+    month: number,
+    options: { silent?: boolean } = {},
+  ) => {
     setMonthAvailLoading(true);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const start = `${year}-${String(month + 1).padStart(2, '0')}-01`;
@@ -2070,10 +2193,19 @@ export default function CustomerDashboard() {
     try {
       summaries = await fetchSlotRange(start, end);
     } catch {
-      toast.warning('Could not load calendar availability', {
-        description: 'Showing limited dates. Please try again.',
-        duration: 4000,
-      });
+      if (!options.silent) {
+        const attemptId = createBookingRequestId('web-calendar');
+        handleBookingFailureOnce({
+          eventId: buildBookingTransportEventId(attemptId),
+          selectionRevision: bookingSelectionRevisionRef.current,
+          date: bookingFormRef.current.date,
+          time: bookingFormRef.current.time,
+          errorCode: 'AVAILABILITY_UNVERIFIED',
+          source: 'transport',
+          title: 'Could not load calendar availability',
+          message: 'Showing limited dates. Please try again.',
+        }, { clearTime: false, returnToSchedule: false });
+      }
     }
 
     const serverBusinessDate = summaries.find((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.businessDate || ''))
@@ -2123,6 +2255,10 @@ export default function CustomerDashboard() {
     setMonthAvailability(result);
     setMonthAvailLoading(false);
   };
+  const fetchSlotsForDateRef = useRef(fetchSlotsForDate);
+  const fetchMonthAvailabilityRef = useRef(fetchMonthAvailability);
+  fetchSlotsForDateRef.current = fetchSlotsForDate;
+  fetchMonthAvailabilityRef.current = fetchMonthAvailability;
 
   useEffect(() => {
     ensureAvailabilityRealtimeSync();
@@ -2130,14 +2266,28 @@ export default function CustomerDashboard() {
 
   useEffect(() => {
     const refreshFromAvailability = () => {
-      fetchMonthAvailability(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth());
-      if (bookingForm.date) {
-        fetchSlotsForDate(bookingForm.date, bookingForm.time);
+      if (!bookingOpenRef.current || bookingDoneRef.current) return;
+      if (bookingSubmissionInFlightRef.current) {
+        bookingAvailabilityRefreshQueuedRef.current = true;
+        return;
+      }
+      const currentMonth = bookingCalMonthRef.current;
+      const currentForm = bookingFormRef.current;
+      void fetchMonthAvailabilityRef.current(
+        currentMonth.getFullYear(),
+        currentMonth.getMonth(),
+        { silent: true },
+      );
+      if (currentForm.date) {
+        void fetchSlotsForDateRef.current(currentForm.date, currentForm.time, {
+          silent: true,
+          source: 'realtime',
+        });
       }
     };
     window.addEventListener(AVAILABILITY_UPDATED_EVENT, refreshFromAvailability);
     return () => window.removeEventListener(AVAILABILITY_UPDATED_EVENT, refreshFromAvailability);
-  }, [bookingCalMonth, bookingForm.date, bookingForm.time]);
+  }, []);
 
   const openVehicleHistory = async (v: any) => {
     setVehicleHistoryVehicle(v);
@@ -2166,9 +2316,28 @@ export default function CustomerDashboard() {
     setVehicleHistoryLoading(false);
   };
   const submitBooking = async () => {
-    if (!user) return;
+    if (!user || bookingSubmissionInFlightRef.current) return;
+    const requestFingerprint = [
+      bookingForm.service,
+      bookingSelectedVehicleIdx >= 0 ? String(vehicles[bookingSelectedVehicleIdx]?._id || vehicles[bookingSelectedVehicleIdx]?.id || '') : '',
+      bookingForm.date,
+      bookingForm.time,
+    ].join('|');
+    if (bookingRequestRef.current?.fingerprint !== requestFingerprint) {
+      bookingRequestRef.current = {
+        fingerprint: requestFingerprint,
+        id: createBookingRequestId('web-booking'),
+      };
+    }
+    const bookingRequestId = bookingRequestRef.current.id;
+    const submissionAttemptId = createBookingRequestId('web-booking-attempt');
+    const loadingId = `booking-submit:${submissionAttemptId}`;
+    bookingSubmissionInFlightRef.current = true;
+    bookingAvailabilityRefreshQueuedRef.current = false;
     setBookingSubmitting(true);
-    const loadingId = toast.loading('Submitting your booking…');
+    setBookingSubmitStage('uploading');
+    setBookingUploadPercent(0);
+    toast.loading('Submitting your booking…', { id: loadingId });
     try {
       const { OrderService } = await import('../lib/order-service');
       const garageForSubmit =
@@ -2203,21 +2372,36 @@ export default function CustomerDashboard() {
         // GCash proof — single field keeps JSON body small (backend copies to paymentProofUrl if needed)
         downpaymentProof: bookingDownpaymentProof || undefined,
         reservationPaymentAmount: 500,
+        bookingRequestId,
       };
-      const res = await OrderService.createOrder(payload);
+      const res = await OrderService.createOrder(payload, {
+        idempotencyKey: bookingRequestId,
+        onUploadProgress: (percent) => {
+          setBookingUploadPercent(percent);
+          if (percent >= 100) {
+            setBookingSubmitStage('processing');
+            toast.loading('Processing…', { id: loadingId });
+          } else {
+            setBookingSubmitStage('uploading');
+            toast.loading(`Uploading payment proof… ${percent}%`, { id: loadingId });
+          }
+        },
+      });
 
       if (res?.success) {
-        toast.dismiss(loadingId);
+        setBookingSubmitStage('saving');
+        setBookingSubmitStage('done');
         toast.success('Booking submitted! 📩', {
+          id: loadingId,
           description: res.data?.bookingReference
             ? `Ref: ${res.data.bookingReference} — Your GCash payment is being reviewed. We'll confirm within 1–3 minutes.`
             : 'Booking submitted! Our team will verify your payment shortly.',
           duration: 7000,
         });
+        bookingDoneRef.current = true;
+        bookingAvailabilityRefreshQueuedRef.current = false;
+        bookingFailureGuardRef.current?.reset();
         setBookingDone(true);
-        // The order is persisted before the API returns, so this immediately
-        // refreshes the selected date and month badge from backend daily totals.
-        syncAvailabilityCaches();
         invalidate('/bookings');
         const created = res.data as any;
         if (created) {
@@ -2235,43 +2419,109 @@ export default function CustomerDashboard() {
         }
 
       } else if (res?.status === 409 || res?.errorCode || res?.error) {
-        const serverMsg = res?.message || res?.error || 'This booking date is no longer available.';
-        toast.dismiss(loadingId);
-        toast.error('Booking unavailable', { description: serverMsg, duration: 5000 });
-        setSlotError(serverMsg);
-        setBookingForm(f => ({ ...f, time: '' }));
-        if (bookingForm.date) fetchSlotsForDate(bookingForm.date);
-        setBookingStep(3);
-      } else {
-        toast.dismiss(loadingId);
-        toast.error('Booking failed', {
-          description: res?.message || 'Something went wrong. Please try again.',
-          duration: 5000,
+        const errorCode = String(res?.errorCode || '').toUpperCase();
+        const serverMsg = errorCode === 'SLOT_FULL'
+          ? BOOKING_TIME_CONFLICT_MESSAGE
+          : res?.message || res?.error || 'This booking date is no longer available.';
+        handleBookingFailureOnce({
+          eventId: buildBookingConflictEventId({
+            bookingRequestId,
+            selectionRevision: bookingSelectionRevisionRef.current,
+            date: bookingForm.date,
+            time: bookingForm.time,
+          }),
+          notificationId: loadingId,
+          bookingRequestId,
+          selectionRevision: bookingSelectionRevisionRef.current,
+          date: bookingForm.date,
+          time: bookingForm.time,
+          errorCode,
+          source: 'submit',
+          title: BOOKING_NOT_SUBMITTED_LABEL,
+          message: serverMsg,
         });
+        bookingAvailabilityRefreshQueuedRef.current = false;
+        const currentMonth = bookingCalMonthRef.current;
+        void fetchMonthAvailabilityRef.current(currentMonth.getFullYear(), currentMonth.getMonth(), { silent: true });
+        if (bookingForm.date) {
+          void fetchSlotsForDateRef.current(bookingForm.date, undefined, { silent: true, preserveFailureMessage: true });
+        }
+      } else {
+        handleBookingFailureOnce({
+          eventId: buildBookingTransportEventId(submissionAttemptId),
+          notificationId: loadingId,
+          bookingRequestId,
+          selectionRevision: bookingSelectionRevisionRef.current,
+          date: bookingForm.date,
+          time: bookingForm.time,
+          source: 'transport',
+          title: 'Booking failed',
+          message: res?.message || 'Something went wrong. Please try again.',
+          action: { label: 'Retry', onClick: () => { void submitBooking(); } },
+        }, { clearTime: false, returnToSchedule: false });
       }
     } catch (e: any) {
-      toast.dismiss(loadingId);
       const serverData = e?.response?.data || {};
       const msg = serverData?.message || serverData?.error || e?.message || '';
-      const errorCode = serverData?.errorCode;
-      if (e?.response?.status === 409 || errorCode || serverData?.unavailable) {
-        toast.error('Booking unavailable', {
-          description: msg || 'Please select a different date or time.',
-          duration: 5000,
+      const errorCode = String(serverData?.errorCode || '').toUpperCase();
+      const isAvailabilityConflict = e?.response?.status === 409
+        && errorCode !== 'BOOKING_REQUEST_REUSED';
+      if (isAvailabilityConflict) {
+        const conflictMessage = errorCode === 'SLOT_FULL'
+          ? BOOKING_TIME_CONFLICT_MESSAGE
+          : msg || 'This booking date is no longer available. Please select another schedule.';
+        handleBookingFailureOnce({
+          eventId: buildBookingConflictEventId({
+            bookingRequestId,
+            selectionRevision: bookingSelectionRevisionRef.current,
+            date: bookingForm.date,
+            time: bookingForm.time,
+          }),
+          notificationId: loadingId,
+          bookingRequestId,
+          selectionRevision: bookingSelectionRevisionRef.current,
+          date: bookingForm.date,
+          time: bookingForm.time,
+          errorCode,
+          source: 'submit',
+          title: BOOKING_NOT_SUBMITTED_LABEL,
+          message: conflictMessage,
         });
-        setSlotError(msg || 'This booking date is no longer available. Please select another schedule.');
-        setBookingForm(f => ({ ...f, time: '' }));
-        if (bookingForm.date) fetchSlotsForDate(bookingForm.date);
-        setBookingStep(3);
+        bookingAvailabilityRefreshQueuedRef.current = false;
+        const currentMonth = bookingCalMonthRef.current;
+        void fetchMonthAvailabilityRef.current(currentMonth.getFullYear(), currentMonth.getMonth(), { silent: true });
+        if (bookingForm.date) {
+          void fetchSlotsForDateRef.current(bookingForm.date, undefined, { silent: true, preserveFailureMessage: true });
+        }
       } else {
-        toast.error('Booking failed', {
-          description: msg || 'An unexpected error occurred. Please try again.',
-          duration: 5000,
-        });
+        handleBookingFailureOnce({
+          eventId: buildBookingTransportEventId(submissionAttemptId),
+          notificationId: loadingId,
+          bookingRequestId,
+          selectionRevision: bookingSelectionRevisionRef.current,
+          date: bookingForm.date,
+          time: bookingForm.time,
+          errorCode,
+          source: 'transport',
+          title: 'Booking failed',
+          message: msg || 'An unexpected error occurred. Please try again.',
+          action: { label: 'Retry', onClick: () => { void submitBooking(); } },
+        }, { clearTime: false, returnToSchedule: false });
         console.error('[submitBooking]', e);
       }
     } finally {
+      bookingSubmissionInFlightRef.current = false;
       setBookingSubmitting(false);
+      setBookingSubmitStage('idle');
+      if (bookingAvailabilityRefreshQueuedRef.current && !bookingDoneRef.current) {
+        bookingAvailabilityRefreshQueuedRef.current = false;
+        const currentMonth = bookingCalMonthRef.current;
+        const currentForm = bookingFormRef.current;
+        void fetchMonthAvailabilityRef.current(currentMonth.getFullYear(), currentMonth.getMonth(), { silent: true });
+        if (currentForm.date) {
+          void fetchSlotsForDateRef.current(currentForm.date, undefined, { silent: true, preserveFailureMessage: true });
+        }
+      }
     }
   };
 
@@ -5459,7 +5709,7 @@ export default function CustomerDashboard() {
                 {pendingConfirmationBooking && !hasActiveTrackerBooking && (() => {
                   const ref = pendingConfirmationBooking.bookingReference || pendingConfirmationBooking.orderNumber || '—';
                   const dateStr = pendingConfirmationBooking.bookingDate
-                    ? new Date(pendingConfirmationBooking.bookingDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                    ? parseBookingCalendarDate(pendingConfirmationBooking.bookingDate)?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) || '—'
                     : '—';
                   return (
                     <section style={{ marginBottom: 32 }} aria-labelledby="payment-review-title">
@@ -5651,7 +5901,7 @@ export default function CustomerDashboard() {
                 {approvedBooking && !hasActiveTrackerBooking && (() => {
                   const ref = approvedBooking.bookingReference || approvedBooking.orderNumber || '—';
                   const dateStr = approvedBooking.bookingDate
-                    ? new Date(approvedBooking.bookingDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+                    ? parseBookingCalendarDate(approvedBooking.bookingDate)?.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) || '—'
                     : '—';
                   return (
                     <section style={{ marginBottom: 32 }}>
@@ -7765,11 +8015,11 @@ export default function CustomerDashboard() {
                           data-date={iso}
                           onClick={() => {
                             if (disabled) return;
-                            const prevTime = bookingForm.time;
+                            beginNewBookingSelection();
                             setBookingForm(f => ({ ...f, date: iso, time: '' }));
                             setSlotStatuses([]);
                             setSlotError('');
-                            fetchSlotsForDate(iso, prevTime);
+                            void fetchSlotsForDate(iso);
                           }}
                         >
                           <span className="booking-step3-day-number">{day}</span>
@@ -7966,6 +8216,7 @@ export default function CustomerDashboard() {
                                         className={slotClassName}
                                         onClick={() => {
                                           if (isDisabled) return;
+                                          beginNewBookingSelection();
                                           setSlotError('');
                                           setBookingForm(f => ({ ...f, time: t }));
                                         }}
@@ -9181,7 +9432,7 @@ export default function CustomerDashboard() {
                     };
                     const statusColor = statusColors[order.status] || 'bg-gray-100 text-gray-600';
                     const dateStr = order.bookingDate || order.date
-                      ? new Date(order.bookingDate || order.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                      ? parseBookingCalendarDate(order.bookingDate || order.date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) || '—'
                       : '—';
                     return (
                       <div

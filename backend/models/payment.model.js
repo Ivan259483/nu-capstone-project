@@ -53,6 +53,14 @@ const paymentSchema = new mongoose.Schema(
       set: normalizeOptionalUniqueReference,
     },
     proofImage: { type: String, default: null },
+    proofImageAssets: {
+      thumbnailUrl: { type: String, default: null },
+      compressedUrl: { type: String, default: null },
+      originalUrl: { type: String, default: null },
+      fileSize: { type: Number, default: null },
+      mimeType: { type: String, default: null },
+      processedAt: { type: Date, default: null },
+    },
     submittedAt: { type: Date, default: null },
     /** Financial recognition timestamp. Reporting never derives this from an Order flag. */
     effectiveAt: { type: Date, default: null },
@@ -72,6 +80,7 @@ const paymentSchema = new mongoose.Schema(
           amountSubmitted: Number,
           amountVerified: Number,
           proofImage: String,
+          hadProofImage: Boolean,
           reason: String,
           changedAt: { type: Date, default: Date.now },
           changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },

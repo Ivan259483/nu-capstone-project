@@ -43,6 +43,10 @@ const {
   validateRecurringScheduleInput,
 } = await import('../models/shopAvailability.model.js');
 const { default: User } = await import('../models/user.model.js');
+const {
+  getBusinessDateBoundary,
+  getBusinessDateKey,
+} = await import('../utils/businessAvailability.utils.js');
 const { default: Vehicle } = await import('../models/vehicle.model.js');
 const availabilityRouter = (await import('../routes/admin/availability.js'))
   .default;
@@ -69,6 +73,8 @@ const { initSocket } = await import('../utils/socket.utils.js');
 const MONDAY = '2099-08-17';
 const TUESDAY = '2099-08-18';
 const SATURDAY = '2099-08-22';
+const BOOKING_TIME_CONFLICT_MESSAGE =
+  'This time slot is no longer available. Please choose another available schedule.';
 let mongo;
 let server;
 let io;
@@ -521,7 +527,7 @@ test('each generated appointment time has capacity one and daily availability co
   const duplicate = await reserveBookingSlot(MONDAY, '8:00 AM');
   assert.equal(duplicate.ok, false);
   assert.equal(duplicate.errorCode, 'SLOT_FULL');
-  assert.match(duplicate.message, /already been booked/i);
+  assert.equal(duplicate.message, BOOKING_TIME_CONFLICT_MESSAGE);
   assert.equal((await reserveAndPersist(MONDAY, '09:00')).ok, true);
 
   const day = await getSlotsForDate(MONDAY);
@@ -689,7 +695,7 @@ test('admin and customer APIs stay synchronized through booking, conflict, and c
 
   const duplicateEight = await createAt('8:00 AM');
   assert.equal(duplicateEight.response.status, 409);
-  assert.match(duplicateEight.body.message, /already been booked/i);
+  assert.equal(duplicateEight.body.message, BOOKING_TIME_CONFLICT_MESSAGE);
 
   const nine = await createAt('9:00 AM');
   assert.equal(nine.response.status, 201);
@@ -743,7 +749,7 @@ test('a lifecycle re-entry cannot take a time held by another reservation', asyn
   reactivated.status = 'pending_confirmation';
   await assert.rejects(
     () => saveOrderWithSlotTransition(reactivated, before),
-    /already been booked/i,
+    /no longer available/i,
   );
   assert.equal(
     (await Order.findById(reactivated._id).lean()).status,
@@ -1174,7 +1180,9 @@ test('only customers create appointments while staff walk-ins and rescheduling r
   const rejectedDuplicate = await createAt('8:00 AM');
   assert.equal(rejectedDuplicate.response.status, 409);
   assert.equal(rejectedDuplicate.body.errorCode, 'SLOT_FULL');
-  assert.match(rejectedDuplicate.body.message, /already been booked/i);
+  assert.equal(rejectedDuplicate.body.message, BOOKING_TIME_CONFLICT_MESSAGE);
+  assert.equal(await Order.countDocuments({ customer: customer._id }), 1);
+  assert.equal(await Payment.countDocuments({ customer: customer._id }), 1);
 
   const nine = await createAt('9:00 AM');
   assert.equal(nine.response.status, 201);
@@ -1193,7 +1201,7 @@ test('only customers create appointments while staff walk-ins and rescheduling r
     },
   );
   assert.equal(sameDateReschedule.response.status, 409);
-  assert.match(sameDateReschedule.body.message, /already been booked/i);
+  assert.equal(sameDateReschedule.body.message, BOOKING_TIME_CONFLICT_MESSAGE);
   const canonicalRescheduled = await Order.findById(nineId).lean();
   assert.equal(canonicalRescheduled.bookingDate, MONDAY);
   assert.equal(canonicalRescheduled.bookingTime, '09:00');
@@ -1370,6 +1378,10 @@ test('parallel create requests for one time admit exactly one order', async () =
     attempts.filter(({ response }) => response.status === 409).length,
     7,
   );
+  for (const attempt of attempts.filter(({ response }) => response.status === 409)) {
+    assert.equal(attempt.body.errorCode, 'SLOT_FULL');
+    assert.equal(attempt.body.message, BOOKING_TIME_CONFLICT_MESSAGE);
+  }
   const persisted = await Order.find({
     bookingDate: MONDAY,
     bookingTime: '08:00',
@@ -1378,6 +1390,13 @@ test('parallel create requests for one time admit exactly one order', async () =
   }).lean();
   assert.equal(persisted.length, 1);
   assert.equal(new Set(persisted.map((row) => row.orderNumber)).size, 1);
+  assert.equal(
+    await Payment.countDocuments({
+      order: persisted[0]._id,
+      transactionType: 'reservation_fee',
+    }),
+    1,
+  );
   const counter = await counterAt(MONDAY, '08:00');
   assert.equal(counter.count, persisted.length);
 });
@@ -2000,7 +2019,7 @@ test('a yesterday-scoped emergency state is inactive on the current business dat
   assert.equal(adminStatus.body.businessTimeZone, SHOP_TIME_ZONE);
 });
 
-test('emergency closure uses the persisted business timezone instead of the server or browser calendar', async () => {
+test('booking availability stays on Asia/Manila when a regional preference uses another timezone', async () => {
   await setEveryDayAvailability();
   const { administrator } = await seedBookingActors();
   const configuredTimeZone = 'Pacific/Pago_Pago';
@@ -2015,14 +2034,14 @@ test('emergency closure uses the persisted business timezone instead of the serv
   });
   const afterRequest = new Date();
   const validBusinessDates = new Set([
-    dateInTimeZone(beforeRequest, configuredTimeZone),
-    dateInTimeZone(afterRequest, configuredTimeZone),
+    dateInTimeZone(beforeRequest, SHOP_TIME_ZONE),
+    dateInTimeZone(afterRequest, SHOP_TIME_ZONE),
   ]);
 
   assert.equal(enabled.response.status, 200);
   assert.equal(enabled.body.emergencyClosed, true);
-  assert.equal(enabled.body.timeZone, configuredTimeZone);
-  assert.equal(enabled.body.businessTimeZone, configuredTimeZone);
+  assert.equal(enabled.body.timeZone, SHOP_TIME_ZONE);
+  assert.equal(enabled.body.businessTimeZone, SHOP_TIME_ZONE);
   assert.equal(validBusinessDates.has(enabled.body.businessDate), true);
   assert.equal(emergencyDateFrom(enabled.body), enabled.body.businessDate);
   assert.equal(enabled.body.affectedBusinessDate, enabled.body.businessDate);
@@ -2038,7 +2057,7 @@ test('emergency closure uses the persisted business timezone instead of the serv
   assert.equal(reread.response.status, 200);
   assert.equal(reread.body.emergencyClosed, true);
   assert.equal(reread.body.businessDate, enabled.body.businessDate);
-  assert.equal(reread.body.businessTimeZone, configuredTimeZone);
+  assert.equal(reread.body.businessTimeZone, SHOP_TIME_ZONE);
 
   const auditRows = await waitFor(
     () => ActivityLog.find({ action: 'Emergency Closure Enabled' }).lean(),
@@ -2049,5 +2068,14 @@ test('emergency closure uses the persisted business timezone instead of the serv
     auditRows[0].metadata?.affectedBusinessDate,
     enabled.body.businessDate,
   );
-  assert.equal(auditRows[0].metadata?.businessTimeZone, configuredTimeZone);
+  assert.equal(auditRows[0].metadata?.businessTimeZone, SHOP_TIME_ZONE);
+});
+
+test('Manila booking date boundaries map to stable UTC instants', () => {
+  const start = getBusinessDateBoundary('2026-09-14', 'start');
+  const end = getBusinessDateBoundary('2026-09-14', 'end');
+  assert.equal(start?.toISOString(), '2026-09-13T16:00:00.000Z');
+  assert.equal(end?.toISOString(), '2026-09-14T15:59:59.999Z');
+  assert.equal(getBusinessDateKey(start), '2026-09-14');
+  assert.equal(getBusinessDateKey(end), '2026-09-14');
 });

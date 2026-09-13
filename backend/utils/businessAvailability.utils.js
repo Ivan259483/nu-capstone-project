@@ -1,6 +1,6 @@
-import Setting from '../models/setting.model.js';
-
 export const DEFAULT_BUSINESS_TIME_ZONE = 'Asia/Manila';
+const MANILA_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
+const BUSINESS_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Intl throws for unknown zones; keep that failure at the configuration edge. */
 export function isValidIanaTimeZone(value) {
@@ -13,10 +13,9 @@ export function isValidIanaTimeZone(value) {
   }
 }
 
-const environmentTimeZone = String(process.env.SHOP_TIME_ZONE || '').trim();
-export const SHOP_TIME_ZONE = isValidIanaTimeZone(environmentTimeZone)
-  ? environmentTimeZone
-  : DEFAULT_BUSINESS_TIME_ZONE;
+// Booking wall-clock authority is intentionally fixed. Regional display
+// preferences and the Node host timezone must never change appointment dates.
+export const SHOP_TIME_ZONE = DEFAULT_BUSINESS_TIME_ZONE;
 
 const formatterCache = new Map();
 
@@ -56,26 +55,29 @@ export function getClockInTimeZone(now = new Date(), timeZone = SHOP_TIME_ZONE) 
   };
 }
 
-/**
- * Resolve the administrator-configured business timezone on every authoritative
- * availability read. An absent/invalid setting falls back to SHOP_TIME_ZONE,
- * then Asia/Manila, so a malformed preference cannot break booking validation.
- */
+/** Resolve the one authoritative booking clock without reading regional preferences. */
 export async function getBusinessClock(now = new Date()) {
-  let configuredTimeZone = null;
-  try {
-    const settings = await Setting.findOne().select('timezone').lean();
-    if (isValidIanaTimeZone(settings?.timezone)) {
-      configuredTimeZone = settings.timezone.trim();
-    }
-  } catch {
-    // Availability remains fail-safe and deterministic if settings cannot be read.
-  }
-
-  return getClockInTimeZone(now, configuredTimeZone || SHOP_TIME_ZONE);
+  return getClockInTimeZone(now, SHOP_TIME_ZONE);
 }
 
-const BUSINESS_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** Convert a Manila calendar date to its exact UTC persistence/query boundary. */
+export function getBusinessDateBoundary(dateStr, edge = 'start') {
+  const normalized = typeof dateStr === 'string' ? dateStr.trim() : '';
+  if (!BUSINESS_DATE_RE.test(normalized)) return null;
+  const [year, month, day] = normalized.split('-').map(Number);
+  const startMs = Date.UTC(year, month - 1, day) - MANILA_UTC_OFFSET_MS;
+  const start = new Date(startMs);
+  if (getClockInTimeZone(start, SHOP_TIME_ZONE).date !== normalized) return null;
+  return edge === 'end' ? new Date(startMs + 24 * 60 * 60 * 1000 - 1) : start;
+}
+
+/** Format a stored instant using the booking timezone, not the server timezone. */
+export function getBusinessDateKey(value) {
+  if (typeof value === 'string' && BUSINESS_DATE_RE.test(value.trim())) return value.trim();
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return getClockInTimeZone(parsed, SHOP_TIME_ZONE).date;
+}
 
 /**
  * `emergencyClosureDate` is authoritative. The legacy boolean is intentionally
