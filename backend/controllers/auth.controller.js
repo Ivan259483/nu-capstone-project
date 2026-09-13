@@ -2069,18 +2069,53 @@ export const login = async (req, res, next) => {
       otpRequired: requiresLoginOtp(user.role),
       allOtpRoles: LOGIN_OTP_REQUIRED_ROLES,
     });
+    // Scoped to exactly one Apple App Store review account — see
+    // constants/appReview.exempt.js. Inert unless APP_REVIEW_LOGIN_ENABLED is
+    // literally "true"; every other login — and this account whenever the
+    // flag is off — always takes the unmodified OTP branch below.
+    if (config.appReviewLoginEnabled && isAppReviewAccountEmail(user.email)) {
+      // Mints the exact session a normal login-OTP completion produces (see
+      // verifyLoginOtp below), including `otpVerified: true`. That claim is
+      // not cosmetic: middleware/auth.middleware.js refuses every customer
+      // JWT lacking it (CUSTOMER_OTP_REQUIRED), so a token without it would
+      // let this account log in and then be locked out of every following
+      // request. Correct password authentication is treated as sufficient
+      // proof for this one address only — no other account reaches here.
+      authOtpLog(req, 'login_otp_skipped_app_review_direct_login', {
+        userId: user._id.toString(),
+      });
+      const token = await signAuthToken(user, {
+        ...getSessionClientClaims(req),
+        authLevel: STAFF_2FA_AUTH_LEVEL,
+        otpVerified: true,
+        otpVerifiedAt: Math.floor(Date.now() / 1000),
+      });
+      await User.updateOne({ _id: user._id }, { $set: { lastPasswordOtpSignInAt: new Date() } });
+      scheduleLastSeen(user, req);
+      const userObject = user.toObject({ virtuals: true });
+      delete userObject.password;
+      delete userObject._id;
+      delete userObject.__v;
+      attachPhoneForClient(user, userObject);
+      attachProfileImageForClient(user, userObject);
+      logActivity({
+        userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
+        type: 'login', module: 'Auth', action: 'User Login (App Review Direct)',
+        description: `${user.name || emailNormalized} signed in via the scoped App Review direct-login path (no OTP).`,
+        status: 'success',
+      });
+      return res.json({
+        success: true,
+        message: 'Login successful.',
+        data: { user: userObject, token },
+      });
+    }
+
     if (requiresLoginOtp(user.role)) {
-      // Scoped to exactly one Apple App Store review account — see
-      // constants/appReview.exempt.js. Inert unless APP_REVIEW_LOGIN_OTP_CODE
-      // is configured, so every other login keeps the normal random/emailed OTP.
-      const isAppReviewChallenge = Boolean(
-        config.appReviewLoginOtpCode && isAppReviewAccountEmail(user.email)
-      );
       authOtpLog(req, 'login_otp_flow_entered', {
         email: maskEmail(emailNormalized),
         userId: user._id.toString(),
         role: user.role,
-        appReviewChallenge: isAppReviewChallenge,
       });
       const issuanceLock = await acquireLoginOtpIssuanceLock(user._id);
       authOtpLog(req, 'login_otp_issuance_lock_acquired', {
@@ -2203,9 +2238,7 @@ export const login = async (req, res, next) => {
         replacesExistingRecord: Boolean(existingLoginOtp),
         priorSendCount,
       });
-      const otp = isAppReviewChallenge
-        ? config.appReviewLoginOtpCode
-        : await generateOtpDifferentFromHash(existingLoginOtp?.otpHash, config.otpLength);
+      const otp = await generateOtpDifferentFromHash(existingLoginOtp?.otpHash, config.otpLength);
       const otpHash = await timeOperation(
         { req, res, kind: 'cpu', name: 'login.otp.bcryptHash' },
         () => bcrypt.hash(otp, 10)
@@ -2248,32 +2281,20 @@ export const login = async (req, res, next) => {
         challengeExpiresAt: otpRecord.expiresAt?.toISOString?.() || null,
       });
 
-      // Do not expose a challenge unless delivery succeeds. The app-review
-      // account's address cannot receive real mail, so its fixed code is
-      // never actually emailed — the reviewer already has it from the
-      // App Store Connect review notes.
-      let emailResult;
-      if (isAppReviewChallenge) {
-        authOtpLog(req, 'login_otp_app_review_static_code_used', {
-          userId: user._id.toString(),
-          otpRecordId: otpRecord._id.toString(),
-        });
-        emailResult = { success: true, provider: 'app_review_static' };
-      } else {
-        authOtpLog(req, 'login_otp_email_starting', {
-          userId: user._id.toString(),
-          email: maskEmail(user.email),
-          otpRecordId: otpRecord._id.toString(),
-        });
-        emailResult = await timeOperation(
-          { req, res, kind: 'external', name: 'login.email.sendOtp' },
-          () => sendOtpEmail(user.email, otp, {
-            purpose: 'login',
-            otpRecordId: otpRecord._id,
-            requestId,
-          })
-        );
-      }
+      // Do not expose a challenge unless delivery succeeds.
+      authOtpLog(req, 'login_otp_email_starting', {
+        userId: user._id.toString(),
+        email: maskEmail(user.email),
+        otpRecordId: otpRecord._id.toString(),
+      });
+      const emailResult = await timeOperation(
+        { req, res, kind: 'external', name: 'login.email.sendOtp' },
+        () => sendOtpEmail(user.email, otp, {
+          purpose: 'login',
+          otpRecordId: otpRecord._id,
+          requestId,
+        })
+      );
       if (!emailResult.success) {
         authOtpLog(req, 'login_otp_email_failed', {
           userId: user._id.toString(),
@@ -3151,15 +3172,8 @@ export const resendLoginOtp = async (req, res) => {
       });
     }
 
-    // Generate fresh OTP. Scoped to exactly one Apple App Store review
-    // account (see constants/appReview.exempt.js) — inert unless
-    // APP_REVIEW_LOGIN_OTP_CODE is configured.
-    const isAppReviewChallenge = Boolean(
-      config.appReviewLoginOtpCode && isAppReviewAccountEmail(user.email)
-    );
-    const otp = isAppReviewChallenge
-      ? config.appReviewLoginOtpCode
-      : await generateOtpDifferentFromHash(existing.otpHash, config.otpLength);
+    // Generate fresh OTP
+    const otp = await generateOtpDifferentFromHash(existing.otpHash, config.otpLength);
     const otpHash = await bcrypt.hash(otp, 10);
     const previousState = {
       otpHash: existing.otpHash,
@@ -3196,12 +3210,10 @@ export const resendLoginOtp = async (req, res) => {
       });
     }
 
-    const emailResult = isAppReviewChallenge
-      ? { success: true, provider: 'app_review_static' }
-      : await sendOtpEmail(user.email, otp, {
-          purpose: 'login',
-          otpRecordId: otpRecord._id,
-        });
+    const emailResult = await sendOtpEmail(user.email, otp, {
+      purpose: 'login',
+      otpRecordId: otpRecord._id,
+    });
     if (!emailResult.success) {
       await OTP.updateOne(
         { _id: otpRecord._id, otpHash },
