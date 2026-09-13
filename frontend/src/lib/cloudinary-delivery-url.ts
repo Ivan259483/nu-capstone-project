@@ -50,3 +50,19 @@ export function toCloudinaryHighResDeliveryUrl(url: string, devicePixelRatio = 1
 export function toCloudinaryEvidenceThumbUrl(url: string, devicePixelRatio = 1): string {
   return insertImageUploadTransform(url, buildEvidenceThumbTransform(devicePixelRatio));
 }
+
+const EVIDENCE_SRCSET_WIDTHS = [480, 800, 1200] as const;
+
+/**
+ * `srcset` for evidence photos (`f_auto,q_auto` at a few widths) so each device downloads only the
+ * size it renders. Returns undefined when the URL cannot be rewritten (non-Cloudinary, signed, data/blob).
+ */
+export function toCloudinaryEvidenceSrcSet(url: string, widths: readonly number[] = EVIDENCE_SRCSET_WIDTHS): string | undefined {
+  const original = typeof url === 'string' ? url.trim() : '';
+  const variants = widths.map((width) => ({
+    width,
+    src: insertImageUploadTransform(original, `c_limit,w_${width},q_auto,f_auto`),
+  }));
+  if (!original || variants.some((variant) => variant.src === original)) return undefined;
+  return variants.map((variant) => `${variant.src} ${variant.width}w`).join(', ');
+}

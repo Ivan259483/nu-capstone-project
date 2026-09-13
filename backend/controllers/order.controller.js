@@ -104,6 +104,7 @@ import {
 import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
 
 import { buildCustomerStagePayload } from '../utils/customerTrackerStage.utils.js';
+import { LIVE_TRACKING_CLOSE_REASONS, closeCustomerLiveTracking } from '../constants/orderLifecycle.js';
 import { withFetchableTrackerPhotoUrls } from '../utils/trackerMediaPhotoUrl.utils.js';
 import { buildResponsiveTrackerMedia } from './tracker.controller.js';
 const DEFAULT_SERVICE_STEPS = [
@@ -432,6 +433,7 @@ const ORDER_LIST_SELECT_FIELDS = [
   'paymentProvider',
   'paidAt',
   'completedAt',
+  'liveTracking',
   'approvedAt',
   'qcCompletedAt',
   'readyForPaymentAt',
@@ -477,6 +479,7 @@ const ORDER_TRACKER_MEDIA_SELECT_FIELDS = [
   'invoiceId',
   'paidAt',
   'completedAt',
+  'liveTracking',
   'posQueueStatus',
   'serviceTrackingStage',
   'serviceStaffAssignments',
@@ -4745,8 +4748,14 @@ export const operateFinalPayment = async (req, res, next) => {
       transactionType: ledger.netVerified > 0 ? 'service_balance' : 'full_service_payment',
       metadata: { finalPayment: true, orderNumber: order.orderNumber },
     });
-    order.status = order.paymentStatus === 'paid' ? 'paid' : order.status;
-    
+    const closedTracking = closeCustomerLiveTracking(order, {
+      reason: LIVE_TRACKING_CLOSE_REASONS.PAYMENT_SETTLED,
+      closedBy: req.user?.name || req.user?.id || 'POS',
+    });
+    if (!closedTracking && order.paymentStatus === 'paid' && order.status !== 'completed') {
+      order.status = 'paid';
+    }
+
     // Auto-generate Warranty + Receipt PDF right at Payment Stage
     try {
       const warrantyUrl = await generateWarrantyPDF(order);
@@ -4818,6 +4827,10 @@ export const operateRelease = async (req, res, next) => {
     }
 
     order.status = 'released';
+    closeCustomerLiveTracking(order, {
+      reason: LIVE_TRACKING_CLOSE_REASONS.RELEASED,
+      closedBy: req.user?.name || req.user?.id || 'Sales',
+    });
     await order.save();
 
     getIO().to('realtime:staff').emit('orderUpdated', { orderId: order._id, status: order.status });

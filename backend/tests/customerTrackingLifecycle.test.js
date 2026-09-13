@@ -9,7 +9,10 @@ process.env.JWT_SECRET ||= 'customer-tracking-lifecycle-test-secret';
 const { default: Order } = await import('../models/order.model.js');
 const { getOrderTrackerMedia } = await import('../controllers/order.controller.js');
 const { getTrackerMediaPhoto } = await import('../controllers/tracker.controller.js');
-const { resolveCustomerTrackingState } = await import('../constants/orderLifecycle.js');
+const {
+  closeCustomerLiveTracking,
+  resolveCustomerTrackingState,
+} = await import('../constants/orderLifecycle.js');
 const { buildCustomerStagePayload } = await import('../utils/customerTrackerStage.utils.js');
 
 let mongo;
@@ -149,4 +152,77 @@ test('customer receives a signed URL that serves the inline photo bytes; tamperi
     { $set: { 'trackerStageMedia.$.uploadedAt': new Date('2026-09-12T08:00:00.000Z') } }
   );
   assert.equal((await invoke(getTrackerMediaPhoto, photoRequestFromUrl(media.photoUrl))).statusCode, 404);
+});
+
+test('closeCustomerLiveTracking closes the session on settlement and preserves history', async () => {
+  const media = [
+    { stage: 'received', slot: 'front', photoUrl: 'https://res.cloudinary.com/demo/received.jpg' },
+    { stage: 'ready_pickup', slot: 'rear', photoUrl: 'https://res.cloudinary.com/demo/pickup.jpg' },
+  ];
+  const order = await Order.create({
+    orderNumber: 'ORD-CLOSE-TRACKING',
+    customer: new mongoose.Types.ObjectId(),
+    customerName: 'Close Tracking Customer',
+    serviceType: 'SPF Service',
+    status: 'ready_for_payment',
+    serviceTrackingStage: 'ready_pickup',
+    paymentStatus: 'paid',
+    invoiceId: 'INV-CLOSE-1',
+    totalPrice: 7999,
+    trackerStageMedia: media,
+    serviceSteps: [{ name: 'Main Service Execution', status: 'completed' }],
+  });
+  assert.equal(order.liveTracking, undefined, 'no default session is stamped on new or legacy rows');
+  assert.equal(buildCustomerStagePayload(order).liveTracking.active, false, 'legacy settled rows derive a closed session');
+
+  const now = new Date('2026-09-13T03:11:29.914Z');
+  assert.equal(closeCustomerLiveTracking(order, { closedBy: 'Sales Mara', now }), true);
+  await order.save();
+
+  const stored = await Order.findById(order._id).lean();
+  assert.equal(stored.status, 'completed');
+  assert.equal(stored.serviceTrackingStage, 'completed');
+  assert.equal(stored.paymentStatus, 'paid');
+  assert.equal(stored.customerStatus, 'completed');
+  assert.equal(stored.completedAt.toISOString(), now.toISOString());
+  assert.deepEqual(
+    { ...stored.liveTracking, closedAt: stored.liveTracking.closedAt.toISOString() },
+    { active: false, customerVisible: false, closedAt: now.toISOString(), closedReason: 'payment_settled', closedBy: 'Sales Mara' }
+  );
+  assert.equal(stored.trackerStageMedia.length, 2, 'tracker evidence is preserved');
+  assert.deepEqual(stored.trackerStageMedia.map((row) => row.photoUrl), media.map((row) => row.photoUrl));
+  assert.equal(stored.serviceSteps.length, 1);
+
+  const payload = buildCustomerStagePayload(stored);
+  assert.equal(payload.customerTrackingState, 'completed');
+  assert.equal(payload.liveTracking.active, false);
+  assert.equal(payload.liveTracking.customerVisible, false);
+  assert.equal(payload.customerReceiptInvoiceId, 'INV-CLOSE-1');
+
+  // Idempotent: a retry keeps the original close time and reports no change.
+  const reloaded = await Order.findById(order._id);
+  assert.equal(closeCustomerLiveTracking(reloaded, { now: new Date('2026-09-14T00:00:00Z') }), false);
+  assert.equal(reloaded.liveTracking.closedAt.toISOString(), now.toISOString());
+
+  // A later status write can never reopen a closed session.
+  assert.equal(resolveCustomerTrackingState({ ...stored, status: 'ready_for_payment', serviceTrackingStage: 'ready_pickup' }), 'completed');
+});
+
+test('closeCustomerLiveTracking leaves live orders and released handovers intact', () => {
+  const partial = { status: 'ready_for_payment', serviceTrackingStage: 'ready_pickup', paymentStatus: 'partially_paid', invoiceId: 'INV-P' };
+  assert.equal(closeCustomerLiveTracking(partial), false);
+  assert.equal(partial.liveTracking, undefined);
+  assert.equal(buildCustomerStagePayload(partial).liveTracking.active, true);
+
+  const upfront = { status: 'confirmed', serviceTrackingStage: 'confirmed', paymentStatus: 'paid', invoiceId: 'INV-UP' };
+  assert.equal(closeCustomerLiveTracking(upfront), false, 'up-front full payment never closes tracking before service');
+  assert.equal(upfront.status, 'confirmed');
+
+  const released = { status: 'released', serviceTrackingStage: 'released', paymentStatus: 'paid', invoiceId: 'INV-R' };
+  assert.equal(closeCustomerLiveTracking(released, { reason: 'payment_settled' }), true);
+  assert.equal(released.status, 'released', 'release never regresses to completed');
+  assert.equal(released.liveTracking.closedReason, 'released');
+
+  const cancelled = { status: 'cancelled', liveTracking: { active: false, customerVisible: false } };
+  assert.equal(resolveCustomerTrackingState(cancelled), 'cancelled');
 });

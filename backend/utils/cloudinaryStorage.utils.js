@@ -1,6 +1,6 @@
 import axios from 'axios';
 import FormData from 'form-data';
-import { createHash } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 
 const getCloudinaryConfig = () => ({
   cloudName: (process.env.CLOUDINARY_CLOUD_NAME || '').trim(),
@@ -83,6 +83,44 @@ const buildCloudinarySignature = (params) => {
   return createHash('sha1')
     .update(`${serialized}${config.apiSecret}`)
     .digest('hex');
+};
+
+export const hasCloudinarySignedCredentials = () => hasSignedCredentials(getCloudinaryConfig());
+
+/**
+ * Signs browser-direct upload parameters. The browser must send exactly these params (plus
+ * `file`, `api_key`, `signature`) to Cloudinary; the API secret never leaves the backend.
+ */
+export const signCloudinaryUploadParams = (params) => {
+  const config = getCloudinaryConfig();
+  if (!hasSignedCredentials(config)) {
+    const error = new Error('Signed Cloudinary uploads require CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET.');
+    error.code = 'CLOUDINARY_SIGNED_UPLOAD_UNAVAILABLE';
+    throw error;
+  }
+  return {
+    cloudName: config.cloudName,
+    apiKey: config.apiKey,
+    signature: buildCloudinarySignature(params),
+  };
+};
+
+/**
+ * Cloudinary signs every upload response as sha1("public_id=…&version=…" + api_secret).
+ * Verifying it proves the browser really uploaded this asset to our account.
+ */
+export const verifyCloudinaryUploadResponse = ({ publicId, version, signature }) => {
+  const config = getCloudinaryConfig();
+  if (!hasSignedCredentials(config) || !publicId || !version || typeof signature !== 'string') return false;
+  const expected = Buffer.from(buildCloudinarySignature({ public_id: publicId, version: String(version) }));
+  const received = Buffer.from(signature.trim().toLowerCase());
+  return expected.length === received.length && timingSafeEqual(expected, received);
+};
+
+export const buildCloudinaryImageDeliveryUrl = ({ publicId, version, format }) => {
+  const cloudName = getCloudinaryConfig().cloudName;
+  const extension = format ? `.${String(format).toLowerCase()}` : '';
+  return `https://res.cloudinary.com/${cloudName}/image/upload/v${version}/${publicId}${extension}`;
 };
 
 const createUploadEndpoint = () =>

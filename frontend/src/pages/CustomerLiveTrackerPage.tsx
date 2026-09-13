@@ -38,7 +38,11 @@ import {
   isForwardTrackerStageTransition,
   trackerStageRankOf,
 } from '@/lib/customer-live-tracker-pick';
-import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '@/lib/cloudinary-delivery-url';
+import {
+  toCloudinaryHighResDeliveryUrl,
+  toCloudinaryEvidenceSrcSet,
+  toCloudinaryEvidenceThumbUrl,
+} from '@/lib/cloudinary-delivery-url';
 import { resolveProfileImage } from '@/lib/profile-image';
 import { BACKEND_API_URL } from '@/lib/api';
 import { resolveMediaUrl } from '@/lib/media-url';
@@ -173,6 +177,10 @@ function StagePhotoThumbnail({
           </AnimatePresence>
           <motion.img
             src={toCloudinaryEvidenceThumbUrl(shot.url, dpr)}
+            srcSet={toCloudinaryEvidenceSrcSet(shot.url)}
+            sizes="(min-width: 768px) 25vw, 45vw"
+            loading="lazy"
+            decoding="async"
             alt=""
             onLoad={() => setLoaded(true)}
             onError={() => setLoaded(true)}

@@ -1,5 +1,6 @@
 import express from 'express';
 import multer from 'multer';
+import rateLimit from 'express-rate-limit';
 import * as orderController from '../controllers/order.controller.js';
 import * as supplierController from '../controllers/supplier.controller.js';
 import * as trackerController from '../controllers/tracker.controller.js';
@@ -416,6 +417,59 @@ router.delete(
   '/:id/stage-photo',
   authorize(...trackerController.TRACKER_STAGE_MEDIA_ROLES),
   trackerController.deleteTrackerStagePhoto
+);
+
+/** Signing is cheap but must not become a Cloudinary quota amplifier. */
+const stageEvidenceIntentLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Mounted after `authenticate`, so every request carries a user id.
+  keyGenerator: (req) => `${req.user?.id}:${req.params.id}`,
+  message: { success: false, code: 'RATE_LIMITED', message: 'Too many photo upload requests. Please wait a moment.' },
+});
+
+/**
+ * @route POST /api/orders/:id/stage-evidence/intents
+ * @desc Signed direct-to-Cloudinary upload parameters for a batch of gate photos
+ */
+router.post(
+  '/:id/stage-evidence/intents',
+  traceRequestReceived('STAGE-EVIDENCE'),
+  authorize(...trackerController.TRACKER_STAGE_MEDIA_ROLES),
+  stageEvidenceIntentLimiter,
+  trackerController.createStageEvidenceIntents
+);
+
+/**
+ * @route POST /api/orders/:id/stage-evidence/:evidenceId/commit
+ * @desc Verify a completed Cloudinary upload and publish it to the live tracker
+ */
+router.post(
+  '/:id/stage-evidence/:evidenceId/commit',
+  authorize(...trackerController.TRACKER_STAGE_MEDIA_ROLES),
+  trackerController.commitStageEvidence
+);
+
+/**
+ * @route POST /api/orders/:id/stage-evidence/:evidenceId/fail
+ * @desc Record a failed upload attempt (best effort, enables per-photo retry state)
+ */
+router.post(
+  '/:id/stage-evidence/:evidenceId/fail',
+  authorize(...trackerController.TRACKER_STAGE_MEDIA_ROLES),
+  trackerController.failStageEvidence
+);
+
+/**
+ * @route GET /api/orders/:id/stage-evidence
+ * @desc Latest upload state per stage/slot for the QC panel
+ */
+router.get(
+  '/:id/stage-evidence',
+  authorize(...trackerController.TRACKER_STAGE_MEDIA_ROLES),
+  trackerController.getStageEvidenceStatus
 );
 
 /**

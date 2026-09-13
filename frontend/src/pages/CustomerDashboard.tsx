@@ -48,6 +48,7 @@ import {
 } from '../lib/customer-live-tracker-pick';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '../lib/cloudinary-delivery-url';
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
+import { CustomerServiceCompleteCard } from '../components/customer/CustomerServiceCompleteCard';
 import { CustomerDashboardOverviewStrip } from '../components/customer/CustomerDashboardOverviewStrip';
 import CustomerGarageVehicleSilhouette from '../components/customer/CustomerGarageVehicleSilhouette';
 import { CustomerPaymentHistorySection } from '../components/customer/CustomerPaymentHistorySection';
@@ -551,6 +552,7 @@ const CUSTOMER_TRACKING_FIELDS = [
   'customerTrackingCompletedAt',
   'customerReceiptInvoiceId',
   'customerAssignedTeam',
+  'liveTracking',
 ] as const;
 
 function pickCustomerTrackingFields(source: any): Record<string, unknown> {
@@ -2730,12 +2732,14 @@ export default function CustomerDashboard() {
   const hasActiveTrackerBooking = Boolean(
     displayedTrackerBooking && bookingShowsCustomerLiveTracker(displayedTrackerBooking)
   );
-  // Nothing live: the most recent job the backend marked completed is shown as a finished summary.
+  // Nothing live: the most recent job whose tracking session the backend closed is shown as a
+  // Service Complete summary (receipt + payment history). It is never rendered as a tracker.
   const completedTrackerBooking = useMemo(
     () => (hasActiveTrackerBooking ? undefined : pickCustomerCompletedTrackerBooking(myBookings)),
     [hasActiveTrackerBooking, myBookings]
   );
-  const trackerCardBooking = hasActiveTrackerBooking ? displayedTrackerBooking : completedTrackerBooking;
+  // Only an open session (liveTracking active + customer-visible) drives the live tracker UI.
+  const trackerCardBooking = hasActiveTrackerBooking ? displayedTrackerBooking : undefined;
 
   useEffect(() => {
     if (
@@ -2818,34 +2822,8 @@ export default function CustomerDashboard() {
     activeTrackerBooking?.serviceTrackingStage,
   ]);
 
-  // A completed job keeps its timeline photos as history: evidence is loaded at most once per
-  // order and never refreshed, because tracking has ended and there is nothing live to request.
-  useEffect(() => {
-    const completedId = bookingRowId(completedTrackerBooking);
-    if (!completedId || !CUSTOMER_BOOKINGS_DATA_SECTIONS.includes(activeSection)) return;
-    if (hasTrackerStageMediaField(completedTrackerBooking)) return;
-    const historyKey = `history:${completedId}`;
-    if (trackerMediaHydrationKeysRef.current.has(historyKey)) return;
-    trackerMediaHydrationKeysRef.current.add(historyKey);
-
-    void (async () => {
-      try {
-        const { OrderService } = await import('../lib/order-service');
-        const response = await OrderService.getTrackerMedia(completedId);
-        const payload = response?.success ? response.data : null;
-        if (!payload) return;
-        setMyBookings((prev) => {
-          const next = prev.map((booking) =>
-            bookingRowId(booking) === completedId ? mergeTrackerMediaPayload(booking, payload) : booking
-          );
-          myBookingsRef.current = next;
-          return next;
-        });
-      } catch (error) {
-        console.warn('[CustomerTrackerMedia] Failed to load completed job evidence:', error);
-      }
-    })();
-  }, [activeSection, completedTrackerBooking]);
+  // A closed tracking session renders no photo evidence, so completed jobs never request tracker
+  // media here; the evidence stays on the order for records and audit.
 
   useEffect(() => {
     if (location.pathname !== '/customer/book') {
@@ -3430,16 +3408,18 @@ export default function CustomerDashboard() {
               <CustomerSidebarAnimatedIcon name="services" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Services</span>
             </button>
-            <button
-              type="button"
-              onClick={() => nav('tracker')}
-              className={`customer-sidebar-item ${activeSection === 'tracker' ? 'is-active' : ''}`}
-              aria-label="Live Tracker"
-              data-sidebar-tooltip="Live Tracker"
-            >
-              <CustomerSidebarAnimatedIcon name="tracker" size={18} />
-              <span className="customer-sidebar-label flex-1 min-w-0 text-left">Live Tracker</span>
-            </button>
+            {hasActiveTrackerBooking && (
+              <button
+                type="button"
+                onClick={() => nav('tracker')}
+                className={`customer-sidebar-item ${activeSection === 'tracker' ? 'is-active' : ''}`}
+                aria-label="Live Tracker"
+                data-sidebar-tooltip="Live Tracker"
+              >
+                <CustomerSidebarAnimatedIcon name="tracker" size={18} />
+                <span className="customer-sidebar-label flex-1 min-w-0 text-left">Live Tracker</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -4863,7 +4843,15 @@ export default function CustomerDashboard() {
                       <p className="text-sm text-slate-500">Track your vehicle service in real time.</p>
                     </div>
 
-                    {!activeBooking ? (
+                    {!activeBooking && completedTrackerBooking ? (
+                      <CustomerServiceCompleteCard
+                        booking={completedTrackerBooking}
+                        completedAtLabel={formatTrackingCompletedAt(completedTrackerBooking.customerTrackingCompletedAt)}
+                        onViewReceipt={() => void openCustomerOrderReceiptPdf(bookingRowId(completedTrackerBooking))}
+                        onPaymentHistory={() => nav('payments')}
+                        onServiceHistory={() => nav('documents')}
+                      />
+                    ) : !activeBooking ? (
                       <div className="w-full bg-white rounded-xl border border-slate-200 shadow-sm p-10 text-center">
                         <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
                           <iconify-icon icon="solar:routing-2-linear" width="28" style={{ color: '#94a3b8' }}></iconify-icon>
@@ -5717,6 +5705,19 @@ export default function CustomerDashboard() {
                     </section>
                   );
                 })()}
+
+                {/* ── Service Complete (tracking session closed by the backend) ── */}
+                {!trackerCardBooking && completedTrackerBooking && (
+                  <section style={{ marginBottom: 32 }}>
+                    <CustomerServiceCompleteCard
+                      booking={completedTrackerBooking}
+                      completedAtLabel={formatTrackingCompletedAt(completedTrackerBooking.customerTrackingCompletedAt)}
+                      onViewReceipt={() => void openCustomerOrderReceiptPdf(bookingRowId(completedTrackerBooking))}
+                      onPaymentHistory={() => nav('payments')}
+                      onServiceHistory={() => nav('documents')}
+                    />
+                  </section>
+                )}
 
                 {/* ── Live Service Tracker ── */}
                 {trackerCardBooking && (() => {

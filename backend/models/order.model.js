@@ -112,6 +112,25 @@ const orderSchema = new mongoose.Schema(
      * Ready for Pickup; QC step 7 completion sets it for the non-POS path.
      */
     completedAt: Date,
+    /**
+     * Customer live tracking session. Written only by `closeCustomerLiveTracking`
+     * (constants/orderLifecycle.js) when the balance settles with a receipt or the vehicle is
+     * released. Closing hides tracking from customers; stage media and evidence are preserved.
+     * No defaults: legacy rows derive the session from the canonical state instead.
+     */
+    liveTracking: {
+      type: new mongoose.Schema(
+        {
+          active: Boolean,
+          customerVisible: Boolean,
+          closedAt: Date,
+          closedReason: { type: String, enum: ['payment_settled', 'released', null] },
+          closedBy: String,
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     posQueueStatus: {
       type: String,
       enum: [null, 'balance_pickup_queue'],
@@ -516,6 +535,9 @@ const orderSchema = new mongoose.Schema(
         },
         photoUrl: { type: String, default: '' },
         description: { type: String, default: '' },
+        /** Ledger row in `stage_evidence_photos` that produced this photo (gate evidence uploads). */
+        evidenceId: { type: mongoose.Schema.Types.ObjectId, ref: 'StageEvidencePhoto', required: false },
+        cloudinaryPublicId: { type: String, required: false },
         uploadedAt: { type: Date, default: Date.now },
         uploadedBy: String,
       },

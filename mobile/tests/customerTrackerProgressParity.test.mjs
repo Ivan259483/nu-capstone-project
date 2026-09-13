@@ -169,6 +169,38 @@ test('Web and Mobile keep paid pickup visible until the backend ends tracking, t
   }
 });
 
+test('Web and Mobile hide live tracking once the backend closes the session on balance payment', () => {
+  const beforePayment = withBackendTrackingState({
+    status: 'ready_for_payment',
+    paymentStatus: 'partially_paid',
+    serviceTrackingStage: 'ready_pickup',
+  });
+  // Exactly what the POS checkout persists: completed + closed session, receipt issued.
+  const afterPayment = withBackendTrackingState({
+    status: 'completed',
+    paymentStatus: 'paid',
+    serviceTrackingStage: 'completed',
+    invoiceId: 'INV-20260913-A98186',
+    liveTracking: { active: false, customerVisible: false, closedAt: '2026-09-13T03:11:29.914Z' },
+  });
+  // A stale socket patch that still says `live` must not reopen a closed session.
+  const staleLivePatch = { ...afterPayment, customerTrackingState: 'live' };
+
+  assert.equal(beforePayment.customerTrackingState, 'live');
+  assert.equal(afterPayment.customerTrackingState, 'completed');
+
+  for (const [handoverComplete, showsTracker] of [
+    [webHandoverComplete, webShowsTracker],
+    [mobileHandoverComplete, mobileShowsTracker],
+  ]) {
+    assert.equal(showsTracker(beforePayment), true);
+    assert.equal(handoverComplete(afterPayment), true);
+    assert.equal(showsTracker(afterPayment), false);
+    assert.equal(handoverComplete(staleLivePatch), true);
+    assert.equal(showsTracker(staleLivePatch), false);
+  }
+});
+
 test('customer trackers no longer advance stages from photo existence', async () => {
   const [webDashboard, mobileTracker, webStep, webMedia, mobileMedia, mobileHomeRail] = await Promise.all([
     readFile(new URL('../../frontend/src/pages/CustomerDashboard.tsx', import.meta.url), 'utf8'),

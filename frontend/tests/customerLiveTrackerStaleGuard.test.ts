@@ -234,3 +234,23 @@ test('a settled order never wins the picker over a genuinely active one', () => 
   assert.equal(pickCustomerLiveTrackerBooking([SETTLED_TERMINAL, stillActive])?._id, 'order-active');
   assert.equal(pickCustomerLiveTrackerBooking([SETTLED_STORED_AS_PICKUP, stillActive])?._id, 'order-active');
 });
+
+test('a backend-closed liveTracking session hides the tracker even if a stale patch says live', () => {
+  const closed = {
+    _id: 'order-closed',
+    status: 'completed',
+    serviceTrackingStage: 'completed',
+    paymentStatus: 'paid',
+    invoiceId: 'INV-20260913-A98186',
+    customerTrackingState: 'live',
+    liveTracking: { active: false, customerVisible: false, closedAt: '2026-09-13T03:11:29.914Z' },
+  };
+  assert.equal(bookingHasCompletedCustomerHandover(closed), true);
+  assert.equal(bookingShowsCustomerLiveTracker(closed), false);
+  assert.equal(pickCustomerLiveTrackerBooking([closed]), undefined);
+  assert.equal(
+    bookingShowsCustomerLiveTracker({ ...closed, liveTracking: { active: true, customerVisible: false } }),
+    false,
+    'hidden from the customer even while staff-side tracking is active'
+  );
+});

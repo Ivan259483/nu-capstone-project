@@ -80,7 +80,7 @@ export const buildStaticArCsp = (filePath, nodeEnv = 'development') => {
     "style-src-attr 'unsafe-inline'",
     "img-src 'self' data: blob: https://www.gstatic.com https://res.cloudinary.com",
     "font-src 'self'",
-    "connect-src 'self' blob: https://www.gstatic.com https://assets.meshy.ai https://res.cloudinary.com https://storage.googleapis.com",
+    "connect-src 'self' blob: https://www.gstatic.com https://assets.meshy.ai https://res.cloudinary.com https://api.cloudinary.com https://storage.googleapis.com",
     "worker-src 'self' blob:",
     "media-src 'self' blob:",
     "model-src 'self' blob: https://assets.meshy.ai https://res.cloudinary.com https://storage.googleapis.com",

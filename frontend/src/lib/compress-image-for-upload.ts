@@ -2,6 +2,13 @@
  * Resize + JPEG-encode images in the browser so uploads finish faster
  * (smaller JSON body to API / Mongo).
  */
+import {
+  EVIDENCE_ENCODE_STEPS,
+  EVIDENCE_TARGET_MAX_BYTES,
+  fitWithinEdge,
+  shouldOptimizeEvidence,
+} from '@/lib/evidence-upload/optimize-policy';
+
 const DEFAULT_MAX_EDGE_PX = 1600;
 const DEFAULT_TARGET_MAX_BYTES = 900 * 1024;
 const DEFAULT_SKIP_BELOW_BYTES = 200 * 1024;
@@ -120,32 +127,34 @@ export async function compressImageForUpload(file: File, options?: CompressImage
   return fileFromJpegBlob(file, blob);
 }
 
-/**
- * Longest edge and JPEG quality here are a deliberate quality/speed tradeoff for
- * QC evidence: damage detail (scratches, swirls) must stay legible, while the
- * output must still land under the backend's FAST_INLINE_STAGE_PHOTO_MAX_BYTES
- * (1MB raw) so the upload takes the fast inline-then-background-Cloudinary-backfill
- * path instead of blocking on a synchronous Cloudinary round trip.
- */
-async function compressImageForLiveTrackerFast(file: File): Promise<File> {
-  if (!file.type.startsWith('image/')) return file;
-  if (file.type === 'image/gif') return file;
-  if (file.size < 150 * 1024) return file;
+export type EncodedEvidenceImage = { blob: Blob; width: number; height: number; mimeType: string };
 
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((b) => resolve(b), type, quality);
+  });
+}
+
+let mainThreadWebpSupported: boolean | null = null;
+
+/**
+ * Main-thread gate evidence encoder — the fallback for browsers without OffscreenCanvas.
+ * Follows the same policy as `lib/evidence-upload/image-optimizer.worker.ts`: 1600px longest
+ * edge, WebP (JPEG when unsupported), quality stepped down until the photo fits ~500 KB.
+ */
+export async function encodeEvidenceImageOnMainThread(file: File): Promise<EncodedEvidenceImage | null> {
   let bitmap: ImageBitmap | null = null;
   let htmlImg: HTMLImageElement | null = null;
-
   try {
-    if (typeof createImageBitmap === 'function') {
-      bitmap = await createImageBitmap(file);
-    } else {
-      htmlImg = await loadHtmlImage(file);
-    }
+    bitmap = typeof createImageBitmap === 'function'
+      ? await createImageBitmap(file, { imageOrientation: 'from-image' })
+      : null;
+    if (!bitmap) htmlImg = await loadHtmlImage(file);
   } catch {
     try {
       htmlImg = await loadHtmlImage(file);
     } catch {
-      return file;
+      return null;
     }
   }
 
@@ -153,54 +162,49 @@ async function compressImageForLiveTrackerFast(file: File): Promise<File> {
   const srcH = bitmap?.height ?? htmlImg!.naturalHeight;
   if (!srcW || !srcH) {
     bitmap?.close();
-    return file;
+    return null;
   }
 
-  // 1600px longest edge preserves scratch/swirl/damage detail (matches the
-  // manual compressImageForUpload default); the previous 720px target here was
-  // over-compressing QC evidence for the sake of upload speed the fast-inline
-  // path didn't actually need.
-  const maxEdgePx = 1600;
-  const scale = Math.min(1, maxEdgePx / Math.max(srcW, srcH));
-  const w = Math.max(1, Math.round(srcW * scale));
-  const h = Math.max(1, Math.round(srcH * scale));
+  let best: EncodedEvidenceImage | null = null;
+  try {
+    for (const step of EVIDENCE_ENCODE_STEPS) {
+      const { width, height } = fitWithinEdge(srcW, srcH, step.maxEdge);
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (!ctx) return best;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage((bitmap ?? htmlImg)!, 0, 0, width, height);
 
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d', { alpha: false });
-  if (!ctx) {
+      let blob: Blob | null = null;
+      if (mainThreadWebpSupported !== false) {
+        blob = await canvasToBlob(canvas, 'image/webp', step.quality);
+        if (mainThreadWebpSupported === null) mainThreadWebpSupported = blob?.type === 'image/webp';
+      }
+      if (!mainThreadWebpSupported) blob = await canvasToBlob(canvas, 'image/jpeg', step.quality);
+      if (!blob) return best;
+
+      best = { blob, width, height, mimeType: blob.type };
+      if (blob.size <= EVIDENCE_TARGET_MAX_BYTES) break;
+    }
+    return best;
+  } finally {
     bitmap?.close();
-    return file;
   }
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, w, h);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'medium';
-  if (bitmap) {
-    ctx.drawImage(bitmap, 0, 0, w, h);
-    bitmap.close();
-  } else {
-    ctx.drawImage(htmlImg!, 0, 0, w, h);
-  }
-
-  // Stay safely under FAST_INLINE_STAGE_PHOTO_MAX_BYTES (1MB raw) so this still
-  // takes the fast inline path on the backend.
-  let quality = 0.82;
-  let blob = await canvasToJpegBlob(canvas, quality);
-  while (blob && blob.size > 700 * 1024 && quality > 0.55) {
-    quality -= 0.08;
-    blob = await canvasToJpegBlob(canvas, quality);
-  }
-
-  if (!blob || blob.size >= file.size) return file;
-  return fileFromJpegBlob(file, blob);
 }
 
-/** Tracker stage photos — fast small copy so customer live tracker updates quickly. */
+/** Tracker stage photos (non-gate stages) — same evidence policy as the gate upload queue. */
 export async function compressImageForTrackerUpload(file: File): Promise<File> {
-  return compressImageForLiveTrackerFast(file);
+  if (!shouldOptimizeEvidence(file)) return file;
+  const encoded = await encodeEvidenceImageOnMainThread(file).catch(() => null);
+  if (!encoded || encoded.blob.size >= file.size) return file;
+  const base = file.name.replace(/\.[^.]+$/, '') || 'tracker-photo';
+  const extension = encoded.mimeType === 'image/webp' ? 'webp' : 'jpg';
+  return new File([encoded.blob], `${base}.${extension}`, { type: encoded.mimeType, lastModified: Date.now() });
 }
 
 /**

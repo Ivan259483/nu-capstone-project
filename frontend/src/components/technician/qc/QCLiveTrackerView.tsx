@@ -54,6 +54,8 @@ import {
 } from '@/lib/qc-job-workflow';
 import { pauseQcJobsRefetchForUpload } from '@/hooks/useQCData';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEvidenceUploads } from '@/hooks/useEvidenceUploads';
+import type { EvidenceUploadItem } from '@/lib/evidence-upload';
 import { getSafeUserRole, STAFF_QC_ROLE } from '@/lib/roles';
 import {
   getActiveGateIndexFromServiceStage,
@@ -1579,6 +1581,23 @@ function QCGateChecklistPanel({
   );
 }
 
+function uploadStatusLabel(item?: EvidenceUploadItem): string {
+  if (!item) return 'Uploading...';
+  if (item.state === 'RETRY' && item.phase === 'waiting') return 'Retrying…';
+  switch (item.phase) {
+    case 'optimizing':
+      return 'Optimizing';
+    case 'signing':
+      return 'Preparing';
+    case 'uploading':
+      return `Uploading ${item.progress}%`;
+    case 'saving':
+      return 'Saving';
+    default:
+      return item.state === 'PENDING' ? 'Waiting' : 'Queued';
+  }
+}
+
 function CurrentGateCard({
   job,
   detailsLoading,
@@ -1600,7 +1619,7 @@ function CurrentGateCard({
   qcValidation: QCGateValidation;
   onUploadStagePhoto: (
     orderId: string,
-    payload: { stage: string; slot?: string; description?: string; file?: File | null },
+    payload: { stage: string; slot?: string; description?: string; file?: File | null; retry?: boolean },
     opts?: { skipJobsRefresh?: boolean }
   ) => Promise<QCStagePhotoUploadResult>;
   onDeleteTrackerStagePhoto: (
@@ -1641,6 +1660,19 @@ function CurrentGateCard({
   /** Gate index is already shown in `gateTitle` above — avoid repeating "Gate X of Y" here. */
   const qcChecklistHeading = 'QC Checklist';
   const slotRows = orderedStaffGateSlots(currentStage, viewerIsQualityChecker);
+  const { bySlot: uploadItems, batch: uploadBatch } = useEvidenceUploads(job.id, currentStage);
+  const { user: viewer } = useAuth();
+  const bulkPickRef = useRef(false);
+  // The API enforces assignment (403); this only explains it up front. Unknown assignee → no lock.
+  const assignedQcId = String(job.technicianId || '');
+  const uploadLockedReason = viewerIsQualityChecker && assignedQcId && viewer?.id && assignedQcId !== String(viewer.id)
+    ? `Assigned to ${job.technician && !['Assigned', 'Unassigned'].includes(job.technician) ? job.technician : 'another Quality Checker'} — only the assigned Quality Checker can upload evidence for this order.`
+    : null;
+  const failedSlotKeys = slotRows.filter((slot) => failedSlots[slot]);
+  const openSlotCount = slotRows.filter(
+    (slot) => !mediaRepresentsSavedPhoto(getMediaForSlot(mediaList, currentStage, slot)) && !uploadingSlots[slot] && !previewUrls[slot]
+  ).length;
+  const showBatchStatus = Boolean(uploadBatch && uploadBatch.total > 1 && (!uploadBatch.settled || uploadBatch.failed > 0));
 
   const clearFilePickerFallback = useCallback(() => {
     if (filePickerFallbackTimerRef.current) {
@@ -1757,17 +1789,22 @@ function CurrentGateCard({
     }, 1800);
   };
 
-  const triggerUpload = (slot: StaffGateSlotKey) => {
-    if (pendingSlotRef.current || inFlightSlotsRef.current[slot]) return;
+  /** `slot` targets one tile; `null` is the "Add photos" bulk pick that fills empty slots in order. */
+  const openPicker = (slot: StaffGateSlotKey | null) => {
+    if (uploadLockedReason || pendingSlotRef.current || bulkPickRef.current) return;
+    if (slot && inFlightSlotsRef.current[slot]) return;
     clearFilePickerFallback();
     pendingSlotRef.current = slot;
+    bulkPickRef.current = !slot;
     setPendingSlot(slot);
     beginUploadInteraction();
     const clearAfterPickerReturns = () => {
       filePickerFocusListenerRef.current = null;
       filePickerFallbackTimerRef.current = setTimeout(() => {
-        if (pendingSlotRef.current !== slot) return;
+        const stillPending = slot ? pendingSlotRef.current === slot : bulkPickRef.current;
+        if (!stillPending) return;
         pendingSlotRef.current = null;
+        bulkPickRef.current = false;
         setPendingSlot(null);
         endUploadInteraction();
       }, 8000);
@@ -1777,13 +1814,15 @@ function CurrentGateCard({
     requestAnimationFrame(() => inputRef.current?.click());
   };
 
+  const triggerUpload = (slot: StaffGateSlotKey) => openPicker(slot);
+
   /**
    * Shared by the file picker and Retry: fires an immediate local preview so the tile
    * never sits empty, uploads in the background, and on failure keeps that preview up
    * with a Retry affordance instead of silently reverting to "Photo saved"/empty.
    */
   const runSlotUpload = useCallback(
-    async (slot: StaffGateSlotKey, file: File) => {
+    async (slot: StaffGateSlotKey, file: File, options?: { retry?: boolean }) => {
       if (inFlightSlotsRef.current[slot]) return;
       clearSlotFailure(slot);
       setBrokenImageSlots((current) => {
@@ -1804,7 +1843,7 @@ function CurrentGateCard({
         await waitForNextPaint();
         result = await onUploadStagePhoto(
           job.id,
-          { stage: currentStage, slot, file },
+          { stage: currentStage, slot, file, ...(options?.retry ? { retry: true } : {}) },
           { skipJobsRefresh: true }
         );
       } catch {
@@ -1836,19 +1875,47 @@ function CurrentGateCard({
     [currentStage, job.id, onUploadStagePhoto]
   );
 
+  /** Tapped slot first, then the remaining empty slots in gate order (front, rear, left, right, close-up…). */
+  const assignPickedFilesToSlots = (
+    files: File[],
+    slot: StaffGateSlotKey | null,
+    bulk: boolean
+  ): Array<[StaffGateSlotKey, File]> => {
+    if (!files.length || (!slot && !bulk)) return [];
+    const isOpen = (candidate: StaffGateSlotKey) =>
+      !inFlightSlotsRef.current[candidate]
+      && !previewUrlsRef.current[candidate]
+      && !mediaRepresentsSavedPhoto(getMediaForSlot(mediaList, currentStage, candidate));
+    const targets = [...(slot ? [slot] : []), ...slotRows.filter((candidate) => candidate !== slot && isOpen(candidate))];
+    const assignments = files
+      .slice(0, targets.length)
+      .map((file, index) => [targets[index], file] as [StaffGateSlotKey, File]);
+    const ignored = files.length - assignments.length;
+    if (ignored > 0) {
+      toast.info(`${ignored} extra photo${ignored === 1 ? '' : 's'} not added`, {
+        description: 'Every photo slot for this gate already has a photo.',
+      });
+    }
+    return assignments;
+  };
+
   const handlePhotoSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     clearFilePickerFallback();
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files || []);
     event.target.value = '';
     const slot = pendingSlotRef.current || pendingSlot;
+    const bulk = bulkPickRef.current;
     pendingSlotRef.current = null;
+    bulkPickRef.current = false;
     setPendingSlot(null);
-    if (!file || !slot) {
+    const assignments = assignPickedFilesToSlots(files, slot, bulk);
+    if (!assignments.length) {
       endUploadInteraction();
       return;
     }
     try {
-      await runSlotUpload(slot, file);
+      // Every picked photo starts immediately; the upload queue bounds decoding and network work.
+      await Promise.allSettled(assignments.map(([targetSlot, file]) => runSlotUpload(targetSlot, file)));
     } finally {
       endUploadInteraction();
     }
@@ -1857,7 +1924,8 @@ function CurrentGateCard({
   const retrySlotUpload = (slot: StaffGateSlotKey) => {
     const file = failedFilesRef.current[slot];
     if (!file || inFlightSlotsRef.current[slot]) return;
-    void runSlotUpload(slot, file);
+    // Reuses the already-optimized photo and, if Cloudinary already has it, only re-commits.
+    void runSlotUpload(slot, file, { retry: true });
   };
 
   /** A saved photoUrl exists but the browser failed to load it — force one fresh attempt. */
@@ -1898,6 +1966,7 @@ function CurrentGateCard({
           ref={inputRef}
           type="file"
           accept="image/*"
+          multiple
           className="hidden"
           onChange={handlePhotoSelected}
         />
@@ -1930,7 +1999,48 @@ function CurrentGateCard({
         <span className="tabular-nums text-slate-700">
           {filledCount}/{requiredForGate} uploaded
         </span>
+        {uploadBatch && showBatchStatus ? (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 tabular-nums text-slate-700"
+            aria-live="polite"
+          >
+            {uploadBatch.inFlight > 0 ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <AlertTriangle className="h-3 w-3 text-rose-600" strokeWidth={2.5} />
+            )}
+            {uploadBatch.inFlight > 0
+              ? `Uploading ${uploadBatch.total} photos… ${uploadBatch.succeeded}/${uploadBatch.total} done`
+              : `${uploadBatch.succeeded}/${uploadBatch.total} uploaded · ${uploadBatch.failed} failed`}
+          </span>
+        ) : null}
+        {!readOnly && failedSlotKeys.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => failedSlotKeys.forEach((slot) => retrySlotUpload(slot))}
+            className="rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-rose-700 transition hover:bg-rose-100"
+          >
+            Retry failed ({failedSlotKeys.length})
+          </button>
+        ) : null}
+        {!readOnly && !uploadLockedReason && openSlotCount > 1 ? (
+          <button
+            type="button"
+            onClick={() => openPicker(null)}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.1em] text-white transition hover:bg-slate-800"
+          >
+            <UploadCloud className="h-3.5 w-3.5" strokeWidth={2} />
+            Add photos
+          </button>
+        ) : null}
       </div>
+
+      {uploadLockedReason && !readOnly ? (
+        <div className="mt-4 flex gap-3 rounded-2xl bg-slate-100 px-4 py-3 text-slate-700">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" strokeWidth={2.5} aria-hidden />
+          <p className="text-xs font-semibold leading-snug">{uploadLockedReason}</p>
+        </div>
+      ) : null}
 
       {viewerIsQualityChecker && currentStage === 'received' ? (
         <div className="mt-4 flex gap-3 rounded-2xl bg-amber-50/95 px-4 py-3 text-amber-950 shadow-[0_10px_28px_-12px_rgba(234,88,12,0.2),inset_0_1px_0_rgba(255,255,255,0.85)]">
@@ -1979,7 +2089,10 @@ function CurrentGateCard({
           const brokenImage = !!brokenImageSlots[slot] && !failed;
           const canRenderImage = Boolean(displayUrl);
           const hasVisual = filled || Boolean(previewUrl) || failed;
-          const uploading = !!uploadingSlots[slot];
+          const uploadItem = uploadItems.get(slot);
+          // The queue outlives this card, so an upload still shows after a remount.
+          const uploading = !!uploadingSlots[slot]
+            || Boolean(uploadItem && uploadItem.state !== 'SUCCESS' && uploadItem.state !== 'FAILED');
           const removing = !!removingSlots[slot];
           const saved = !!successfulSlots[slot];
           const pending = !previewUrl && !failed && Boolean(entry?.photoPending) && displayUrl.startsWith('data:');
@@ -2017,7 +2130,7 @@ function CurrentGateCard({
                     {shortLabel}
                   </span>
                 </div>
-                {filled && !readOnly ? (
+                {filled && !readOnly && !uploadLockedReason ? (
                   <button
                     type="button"
                     onClick={() => removeSlot(slot)}
@@ -2072,7 +2185,17 @@ function CurrentGateCard({
                   {uploading ? (
                     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/35 text-white" aria-live="polite">
                       <Loader2 className="h-6 w-6 animate-spin" />
-                      <span className="text-[10px] font-black uppercase tracking-[0.1em]">Uploading...</span>
+                      <span className="text-[10px] font-black uppercase tracking-[0.1em] tabular-nums">
+                        {uploadStatusLabel(uploadItem)}
+                      </span>
+                      {uploadItem ? (
+                        <div className="absolute inset-x-3 bottom-3 h-1.5 overflow-hidden rounded-full bg-white/30">
+                          <div
+                            className="h-full rounded-full bg-white transition-[width] duration-200"
+                            style={{ width: `${uploadItem.progress}%` }}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                   {!uploading && (failed || brokenImage) ? (
@@ -2118,7 +2241,7 @@ function CurrentGateCard({
                 <button
                   type="button"
                   onClick={() => triggerUpload(slot)}
-                  disabled={busy}
+                  disabled={busy || Boolean(uploadLockedReason)}
                   className={`flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-b-[18px] px-2 shadow-[inset_0_2px_12px_rgba(15,23,42,0.05)] transition disabled:opacity-45 ${
                     isChecklist
                       ? 'bg-amber-50/80 text-amber-800 hover:bg-amber-50 hover:shadow-[inset_0_2px_14px_rgba(234,88,12,0.12)]'
@@ -2431,7 +2554,7 @@ type SelectedOrderPanelProps = {
   onAdvance: (id: string, stage: ServiceStage) => Promise<boolean>;
   onUploadStagePhoto: (
     orderId: string,
-    payload: { stage: string; slot?: string; description?: string; file?: File | null },
+    payload: { stage: string; slot?: string; description?: string; file?: File | null; retry?: boolean },
     opts?: { skipJobsRefresh?: boolean }
   ) => Promise<QCStagePhotoUploadResult>;
   onDeleteTrackerStagePhoto: (
@@ -2798,7 +2921,7 @@ export default function QCLiveTrackerView({
   onAdvance: (id: string, stage: ServiceStage) => Promise<boolean>;
   onUploadStagePhoto: (
     orderId: string,
-    payload: { stage: string; slot?: string; description?: string; file?: File | null },
+    payload: { stage: string; slot?: string; description?: string; file?: File | null; retry?: boolean },
     opts?: { skipJobsRefresh?: boolean }
   ) => Promise<QCStagePhotoUploadResult>;
   onDeleteTrackerStagePhoto: (
@@ -3251,7 +3374,7 @@ export default function QCLiveTrackerView({
   const handleUploadStagePhoto = useCallback(
     async (
       orderId: string,
-      payload: { stage: string; slot?: string; description?: string; file?: File | null },
+      payload: { stage: string; slot?: string; description?: string; file?: File | null; retry?: boolean },
       opts?: { skipJobsRefresh?: boolean }
     ) => {
       const result = await onUploadStagePhoto(orderId, payload, { ...opts, skipJobsRefresh: true });

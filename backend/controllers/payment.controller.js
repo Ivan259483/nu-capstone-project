@@ -63,8 +63,10 @@ import { timeOperation } from '../utils/performance.utils.js';
 import { logCheckoutPhase, timedPosPaymentStep } from '../utils/posPaymentLog.utils.js';
 import {
   CUSTOMER_TRACKING_STATES,
+  LIVE_TRACKING_CLOSE_REASONS,
   TERMINAL_ORDER_STATUSES,
   TERMINAL_TRACKING_STAGES,
+  closeCustomerLiveTracking,
   resolveCustomerTrackingState,
 } from '../constants/orderLifecycle.js';
 import { buildCustomerStagePayload } from '../utils/customerTrackerStage.utils.js';
@@ -434,6 +436,14 @@ const finalizePayment = async (payment, order, payload = {}) => {
   order.paymentProvider = payment.provider;
   const prevStatus = order.status;
   await syncOrderFinancialSnapshot(order);
+  // An online balance payment that settles an order at Ready for Pickup ends tracking exactly
+  // like a POS checkout. Up-front payments before service are left live by the canonical rule.
+  if (closeCustomerLiveTracking(order, {
+    reason: LIVE_TRACKING_CLOSE_REASONS.PAYMENT_SETTLED,
+    closedBy: payment.provider || 'online',
+  })) {
+    await order.save();
+  }
 
   await applyInventoryDeductions(order);
 
@@ -1909,9 +1919,12 @@ export const runPosCheckoutCore = async ({
   // settlement attempt must leave `completed`/`released` exactly where it is.
   const alreadyTerminal = TERMINAL_ORDER_STATUSES.has(prevStatusKey)
     || TERMINAL_TRACKING_STAGES.has(prevStageKey);
+  const closedBy = req.user?.name || req.user?.id || 'POS';
   if (alreadyTerminal) {
     order.status = prevPosStatus;
     order.serviceTrackingStage = prevTrackingStage;
+    // Retries on a terminal order only record the closed session; status never regresses.
+    closeCustomerLiveTracking(order, { reason: LIVE_TRACKING_CLOSE_REASONS.PAYMENT_SETTLED, closedBy });
   } else if (fullySettled && resolveCustomerTrackingState(order) === CUSTOMER_TRACKING_STATES.COMPLETED) {
     // Payment settlement is the terminal condition: zero balance + receipt issued on an order
     // that reached Ready for Pickup — the same rule customers read as `customerTrackingState`.
@@ -1925,9 +1938,14 @@ export const runPosCheckoutCore = async ({
         invoiceId: order.invoiceId || null,
       });
     }
-    order.status = 'completed';
-    order.serviceTrackingStage = 'completed';
-    order.completedAt = order.completedAt || new Date();
+    // Completes the order and closes the customer's live tracking session in one write
+    // (status/stage 'completed', completedAt, liveTracking.active/customerVisible = false).
+    closeCustomerLiveTracking(order, { reason: LIVE_TRACKING_CLOSE_REASONS.PAYMENT_SETTLED, closedBy });
+    console.info('[POS PAYMENT] step=close_live_tracking outcome=closed', {
+      orderId: order._id?.toString?.(),
+      invoiceId: order.invoiceId || null,
+      closedAt: order.liveTracking?.closedAt || null,
+    });
   } else if (fullySettled) {
     if (['pending_confirmation', 'pending', 'approved', 'confirmed', 'assigned', 'queued'].includes(prevStatusKey)) {
       order.status = ['approved', 'assigned'].includes(prevStatusKey) ? prevPosStatus : 'confirmed';

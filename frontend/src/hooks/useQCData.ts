@@ -4,6 +4,11 @@ import api from '@/lib/api';
 import { toast } from 'sonner';
 import { compressImageForTrackerUpload } from '@/lib/compress-image-for-upload';
 import { isGatePhotoStage, normalizeStaffGateSlot } from '@/lib/tracker-gate-photo-slots';
+import {
+  evidenceUploadKey,
+  evidenceUploadQueue,
+  type EvidenceBatchSummary,
+} from '@/lib/evidence-upload';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -155,6 +160,28 @@ function pauseQcSocketJobsRefetch(ms = 4500) {
 export function pauseQcJobsRefetchForUpload(ms = 15_000) {
   pauseQcSocketJobsRefetch(ms);
 }
+
+/** One toast per pick (not per photo); registered once for the whole app. */
+function announceEvidenceBatch(summary: EvidenceBatchSummary) {
+  if (!summary.total) return;
+  const firstError = summary.items.find((item) => item.errorMessage)?.errorMessage;
+  if (summary.failed === 0) {
+    toast.success(summary.total === 1 ? 'Photo uploaded' : `${summary.succeeded} photos uploaded`, {
+      description: 'Shown on the customer live tracker.',
+    });
+    return;
+  }
+  const retryHint = 'Tap Retry on the failed photo — the others are not affected.';
+  if (summary.succeeded === 0) {
+    toast.error(summary.total === 1 ? 'Photo upload failed' : `${summary.failed} photos failed to upload`, {
+      description: firstError || retryHint,
+    });
+    return;
+  }
+  toast.warning(`${summary.succeeded} uploaded · ${summary.failed} failed`, { description: firstError || retryHint });
+}
+
+evidenceUploadQueue.onBatchSettled(announceEvidenceBatch);
 
 type CacheEntry<T> = {
   data?: T;
@@ -972,7 +999,7 @@ export function useQCData({
   const uploadTrackerStagePhoto = useCallback(
     async (
       orderId: string,
-      payload: { stage: string; slot?: string; description?: string; file?: File | null },
+      payload: { stage: string; slot?: string; description?: string; file?: File | null; retry?: boolean },
       _opts?: { skipJobsRefresh?: boolean }
     ): Promise<QCStagePhotoUploadResult> => {
       console.log('[QC Upload Debug] Stage photo upload starts', {
@@ -980,12 +1007,64 @@ export function useQCData({
         stage: payload.stage,
         slot: payload.slot,
         hasFile: Boolean(payload.file),
+        retry: Boolean(payload.retry),
       });
       pauseQcSocketJobsRefetch(15_000);
       try {
-        if (payload.file) {
+        if (payload.file || payload.retry) {
           if (isGatePhotoStage(payload.stage) && !payload.slot) {
             toast.error('Missing photo slot');
+            return { success: false };
+          }
+
+          if (isGatePhotoStage(payload.stage) && payload.slot) {
+            // Gate evidence goes through the parallel upload queue: optimize in a worker,
+            // sign in one batch, upload straight to Cloudinary, commit per photo.
+            const key = evidenceUploadKey(orderId, payload.stage, payload.slot);
+            const outcome = payload.retry && evidenceUploadQueue.has(key)
+              ? await evidenceUploadQueue.retry(key)
+              : payload.file
+                ? await evidenceUploadQueue.enqueue({
+                  orderId,
+                  stage: payload.stage,
+                  slot: payload.slot,
+                  file: payload.file,
+                  description: payload.description?.trim() || undefined,
+                })
+                : { success: false };
+
+            if (!outcome.success) {
+              console.log('[QC Upload Debug] Stage photo upload did not complete', {
+                orderId,
+                stage: payload.stage,
+                slot: payload.slot,
+                outcome,
+              });
+              return { success: false };
+            }
+
+            const commit = (outcome.result || {}) as { trackerStageMedia?: unknown; savedMedia?: unknown; photoUrl?: string };
+            let trackerStageMedia = normalizeQcTrackerMediaList(commit.trackerStageMedia);
+            const savedMedia = normalizeQcTrackerMediaEntry(commit.savedMedia)
+              || findSavedTrackerMedia(trackerStageMedia, payload.stage, payload.slot);
+            if (trackerStageMedia.length > 0) {
+              patchJobTrackerMedia(orderId, trackerStageMedia);
+            } else if (savedMedia) {
+              const currentJob = jobsRef.current.find((job) => String(job.id) === String(orderId));
+              trackerStageMedia = upsertTrackerMediaList(currentJob?.trackerStageMedia || [], savedMedia);
+              patchJobTrackerMedia(orderId, trackerStageMedia);
+            }
+            qcRequestCache.delete(`qc-job-detail:${orderId}`);
+            return {
+              success: true,
+              photoUrl: savedMedia?.photoUrl || commit.photoUrl,
+              trackerStageMedia,
+              savedMedia: savedMedia || undefined,
+            };
+          }
+
+          if (!payload.file) {
+            toast.error('Please choose an image file');
             return { success: false };
           }
 

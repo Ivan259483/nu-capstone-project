@@ -53,12 +53,18 @@ export const isOrderPaymentSettledWithReceipt = (order) => Boolean(order)
   && normalizeLifecycleKey(order.paymentStatus) === 'paid'
   && String(order.invoiceId ?? '').trim().length > 0;
 
+/** True when the persisted tracking session was closed for the customer. */
+export const isPersistedLiveTrackingClosed = (order) => Boolean(order?.liveTracking)
+  && (order.liveTracking.active === false || order.liveTracking.customerVisible === false);
+
 export const resolveCustomerTrackingState = (order) => {
   if (!order) return CUSTOMER_TRACKING_STATES.LIVE;
   const status = normalizeLifecycleKey(order.status);
   const stage = normalizeLifecycleKey(order.serviceTrackingStage);
   if (CANCELLED_ORDER_STATUSES.has(status)) return CUSTOMER_TRACKING_STATES.CANCELLED;
   if (status === 'released' || stage === 'released') return CUSTOMER_TRACKING_STATES.COMPLETED;
+  // Once closed, a session never reopens from a later status write.
+  if (isPersistedLiveTrackingClosed(order)) return CUSTOMER_TRACKING_STATES.COMPLETED;
   const reachedReadyForPickup = READY_FOR_PICKUP_OR_LATER_STAGES.has(stage)
     || READY_FOR_PICKUP_OR_LATER_STATUSES.has(status);
   return reachedReadyForPickup && isOrderPaymentSettledWithReceipt(order)
@@ -66,16 +72,101 @@ export const resolveCustomerTrackingState = (order) => {
     : CUSTOMER_TRACKING_STATES.LIVE;
 };
 
+export const LIVE_TRACKING_CLOSE_REASONS = Object.freeze({
+  PAYMENT_SETTLED: 'payment_settled',
+  RELEASED: 'released',
+});
+
+const toPlainLiveTracking = (value) => {
+  if (!value) return null;
+  const plain = typeof value.toObject === 'function' ? value.toObject() : value;
+  return plain && typeof plain === 'object' ? plain : null;
+};
+
+/**
+ * Customer-facing tracking session. Persisted rows report what was stored; legacy rows written
+ * before `liveTracking` existed derive the same shape from the canonical state, so clients can
+ * gate on `liveTracking.active && liveTracking.customerVisible` for every order.
+ */
+export const resolveLiveTrackingSession = (order) => {
+  const state = resolveCustomerTrackingState(order);
+  const persisted = toPlainLiveTracking(order?.liveTracking);
+  const open = state === CUSTOMER_TRACKING_STATES.LIVE;
+  return {
+    active: open && persisted?.active !== false,
+    customerVisible: open && persisted?.customerVisible !== false,
+    closedAt: open
+      ? null
+      : (persisted?.closedAt || order?.completedAt || order?.paidAt || order?.serviceTrackingUpdatedAt || null),
+    closedReason: open ? null : (persisted?.closedReason || null),
+  };
+};
+
+/**
+ * The ONE write that ends a customer's live tracking session. Called by every path that can
+ * settle or hand over an order (POS checkout, online balance payment, legacy final-payment and
+ * release operations, and the backfill script).
+ *
+ * It acts only when the canonical rule says tracking is over, so an up-front full payment never
+ * closes tracking before service. It only closes visibility: tracker stage media, QC evidence,
+ * service steps, timeline and payments are never touched. Idempotent; returns true when it
+ * changed the order.
+ */
+export const closeCustomerLiveTracking = (order, {
+  reason = LIVE_TRACKING_CLOSE_REASONS.PAYMENT_SETTLED,
+  closedBy = null,
+  now = new Date(),
+} = {}) => {
+  if (!order) return false;
+  if (resolveCustomerTrackingState(order) !== CUSTOMER_TRACKING_STATES.COMPLETED) return false;
+
+  const before = JSON.stringify({
+    status: order.status,
+    serviceTrackingStage: order.serviceTrackingStage,
+    completedAt: order.completedAt,
+    customerStatus: order.customerStatus,
+    liveTracking: toPlainLiveTracking(order.liveTracking),
+  });
+
+  const released = normalizeLifecycleKey(order.status) === 'released'
+    || normalizeLifecycleKey(order.serviceTrackingStage) === 'released';
+  if (!released) {
+    order.status = 'completed';
+    order.serviceTrackingStage = 'completed';
+  }
+  order.completedAt = order.completedAt || now;
+  order.customerStatus = 'completed';
+
+  const persisted = toPlainLiveTracking(order.liveTracking);
+  order.liveTracking = {
+    active: false,
+    customerVisible: false,
+    closedAt: persisted?.closedAt || now,
+    closedReason: persisted?.closedReason || (released ? LIVE_TRACKING_CLOSE_REASONS.RELEASED : reason),
+    closedBy: persisted?.closedBy || (closedBy ? String(closedBy) : null),
+  };
+
+  return before !== JSON.stringify({
+    status: order.status,
+    serviceTrackingStage: order.serviceTrackingStage,
+    completedAt: order.completedAt,
+    customerStatus: order.customerStatus,
+    liveTracking: toPlainLiveTracking(order.liveTracking),
+  });
+};
+
 /** Tracking lifecycle fields carried on every customer-facing order payload. */
 export const buildCustomerTrackingLifecycle = (order) => {
   const state = resolveCustomerTrackingState(order);
   const completed = state === CUSTOMER_TRACKING_STATES.COMPLETED;
+  const liveTracking = resolveLiveTrackingSession(order);
   return {
     customerTrackingState: state,
     customerTrackingLive: state === CUSTOMER_TRACKING_STATES.LIVE,
     customerTrackingCompletedAt: completed
-      ? (order?.completedAt || order?.paidAt || order?.serviceTrackingUpdatedAt || null)
+      ? (order?.completedAt || liveTracking.closedAt || order?.paidAt || order?.serviceTrackingUpdatedAt || null)
       : null,
     customerReceiptInvoiceId: isOrderPaymentSettledWithReceipt(order) ? String(order.invoiceId).trim() : null,
+    liveTracking,
   };
 };

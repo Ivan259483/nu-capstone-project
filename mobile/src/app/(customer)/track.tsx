@@ -136,6 +136,7 @@ const TRACKING_LIFECYCLE_FIELDS = [
   'customerTrackingCompletedAt',
   'customerReceiptInvoiceId',
   'customerAssignedTeam',
+  'liveTracking',
 ] as const;
 
 function isAppointmentSecuredDisplay(booking: BookingRecord | null | undefined): boolean {
@@ -1558,12 +1559,13 @@ export default function TrackScreen() {
     if (postPayComplete || readyForPickupComplete) return 100;
     return resolveCustomerTrackerStage(booking).progress;
   }, [booking, postPayComplete, readyForPickupComplete]);
+  // Only an open tracking session renders the live tracker. Once the backend closes it
+  // (liveTracking inactive / not customer-visible) the tab shows the Service Complete card.
   const hasActive =
     !!booking &&
-    (postPayComplete || (
-      !bookingIsTerminalForLiveTracker(booking) &&
-      (bookingShowsCustomerLiveTracker(booking) || isDefaultTrackBookingRow(booking?.status || ''))
-    ));
+    !postPayComplete &&
+    !bookingIsTerminalForLiveTracker(booking) &&
+    (bookingShowsCustomerLiveTracker(booking) || isDefaultTrackBookingRow(booking?.status || ''));
 
   const stepTimestamps = booking ? getCustomerTrackerTimestamps(booking) : ['', '', '', '', ''];
   const etaLabel       = booking ? getEtaLabel(booking) : '—';
@@ -1710,6 +1712,59 @@ export default function TrackScreen() {
               <Text style={s.emptyBtnText}>Try again</Text>
               <Ionicons name="refresh" size={15} color="#000" />
             </TouchableOpacity>
+          </Animated.View>
+
+        /* ───────── Service Complete (tracking session closed) ───────── */
+        ) : !hasActive && booking && postPayComplete ? (
+          <Animated.View
+            entering={FadeInDown.delay(80).duration(220)}
+            style={[s.stageCard, s.stageCardComplete]}
+            accessibilityLabel="Service complete"
+            testID="customer-service-complete-card"
+          >
+            <View style={s.stageTopRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.stageEyebrow}>SERVICE COMPLETE ✓</Text>
+                <Text style={[s.stageTitle, s.stageTitleComplete]}>{finalStatusLabel}</Text>
+              </View>
+              <Ionicons name="checkmark-circle" size={30} color={C.green} />
+            </View>
+            <Text style={s.stageDescription}>
+              Payment confirmed and receipt issued. Live tracking has ended for this service.
+            </Text>
+            <View style={[s.stageMetaRow, s.stageMetaRowFit]}>
+              {[
+                { label: 'Completed', value: completedAtLabel },
+                { label: 'Receipt', value: booking.customerReceiptInvoiceId || 'Available' },
+                { label: 'Reference', value: referenceLabel },
+              ].map((item) => (
+                <View key={item.label} style={[s.stageMetaItem, s.stageMetaItemFit]}>
+                  <Text style={s.stageMetaLabel}>{item.label}</Text>
+                  <Text style={[s.stageMetaValue, s.stageMetaValueFit]} numberOfLines={1}>
+                    {item.value}
+                  </Text>
+                </View>
+              ))}
+            </View>
+            {[
+              { label: 'Receipt', icon: 'receipt-outline' as const, route: { pathname: '/(screens)/payments', params: { orderId: booking.id } } },
+              { label: 'Invoice', icon: 'document-text-outline' as const, route: { pathname: '/(screens)/payments', params: { orderId: booking.id } } },
+              { label: 'Service History', icon: 'time-outline' as const, route: '/(screens)/appointments' },
+            ].map((action) => (
+              <TouchableOpacity
+                key={action.label}
+                style={[s.emptyBtn, { alignSelf: 'stretch', justifyContent: 'center', marginTop: 10 }]}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                onPress={() => {
+                  Haptics.primaryPress();
+                  router.push(action.route as any);
+                }}
+              >
+                <Text style={s.emptyBtnText}>{action.label}</Text>
+                <Ionicons name={action.icon} size={15} color="#000" />
+              </TouchableOpacity>
+            ))}
           </Animated.View>
 
         /* ───────────────── Empty State ──────────────── */

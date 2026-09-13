@@ -20,11 +20,13 @@
  *   node scripts/migrate-inline-tracker-media-to-cloudinary.js --apply
  */
 
+import { randomUUID } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 import dotenv from 'dotenv';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
+import mongoose from 'mongoose';
 
 import {
   getCloudinaryMissingConfigMessage,
@@ -66,7 +68,15 @@ async function run() {
 
   const client = new MongoClient(process.env.MONGODB_URI);
   await client.connect();
+  // Managed-asset registration uses the Mongoose model. Imported here, after dotenv has loaded,
+  // because the model graph validates ENCRYPTION_KEY at import time.
+  let registerCloudinaryManagedAsset = null;
+  if (apply) {
+    await mongoose.connect(process.env.MONGODB_URI);
+    ({ registerCloudinaryManagedAsset } = await import('../services/managedAsset.service.js'));
+  }
   const orders = client.db().collection('orders');
+  const evidenceLedger = client.db().collection('stage_evidence_photos');
   const query = { 'trackerStageMedia.photoUrl': { $regex: '^data:image/' } };
   const cursor = orders.find(query, {
     projection: { orderNumber: 1, trackerStageMedia: 1 },
@@ -102,17 +112,28 @@ async function run() {
         }
 
         try {
-          const secureUrl = await uploadBufferToCloudinary(parsed.buffer, {
+          const asset = await uploadBufferToCloudinary(parsed.buffer, {
             folder: 'live-tracker-stages',
             filename: `stage_photo_${order._id}_${index}.${parsed.extension}`,
             contentType: parsed.mimeType,
+            returnMetadata: true,
           });
+          const secureUrl = asset.secureUrl;
+          const evidenceId = entry.slot ? new ObjectId() : null;
+          const now = new Date();
 
           // Optimistic concurrency: only overwrite if the field still holds the
           // exact inline value we just read (nobody re-uploaded/removed it since).
           const result = await orders.updateOne(
             { _id: order._id, [`trackerStageMedia.${index}.photoUrl`]: entry.photoUrl },
-            { $set: { [`trackerStageMedia.${index}.photoUrl`]: secureUrl, updatedAt: new Date() } }
+            {
+              $set: {
+                [`trackerStageMedia.${index}.photoUrl`]: secureUrl,
+                [`trackerStageMedia.${index}.cloudinaryPublicId`]: asset.publicId,
+                ...(evidenceId ? { [`trackerStageMedia.${index}.evidenceId`]: evidenceId } : {}),
+                updatedAt: now,
+              },
+            }
           );
 
           if (!result.matchedCount) {
@@ -120,6 +141,37 @@ async function run() {
             console.error(`[failed] ${label} reason=concurrent-change`);
             continue;
           }
+
+          // Ledger row so migrated photos look like any other committed upload.
+          if (evidenceId) {
+            await evidenceLedger.insertOne({
+              _id: evidenceId,
+              orderId: order._id,
+              stage: entry.stage,
+              slot: entry.slot,
+              status: 'SUCCESS',
+              attemptId: randomUUID(),
+              attempts: 1,
+              cloudinaryPublicId: asset.publicId,
+              cloudinaryVersion: '',
+              cloudinaryUrl: secureUrl,
+              bytes: asset.bytes || parsed.byteLength,
+              uploadedBy: null,
+              uploadedByName: String(entry.uploadedBy || ''),
+              storage: 'migration',
+              lastError: { code: '', message: '', at: null },
+              supersededAt: null,
+              createdAt: entry.uploadedAt || now,
+              updatedAt: now,
+            });
+          }
+          await registerCloudinaryManagedAsset({
+            ...asset,
+            ownerCollection: 'Order',
+            ownerId: order._id,
+            fieldPath: `trackerStageMedia.${entry.stage}.${entry.slot || 'default'}`,
+            byteSize: asset.bytes,
+          });
 
           summary.photosMigrated += 1;
           summary.bytesAfterUrls += secureUrl.length;
@@ -132,6 +184,7 @@ async function run() {
     }
   } finally {
     await client.close();
+    if (mongoose.connection.readyState) await mongoose.disconnect();
   }
 
   console.log(JSON.stringify(summary, null, 2));

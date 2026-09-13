@@ -185,6 +185,13 @@ export interface BookingRecord {
   customerTrackingLive?: boolean;
   customerTrackingCompletedAt?: string | null;
   customerReceiptInvoiceId?: string | null;
+  /** Customer tracking session; closed (active/customerVisible false) once the balance settles. */
+  liveTracking?: {
+    active?: boolean;
+    customerVisible?: boolean;
+    closedAt?: string | null;
+    closedReason?: string | null;
+  };
   /** Team that currently owns the order (e.g. Sales once handed off at Ready for Pickup). */
   customerAssignedTeam?: string;
   customerStatus?: string;

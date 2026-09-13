@@ -438,6 +438,20 @@ test('final QC gate creates a Sales task; payment enables handover without compl
   assert.equal(paid.customerStatus, 'completed');
   assert.ok(paid.completedAt instanceof Date, 'completion timestamp is set');
   assert.equal(paid.posQueueStatus, null);
+  // The balance payment closes the customer's live tracking session (web + mobile hide it)
+  // while every piece of tracking history stays on the order.
+  assert.equal(paid.liveTracking.active, false);
+  assert.equal(paid.liveTracking.customerVisible, false);
+  assert.equal(paid.liveTracking.closedReason, 'payment_settled');
+  assert.ok(paid.liveTracking.closedAt instanceof Date);
+  assert.ok(paid.invoiceId, 'receipt still issued');
+  assert.equal(paid.trackerStageMedia.length, queued.trackerStageMedia.length, 'tracker evidence preserved');
+  const customerStatusEvent = socketEvents.find(({ room, event, payload }) =>
+    room === `user:${order.customer}` && event === 'booking:status' && payload.paymentStatus === 'paid');
+  assert.ok(customerStatusEvent, 'customer receives the closing booking:status event');
+  assert.equal(customerStatusEvent.payload.customerTrackingState, 'completed');
+  assert.equal(customerStatusEvent.payload.liveTracking.active, false);
+  assert.equal(customerStatusEvent.payload.liveTracking.customerVisible, false);
   const paymentUpdate = socketEvents.find(({ room, event, payload }) => room === 'realtime:staff' && event === 'orderUpdated' && payload.paymentStatus === 'paid');
   assert.ok(paymentUpdate, 'QC receives payment confirmation without MongoDB change streams');
   assert.equal(paymentUpdate.payload.serviceTrackingStage, 'completed');
@@ -472,6 +486,8 @@ test('final QC gate creates a Sales task; payment enables handover without compl
   assert.equal(afterRetry.serviceTrackingStage, 'completed');
   assert.equal(afterRetry.customerStatus, 'completed');
   assert.equal(afterRetry.completedAt.getTime(), paid.completedAt.getTime());
+  assert.equal(afterRetry.liveTracking.active, false);
+  assert.equal(afterRetry.liveTracking.closedAt.getTime(), paid.liveTracking.closedAt.getTime());
   assert.equal(afterRetry.posQueueStatus, null);
   const finalPayment = await Payment.findOne({ order: order._id, transactionType: 'service_balance' });
   assert.equal(finalPayment.amount, 7499);

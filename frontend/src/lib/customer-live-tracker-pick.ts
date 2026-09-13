@@ -63,8 +63,29 @@ export type CustomerTrackingState = 'live' | 'completed' | 'cancelled';
  * Clients never derive "is it done" from status/payment fields themselves.
  */
 export function bookingCustomerTrackingState(b: unknown): CustomerTrackingState {
-  const value = normTrackerStr((b as Record<string, unknown> | null | undefined)?.customerTrackingState);
-  return value === 'completed' || value === 'cancelled' ? value : 'live';
+  const row = b as Record<string, unknown> | null | undefined;
+  const value = normTrackerStr(row?.customerTrackingState);
+  if (value === 'completed' || value === 'cancelled') return value;
+  // A tracking session the backend closed (`liveTracking`, written on payment settlement or
+  // release) is over even if an older payload/socket patch still carries `live`.
+  return bookingLiveTrackingClosed(row) ? 'completed' : 'live';
+}
+
+/**
+ * Customer tracking session persisted by the backend (`order.liveTracking`). Closed when the
+ * balance settles with a receipt or the vehicle is released; history and evidence are kept.
+ */
+export type CustomerLiveTrackingSession = {
+  active?: boolean;
+  customerVisible?: boolean;
+  closedAt?: string | null;
+  closedReason?: string | null;
+};
+
+/** True when the backend closed this booking's live tracking session for the customer. */
+export function bookingLiveTrackingClosed(b: unknown): boolean {
+  const session = (b as { liveTracking?: CustomerLiveTrackingSession } | null | undefined)?.liveTracking;
+  return Boolean(session) && (session!.active === false || session!.customerVisible === false);
 }
 
 /** True when the backend reports the job finished (settled with receipt, or released). */
