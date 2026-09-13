@@ -4,6 +4,7 @@ import { body, validationResult } from 'express-validator';
 import { USER_ROLES } from '../constants/roles.js';
 import { parseRegisterPhone } from '../utils/phone.utils.js';
 import { normalizeOtpInput } from '../utils/otp.utils.js';
+import { PASSWORD_SPECIAL_CHARACTER_RE } from '../utils/passwordPolicy.utils.js';
 
 /* ═══════════════════════════════════════════════════════
    VALIDATION MIDDLEWARE — express-validator chains
@@ -57,7 +58,7 @@ export const validateRegistration = [
     .matches(/[A-Z]/).withMessage('Password must contain at least one uppercase letter')
     .matches(/[a-z]/).withMessage('Password must contain at least one lowercase letter')
     .matches(/[0-9]/).withMessage('Password must contain at least one number')
-    .matches(/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/).withMessage('Password must contain at least one special character'),
+    .matches(PASSWORD_SPECIAL_CHARACTER_RE).withMessage('Password must contain at least one special character'),
 
   body('phone')
     .optional({ values: 'falsy' })
@@ -163,7 +164,7 @@ export const validateResetPassword = [
     .matches(/[A-Z]/).withMessage('Password must contain at least one uppercase letter')
     .matches(/[a-z]/).withMessage('Password must contain at least one lowercase letter')
     .matches(/[0-9]/).withMessage('Password must contain at least one number')
-    .matches(/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/).withMessage('Password must contain at least one special character'),
+    .matches(PASSWORD_SPECIAL_CHARACTER_RE).withMessage('Password must contain at least one special character'),
 
   // The web reset form sends confirmation as an additional guard. Keep this
   // optional for the mobile client, which already validates the same match

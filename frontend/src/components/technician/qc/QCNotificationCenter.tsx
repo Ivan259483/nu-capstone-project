@@ -24,7 +24,7 @@ import {
   getNotificationSeverity,
   getRelativeNotificationTime,
   isNotificationActionRequired,
-} from '@/components/Administrator/notifications/notification-utils';
+} from '@/lib/notification-presentation';
 import type {
   NotificationPagination,
   SystemNotification,

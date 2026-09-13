@@ -61,6 +61,7 @@ import { CustomerServiceCompleteCard } from '../components/customer/CustomerServ
 import { CustomerDashboardOverviewStrip } from '../components/customer/CustomerDashboardOverviewStrip';
 import CustomerGarageVehicleSilhouette from '../components/customer/CustomerGarageVehicleSilhouette';
 import { CustomerPaymentHistorySection } from '../components/customer/CustomerPaymentHistorySection';
+import CustomerNotificationCenter from '../components/customer/notifications/CustomerNotificationCenter';
 import {
   CustomerDashboardHomeSkeleton,
   CustomerDocumentsSkeleton,
@@ -681,10 +682,6 @@ export default function CustomerDashboard() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
-  const unreadNotificationCount = useMemo(
-    () => notifications.filter((n) => !n.isRead).length,
-    [notifications]
-  );
 
   // Bookings & Documents
   const [pendingConfirmationBooking, setPendingConfirmationBooking] = useState<any>(null);
@@ -2821,8 +2818,11 @@ export default function CustomerDashboard() {
         err?.response?.data?.message ||
         err?.message ||
         'Could not update password. Please try again.';
+      const code = err?.response?.data?.code || err?.response?.data?.errorCode;
       const lower = String(msg).toLowerCase();
-      if (lower.includes('incorrect') && lower.includes('password')) {
+      if (code === 'PASSWORD_REUSE') {
+        setPasswordErrors({ newPass: msg });
+      } else if (lower.includes('incorrect') && lower.includes('password')) {
         setPasswordErrors({ current: msg });
       } else if (lower.includes('password must contain') || lower.includes('different from')) {
         setPasswordErrors({ newPass: msg });
@@ -3761,103 +3761,15 @@ export default function CustomerDashboard() {
                 Book Service
               </button>
 
-              <div className="relative shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setNotificationsOpen(!notificationsOpen)}
-                  className="customer-notification-trigger relative flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-[0_6px_18px_-16px_rgba(15,23,42,0.34)] transition-colors hover:border-blue-200 hover:bg-blue-50/70 hover:text-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25"
-                  aria-label={unreadNotificationCount > 0 ? `Notifications, ${unreadNotificationCount} unread` : 'Notifications'}
-                >
-                  <span
-                    className={`flex size-5 items-center justify-center ${unreadNotificationCount > 0 ? 'origin-top [transform:translateZ(0)] animate-[ring_2s_ease-in-out_infinite]' : ''}`}
-                  >
-                    <iconify-icon icon="solar:bell-bold" width="19" height="19" className="shrink-0 text-current"></iconify-icon>
-                  </span>
-                  {unreadNotificationCount > 0 && (
-                    <span
-                      className={`customer-notification-badge absolute right-1 top-1 z-10 flex translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-red-500 font-extrabold tabular-nums leading-none text-white antialiased shadow-sm ${
-                        unreadNotificationCount > 9
-                          ? 'h-4 min-w-5 px-1 text-[8px]'
-                          : 'size-4 text-[9px]'
-                      }`}
-                    >
-                      {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
-                    </span>
-                  )}
-                </button>
-
-                {notificationsOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setNotificationsOpen(false)} />
-                    <div className="customer-notification-popover absolute right-0 top-11 w-80 bg-white rounded-xl z-50 shadow-2xl overflow-hidden" style={{ border: '1px solid rgba(0,0,0,.04)' }}>
-                      <div className="customer-notification-header px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-                        <h3 className="font-bold text-[15px] text-slate-900 tracking-tight">Notifications</h3>
-                        {notifications.some(n => !n.isRead) && (
-                          <button onClick={markAllNotificationsAsRead} className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors">
-                            Mark all as read
-                          </button>
-                        )}
-                      </div>
-                      <div
-                        className="customer-notification-list max-h-[400px] overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-                        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}
-                      >
-                        {notificationsLoading ? (
-                          <div className="p-8 text-center flex flex-col items-center justify-center">
-                            <iconify-icon icon="line-md:loading-twotone-loop" width="24" className="text-slate-300 mb-2"></iconify-icon>
-                            <p className="text-[13px] text-slate-500">Loading notifications...</p>
-                          </div>
-                        ) : notifications.length === 0 ? (
-                          <div className="p-8 text-center flex flex-col items-center justify-center">
-                            <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mb-3">
-                              <iconify-icon icon="solar:bell-bing-linear" width="24" className="text-slate-300"></iconify-icon>
-                            </div>
-                            <p className="text-[14px] font-medium text-slate-900">You're all caught up</p>
-                            <p className="text-[12px] text-slate-500 mt-1">No new notifications right now.</p>
-                          </div>
-                        ) : (
-                          <div className="divide-y divide-slate-50">
-                            {notifications.map(n => {
-                              const isHighPriority = n.priority === 'high' || n.metadata?.priority === 'high';
-                              const rowTone = isHighPriority
-                                ? 'bg-amber-50/80 hover:bg-amber-50'
-                                : !n.isRead
-                                  ? 'bg-slate-50/50 hover:bg-slate-50'
-                                  : 'hover:bg-slate-50';
-                              return (
-                                <button
-                                  key={n.id || n._id}
-                                  onClick={() => void handleCustomerNotificationClick(n)}
-                                  className={`customer-notification-item w-full text-left p-4 transition-colors flex gap-3 ${rowTone}`}
-                                >
-                                  <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${isHighPriority ? 'bg-amber-500' : !n.isRead ? 'bg-blue-500' : 'bg-transparent'}`}></div>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex min-w-0 items-center gap-2">
-                                      <p className={`min-w-0 flex-1 text-[13px] text-slate-900 truncate ${!n.isRead || isHighPriority ? 'font-semibold' : 'font-medium'}`}>{n.title}</p>
-                                      {isHighPriority ? (
-                                        <span className="shrink-0 rounded-full border border-amber-200 bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-amber-700">
-                                          Important
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                    <p className="text-[12px] text-slate-500 line-clamp-2 mt-0.5 leading-snug">{n.message}</p>
-                                    <p className="text-[10px] text-slate-400 mt-1">{new Date(n.createdAt).toLocaleDateString()}</p>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-2 border-t border-slate-100 bg-slate-50 text-center">
-                        <button onClick={() => { setNotificationsOpen(false); nav('settings'); }} className="text-[12px] font-medium text-slate-600 hover:text-slate-900 transition-colors py-1 px-2 rounded hover:bg-slate-200/50">
-                          Notification preferences
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
+              <CustomerNotificationCenter
+                notifications={notifications}
+                loading={notificationsLoading}
+                onMarkAllAsRead={markAllNotificationsAsRead}
+                onOpenNotification={handleCustomerNotificationClick}
+                onOpenSettings={() => nav('settings')}
+                open={notificationsOpen}
+                onOpenChange={setNotificationsOpen}
+              />
 
               <div className="relative">
                 <button

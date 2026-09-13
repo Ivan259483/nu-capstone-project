@@ -147,7 +147,11 @@ export default function SetPasswordPage() {
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data.success) {
-                toast.error(data.message || "Failed to set password.");
+                const code = data.code || data.errorCode;
+                const message = code === "PASSWORD_REUSE"
+                    ? data.message || "New password must be different from your current password."
+                    : (data.message || "Failed to set password.");
+                toast.error(message);
                 return;
             }
 

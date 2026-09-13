@@ -240,6 +240,23 @@ apiClient.interceptors.response.use(
         /\/auth\/login(?:[/?]|$)/.test(path) &&
         [400, 401, 403, 409, 423, 429].includes(status ?? 0);
 
+      // Password policy/mismatch/reuse rejections (including PASSWORD_REUSE)
+      // on reset, change, and setup flows are expected form-validation
+      // outcomes — the calling screen already surfaces them via its own
+      // field error state, so console.error here would only trip Expo's
+      // fatal red-screen LogBox for a non-bug condition.
+      const isExpectedPasswordFlowRejection =
+        (
+          (method === 'post' && (
+            path.includes('/auth/reset-password') ||
+            path.includes('/auth/change-password') ||
+            path.includes('/auth/set-password') ||
+            path.includes('/auth/password-setup/complete')
+          )) ||
+          (method === 'patch' && path.includes('/users/change-password'))
+        ) &&
+        [400, 401].includes(status ?? 0);
+
       /** Express serves /api/bookings, POST /api/ai/scan, etc. 404 on these usually means the tunnel hits the wrong process (Vite/Metro) or port. */
       const isNgrokLikelyWrongTunnel404 =
         status === 404 &&
@@ -254,6 +271,7 @@ apiClient.interceptors.response.use(
         isLogoutFailure ||
         isSocialLoginMiss ||
         isExpectedLoginRejection ||
+        isExpectedPasswordFlowRejection ||
         suppressExpectedErrorLog ||
         expectedOtpValidationFailure ||
         expectedAlreadyVerifiedResendOtp

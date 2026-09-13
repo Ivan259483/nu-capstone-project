@@ -16,6 +16,11 @@ export const RegexRules = {
   passwordStrong: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]).{8,}$/,
 };
 
+// Apple Password Rules mini-language mirroring RegexRules.passwordStrong —
+// keep both in sync if the password policy changes.
+export const IOS_PASSWORD_RULES =
+  'minlength: 8; required: upper; required: lower; required: digit; required: special; allowed: ascii-printable;';
+
 export const Validation = {
   isValidEmail(email: string): boolean {
     return RegexRules.email.test(email.trim());

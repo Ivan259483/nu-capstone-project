@@ -25,6 +25,11 @@ import { attachPhoneForClient } from '../utils/phone-client.utils.js';
 import { attachProfileImageForClient } from '../utils/profile-image.utils.js';
 import { startChatRegistrationForCustomer } from '../services/chatRegistration.service.js';
 import {
+  getPasswordPolicyErrors,
+  passwordPolicyErrorResponse,
+  passwordReuseErrorResponse,
+} from '../utils/passwordPolicy.utils.js';
+import {
   EMAIL_OTP_PURPOSE,
   PASSWORD_RESET_OTP_PURPOSE,
   LOGIN_OTP_PURPOSE,
@@ -343,16 +348,6 @@ const generateSetupToken = () => crypto.randomBytes(32).toString('base64url');
 
 const hashSetupToken = (token) =>
   crypto.createHash('sha256').update(String(token || ''), 'utf8').digest('hex');
-
-const getPasswordPolicyErrors = (password = '') => {
-  const passwordErrors = [];
-  if (password.length < 8) passwordErrors.push('at least 8 characters');
-  if (!/[A-Z]/.test(password)) passwordErrors.push('one uppercase letter');
-  if (!/[a-z]/.test(password)) passwordErrors.push('one lowercase letter');
-  if (!/[0-9]/.test(password)) passwordErrors.push('one number');
-  if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) passwordErrors.push('one special character');
-  return passwordErrors;
-};
 
 const parseChatRegistrationBody = (body = {}) => {
   const firstName = String(body.firstName || '').trim().replace(/\s+/g, ' ');
@@ -769,10 +764,7 @@ export const resetPassword = async (req, res, next) => {
 
     const passwordErrors = getPasswordPolicyErrors(newPassword);
     if (passwordErrors.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Password must contain: ${passwordErrors.join(', ')}`,
-      });
+      return res.status(400).json(passwordPolicyErrorResponse(passwordErrors));
     }
 
     // ⚠️ Bug #2 fix: Strictly require a VERIFIED OTP record.
@@ -813,6 +805,12 @@ export const resetPassword = async (req, res, next) => {
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Reject reuse before burning the single-use reset OTP, so the user can
+    // retry with a different password using the same still-valid code.
+    if (await user.comparePassword(newPassword)) {
+      return res.status(400).json(passwordReuseErrorResponse());
     }
 
     const consumedOtp = await OTP.findOneAndDelete({
@@ -1367,7 +1365,7 @@ export const completePasswordSetup = async (req, res) => {
 
     const passwordErrors = getPasswordPolicyErrors(newPassword);
     if (passwordErrors.length > 0) {
-      return res.status(400).json({ success: false, message: `Password must contain: ${passwordErrors.join(', ')}` });
+      return res.status(400).json(passwordPolicyErrorResponse(passwordErrors));
     }
 
     const loaded = await loadPasswordSetupToken(token);
@@ -1379,6 +1377,12 @@ export const completePasswordSetup = async (req, res) => {
       // Customer setup remains subject to the public registration gate. The
       // protected handover invitation is a separate server-authorized flow.
       await assertRegistrationEnabled(req.systemState);
+    }
+
+    // Reject reuse before consuming the single-use setup token, so a
+    // rejected attempt can be retried with the same link.
+    if (await loaded.user.comparePassword(newPassword)) {
+      return res.status(400).json(passwordReuseErrorResponse());
     }
 
     const now = new Date();
@@ -1510,17 +1514,9 @@ export const register = async (req, res, next) => {
     }
 
     // Server-side password policy enforcement
-    const passwordErrors = [];
-    if (password.length < 8) passwordErrors.push('at least 8 characters');
-    if (!/[A-Z]/.test(password)) passwordErrors.push('one uppercase letter');
-    if (!/[a-z]/.test(password)) passwordErrors.push('one lowercase letter');
-    if (!/[0-9]/.test(password)) passwordErrors.push('one number');
-    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) passwordErrors.push('one special character');
+    const passwordErrors = getPasswordPolicyErrors(password);
     if (passwordErrors.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Password must contain: ${passwordErrors.join(', ')}`,
-      });
+      return res.status(400).json(passwordPolicyErrorResponse(passwordErrors));
     }
 
     // Check if user exists
@@ -3278,17 +3274,9 @@ export const createStaff = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid email address.' });
     }
 
-    const passwordErrors = [];
-    if (password.length < 8) passwordErrors.push('at least 8 characters');
-    if (!/[A-Z]/.test(password)) passwordErrors.push('one uppercase letter');
-    if (!/[a-z]/.test(password)) passwordErrors.push('one lowercase letter');
-    if (!/[0-9]/.test(password)) passwordErrors.push('one number');
-    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) passwordErrors.push('one special character');
+    const passwordErrors = getPasswordPolicyErrors(password);
     if (passwordErrors.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Password must contain: ${passwordErrors.join(', ')}`,
-      });
+      return res.status(400).json(passwordPolicyErrorResponse(passwordErrors));
     }
 
     const existing = await User.findOne({ email: normalizedEmail });
@@ -3391,14 +3379,9 @@ export const setPassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Passwords do not match.' });
     }
 
-    const passwordErrors = [];
-    if (newPassword.length < 8) passwordErrors.push('at least 8 characters');
-    if (!/[A-Z]/.test(newPassword)) passwordErrors.push('one uppercase letter');
-    if (!/[a-z]/.test(newPassword)) passwordErrors.push('one lowercase letter');
-    if (!/[0-9]/.test(newPassword)) passwordErrors.push('one number');
-    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(newPassword)) passwordErrors.push('one special character');
+    const passwordErrors = getPasswordPolicyErrors(newPassword);
     if (passwordErrors.length > 0) {
-      return res.status(400).json({ success: false, message: `Password must contain: ${passwordErrors.join(', ')}` });
+      return res.status(400).json(passwordPolicyErrorResponse(passwordErrors));
     }
 
     const user = await User.findById(userId);
@@ -3407,6 +3390,10 @@ export const setPassword = async (req, res) => {
     }
     if (!user.isFirstLogin) {
       return res.status(403).json({ success: false, message: 'Password setup has already been completed.' });
+    }
+
+    if (await user.comparePassword(newPassword)) {
+      return res.status(400).json(passwordReuseErrorResponse());
     }
 
     user.password = newPassword; // hashed by pre-save hook
@@ -3470,19 +3457,14 @@ export const changePassword = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Current password is incorrect.' });
     }
 
-    if (currentPassword === newPassword) {
-      return res.status(400).json({ success: false, message: 'New password must be different from current password.' });
+    if (await user.comparePassword(newPassword)) {
+      return res.status(400).json(passwordReuseErrorResponse());
     }
 
     // Enforce same password policy as registration
-    const passwordErrors = [];
-    if (newPassword.length < 8) passwordErrors.push('at least 8 characters');
-    if (!/[A-Z]/.test(newPassword)) passwordErrors.push('one uppercase letter');
-    if (!/[a-z]/.test(newPassword)) passwordErrors.push('one lowercase letter');
-    if (!/[0-9]/.test(newPassword)) passwordErrors.push('one number');
-    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(newPassword)) passwordErrors.push('one special character');
+    const passwordErrors = getPasswordPolicyErrors(newPassword);
     if (passwordErrors.length > 0) {
-      return res.status(400).json({ success: false, message: `Password must contain: ${passwordErrors.join(', ')}` });
+      return res.status(400).json(passwordPolicyErrorResponse(passwordErrors));
     }
 
     user.password = newPassword; // hashed by pre-save hook

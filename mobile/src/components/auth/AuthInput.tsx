@@ -153,7 +153,7 @@ function AuthInput(
             style={styles.eyeButton}
           >
             <Ionicons
-              name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+              name={showPassword ? 'eye-outline' : 'eye-off-outline'}
               size={19}
               color={AuthColors.textSecondary}
             />
@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   errorSlot: {
-    height: 20,
+    minHeight: 20,
     justifyContent: 'flex-end',
   },
   errorTextReserved: {

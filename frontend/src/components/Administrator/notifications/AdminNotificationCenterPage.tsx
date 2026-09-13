@@ -36,7 +36,7 @@ import {
   groupNotificationsByTime,
   isNotificationActionRequired,
   NOTIFICATION_TIME_GROUPS,
-} from './notification-utils';
+} from '@/lib/notification-presentation';
 import './admin-notifications.css';
 
 interface AdminNotificationCenterPageProps {

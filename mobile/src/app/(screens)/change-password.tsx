@@ -153,8 +153,11 @@ export default function ChangePasswordScreen() {
       Haptics.formSubmitError();
 
       const message = getApiErrorMessage(err);
+      const code = err?.response?.data?.code || err?.response?.data?.errorCode;
 
-      if (
+      if (code === 'PASSWORD_REUSE') {
+        setNewError(message || 'New password must be different from your current password');
+      } else if (
         message.includes('incorrect') ||
         message.includes('wrong-password') ||
         message.includes('invalid-credential') ||

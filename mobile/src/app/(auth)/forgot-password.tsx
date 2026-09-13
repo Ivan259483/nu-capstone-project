@@ -9,8 +9,9 @@ import AuthInput from '@/components/auth/AuthInput';
 import AuthButton from '@/components/auth/AuthButton';
 import AuthOtpInput, { type AuthOtpInputHandle } from '@/components/auth/AuthOtpInput';
 import AuthStatusCard, { type AuthStatusData } from '@/components/auth/AuthStatusCard';
+import AuthPasswordRequirements from '@/components/auth/AuthPasswordRequirements';
 import { AuthColors, AuthFontFamily, AuthRadius, AuthTypography } from '@/constants/authTheme';
-import { Validation } from '@/utils/validation';
+import { Validation, IOS_PASSWORD_RULES, getPasswordRequirementsMessage, passwordsMatch } from '@/utils/validation';
 import { authService } from '@/services/api/authService';
 import { apiClient, getApiErrorMessage } from '@/services/api/client';
 import { Haptics } from '@/utils/haptics';
@@ -31,7 +32,6 @@ export default function ForgotPasswordScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordTouched, setPasswordTouched] = useState(false);
-  const [confirmTouched, setConfirmTouched] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   const [confirmError, setConfirmError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -58,9 +58,14 @@ export default function ForgotPasswordScreen() {
 
   function validateNewPasswordField(value: string) {
     if (!value) return 'Password is required';
-    if (!Validation.isStrongPassword(value)) return 'Must be 8+ chars with upper, lower, number & special character';
+    if (!Validation.isStrongPassword(value)) return getPasswordRequirementsMessage(value);
     return '';
   }
+
+  // Both fields must be non-empty before treating it as a real "match" —
+  // otherwise two empty fields would trivially satisfy passwordsMatch.
+  const confirmMatches =
+    newPassword.length > 0 && confirmPassword.length > 0 && passwordsMatch(newPassword, confirmPassword);
 
   function validateConfirmField(value: string, against: string) {
     if (!value) return 'Please confirm your password';
@@ -156,7 +161,6 @@ export default function ForgotPasswordScreen() {
     const nextPasswordError = validateNewPasswordField(newPassword);
     const nextConfirmError = validateConfirmField(confirmPassword, newPassword);
     setPasswordTouched(true);
-    setConfirmTouched(true);
     setPasswordError(nextPasswordError);
     setConfirmError(nextConfirmError);
     setFeedback(null);
@@ -181,11 +185,18 @@ export default function ForgotPasswordScreen() {
       }
     } catch (err: any) {
       Haptics.formSubmitError();
-      setFeedback({
-        type: 'error',
-        title: 'Unable to reset password',
-        message: getApiErrorMessage(err, 'Please try again.'),
-      });
+      const code = err?.response?.data?.code || err?.response?.data?.errorCode;
+      const message = getApiErrorMessage(err, 'Please try again.');
+      if (code === 'PASSWORD_REUSE') {
+        setPasswordTouched(true);
+        setPasswordError(message);
+      } else {
+        setFeedback({
+          type: 'error',
+          title: 'Unable to reset password',
+          message,
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -311,29 +322,48 @@ export default function ForgotPasswordScreen() {
             onChangeText={(t) => {
               setNewPassword(t);
               setPasswordError('');
-              setConfirmError('');
+              if (confirmPassword.length > 0) {
+                setConfirmError(passwordsMatch(t, confirmPassword) ? '' : 'Passwords do not match');
+              }
             }}
             onBlur={() => { setPasswordTouched(true); setPasswordError(validateNewPasswordField(newPassword)); }}
             isPassword
             textContentType="newPassword"
             autoComplete="new-password"
+            passwordRules={IOS_PASSWORD_RULES}
             error={passwordTouched ? passwordError : ''}
             appearance="loginBrand"
+            containerStyle={newPassword.length > 0 ? styles.passwordInputWithMeter : undefined}
             reserveErrorSpace
           />
+          {newPassword.length > 0 && <AuthPasswordRequirements password={newPassword} />}
           <AuthInput
             label="Confirm password"
             placeholder="Re-enter your new password"
             value={confirmPassword}
-            onChangeText={(t) => { setConfirmPassword(t); setConfirmError(''); }}
-            onBlur={() => { setConfirmTouched(true); setConfirmError(validateConfirmField(confirmPassword, newPassword)); }}
+            onChangeText={(t) => {
+              setConfirmPassword(t);
+              const stillTypingPrefix = t.length > 0 && t.length < newPassword.length && newPassword.startsWith(t);
+              if (t.length === 0 || stillTypingPrefix) {
+                setConfirmError('');
+              } else {
+                setConfirmError(passwordsMatch(newPassword, t) ? '' : 'Passwords do not match');
+              }
+            }}
+            onBlur={() => { setConfirmError(validateConfirmField(confirmPassword, newPassword)); }}
             isPassword
             textContentType="newPassword"
             autoComplete="new-password"
-            error={confirmTouched ? confirmError : ''}
+            error={confirmError}
             appearance="loginBrand"
             reserveErrorSpace
           />
+          {confirmMatches && (
+            <Animated.View entering={FadeInUp.duration(160)} style={styles.matchRow}>
+              <Ionicons name="checkmark-circle" size={14} color={AuthColors.success} />
+              <Text style={styles.matchText}>Passwords match</Text>
+            </Animated.View>
+          )}
         </Animated.View>
       )}
 
@@ -367,6 +397,19 @@ export default function ForgotPasswordScreen() {
 
 const styles = StyleSheet.create({
   feedbackCard: { marginBottom: 20 },
+  passwordInputWithMeter: { marginBottom: 8 },
+  matchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    marginLeft: 2,
+  },
+  matchText: {
+    fontFamily: AuthFontFamily.medium,
+    fontSize: 12,
+    color: AuthColors.success,
+  },
   actionSlot: { marginTop: 12 },
   actionSlotAfterOtp: { marginTop: 32 },
   actionSlotAfterSuccess: { marginTop: 30 },

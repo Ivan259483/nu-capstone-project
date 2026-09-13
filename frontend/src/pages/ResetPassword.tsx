@@ -72,6 +72,7 @@ export default function ResetPassword() {
     const [otpError, setOtpError] = useState("");
     const [otpShake, setOtpShake] = useState(false);
     const [newPassword, setNewPassword] = useState("");
+    const [newPasswordError, setNewPasswordError] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
     const [showPassword, setShowPassword] = useState({ new: false, confirm: false });
 
@@ -229,7 +230,12 @@ export default function ResetPassword() {
             });
             const json = await resp.json();
             if (!resp.ok || !json.success) {
-                toast.error(json.message || t("auth.resetFailed"));
+                if (json.code === "PASSWORD_REUSE" || json.errorCode === "PASSWORD_REUSE") {
+                    setNewPasswordError(json.message);
+                    newPasswordInputRef.current?.focus();
+                } else {
+                    toast.error(json.message || t("auth.resetFailed"));
+                }
                 return;
             }
 
@@ -362,7 +368,10 @@ export default function ResetPassword() {
                                             type={showPassword.new ? "text" : "password"}
                                             autoComplete="new-password"
                                             value={newPassword}
-                                            onChange={(event) => setNewPassword(event.target.value)}
+                                            onChange={(event) => {
+                                                setNewPassword(event.target.value);
+                                                if (newPasswordError) setNewPasswordError("");
+                                            }}
                                             placeholder={t("login.forgotNewPassword")}
                                             className={cn(AUTH_INPUT_CLASS, "pl-10 pr-11")}
                                         />
@@ -375,6 +384,9 @@ export default function ResetPassword() {
                                             {showPassword.new ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                         </button>
                                     </div>
+                                    {newPasswordError && (
+                                        <p className="px-1 text-[11px] font-medium text-red-300">{newPasswordError}</p>
+                                    )}
                                 </div>
 
                                 <div className="space-y-1.5">

@@ -423,6 +423,10 @@ export default function SalesProfileView({ onNavigateHome }: Props) {
       toast.error(passwordPolicyError);
       return;
     }
+    if (currentPassword && newPassword && currentPassword === newPassword) {
+      toast.error('New password must be different from your current password.');
+      return;
+    }
     if (newPassword !== confirmPassword) {
       toast.error('New passwords do not match');
       return;
@@ -441,7 +445,12 @@ export default function SalesProfileView({ onNavigateHome }: Props) {
         toast.error(res?.message || 'Failed to update password');
       }
     } catch (error: any) {
-      toast.error(error?.response?.data?.message || 'Failed to update password');
+      const code = error?.response?.data?.code || error?.response?.data?.errorCode;
+      if (code === 'PASSWORD_REUSE') {
+        toast.error(error.response.data.message || 'New password must be different from your current password.');
+      } else {
+        toast.error(error?.response?.data?.message || 'Failed to update password');
+      }
     } finally {
       setIsSavingPassword(false);
     }

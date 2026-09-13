@@ -216,6 +216,10 @@ export function SettingsTab({
             toast.error(passwordPolicyError);
             return;
         }
+        if (currentPassword && newPassword && currentPassword === newPassword) {
+            toast.error('New password must be different from your current password.');
+            return;
+        }
         if (newPassword !== confirmPassword) {
             toast.error('Passwords do not match.');
             return;
@@ -229,7 +233,12 @@ export function SettingsTab({
             setConfirmPassword('');
         } catch (err: any) {
             console.error('Change password error:', err.response?.data || err);
-            toast.error(err?.response?.data?.message || err?.message || 'Failed to change password.');
+            const code = err?.response?.data?.code || err?.response?.data?.errorCode;
+            if (code === 'PASSWORD_REUSE') {
+                toast.error(err.response.data.message || 'New password must be different from your current password.');
+            } else {
+                toast.error(err?.response?.data?.message || err?.message || 'Failed to change password.');
+            }
         } finally {
             setChangingPassword(false);
         }

@@ -26,7 +26,7 @@ import {
   matchesFlyoutTab,
   NOTIFICATION_TIME_GROUPS,
   type NotificationFlyoutTab,
-} from './notification-utils';
+} from '@/lib/notification-presentation';
 import './admin-notifications.css';
 
 interface AdminNotificationBellProps {

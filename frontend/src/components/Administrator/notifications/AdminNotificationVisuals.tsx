@@ -13,7 +13,7 @@ import {
   getNotificationCategory,
   getNotificationSeverity,
   type AdminNotificationSeverity,
-} from './notification-utils';
+} from '@/lib/notification-presentation';
 
 const SEVERITY_ICONS = {
   critical: ShieldAlert,

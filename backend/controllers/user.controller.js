@@ -28,6 +28,11 @@ import {
 import { parseOptionalProfilePhone } from '../utils/phone.utils.js';
 import { serializeUserForClient, resolvePhoneForClient, USER_PHONE_FIELDS } from '../utils/phone-client.utils.js';
 import { USER_PROFILE_IMAGE_FIELDS } from '../utils/profile-image.utils.js';
+import {
+  getPasswordPolicyErrors,
+  passwordPolicyErrorResponse,
+  passwordReuseErrorResponse,
+} from '../utils/passwordPolicy.utils.js';
 import { normalizeEmailForOtp } from '../utils/otp.utils.js';
 import { issueStaffVerificationLink } from '../services/staffVerification.service.js';
 import { deleteOrdersAndReleaseSlotCounters } from '../services/slot.service.js';
@@ -1187,20 +1192,6 @@ export const activateUser = async (req, res, next) => {
 /**
  * Create user (Admin only)
  */
-const ADMIN_CREATE_PASSWORD_SPECIAL_RE = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/;
-
-function getAdminCreatePasswordErrors(password) {
-  const errors = [];
-  if (typeof password !== 'string' || password.length < 8) errors.push('at least 8 characters');
-  if (typeof password !== 'string' || !/[A-Z]/.test(password)) errors.push('one uppercase letter');
-  if (typeof password !== 'string' || !/[a-z]/.test(password)) errors.push('one lowercase letter');
-  if (typeof password !== 'string' || !/[0-9]/.test(password)) errors.push('one number');
-  if (typeof password !== 'string' || !ADMIN_CREATE_PASSWORD_SPECIAL_RE.test(password)) {
-    errors.push('one special character');
-  }
-  return errors;
-}
-
 export const createUser = async (req, res, next) => {
   try {
     const { name, email, password, role, avatar, firebaseUid } = req.body;
@@ -1258,12 +1249,9 @@ export const createUser = async (req, res, next) => {
       }
     }
 
-    const passwordErrors = getAdminCreatePasswordErrors(password);
+    const passwordErrors = getPasswordPolicyErrors(typeof password === 'string' ? password : '');
     if (passwordErrors.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Password must contain: ${passwordErrors.join(', ')}`,
-      });
+      return res.status(400).json(passwordPolicyErrorResponse(passwordErrors));
     }
 
     // Check if user already exists
@@ -1271,6 +1259,11 @@ export const createUser = async (req, res, next) => {
     if (userExists) {
       // If previously soft-deleted, restore instead of rejecting
       if (userExists.isDeleted) {
+        // Reject reuse of the password the account had before deletion.
+        if (await userExists.comparePassword(password)) {
+          return res.status(400).json(passwordReuseErrorResponse());
+        }
+
         const salt = await bcryptjs.genSalt(10);
         const hashedPassword = await bcryptjs.hash(password, salt);
 
@@ -1518,26 +1511,9 @@ export const changePassword = async (req, res, next) => {
       });
     }
 
-    if (currentPassword === newPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'New password must be different from your current password.',
-      });
-    }
-
-    const passwordErrors = [];
-    if (newPassword.length < 8) passwordErrors.push('at least 8 characters');
-    if (!/[A-Z]/.test(newPassword)) passwordErrors.push('one uppercase letter');
-    if (!/[a-z]/.test(newPassword)) passwordErrors.push('one lowercase letter');
-    if (!/[0-9]/.test(newPassword)) passwordErrors.push('one number');
-    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(newPassword)) {
-      passwordErrors.push('one special character');
-    }
+    const passwordErrors = getPasswordPolicyErrors(newPassword);
     if (passwordErrors.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Password must contain: ${passwordErrors.join(', ')}`,
-      });
+      return res.status(400).json(passwordPolicyErrorResponse(passwordErrors));
     }
 
     const user = await User.findById(req.user.id);
@@ -1555,6 +1531,13 @@ export const changePassword = async (req, res, next) => {
         success: false,
         message: 'Incorrect current password',
       });
+    }
+
+    // Reject reuse only once currentPassword has been proven correct against
+    // the stored hash — comparing against the verified hash, not the raw
+    // request-body string.
+    if (await user.comparePassword(newPassword)) {
+      return res.status(400).json(passwordReuseErrorResponse());
     }
 
     // Update to new password

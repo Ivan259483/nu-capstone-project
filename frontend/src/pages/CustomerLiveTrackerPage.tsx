@@ -3,7 +3,6 @@ import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
-  Bell,
   CalendarPlus,
   Check,
   ChevronLeft,
@@ -21,6 +20,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
+import { getNotificationId, getNotificationLink } from '@/lib/notification-presentation';
+import CustomerNotificationCenter from '@/components/customer/notifications/CustomerNotificationCenter';
 import { OrderService } from '@/lib/order-service';
 import { UserService } from '@/lib/user-service';
 import type { Booking, User } from '@/types';
@@ -530,7 +531,6 @@ export default function CustomerLiveTrackerPage() {
   const shouldReduceMotion = useReducedMotion();
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
@@ -799,7 +799,6 @@ export default function CustomerLiveTrackerPage() {
     resolveDetailer();
   }, [activeBooking?.assignedDetailer]);
 
-  const unreadCount = notifications.filter((notification) => !notification.isRead).length;
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
     if (hour >= 5 && hour < 12) return 'Good morning';
@@ -900,6 +899,13 @@ export default function CustomerLiveTrackerPage() {
   const markAllNotificationsAsRead = async () => {
     await NotificationService.markAllAsRead();
     setNotifications((current) => current.map((notification) => ({ ...notification, isRead: true })));
+  };
+
+  const handleOpenNotification = async (notification: SystemNotification) => {
+    const id = getNotificationId(notification);
+    if (id) await markNotificationAsRead(id);
+    const link = getNotificationLink(notification);
+    if (link) navigate(link.startsWith('/') ? link : `/${link}`);
   };
 
   return (
@@ -1003,83 +1009,13 @@ export default function CustomerLiveTrackerPage() {
 
               <div className="w-px h-6 bg-slate-200 hidden sm:block mx-1"></div>
 
-              <div className="relative shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setNotificationsOpen((current) => !current)}
-                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/35"
-                  aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
-                >
-                  <span
-                    className={`flex size-[22px] items-center justify-center ${unreadCount > 0 ? 'origin-top [transform:translateZ(0)] animate-[ring_2s_ease-in-out_infinite]' : ''}`}
-                  >
-                    <Bell size={22} strokeWidth={2} className="shrink-0 text-current" aria-hidden />
-                  </span>
-                  {unreadCount > 0 && (
-                    <span
-                      className={`absolute -right-0.5 -top-0.5 z-10 flex items-center justify-center rounded-full border-2 border-white bg-red-500 font-extrabold tabular-nums leading-none text-white antialiased shadow-md ${
-                        unreadCount > 9 ? 'h-[18px] min-w-[22px] px-1 text-[9px]' : 'size-[18px] text-[10px]'
-                      }`}
-                    >
-                      {unreadCount > 9 ? '9+' : unreadCount}
-                    </span>
-                  )}
-                </button>
-
-                {notificationsOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setNotificationsOpen(false)} />
-                    <div className="absolute right-0 top-11 w-80 bg-white rounded-xl z-50 shadow-2xl overflow-hidden" style={{ border: '1px solid rgba(0,0,0,.04)' }}>
-                      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-                        <h3 className="font-bold text-[15px] text-slate-900 tracking-tight">Notifications</h3>
-                        {notifications.some((notification) => !notification.isRead) && (
-                          <button onClick={markAllNotificationsAsRead} className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors">
-                            Mark all as read
-                          </button>
-                        )}
-                      </div>
-                      <div
-                        className="max-h-[400px] overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-                        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}
-                      >
-                        {notificationsLoading ? (
-                          <div className="p-8 text-center flex flex-col items-center justify-center">
-                            <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-500 rounded-full animate-spin mb-2"></div>
-                            <p className="text-[13px] text-slate-500">Loading notifications...</p>
-                          </div>
-                        ) : notifications.length === 0 ? (
-                          <div className="p-8 text-center flex flex-col items-center justify-center">
-                            <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mb-3">
-                              <Bell size={22} className="text-slate-300" />
-                            </div>
-                            <p className="text-[14px] font-medium text-slate-900">You're all caught up</p>
-                            <p className="text-[12px] text-slate-500 mt-1">No new notifications right now.</p>
-                          </div>
-                        ) : (
-                          <div className="divide-y divide-slate-50">
-                            {notifications.map((notification) => (
-                              <button
-                                key={notification.id || notification._id}
-                                onClick={() => markNotificationAsRead(notification.id || notification._id || '')}
-                                className={`w-full text-left p-4 hover:bg-slate-50 transition-colors flex gap-3 ${!notification.isRead ? 'bg-slate-50/50' : ''}`}
-                              >
-                                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${!notification.isRead ? 'bg-blue-500' : 'bg-transparent'}`}></div>
-                                <div className="flex-1 min-w-0">
-                                  <p className={`text-[13px] text-slate-900 truncate ${!notification.isRead ? 'font-semibold' : 'font-medium'}`}>
-                                    {notification.title}
-                                  </p>
-                                  <p className="text-[12px] text-slate-500 line-clamp-2 mt-0.5 leading-snug">{notification.message}</p>
-                                  <p className="text-[10px] text-slate-400 mt-1">{new Date(notification.createdAt).toLocaleDateString()}</p>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
+              <CustomerNotificationCenter
+                notifications={notifications}
+                loading={notificationsLoading}
+                onMarkAllAsRead={markAllNotificationsAsRead}
+                onOpenNotification={handleOpenNotification}
+                onOpenSettings={() => navigate('/customer/dashboard?section=settings')}
+              />
 
               <div className="relative">
                 <button

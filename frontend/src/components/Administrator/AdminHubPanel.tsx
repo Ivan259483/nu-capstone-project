@@ -27,7 +27,7 @@ import {
   getNotificationCategory,
   getNotificationId,
   getNotificationLink,
-} from './notifications/notification-utils';
+} from '@/lib/notification-presentation';
 import {
   Tooltip,
   TooltipContent,
