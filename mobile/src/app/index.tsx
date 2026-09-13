@@ -52,8 +52,27 @@ export default function RootIndex() {
 
   // Unknown, missing, and non-Customer roles all fail closed to Login.
   if (!isAuthorizedCustomer || !hasCompletedIdentityFlow) {
+    if (__DEV__) {
+      console.log('[RouteGuard][RootIndex] redirecting to /(auth)/login →', {
+        hasToken: Boolean(token),
+        hasProfile: Boolean(profile),
+        role: profile?.role,
+        isAuthorizedCustomer,
+        hasSession: Boolean(session),
+        loginOtpVerified,
+        hasCompletedIdentityFlow,
+        reason: !isAuthorizedCustomer ? 'not an authorized customer' : 'identity flow not complete',
+      });
+    }
     return <Redirect href="/(auth)/login" />;
   }
 
+  if (__DEV__) {
+    console.log('[RouteGuard][RootIndex] redirecting to /(customer) →', {
+      role: profile?.role,
+      loginOtpVerified,
+      hasSession: Boolean(session),
+    });
+  }
   return <Redirect href="/(customer)" />;
 }

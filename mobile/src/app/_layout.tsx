@@ -78,6 +78,13 @@ function InnerLayout() {
     if (isAuthed && inAuthGroup) {
       // Authenticated Customer still on auth screens → enter Customer app.
       const target = resolveRouteForRole(profile?.role);
+      if (__DEV__) {
+        console.log('[RouteGuard][InnerLayout] authed on auth screen → replacing route →', {
+          segments,
+          target,
+          role: profile?.role,
+        });
+      }
       router.replace(target);
     }
   }, [inAuthGroup, isAuthed, initialized, segments, router, profile?.role]);
@@ -97,6 +104,17 @@ function InnerLayout() {
     const redirectTarget = challengeUsable
       ? (inLoginOtpScreen ? null : '/(auth)/verify')
       : (inAuthGroup ? null : '/(auth)/login');
+
+    if (__DEV__ && redirectTarget) {
+      console.log('[RouteGuard][InnerLayout] not authed → redirecting →', {
+        segments,
+        redirectTarget,
+        isAuthorizedCustomer,
+        hasSession: Boolean(session),
+        loginOtpVerified,
+        challengeUsable,
+      });
+    }
 
     return (
       <>

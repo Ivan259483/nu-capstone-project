@@ -267,9 +267,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // as well as existing web-registered users.
       // Google/Apple sign-in goes through signInWithGoogle instead.
       const { token, backendUser } = await authService.loginWithEmailPassword(email.trim(), password);
-      await authStorage.setLoginOtpVerified(false);
-      setLoginOtpVerified(false);
+      // Reaching this line at all means the backend returned a complete
+      // session with no OTP challenge — i.e. the identity flow behind this
+      // token is already fully proven (normally: OTP-verified; for the one
+      // scoped App Review account: password-only by design). The route
+      // guards in app/_layout.tsx and app/index.tsx require `loginOtpVerified`
+      // (or a Firebase `session`) before treating a customer as authenticated,
+      // so this must be `true`, not `false`, or a valid session silently
+      // bounces back to the login screen.
+      await authStorage.setLoginOtpVerified(true);
+      setLoginOtpVerified(true);
       applyState(null, token, backendUser);
+      if (__DEV__) {
+        console.log('[Auth][signIn] direct login complete (no OTP challenge) →', {
+          email: backendUser?.email,
+          role: backendUser?.role,
+          hasToken: Boolean(token),
+          loginOtpVerified: true,
+        });
+      }
       void import('@/hooks/useRealtimeSync')
         .then(({ refreshRealtimeSocketAuth }) => refreshRealtimeSocketAuth())
         .catch(() => {});

@@ -145,6 +145,12 @@ const persistSession = async (token: string, user: BackendUser): Promise<void> =
     authStorage.setToken(token),
     authStorage.setUser(user),
   ]);
+  if (__DEV__) {
+    console.log('[Auth][persistSession] token + user saved to SecureStore →', {
+      email: user?.email,
+      role: user?.role,
+    });
+  }
 };
 
 const clearLocalSession = async (): Promise<void> => {
@@ -296,6 +302,18 @@ const loginEmailDirect = async (
   const normalizedEmail = normalizeEmail(email);
   const response = await apiClient.post('/auth/login', { email: normalizedEmail, password });
   const d = response?.data;
+
+  if (__DEV__) {
+    console.log('[Auth][loginEmailDirect] POST /auth/login response shape →', {
+      status: response?.status,
+      success: d?.success,
+      requiresOtp: Boolean(d?.data?.requiresOtp),
+      requiresOTP: Boolean(d?.data?.requiresOTP),
+      requiresPasswordChange: Boolean(d?.data?.requiresPasswordChange),
+      hasToken: Boolean(d?.data?.token || d?.token),
+      hasUser: Boolean(d?.data?.user || d?.user),
+    });
+  }
 
   if (d?.success && d?.data?.requiresOtp) {
     const err = new Error(

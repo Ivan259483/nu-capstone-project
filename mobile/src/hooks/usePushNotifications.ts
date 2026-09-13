@@ -213,9 +213,13 @@ export const usePushNotifications = (authenticated = false) => {
     });
     responseListener.current = Notifications.addNotificationResponseReceivedListener(openPushDestination);
 
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!cancelled && response) openPushDestination(response);
-    });
+    // Unimplemented on web (expo-notifications throws ERR_UNAVAILABLE there,
+    // as an unhandled rejection that otherwise takes down the whole screen).
+    if (Platform.OS !== 'web') {
+      void Notifications.getLastNotificationResponseAsync().then((response) => {
+        if (!cancelled && response) openPushDestination(response);
+      });
+    }
 
     return () => {
       cancelled = true;
