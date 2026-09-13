@@ -12,6 +12,8 @@
  * mobile/src/utils/customer-tracker-stage.ts.
  */
 
+import { buildCustomerTrackingLifecycle } from '../constants/orderLifecycle.js';
+
 export const CUSTOMER_TRACKER_STAGE_ORDER = [
   'confirmed',
   'received',
@@ -129,7 +131,44 @@ export function buildCustomerStagePayload(order) {
     customerStageTotalSteps: resolved.customerTotalSteps,
     customerStageProgress: resolved.progress,
     customerStageRank: resolved.rank,
+    customerAssignedTeam: resolveCustomerAssignedTeam(order),
+    ...buildCustomerTrackingLifecycle(order),
   };
+}
+
+/**
+ * Team that currently owns the order, as shown to the customer. At Ready for Pickup the job is
+ * handed to Sales once it enters the balance/pickup queue or its payment has settled; before
+ * that, pickup evidence is still being completed on the floor.
+ */
+export function resolveCustomerAssignedTeam(order) {
+  if (!order) return 'Assignment pending';
+  const stage = normalizeBookingStage(order);
+  const assignments = (Array.isArray(order.serviceStaffAssignments) ? order.serviceStaffAssignments : [])
+    .filter((person) => String(person?.name || '').trim());
+  const namesFor = (rolePattern) => assignments
+    .filter((person) => !rolePattern || rolePattern.test(String(person.role || '')))
+    .map((person) => String(person.name).trim())
+    .join(' & ');
+
+  if (stage === 'ready_pickup') {
+    const salesOwned = normalizeStageKey(order.status) === 'ready_for_payment'
+      || order.posQueueStatus === 'balance_pickup_queue'
+      || normalizeStageKey(order.paymentStatus) === 'paid';
+    if (salesOwned) {
+      const names = namesFor(/sales|cashier|pos/i);
+      return names ? `Sales · ${names}` : 'Sales team';
+    }
+    return namesFor(/pickup/i) || 'Pickup team';
+  }
+  if (stage === 'quality_check') {
+    const names = namesFor(/quality|qc/i);
+    return names ? `Quality Check · ${names}` : 'Quality Check team';
+  }
+  if (stage === 'received' || stage === 'in_progress') {
+    return namesFor(null) || 'Service team';
+  }
+  return 'Assignment pending';
 }
 
 /**

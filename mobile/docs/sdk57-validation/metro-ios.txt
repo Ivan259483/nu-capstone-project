@@ -1,0 +1,7 @@
+Command: npx expo start --clear --go --lan --port 8081
+Metro: exp://192.168.18.164:8081
+Mode: Expo Go
+Manifest: HTTP 200; sdkVersion 57.0.0; AutoSPF+; com.autospf.plus
+iOS full development bundle: HTTP 200; 14712361 bytes
+Metro: iOS Bundled 12965ms node_modules/expo-router/entry.js (2482 modules)
+Physical iPhone execution: not tested

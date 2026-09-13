@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { DEFAULT_CUSTOMER_NOTIFICATION_PREFERENCES } from '../utils/customerNotificationPreferences.utils.js';
+import { CUSTOMER_REGIONAL_OPTIONS } from '../utils/customerRegionalPreferences.utils.js';
 
 const customerSchema = new mongoose.Schema(
   {
@@ -40,6 +41,11 @@ const customerSchema = new mongoose.Schema(
       paymentReminders: { type: Boolean, default: DEFAULT_CUSTOMER_NOTIFICATION_PREFERENCES.paymentReminders },
       vehicleReminders: { type: Boolean, default: DEFAULT_CUSTOMER_NOTIFICATION_PREFERENCES.vehicleReminders },
     },
+    regionalPreferences: Object.fromEntries(
+      Object.entries(CUSTOMER_REGIONAL_OPTIONS).map(([key, options]) => [
+        key, { type: String, enum: [...options, null], default: null },
+      ])
+    ),
   },
   { timestamps: true }
 );

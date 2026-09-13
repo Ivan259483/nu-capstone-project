@@ -180,6 +180,13 @@ export interface BookingRecord {
   }[];
   serviceTrackingStage?: string | null;
   serviceTrackingUpdatedAt?: string;
+  /** Backend-resolved tracking lifecycle (backend constants/orderLifecycle.js). */
+  customerTrackingState?: 'live' | 'completed' | 'cancelled';
+  customerTrackingLive?: boolean;
+  customerTrackingCompletedAt?: string | null;
+  customerReceiptInvoiceId?: string | null;
+  /** Team that currently owns the order (e.g. Sales once handed off at Ready for Pickup). */
+  customerAssignedTeam?: string;
   customerStatus?: string;
   customerStatusUpdatedAt?: string;
   paymentProofUrl?: string;

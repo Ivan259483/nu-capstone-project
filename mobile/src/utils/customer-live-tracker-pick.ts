@@ -55,25 +55,36 @@ const CUSTOMER_TRACKER_STATUS_FALLBACK_RANK: Record<string, number> = {
   done: 6,
 };
 
-/**
- * True only after customer handover is complete. Payment by itself is not terminal:
- * a paid vehicle waiting for QC to hand it back must remain visible in Live Tracker.
- */
-export function bookingHasCompletedCustomerHandover(b: unknown): boolean {
-  const row = b as Record<string, unknown> | null | undefined;
-  if (!row) return false;
-  const status = normTrackerStr(row.status);
-  const stage = normTrackerStr(row.serviceTrackingStage);
-  const paymentStatus = normTrackerStr(row.paymentStatus);
-  const customerStatus = normTrackerStr(row.customerStatus);
+export type CustomerTrackingState = 'live' | 'completed' | 'cancelled';
 
-  if (status === 'released' || stage === 'released') return true;
-  if (status === 'cancelled' || status === 'rejected') return true;
-  // Settlement alone is not terminal: a paid vehicle still awaiting QC handback must
-  // stay on the tracker. Terminal means paid AND the job itself reached `completed`,
-  // which is what the POS final-settlement flow writes once the balance hits zero.
-  if (paymentStatus !== 'paid') return false;
-  return status === 'completed' || stage === 'completed' || customerStatus === 'completed';
+/**
+ * Tracking lifecycle as resolved by the backend (`customerTrackingState`, defined once in
+ * backend/constants/orderLifecycle.js: payment settled + receipt issued ⇒ completed).
+ * Clients never derive "is it done" from status/payment fields themselves.
+ */
+export function bookingCustomerTrackingState(b: unknown): CustomerTrackingState {
+  const value = normTrackerStr((b as Record<string, unknown> | null | undefined)?.customerTrackingState);
+  return value === 'completed' || value === 'cancelled' ? value : 'live';
+}
+
+/** True when the backend reports the job finished (settled with receipt, or released). */
+export function bookingTrackingIsCompleted(b: unknown): boolean {
+  return bookingCustomerTrackingState(b) === 'completed';
+}
+
+/** True once the backend ends live tracking for this booking (completed or cancelled). */
+export function bookingHasCompletedCustomerHandover(b: unknown): boolean {
+  return bookingCustomerTrackingState(b) !== 'live';
+}
+
+/** Most recently completed booking, shown as a finished summary when nothing is live. */
+export function pickCustomerCompletedTrackerBooking(
+  bookings: BookingRecord[] | null | undefined
+): BookingRecord | undefined {
+  const completed = (bookings || []).filter(bookingTrackingIsCompleted);
+  const completedAt = (b: any) =>
+    new Date(b?.customerTrackingCompletedAt || b?.updatedAt || b?.createdAt || 0).getTime();
+  return completed.sort((a, b) => completedAt(b) - completedAt(a))[0];
 }
 
 /**
@@ -137,10 +148,18 @@ export function trackerStageRankOf(input: {
  * Keep in sync with frontend/src/lib/customer-live-tracker-pick.ts.
  */
 export function isForwardTrackerStageTransition(
-  current: { serviceTrackingStage?: unknown; status?: unknown } | null | undefined,
-  incoming: { serviceTrackingStage?: unknown; status?: unknown }
+  current: { serviceTrackingStage?: unknown; status?: unknown; customerTrackingState?: unknown } | null | undefined,
+  incoming: { serviceTrackingStage?: unknown; status?: unknown; customerTrackingState?: unknown }
 ): boolean {
   if (!current) return true;
+  // Tracking the backend already ended never reopens from a stale event or slow GET.
+  if (
+    bookingHasCompletedCustomerHandover(current) &&
+    incoming.customerTrackingState !== undefined &&
+    !bookingHasCompletedCustomerHandover(incoming)
+  ) {
+    return false;
+  }
   const touchesStage = incoming.serviceTrackingStage !== undefined || incoming.status !== undefined;
   if (!touchesStage) return true;
   const currentRank = trackerStageRankOf(current);

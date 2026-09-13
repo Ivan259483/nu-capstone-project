@@ -104,6 +104,8 @@ import {
 import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvidence.utils.js';
 
 import { buildCustomerStagePayload } from '../utils/customerTrackerStage.utils.js';
+import { withFetchableTrackerPhotoUrls } from '../utils/trackerMediaPhotoUrl.utils.js';
+import { buildResponsiveTrackerMedia } from './tracker.controller.js';
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
   { name: 'Surface Decontamination', status: 'pending' },
@@ -303,7 +305,11 @@ const emitCustomerStatusUpdate = (order) => {
       serviceTrackingStage: order.serviceTrackingStage || null,
       ...buildCustomerStagePayload(order),
       serviceStaffAssignments: order.serviceStaffAssignments || [],
-      trackerStageMedia: getCustomerVisibleTrackerStageMedia(order),
+      // Metadata + signed photo URLs only; never push inline base64 over the socket.
+      trackerStageMedia: withFetchableTrackerPhotoUrls(
+        order._id,
+        buildResponsiveTrackerMedia(getCustomerVisibleTrackerStageMedia(order))
+      ),
       updatedAt: order.customerStatusUpdatedAt || new Date().toISOString(),
     });
   } catch (error) {
@@ -468,6 +474,10 @@ const ORDER_TRACKER_MEDIA_SELECT_FIELDS = [
   'status',
   'archived',
   'paymentStatus',
+  'invoiceId',
+  'paidAt',
+  'completedAt',
+  'posQueueStatus',
   'serviceTrackingStage',
   'serviceStaffAssignments',
   'trackerStageMedia.stage',
@@ -1533,17 +1543,21 @@ export const getOrderTrackerMedia = async (req, res, next) => {
     const trackerStageMedia = await timeOperation(
       { req, res, kind: 'cpu', name: 'trackerMedia.customerVisibilityFilter' },
       () => (isCustomerRole(req.user.role)
-        ? getCustomerVisibleTrackerStageMedia({
+        // The safe projection blanks inline `data:` photos; customers get a signed URL per row
+        // instead so evidence stays viewable without base64 in this payload.
+        ? withFetchableTrackerPhotoUrls(order._id, getCustomerVisibleTrackerStageMedia({
           serviceTrackingStage: order.serviceTrackingStage,
           trackerStageMedia: mediaProjection.trackerStageMedia,
-        })
+        }))
         : (Array.isArray(mediaProjection.trackerStageMedia) ? mediaProjection.trackerStageMedia : []))
     );
 
-    const placeholderCount = trackerStageMedia.filter((entry) => entry?.photoPending).length;
+    const placeholderCount = trackerStageMedia.filter((entry) => entry?.photoPending && !entry?.photoUrl).length;
+    const signedPhotoUrlCount = trackerStageMedia.filter((entry) => entry?.photoPending && entry?.photoUrl).length;
     console.info(
       `[PERF] kind=media operation=trackerMedia.payload method=${req.method} path=${req.originalUrl} ` +
-      `mediaCount=${trackerStageMedia.length} placeholderCount=${placeholderCount} inlineBase64Count=0 inlineBase64KB=0.0`
+      `mediaCount=${trackerStageMedia.length} placeholderCount=${placeholderCount} signedPhotoUrlCount=${signedPhotoUrlCount} ` +
+      'inlineBase64Count=0 inlineBase64KB=0.0'
     );
 
     res.json({

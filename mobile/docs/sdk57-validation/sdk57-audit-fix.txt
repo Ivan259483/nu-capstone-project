@@ -1,0 +1,80 @@
+
+added 8 packages, removed 9 packages, changed 15 packages, and audited 1008 packages in 4s
+
+176 packages are looking for funding
+  run `npm fund` for details
+
+# npm audit report
+
+decode-uri-component  <=0.4.2
+Severity: moderate
+decode-uri-component: Denial of service via exponential decoding of malformed percent-encoded input - https://github.com/advisories/GHSA-vcc3-ghjq-m6fr
+fix available via `npm audit fix --force`
+Will install expo-router@5.1.11, which is a breaking change
+node_modules/decode-uri-component
+  query-string  5.0.0 - 9.4.1
+  Depends on vulnerable versions of decode-uri-component
+  node_modules/query-string
+    expo-router  1.2.2 - 3.1.2 || >=5.2.0-canary-20250611-f0afe80
+    Depends on vulnerable versions of query-string
+    node_modules/expo-router
+
+uuid  <11.1.1
+Severity: moderate
+uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided - https://github.com/advisories/GHSA-w5hq-g745-h8pq
+fix available via `npm audit fix --force`
+Will install expo-splash-screen@55.0.25, which is a breaking change
+node_modules/uuid
+  xcode  >=0.9.2
+  Depends on vulnerable versions of uuid
+  node_modules/xcode
+    @expo/config-plugins  *
+    Depends on vulnerable versions of xcode
+    node_modules/@expo/config-plugins
+      @expo/cli  <=0.0.0-canary-20231123-1b19f96-4 || >=0.0.1-canary-20231125-d600e44
+      Depends on vulnerable versions of @expo/config
+      Depends on vulnerable versions of @expo/config-plugins
+      Depends on vulnerable versions of @expo/inline-modules
+      Depends on vulnerable versions of @expo/metro-config
+      Depends on vulnerable versions of @expo/prebuild-config
+      node_modules/@expo/cli
+        expo  40.0.0-alpha.0 - 40.0.0-beta.5 || >=41.0.0-alpha.0
+        Depends on vulnerable versions of @expo/cli
+        Depends on vulnerable versions of @expo/config
+        Depends on vulnerable versions of @expo/config-plugins
+        Depends on vulnerable versions of @expo/local-build-cache-provider
+        Depends on vulnerable versions of @expo/metro-config
+        node_modules/expo
+      @expo/config  <=0.0.1-canary-20240418-8d74597 || >=3.3.23-alpha.0
+      Depends on vulnerable versions of @expo/config-plugins
+      node_modules/@expo/config
+        @expo/local-build-cache-provider  *
+        Depends on vulnerable versions of @expo/config
+        node_modules/@expo/local-build-cache-provider
+        @expo/metro-config  <=0.0.1-canary-20240418-8d74597 || >=0.1.49-alpha.0
+        Depends on vulnerable versions of @expo/config
+        node_modules/@expo/metro-config
+      @expo/inline-modules  >=0.0.2-canary-20260409-6fc2991
+      Depends on vulnerable versions of @expo/config-plugins
+      node_modules/@expo/inline-modules
+      @expo/prebuild-config  *
+      Depends on vulnerable versions of @expo/config
+      Depends on vulnerable versions of @expo/config-plugins
+      node_modules/@expo/prebuild-config
+      expo-splash-screen  55.0.10-canary-20260424-7bedc9d - 55.0.10-canary-20260429-a5e59cf || >=56.0.0-canary-20260212-4f61309
+      Depends on vulnerable versions of @expo/config-plugins
+      node_modules/expo-splash-screen
+
+14 moderate severity vulnerabilities
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+npm warn allow-scripts 3 packages have install scripts not yet covered by allowScripts:
+npm warn allow-scripts   @firebase/util@1.15.1 (postinstall: node ./postinstall.js)
+npm warn allow-scripts   unrs-resolver@1.11.1 (postinstall: napi-postinstall unrs-resolver 1.11.1 check)
+npm warn allow-scripts   protobufjs@7.6.6 (postinstall: node scripts/postinstall)
+npm warn allow-scripts
+npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow.

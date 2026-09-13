@@ -14,7 +14,8 @@ import {
   syncAvailabilityCaches,
 } from '@/lib/availabilitySync';
 import { getAvailabilityBadge } from '@/lib/availabilityBadge';
-import api, { ensureBackendAuthToken, getStoredAuthToken } from '../lib/api';
+import api, { BACKEND_API_URL, ensureBackendAuthToken, getStoredAuthToken } from '../lib/api';
+import { resolveMediaUrl } from '../lib/media-url';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
 import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking, normalizePhilippineMobileInput, resolveProfilePhoneDisplay } from '../lib/phone';
 import { normalizePlateNumber } from '../lib/plate';
@@ -40,6 +41,10 @@ import {
   isForwardTrackerStageTransition,
   normTrackerStr,
   pickCustomerLiveTrackerBooking,
+  bookingCustomerTrackingState,
+  bookingHasCompletedCustomerHandover,
+  bookingTrackingIsCompleted,
+  pickCustomerCompletedTrackerBooking,
 } from '../lib/customer-live-tracker-pick';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '../lib/cloudinary-delivery-url';
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
@@ -539,6 +544,30 @@ function hasTrackerStageMediaField(booking: any): boolean {
   return Boolean(booking && Object.prototype.hasOwnProperty.call(booking, 'trackerStageMedia'));
 }
 
+/** Backend-owned tracking lifecycle fields (see backend constants/orderLifecycle.js). */
+const CUSTOMER_TRACKING_FIELDS = [
+  'customerTrackingState',
+  'customerTrackingLive',
+  'customerTrackingCompletedAt',
+  'customerReceiptInvoiceId',
+  'customerAssignedTeam',
+] as const;
+
+function pickCustomerTrackingFields(source: any): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  for (const field of CUSTOMER_TRACKING_FIELDS) {
+    if (source?.[field] !== undefined) fields[field] = source[field];
+  }
+  return fields;
+}
+
+function formatTrackingCompletedAt(value: unknown): string {
+  const date = new Date(String(value || ''));
+  return Number.isNaN(date.getTime())
+    ? 'Time unavailable'
+    : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 function mergeTrackerMediaPayload<T extends Record<string, any> | null | undefined>(
   booking: T,
   payload: any
@@ -549,9 +578,11 @@ function mergeTrackerMediaPayload<T extends Record<string, any> | null | undefin
   const allowStagePatch = isForwardTrackerStageTransition(booking, {
     serviceTrackingStage: payload.serviceTrackingStage,
     status: payload.status,
+    customerTrackingState: payload.customerTrackingState,
   });
   return {
     ...booking,
+    ...(allowStagePatch ? pickCustomerTrackingFields(payload) : {}),
     ...(allowStagePatch && payload.status !== undefined ? { status: payload.status } : {}),
     ...(payload.paymentStatus !== undefined ? { paymentStatus: payload.paymentStatus } : {}),
     ...(allowStagePatch && payload.serviceTrackingStage !== undefined ? { serviceTrackingStage: payload.serviceTrackingStage } : {}),
@@ -577,7 +608,11 @@ function mergeBookingsPreservingTrackerMedia(previous: any[], incoming: any[]): 
     // A slow/backup GET can resolve after a newer `booking:status` socket event already
     // advanced this booking's stage — never let it regress serviceTrackingStage/status back.
     const stagePatch = previousBooking && !isForwardTrackerStageTransition(previousBooking, booking)
-      ? { serviceTrackingStage: previousBooking.serviceTrackingStage, status: previousBooking.status }
+      ? {
+          serviceTrackingStage: previousBooking.serviceTrackingStage,
+          status: previousBooking.status,
+          ...pickCustomerTrackingFields(previousBooking),
+        }
       : null;
     if (
       !previousBooking ||
@@ -826,16 +861,25 @@ export default function CustomerDashboard() {
   const handleBookingStatus = useCallback((event: BookingStatusEvent) => {
     const { bookingId, serviceTrackingStage, serviceStaffAssignments, trackerStageMedia, status, paymentStatus, customerStatus, completedAt, invoiceId } = event;
     if (!bookingId) return;
+    const bid = String(bookingId ?? '');
+    const knownBooking = myBookingsRef.current.find((b: any) => String(b.id ?? b._id ?? '') === bid);
+    // The backend already ended tracking for this order: ignore its realtime traffic entirely
+    // (no state patch, no bookings refetch).
+    if (knownBooking && bookingHasCompletedCustomerHandover(knownBooking)) return;
     setMyBookings((prev: any[]) => {
       const next = prev.map((b: any) => {
         const id = String(b.id ?? b._id ?? '');
-        const bid = String(bookingId ?? '');
         if (id !== bid) return b;
         // Realtime events can arrive out of order (reconnects, retries). Never let a stale
         // `arrived` event downgrade a tracker that already reached `service_in_progress` or later.
-        const allowStagePatch = isForwardTrackerStageTransition(b, { serviceTrackingStage, status });
+        const allowStagePatch = isForwardTrackerStageTransition(b, {
+          serviceTrackingStage,
+          status,
+          customerTrackingState: event.customerTrackingState,
+        });
         return {
           ...b,
+          ...(allowStagePatch ? pickCustomerTrackingFields(event) : {}),
           ...(allowStagePatch && serviceTrackingStage !== undefined ? { serviceTrackingStage } : {}),
           ...(allowStagePatch && status !== undefined ? { status } : {}),
           ...(paymentStatus !== undefined ? { paymentStatus } : {}),
@@ -893,7 +937,8 @@ export default function CustomerDashboard() {
       });
     }
   }, [navigate]);
-  useLiveJobs(user, handleBookingStatus, handleIncomingNotification, scheduleSilentBookingsRefetch);
+  // Socket events only: this page loads its own bookings list and never used the jobs poll.
+  useLiveJobs(user, handleBookingStatus, handleIncomingNotification, scheduleSilentBookingsRefetch, { pollJobs: false });
 
   useLayoutEffect(() => {
     const frame = window.requestAnimationFrame(() => setSidebarTransitionsReady(true));
@@ -2645,8 +2690,12 @@ export default function CustomerDashboard() {
     loadBookingsRef.current = load;
 
     load();
-    // Slow backup poll only; socket events are the primary live update path.
-    const interval = setInterval(() => load({ silent: true }), 60_000);
+    // Slow backup poll only; socket events are the primary live update path. It runs only while
+    // some booking is still live — once the backend ends tracking there is nothing to request.
+    const interval = setInterval(() => {
+      if (!myBookingsRef.current.some((booking) => bookingCustomerTrackingState(booking) === 'live')) return;
+      load({ silent: true });
+    }, 60_000);
 
     return () => {
       clearInterval(interval);
@@ -2681,6 +2730,12 @@ export default function CustomerDashboard() {
   const hasActiveTrackerBooking = Boolean(
     displayedTrackerBooking && bookingShowsCustomerLiveTracker(displayedTrackerBooking)
   );
+  // Nothing live: the most recent job the backend marked completed is shown as a finished summary.
+  const completedTrackerBooking = useMemo(
+    () => (hasActiveTrackerBooking ? undefined : pickCustomerCompletedTrackerBooking(myBookings)),
+    [hasActiveTrackerBooking, myBookings]
+  );
+  const trackerCardBooking = hasActiveTrackerBooking ? displayedTrackerBooking : completedTrackerBooking;
 
   useEffect(() => {
     if (
@@ -2762,6 +2817,35 @@ export default function CustomerDashboard() {
     activeTrackerBooking?.updatedAt,
     activeTrackerBooking?.serviceTrackingStage,
   ]);
+
+  // A completed job keeps its timeline photos as history: evidence is loaded at most once per
+  // order and never refreshed, because tracking has ended and there is nothing live to request.
+  useEffect(() => {
+    const completedId = bookingRowId(completedTrackerBooking);
+    if (!completedId || !CUSTOMER_BOOKINGS_DATA_SECTIONS.includes(activeSection)) return;
+    if (hasTrackerStageMediaField(completedTrackerBooking)) return;
+    const historyKey = `history:${completedId}`;
+    if (trackerMediaHydrationKeysRef.current.has(historyKey)) return;
+    trackerMediaHydrationKeysRef.current.add(historyKey);
+
+    void (async () => {
+      try {
+        const { OrderService } = await import('../lib/order-service');
+        const response = await OrderService.getTrackerMedia(completedId);
+        const payload = response?.success ? response.data : null;
+        if (!payload) return;
+        setMyBookings((prev) => {
+          const next = prev.map((booking) =>
+            bookingRowId(booking) === completedId ? mergeTrackerMediaPayload(booking, payload) : booking
+          );
+          myBookingsRef.current = next;
+          return next;
+        });
+      } catch (error) {
+        console.warn('[CustomerTrackerMedia] Failed to load completed job evidence:', error);
+      }
+    })();
+  }, [activeSection, completedTrackerBooking]);
 
   useEffect(() => {
     if (location.pathname !== '/customer/book') {
@@ -4762,7 +4846,8 @@ export default function CustomerDashboard() {
             ) : activeSection === 'tracker' ? (
               /* ═══ Live Tracker ═══ */
               (() => {
-                const activeBooking = displayedTrackerBooking;
+                const activeBooking = trackerCardBooking;
+                const trackingCompleted = bookingTrackingIsCompleted(activeBooking);
                 const TRACKER_STEPS = CUSTOMER_LIVE_TRACKER_HORIZONTAL_STEPS;
                 // Match premium dashboard tracker: QC `serviceTrackingStage` drives substeps; status is fallback.
                 // Same canonical resolver as the home tracker card — one stage drives the
@@ -4794,17 +4879,43 @@ export default function CustomerDashboard() {
                         {/* Status Banner */}
                         <div className="w-full min-w-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="relative">
-                                <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
-                                <div className="absolute inset-0 w-3 h-3 rounded-full bg-emerald-400 animate-ping"></div>
-                              </div>
-                              <div>
-                                <p className="text-sm font-semibold text-slate-900">Service In Progress</p>
-                                <p className="text-xs text-slate-500">Live updates enabled</p>
-                              </div>
-                            </div>
-                            <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">LIVE</span>
+                            {trackingCompleted ? (
+                              <>
+                                <div className="flex items-center gap-3">
+                                  <iconify-icon icon="solar:check-circle-bold" width="20" style={{ color: '#059669' }}></iconify-icon>
+                                  <div>
+                                    <p className="text-sm font-semibold text-slate-900">
+                                      Service {normTrackerStr(activeBooking.status) === 'released' ? 'Released' : 'Completed'}
+                                    </p>
+                                    <p className="text-xs text-slate-500">
+                                      Completed {formatTrackingCompletedAt(activeBooking.customerTrackingCompletedAt)} · Live tracking ended
+                                    </p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => void openCustomerOrderReceiptPdf(bookingRowId(activeBooking))}
+                                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                >
+                                  <iconify-icon icon="solar:bill-list-linear" width="14"></iconify-icon>
+                                  View receipt
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-3">
+                                  <div className="relative">
+                                    <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+                                    <div className="absolute inset-0 w-3 h-3 rounded-full bg-emerald-400 animate-ping"></div>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-semibold text-slate-900">Service In Progress</p>
+                                    <p className="text-xs text-slate-500">Live updates enabled</p>
+                                  </div>
+                                </div>
+                                <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">LIVE</span>
+                              </>
+                            )}
                           </div>
 
                           {/* Vehicle Info */}
@@ -5608,15 +5719,15 @@ export default function CustomerDashboard() {
                 })()}
 
                 {/* ── Live Service Tracker ── */}
-                {hasActiveTrackerBooking && (() => {
-                  const activeBooking = displayedTrackerBooking;
+                {trackerCardBooking && (() => {
+                  const activeBooking = trackerCardBooking;
+                  const trackingCompleted = bookingTrackingIsCompleted(activeBooking);
                   const status = activeBooking ? String(activeBooking.status || '').toLowerCase() : '';
                   const trackingStage = (activeBooking as any)?.serviceTrackingStage;
                   const tsKey = normTrackerStr(trackingStage);
                   const paymentPaid = String(activeBooking?.paymentStatus || '').toLowerCase() === 'paid';
-                  const postPayComplete =
-                    paymentPaid &&
-                    (status === 'completed' || status === 'released' || tsKey === 'released');
+                  // The backend decides when tracking is over; this card only renders that state.
+                  const postPayComplete = trackingCompleted;
                   // Label, step and percentage all come from ONE canonical stage so a card can
                   // never render e.g. "Quality Check + 50%" or "Service In Progress + step 4/5".
                   const canonicalStage = resolveCustomerTrackerStage(activeBooking as any);
@@ -5654,9 +5765,10 @@ export default function CustomerDashboard() {
                   const referenceLabel = reference && !looksLikeOpaqueTechnicalId(reference) ? reference : 'Confirmed job';
                   const assignments: { slot?: string; name?: string; role?: string }[] = activeBooking?.serviceStaffAssignments || [];
                   const assigned = assignments.filter(a => a.name?.trim());
-                  const specialistLabel = assigned.length > 0
+                  // Current owner comes from the backend (e.g. "Sales team" once handed off at pickup).
+                  const specialistLabel = activeBooking?.customerAssignedTeam || (assigned.length > 0
                     ? `${assigned.length} specialist${assigned.length === 1 ? '' : 's'} assigned`
-                    : (activeBooking?.assignedDetailerName || activeBooking?.technicianName || activeBooking?.technician || 'QC team online');
+                    : (activeBooking?.assignedDetailerName || activeBooking?.technicianName || activeBooking?.technician || 'Assignment pending'));
                   const rewardProgressLabel = nextRewardTier
                     ? `${new Intl.NumberFormat(undefined).format(pointsToNextRewardTier)} pts to ${nextRewardTier.name}`
                     : 'Top tier active';
@@ -5682,8 +5794,12 @@ export default function CustomerDashboard() {
                         <div className="customer-live-tracker-header">
                           <div className="customer-live-title-block">
                             <div className="customer-live-eyebrow">
-                              <span className="customer-live-dot" />
-                              <span>Live Tracking</span>
+                              {trackingCompleted ? (
+                                <iconify-icon icon="solar:check-circle-bold" width="12"></iconify-icon>
+                              ) : (
+                                <span className="customer-live-dot" />
+                              )}
+                              <span>{trackingCompleted ? 'Service Complete' : 'Live Tracking'}</span>
 	                            </div>
 	                            <h2>{postPayComplete ? 'Service complete' : isFullyComplete ? 'Ready for pickup' : activeStep.label}</h2>
 	                            <p>{serviceTitle} / {vehicleTitle}</p>
@@ -5716,6 +5832,47 @@ export default function CustomerDashboard() {
 	                          </div>
 	                        </div>
 
+                        {trackingCompleted ? (
+                          <div className="customer-live-command-grid">
+                            <div className="customer-live-status-panel" role="region" aria-label="Completed service summary">
+                              <div className="customer-live-status-topline">
+                                <div>
+                                  <span>Final Status</span>
+                                  <strong>{normTrackerStr(activeBooking?.status) === 'released' ? 'Released' : 'Completed'}</strong>
+                                </div>
+                                <div>
+                                  <span>Completed</span>
+                                  <strong>{formatTrackingCompletedAt(activeBooking?.customerTrackingCompletedAt)}</strong>
+                                </div>
+                              </div>
+                              <p className="customer-live-stage-note">
+                                Payment settled and receipt issued. Live tracking has ended; your service timeline and photo evidence remain below.
+                              </p>
+                              <div className="customer-live-summary-list">
+                                <div>
+                                  <span>Vehicle</span>
+                                  <strong>{vehicleMeta}</strong>
+                                </div>
+                                <div>
+                                  <span>Reference</span>
+                                  <strong>{referenceLabel}</strong>
+                                </div>
+                                <div>
+                                  <span>Receipt</span>
+                                  <strong>{activeBooking?.customerReceiptInvoiceId || 'Issued'}</strong>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                className="customer-live-open-button"
+                                onClick={() => void openCustomerOrderReceiptPdf(bookingRowId(activeBooking))}
+                              >
+                                <iconify-icon icon="solar:bill-list-bold" width="18"></iconify-icon>
+                                <span>View receipt</span>
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
                         <div className="customer-live-command-grid">
                           <div className="customer-live-progress-panel">
 	                            <div
@@ -5807,13 +5964,16 @@ export default function CustomerDashboard() {
                             </div>
                           </div>
                         </div>
+                        )}
 
                         <div className="customer-live-step-grid">
                           {STEPS.map((step, i) => {
                             const isDone = postPayComplete || i < activeIdx || (isFullyComplete && i === activeIdx);
                             const isActive = !postPayComplete && !isFullyComplete && i === activeIdx;
                             const mediaStageKey = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[step.mediaId];
-                            const shots = mediaStageKey ? getCustomerStageSlotPhotos(activeBooking as any, mediaStageKey) : [];
+                            // Signed evidence URLs are root-relative API paths; resolve them against the backend origin.
+                            const shots = (mediaStageKey ? getCustomerStageSlotPhotos(activeBooking as any, mediaStageKey) : [])
+                              .map((shot) => ({ ...shot, url: resolveMediaUrl(shot.url, BACKEND_API_URL) }));
                             const thumbDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
                             const caption = resolveTrackerStageDescription(activeBooking as any, mediaStageKey);
                             const statusLabel = isDone ? 'Complete' : isActive ? 'Live now' : 'Upcoming';
@@ -5945,19 +6105,10 @@ export default function CustomerDashboard() {
                         <div className="customer-live-footer">
                           <span>
                             <iconify-icon icon="solar:shield-star-bold" width="14"></iconify-icon>
-                            QC verified live tracker
+                            {trackingCompleted ? 'Service history' : 'QC verified live tracker'}
                           </span>
                           <strong>{pct}% complete</strong>
                         </div>
-                        {postPayComplete && (activeBooking as any)?.invoiceId && (
-                          <div className="customer-live-footer" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 8, paddingTop: 12 }}>
-                            <span>
-                              <iconify-icon icon="solar:bill-list-bold" width="14"></iconify-icon>
-                              Digital receipt
-                            </span>
-                            <strong style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{String((activeBooking as any).invoiceId)}</strong>
-                          </div>
-                        )}
                       </div>
                     </section>
                   );

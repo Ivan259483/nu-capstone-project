@@ -32,6 +32,17 @@ function norm(value: unknown): string {
   return String(value ?? '').trim().toLowerCase().replace(/-/g, '_');
 }
 
+export function formatCustomerPaymentMethod(value: unknown): string {
+  const method = norm(value);
+  if (!method) return '';
+  if (method === 'gcash') return 'GCash';
+  return method
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 function positiveMoney(...values: unknown[]): number {
   for (const value of values) {
     const amount = Number(value);
@@ -136,7 +147,7 @@ export function resolveCustomerPaymentState(booking: BookingRecord): CustomerPay
     verifiedReservationAmount,
     totalAmount,
     remainingAmount: Math.max(0, totalAmount - (verifiedReservationAmount || reservationAmount)),
-    reservationMethod: norm(reservationPayment?.method || booking.paymentMethod || 'gcash'),
+    reservationMethod: norm(reservationPayment?.method || booking.paymentMethod || ''),
     fullPaymentMethod: norm(balancePayment?.method || booking.paymentMethod || ''),
     reservationReviewedAt: reservationPayment?.reviewedAt || booking.approvedAt || null,
     reservationReviewReason: reservationPayment?.reviewReason || booking.rejectionReason || null,

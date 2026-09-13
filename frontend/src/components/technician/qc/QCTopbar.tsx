@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import api from '@/lib/api';
 import type { QCJob } from '@/hooks/useQCData';
 import { filterQCJobsBySearch, formatQCJobSearchResult } from '@/lib/qc-job-search';
 import type { SystemNotification } from '@/lib/notification-service';
@@ -8,6 +9,7 @@ import AdminNotificationBell from '@/components/Administrator/notifications/Admi
 
 interface Props {
   sidebarCollapsed: boolean;
+  scope?: 'all' | 'mine';
   jobs: QCJob[];
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
@@ -25,6 +27,7 @@ interface Props {
 
 export default function QCTopbar({
   sidebarCollapsed,
+  scope = 'all',
   jobs,
   searchQuery,
   onSearchQueryChange,
@@ -51,10 +54,21 @@ export default function QCTopbar({
     ? 'Quality Checker'
     : (user?.role || 'Quality Checker').replace(/_/g, ' ');
 
-  const commandResults = useMemo(
-    () => filterQCJobsBySearch(jobs, searchQuery).slice(0, 8),
-    [jobs, searchQuery],
-  );
+  const [searchResults, setSearchResults] = useState<{ key: string; jobs: QCJob[]; error: boolean } | null>(null);
+  const searchKey = `${scope}:${searchQuery.trim()}`;
+  useEffect(() => {
+    if (!searchQuery.trim()) return;
+    const abort = new AbortController();
+    const timer = window.setTimeout(() => {
+      void api.get('/qc/jobs', { params: { workspace: true, scope, search: searchQuery.trim(), filter: 'all', limit: 8 }, signal: abort.signal, meta: { suppressErrorToast: true, suppressCancelLog: true } } as any)
+        .then((response) => { if (!abort.signal.aborted) setSearchResults({ key: searchKey, jobs: response.data.jobs || [], error: false }); })
+        .catch(() => { if (!abort.signal.aborted) setSearchResults({ key: searchKey, jobs: [], error: true }); });
+    }, 250);
+    return () => { clearTimeout(timer); abort.abort(); };
+  }, [searchKey]);
+  const searching = Boolean(searchQuery.trim()) && searchResults?.key !== searchKey;
+  const searchFailed = searchResults?.key === searchKey && searchResults.error;
+  const commandResults = searchQuery.trim() ? searchResults?.key === searchKey ? searchResults.jobs : [] : jobs.slice(0, 8);
 
   const showCommandPanel = commandOpen && (searchQuery.trim().length > 0 || commandResults.length > 0);
 
@@ -97,7 +111,7 @@ export default function QCTopbar({
   return (
     <header
       data-sidebar-collapsed={sidebarCollapsed}
-      className="qc-dash-topbar z-20 flex h-[72px] flex-shrink-0 items-center justify-between gap-3 bg-white/95 px-3 backdrop-blur-xl sm:px-5 lg:px-6"
+      className="qc-dash-topbar z-20 flex h-[64px] flex-shrink-0 items-center justify-between gap-3 bg-white px-3 sm:px-5 lg:px-6"
     >
       <div className="flex min-w-0 flex-1 items-center gap-4">
         <div className="group relative w-full max-w-[540px]">
@@ -121,8 +135,8 @@ export default function QCTopbar({
                 pickJob(commandResults[0].id);
               }
             }}
-            placeholder="Search jobs, vehicles, customers..."
-            aria-label="Search jobs, vehicles, and customers"
+            placeholder="Search order, plate, customer, vehicle..."
+            aria-label="Search order, plate, customer, and vehicle"
             aria-expanded={showCommandPanel}
             aria-controls="qc-topbar-command-list"
             autoComplete="off"
@@ -137,7 +151,7 @@ export default function QCTopbar({
               id="qc-topbar-command-list"
               ref={commandListRef}
               className="qc-drop-panel absolute left-0 right-0 top-[calc(100%+8px)] z-50 max-h-80 overflow-y-auto p-1.5"
-              role="listbox"
+              aria-label="QC search results"
             >
               {commandResults.length > 0 ? (
                 commandResults.map((job) => {
@@ -146,7 +160,6 @@ export default function QCTopbar({
                     <button
                       key={job.id}
                       type="button"
-                      role="option"
                       className="flex w-full flex-col rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50"
                       onClick={() => pickJob(job.id)}
                     >
@@ -157,7 +170,7 @@ export default function QCTopbar({
                 })
               ) : (
                 <p className="px-3 py-4 text-center text-sm font-medium text-slate-500">
-                  No jobs match &ldquo;{searchQuery.trim()}&rdquo;
+                  {searching ? 'Searching all scoped QC jobs…' : searchFailed ? 'Search is unavailable. Try again.' : `No jobs match “${searchQuery.trim()}”`}
                 </p>
               )}
             </div>

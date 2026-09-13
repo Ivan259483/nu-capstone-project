@@ -1,11 +1,15 @@
 import express from 'express';
 import * as customerController from '../controllers/customer.controller.js';
+import { getMyRegionalPreferences, updateMyRegionalPreferences } from '../controllers/customerRegionalPreferences.controller.js';
 import { authenticate, authorize } from '../middleware/auth.middleware.js';
 import { BOOKING_MANAGER_ROLES, CUSTOMER_ROLES, USER_MANAGEMENT_ROLES } from '../constants/roles.js';
 
 const router = express.Router();
 
 router.use(authenticate);
+
+router.get('/me/regional-preferences', authorize(...CUSTOMER_ROLES), getMyRegionalPreferences);
+router.patch('/me/regional-preferences', authorize(...CUSTOMER_ROLES), updateMyRegionalPreferences);
 
 /**
  * @route GET /api/customers/me

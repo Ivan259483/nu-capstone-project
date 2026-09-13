@@ -62,9 +62,12 @@ import { getVisitEvidenceAt } from '../services/salesAnalytics.service.js';
 import { timeOperation } from '../utils/performance.utils.js';
 import { logCheckoutPhase, timedPosPaymentStep } from '../utils/posPaymentLog.utils.js';
 import {
+  CUSTOMER_TRACKING_STATES,
   TERMINAL_ORDER_STATUSES,
   TERMINAL_TRACKING_STAGES,
+  resolveCustomerTrackingState,
 } from '../constants/orderLifecycle.js';
+import { buildCustomerStagePayload } from '../utils/customerTrackerStage.utils.js';
 import { parseReportingRange } from '../utils/reportingRange.utils.js';
 import PaymentReconciliationEvent from '../models/paymentReconciliationEvent.model.js';
 import { getSystemState } from '../services/systemState.service.js';
@@ -456,8 +459,11 @@ const finalizePayment = async (payment, order, payload = {}) => {
       io.to(`user:${customerId.toString()}`).emit('booking:status', {
         bookingId: order._id?.toString?.() || order.id,
         status: order.status,
+        serviceTrackingStage: order.serviceTrackingStage || null,
+        ...buildCustomerStagePayload(order),
         customerStatus: order.customerStatus,
         paymentStatus: order.paymentStatus,
+        invoiceId: order.invoiceId || null,
         updatedAt: new Date().toISOString(),
       });
     }
@@ -1906,11 +1912,19 @@ export const runPosCheckoutCore = async ({
   if (alreadyTerminal) {
     order.status = prevPosStatus;
     order.serviceTrackingStage = prevTrackingStage;
-  } else if (fullySettled && readyPickupPhotosComplete && (prevStageKey === 'ready_pickup' || prevStatusKey === 'ready_for_payment')) {
-    // Business rule: the final POS balance is collected only after the order has
-    // reached Ready for Pickup, so settling it to zero IS the completion of the job.
-    // The authoritative ledger (not a client toast) decided `fullySettled`, and the
-    // payment is already persisted by the time this runs.
+  } else if (fullySettled && resolveCustomerTrackingState(order) === CUSTOMER_TRACKING_STATES.COMPLETED) {
+    // Payment settlement is the terminal condition: zero balance + receipt issued on an order
+    // that reached Ready for Pickup — the same rule customers read as `customerTrackingState`.
+    // The authoritative ledger decided `fullySettled`, `invoiceId` was set above, and the
+    // payment is already persisted. Pickup photo completeness is a separate concern: it never
+    // blocks completion, it is only reported.
+    if (!readyPickupPhotosComplete) {
+      console.warn('[POS PAYMENT] step=mark_order_completed outcome=warning reason=ready_pickup_photos_incomplete', {
+        orderId: order._id?.toString?.(),
+        reference: order.bookingReference || order.orderNumber || null,
+        invoiceId: order.invoiceId || null,
+      });
+    }
     order.status = 'completed';
     order.serviceTrackingStage = 'completed';
     order.completedAt = order.completedAt || new Date();
@@ -2096,7 +2110,10 @@ export const runPosCheckoutCore = async ({
         bookingId: order._id.toString(),
         status: order.status,
         serviceTrackingStage: order.serviceTrackingStage || null,
+        // Carries `customerTrackingState`, so customer clients end live tracking on this event.
+        ...buildCustomerStagePayload(order),
         paymentStatus: order.paymentStatus,
+        posQueueStatus: order.posQueueStatus || null,
         completedAt: order.completedAt || null,
         invoiceId: order.invoiceId || null,
         customerStatus: order.customerStatus,

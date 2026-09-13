@@ -7,6 +7,7 @@ import { LanguageProvider } from "@/contexts/LanguageContext";
 import { useEffect, lazy, Suspense, type ReactNode } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import SystemStatusGate from "./components/system/SystemStatusGate";
+import { AccountSettingsSkeleton } from './components/customer/settings/AccountSettingsSkeleton';
 import "./index.css";
 
 // Lazy-load ChatWidget and Navbar — they are never shown on /login or dashboard routes,
@@ -101,7 +102,7 @@ function RoutePageSkeleton() {
 }
 
 // Protected Route Component — shows skeleton loader instead of blocking spinner
-function ProtectedRoute({ children, allowedRoles }: { children: ReactNode; allowedRoles: string[] }) {
+function ProtectedRoute({ children, allowedRoles, loadingFallback }: { children: ReactNode; allowedRoles: string[]; loadingFallback?: ReactNode }) {
     // isFirebaseAuthReady: true once Firebase's onAuthStateChanged has fired and
     // resolved (either a session was found or confirmed absent). We MUST NOT
     // redirect unauthenticated users until this is true, otherwise a brief window
@@ -114,7 +115,7 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode; allow
     // Show skeleton while Firebase is initialising OR during any loading phase.
     // The key guard: do NOT make routing decisions until auth is confirmed.
     if (!isFirebaseAuthReady || isLoading) {
-        return <RoutePageSkeleton />;
+        return <>{loadingFallback || <RoutePageSkeleton />}</>;
     }
 
     if (!user) {
@@ -240,7 +241,7 @@ function AppRoutes() {
             <ScrollToTop />
             <ActivityHeartbeatHost />
             {!isDashboardRoute && !isAuthRoute && !isStandaloneRoute && <Navbar />}
-            <Suspense fallback={<RoutePageSkeleton />}>
+            <Suspense fallback={location.pathname === '/customer/dashboard' && new URLSearchParams(location.search).get('section') === 'settings' ? <AccountSettingsSkeleton /> : <RoutePageSkeleton />}>
                 <Routes>
                     <Route path="/" element={<AuthenticatedHomeEntry />} />
                     <Route path="/about" element={<About />} />
@@ -261,7 +262,7 @@ function AppRoutes() {
                     <Route
                         path="/customer/dashboard"
                         element={
-                            <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]}>
+                            <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]} loadingFallback={new URLSearchParams(location.search).get('section') === 'settings' ? <AccountSettingsSkeleton /> : undefined}>
                                 <CustomerDashboard />
                             </ProtectedRoute>
                         }

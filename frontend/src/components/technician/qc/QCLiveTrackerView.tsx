@@ -81,7 +81,7 @@ function mediaHasRenderablePhotoUrl(media?: { photoUrl?: string } | null): boole
 function mediaRepresentsSavedPhoto(media?: TrackerMedia | null): boolean {
   if (!media) return false;
   if (mediaHasRenderablePhotoUrl(media)) return true;
-  if (media.hasPhoto) return true;
+  if (typeof media.hasPhoto === 'boolean') return media.hasPhoto;
   return Boolean(media.stage && media.stage !== 'confirmed');
 }
 

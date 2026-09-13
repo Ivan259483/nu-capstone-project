@@ -1,0 +1,27 @@
+
+> mobile@1.0.0 test:customer-confirmed-state
+> node --test tests/customer-confirmed-state.test.mjs
+
+(node:38838) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/ivansantos/Desktop/capstone2%20/nu-capstone-project/mobile/src/utils/customer-payment-state.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ Sales-approved reservation remains appointment confirmed with exact historical amounts (0.765583ms)
+✔ confirmed tracker uses booking-stage semantics without service percentage or team telemetry (0.792ms)
+✔ media and fallback fields cannot override canonical confirmed stage (0.131709ms)
+✔ backend received state activates Vehicle Arrived and Live Tracking (0.108083ms)
+✔ each authoritative backend stage resolves to its exact customer milestone (0.108209ms)
+✔ coarse in-progress status cannot advance into Quality Check or Ready for Pickup (0.06275ms)
+✔ tracker summary exposes stage count, never a fabricated service percentage (0.087375ms)
+✔ TrackScreen has no dangling resolveStep reference and uses the canonical resolver (0.594416ms)
+✔ customer tab and booking details still navigate to the Tracker route (0.199917ms)
+✔ future timeline stages retain readable upcoming visibility (0.132833ms)
+✔ customer-facing reference preserves the full booking reference and never falls back to Mongo id (0.067708ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 106.219208

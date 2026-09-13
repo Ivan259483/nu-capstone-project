@@ -40,6 +40,8 @@ import {
 } from '@/lib/customer-live-tracker-pick';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '@/lib/cloudinary-delivery-url';
 import { resolveProfileImage } from '@/lib/profile-image';
+import { BACKEND_API_URL } from '@/lib/api';
+import { resolveMediaUrl } from '@/lib/media-url';
 
 const BRAND_ORANGE = '#F97316';
 const LUXURY_EASE = [0.22, 1, 0.36, 1] as const;
@@ -432,7 +434,9 @@ function getResolvedSteps(booking: Booking | null, estimatedCompletion?: string 
 
   return TRACKER_STEPS.map((step, index) => {
     const apiStage = LIVE_TRACKER_STEP_MEDIA_STAGE[step.id as LiveTrackerStepId];
-    const stageSlotPhotos = apiStage ? getCustomerStageSlotPhotos(booking as any, apiStage) : [];
+    // Signed evidence URLs are root-relative API paths; resolve them against the backend origin.
+    const stageSlotPhotos = (apiStage ? getCustomerStageSlotPhotos(booking as any, apiStage) : [])
+      .map((shot) => ({ ...shot, url: resolveMediaUrl(shot.url, BACKEND_API_URL) }));
     let customerDescription = '';
     if (step.id === 'awaiting_vehicle') {
       customerDescription =

@@ -28,7 +28,9 @@ export const MOBILE_TRACKER_STEP_MEDIA_STAGE: Record<string, TrackerMediaStage |
   received: 'received',
   in_progress: 'in_progress',
   completed: 'quality_check',
+  quality_check: 'quality_check',
   paid: 'ready_pickup',
+  ready_pickup: 'ready_pickup',
 };
 
 /** Default customer-facing copy when staff has not overridden `description`. */
@@ -124,6 +126,17 @@ export function listTrackerStageMediaForStage(
     }
   }
   return out;
+}
+
+/**
+ * Signed tracker photo paths (`/api/orders/:id/tracker-media/:mediaId/photo?v=&sig=`) are
+ * root-relative; resolve them against the configured API origin. Other URLs pass through.
+ */
+export function resolveTrackerMediaPhotoUrl(url: string, apiBaseUrl: string): string {
+  const value = String(url || '').trim();
+  if (!/^\/api\/orders\/[a-f0-9]{24}\/tracker-media\/[a-f0-9]{24}\/photo\?/i.test(value)) return value;
+  const origin = String(apiBaseUrl || '').trim().replace(/\/+$/, '').replace(/\/api$/i, '');
+  return origin ? `${origin}${value}` : value;
 }
 
 export function getCustomerStageSlotPhotos(

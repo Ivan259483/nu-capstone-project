@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { resolveCustomerTrackingState } from '../../backend/constants/orderLifecycle.js';
 import test from 'node:test';
 
 import { getTrackerPipelineProgressPct as getWebProgress } from '../../frontend/src/lib/tracker-pipeline-progress.ts';
@@ -137,17 +138,25 @@ test('Web and Mobile realtime patches never downgrade an already-advanced tracke
   }
 });
 
-test('Web and Mobile keep paid pickup visible, then hide it after customer handover', () => {
-  const paidAwaitingHandover = {
+/** Row as the API sends it: stored fields plus the backend-resolved `customerTrackingState`. */
+function withBackendTrackingState(row) {
+  return { ...row, customerTrackingState: resolveCustomerTrackingState(row) };
+}
+
+test('Web and Mobile keep paid pickup visible until the backend ends tracking, then hide it', () => {
+  // Paid but no receipt yet: the backend keeps tracking live.
+  const paidAwaitingHandover = withBackendTrackingState({
     status: 'ready_for_payment',
     paymentStatus: 'paid',
     serviceTrackingStage: 'ready_pickup',
-  };
-  const released = {
+  });
+  const released = withBackendTrackingState({
     ...paidAwaitingHandover,
     status: 'released',
     serviceTrackingStage: 'released',
-  };
+  });
+  assert.equal(paidAwaitingHandover.customerTrackingState, 'live');
+  assert.equal(released.customerTrackingState, 'completed');
 
   for (const [handoverComplete, showsTracker] of [
     [webHandoverComplete, webShowsTracker],
@@ -222,27 +231,45 @@ test('the QC gate index is translated the same way on both platforms', () => {
 // backend marks it completed. Both clients must stop treating it as an active job,
 // on realtime events and on a cold load alike.
 
-const SETTLED_TERMINAL_ROW = {
+const SETTLED_TERMINAL_ROW = withBackendTrackingState({
   _id: 'order-kevin',
   status: 'completed',
   serviceTrackingStage: 'completed',
   customerStatus: 'completed',
   paymentStatus: 'paid',
-};
+  invoiceId: 'INV-20260912-426299',
+});
 
-const READY_UNPAID_ROW = {
+// The reported bug: balance settled and receipt issued, stored status left at Ready for Pickup.
+const SETTLED_STORED_AS_PICKUP_ROW = withBackendTrackingState({
+  _id: 'order-kevin',
+  status: 'ready_for_payment',
+  serviceTrackingStage: 'ready_pickup',
+  customerStatus: 'ready',
+  paymentStatus: 'paid',
+  invoiceId: 'INV-20260912-426299',
+});
+
+const READY_UNPAID_ROW = withBackendTrackingState({
   _id: 'order-kevin',
   status: 'ready_for_payment',
   serviceTrackingStage: 'ready_pickup',
   customerStatus: 'ready',
   paymentStatus: 'partially_paid',
-};
+});
 
 test('settled pickup order is terminal on both Web and Mobile', () => {
-  assert.equal(webHandoverComplete(SETTLED_TERMINAL_ROW), true);
-  assert.equal(mobileHandoverComplete(SETTLED_TERMINAL_ROW), true);
-  assert.equal(webShowsTracker(SETTLED_TERMINAL_ROW), false);
-  assert.equal(mobileShowsTracker(SETTLED_TERMINAL_ROW), false);
+  for (const row of [SETTLED_TERMINAL_ROW, SETTLED_STORED_AS_PICKUP_ROW]) {
+    assert.equal(row.customerTrackingState, 'completed');
+    assert.equal(webHandoverComplete(row), true);
+    assert.equal(mobileHandoverComplete(row), true);
+    assert.equal(webShowsTracker(row), false);
+    assert.equal(mobileShowsTracker(row), false);
+  }
+  // Clients read only the backend field: the same row without it stays live on both.
+  const withoutField = { ...SETTLED_STORED_AS_PICKUP_ROW, customerTrackingState: undefined };
+  assert.equal(webHandoverComplete(withoutField), false);
+  assert.equal(mobileHandoverComplete(withoutField), false);
 });
 
 test('unsettled Ready for Pickup stays active on both Web and Mobile', () => {

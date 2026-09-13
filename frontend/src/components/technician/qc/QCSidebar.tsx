@@ -31,6 +31,9 @@ interface Props {
   onNavigate: (view: QCView) => void;
   pendingCount?: number;
   aiPendingCount?: number;
+  connected?: boolean;
+  dataError?: string | null;
+  hasData?: boolean;
 }
 
 export default function QCSidebar({
@@ -40,12 +43,15 @@ export default function QCSidebar({
   onNavigate,
   pendingCount = 0,
   aiPendingCount = 0,
+  connected = false,
+  dataError,
+  hasData = false,
 }: Props) {
   const showLabels = !collapsed;
 
   return (
-    <aside className={`qc-dash-sidebar flex w-[72px] flex-shrink-0 flex-col bg-white transition-[width] duration-200 ${collapsed ? 'md:w-[72px]' : 'md:w-[252px]'}`}>
-      <div className={`qc-dash-sidebar-header flex h-[72px] items-center px-4 ${showLabels ? 'md:gap-3' : 'justify-center'}`}>
+    <aside className={`qc-dash-sidebar flex w-[72px] flex-shrink-0 flex-col bg-white transition-[width] duration-200 ${collapsed ? 'md:w-[72px]' : 'md:w-[220px]'}`}>
+      <div className={`qc-dash-sidebar-header flex h-[64px] items-center px-4 ${showLabels ? 'md:gap-3' : 'justify-center'}`}>
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-blue-600 text-white shadow-[0_8px_18px_-10px_rgba(37,99,235,0.8)]">
           <ShieldCheck size={18} strokeWidth={2.2} />
         </div>
@@ -57,7 +63,7 @@ export default function QCSidebar({
         )}
       </div>
 
-      <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 py-5" aria-label="Quality Checker navigation">
+      <nav className="flex-1 space-y-4 overflow-y-auto px-2.5 py-4" aria-label="Quality Checker navigation">
         {navGroups.map((group) => (
           <div key={group.label}>
             {showLabels && <p className="mb-2 hidden px-3 text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400 md:block">{group.label}</p>}
@@ -72,14 +78,15 @@ export default function QCSidebar({
                     type="button"
                     onClick={() => onNavigate(item.id)}
                     title={!showLabels ? item.label : undefined}
+                    aria-label={item.label}
                     aria-current={isActive ? 'page' : undefined}
-                    className={`qc-command-nav-item group relative flex min-h-11 w-full items-center justify-center rounded-xl px-3 text-[12px] font-semibold transition md:justify-start ${isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'}`}
+                    className={`qc-command-nav-item group relative flex min-h-10 w-full items-center justify-center rounded-xl px-3 text-[12px] font-semibold transition md:justify-start ${isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'}`}
                   >
                     <Icon size={17} strokeWidth={1.9} className={`shrink-0 ${isActive ? 'text-blue-600' : 'text-slate-500 group-hover:text-slate-700'}`} />
-                    {showLabels && <span className="ml-3 hidden flex-1 truncate text-left md:block">{item.label}</span>}
+                    <span className={`ml-3 hidden flex-1 truncate text-left ${showLabels ? 'md:block' : 'md:hidden'}`}>{item.label}</span>
                     {item.live && (
                       <span className={`${showLabels ? 'hidden md:flex' : 'absolute right-1.5 top-1.5 flex'} items-center`}>
-                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                        <span className={`h-2 w-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                       </span>
                     )}
                     {!item.live && badge > 0 && (
@@ -98,10 +105,9 @@ export default function QCSidebar({
 
       <div className="qc-dash-sidebar-footer mt-auto px-2.5 pb-2.5 pt-6">
         {showLabels && (
-          <div className="qc-command-system-status mb-2 hidden rounded-[18px] bg-white p-3 md:block">
-            <div className="flex items-center gap-2 text-[10px] font-semibold text-slate-500"><span className="h-2 w-2 rounded-full bg-emerald-500" />System Status</div>
-            <p className="mt-2 text-xs font-semibold text-slate-900">All Systems Operational</p>
-            <p className="mt-1 text-[10px] font-medium text-emerald-600">Live and up-to-date</p>
+          <div className="qcw-sidebar-status" role="status">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${dataError || !connected ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+            <div><strong>{dataError ? 'Data refresh unavailable' : connected ? 'Live connection' : 'Reconnecting'}</strong><small>{hasData ? 'QC snapshot available' : 'Awaiting QC data'}</small></div>
           </div>
         )}
         <button type="button" onClick={onToggle} className="hidden min-h-9 w-full items-center justify-center gap-2 rounded-lg text-[11px] font-semibold text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 md:flex" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>

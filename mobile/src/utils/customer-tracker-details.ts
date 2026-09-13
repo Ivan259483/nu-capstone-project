@@ -24,6 +24,8 @@ export function getCustomerTrackerTimestamps(booking: BookingRecord): string[] {
 /** Sales owns the persisted balance/pickup queue; old technicians are not its assignees. */
 export function getCustomerTrackerTeam(booking: BookingRecord | null, stage: string): string {
   if (!booking) return 'Assignment pending';
+  // The backend resolves the owning team (backend utils/customerTrackerStage.utils.js).
+  if (booking.customerAssignedTeam) return booking.customerAssignedTeam;
   const salesOwned = booking.status.replaceAll('-', '_') === 'ready_for_payment'
     || booking.posQueueStatus === 'balance_pickup_queue';
   const role = salesOwned ? 'sales' : stage === 'quality_check' ? 'quality' : null;

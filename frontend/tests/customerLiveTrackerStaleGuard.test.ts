@@ -103,6 +103,7 @@ test('paid and released booking disappears from customer Live Tracker selection'
     status: 'released',
     paymentStatus: 'paid',
     serviceTrackingStage: 'released',
+    customerTrackingState: 'completed',
   };
 
   assert.equal(bookingHasCompletedCustomerHandover(released), true);
@@ -110,18 +111,29 @@ test('paid and released booking disappears from customer Live Tracker selection'
   assert.equal(pickCustomerLiveTrackerBooking([released]), undefined);
 });
 
-test('legacy completed handover is terminal only after payment is confirmed', () => {
+test('completed handover is terminal only when the backend reports customerTrackingState completed', () => {
   const awaitingPayment = {
     status: 'completed',
     paymentStatus: 'pending',
     serviceTrackingStage: 'completed',
+    customerTrackingState: 'live',
   };
-  const paidAndCompleted = { ...awaitingPayment, paymentStatus: 'paid' };
+  const paidAndCompleted = {
+    ...awaitingPayment,
+    paymentStatus: 'paid',
+    invoiceId: 'INV-1',
+    customerTrackingState: 'completed',
+  };
 
   assert.equal(bookingHasCompletedCustomerHandover(awaitingPayment), false);
   assert.equal(bookingShowsCustomerLiveTracker(awaitingPayment), true);
   assert.equal(bookingHasCompletedCustomerHandover(paidAndCompleted), true);
   assert.equal(bookingShowsCustomerLiveTracker(paidAndCompleted), false);
+  // The client never infers "done" from status/payment fields: without the backend field it stays live.
+  assert.equal(
+    bookingHasCompletedCustomerHandover({ ...paidAndCompleted, customerTrackingState: undefined }),
+    false
+  );
 });
 
 // ── Terminal close-out of the customer live tracker ───────────────────────────
@@ -137,6 +149,7 @@ const READY_FOR_PICKUP_UNPAID = {
   serviceTrackingStage: 'ready_pickup',
   customerStatus: 'ready',
   paymentStatus: 'partially_paid',
+  customerTrackingState: 'live',
 };
 
 const SETTLED_TERMINAL = {
@@ -145,6 +158,20 @@ const SETTLED_TERMINAL = {
   serviceTrackingStage: 'completed',
   customerStatus: 'completed',
   paymentStatus: 'paid',
+  invoiceId: 'INV-20260912-426299',
+  customerTrackingState: 'completed',
+};
+
+// The reported bug: balance settled at POS and a receipt issued, but the stored status never
+// advanced past Ready for Pickup. Only the backend's customerTrackingState can close it.
+const SETTLED_STORED_AS_PICKUP = {
+  _id: 'order-kevin',
+  status: 'ready_for_payment',
+  serviceTrackingStage: 'ready_pickup',
+  customerStatus: 'ready',
+  paymentStatus: 'paid',
+  invoiceId: 'INV-20260912-426299',
+  customerTrackingState: 'completed',
 };
 
 test('Ready for Pickup with an outstanding balance is still an active tracker job', () => {
@@ -161,6 +188,17 @@ test('final settlement closes the tracker and the picker returns nothing on a co
   assert.equal(pickCustomerLiveTrackerBooking([SETTLED_TERMINAL]), undefined);
 });
 
+test('a settled order still stored as Ready for Pickup closes the tracker from customerTrackingState', () => {
+  assert.equal(bookingHasCompletedCustomerHandover(SETTLED_STORED_AS_PICKUP), true);
+  assert.equal(bookingShowsCustomerLiveTracker(SETTLED_STORED_AS_PICKUP), false);
+  assert.equal(pickCustomerLiveTrackerBooking([SETTLED_STORED_AS_PICKUP]), undefined);
+  // A stale event without the lifecycle field and a slow GET still saying "live" cannot reopen it.
+  assert.equal(
+    isForwardTrackerStageTransition(SETTLED_STORED_AS_PICKUP, { serviceTrackingStage: 'ready_pickup', customerTrackingState: 'live' }),
+    false
+  );
+});
+
 test('payment alone does not close the tracker while the job is still in the shop', () => {
   const paidButStillInQC = {
     _id: 'order-other',
@@ -168,6 +206,7 @@ test('payment alone does not close the tracker while the job is still in the sho
     serviceTrackingStage: 'quality_check',
     customerStatus: 'ready',
     paymentStatus: 'paid',
+    customerTrackingState: 'live',
   };
   assert.equal(bookingHasCompletedCustomerHandover(paidButStillInQC), false);
   assert.equal(bookingShowsCustomerLiveTracker(paidButStillInQC), true);
@@ -190,6 +229,8 @@ test('a settled order never wins the picker over a genuinely active one', () => 
     status: 'in_progress',
     serviceTrackingStage: 'in_progress',
     paymentStatus: 'partially_paid',
+    customerTrackingState: 'live',
   };
   assert.equal(pickCustomerLiveTrackerBooking([SETTLED_TERMINAL, stillActive])?._id, 'order-active');
+  assert.equal(pickCustomerLiveTrackerBooking([SETTLED_STORED_AS_PICKUP, stillActive])?._id, 'order-active');
 });

@@ -1,14 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, RotateCcw, AlertTriangle, ChevronDown } from 'lucide-react';
+import { RotateCcw, AlertTriangle, ChevronDown } from 'lucide-react';
 import { useForm } from 'react-hook-form';
-import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
 interface ReturnModalProps {
   open: boolean;
   onClose: () => void;
   jobId: string;
   technician: string;
-  onConfirm?: (reason: string) => Promise<void>;
+  onConfirm?: (reason: string) => Promise<boolean | void>;
 }
 
 interface ReturnFormValues {
@@ -29,7 +29,7 @@ const returnReasons = [
 ];
 
 export default function QCReturnModal({ open, onClose, jobId, technician, onConfirm }: ReturnModalProps) {
-  const overlayRef = useRef<HTMLDivElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const {
@@ -48,39 +48,33 @@ export default function QCReturnModal({ open, onClose, jobId, technician, onConf
     if (!open) reset();
   }, [open, reset]);
 
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && open) onClose();
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [open, onClose]);
-
   const onSubmit = async (data: ReturnFormValues) => {
     setSubmitting(true);
     const fullReason = `${data.reason}${data.comment ? ': ' + data.comment : ''}`;
-    if (onConfirm) {
-      await onConfirm(fullReason);
-    } else {
-      await new Promise((r) => setTimeout(r, 1200));
-      toast.info(`${jobId} returned to ${technician} — they will be notified with your comments`, { duration: 5000 });
+    try {
+      if (!onConfirm) return;
+      const result = await onConfirm(fullReason);
+      if (result !== false) onClose();
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
-    onClose();
   };
 
   if (!open) return null;
 
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="return-modal-title"
-    >
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg">
+    <Dialog open={open} onOpenChange={(value) => { if (!value && !submitting) onClose(); }}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto p-0 bg-white"
+        onOpenAutoFocus={() => { previousFocus.current = document.activeElement as HTMLElement; }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const target = previousFocus.current;
+          if (target?.isConnected) {
+            if (target.matches(':disabled')) target.closest<HTMLElement>('article[tabindex]')?.focus();
+            else target.focus();
+          }
+        }}
+        onPointerDownOutside={(event) => { if (submitting) event.preventDefault(); }} onEscapeKeyDown={(event) => { if (submitting) event.preventDefault(); }}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
           <div className="flex items-center gap-3">
@@ -88,17 +82,11 @@ export default function QCReturnModal({ open, onClose, jobId, technician, onConf
               <RotateCcw size={16} className="text-rose-600" />
             </div>
             <div>
-              <h2 id="return-modal-title" className="text-base font-semibold text-slate-900">Return to Technician</h2>
-              <p className="text-xs text-slate-400 mt-0.5">{jobId} → {technician}</p>
+              <DialogTitle className="text-base font-semibold text-slate-900">Return to Technician</DialogTitle>
+              <DialogDescription className="text-xs text-slate-500 mt-0.5">{jobId} → {technician}</DialogDescription>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-all"
-            aria-label="Close modal"
-          >
-            <X size={16} />
-          </button>
+
         </div>
 
         {/* Form */}
@@ -187,6 +175,7 @@ export default function QCReturnModal({ open, onClose, jobId, technician, onConf
           <div className="flex items-center gap-3 pt-1">
             <button
               type="button"
+              disabled={submitting}
               onClick={onClose}
               className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all active:scale-95"
             >
@@ -194,7 +183,7 @@ export default function QCReturnModal({ open, onClose, jobId, technician, onConf
             </button>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !onConfirm}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold shadow-sm transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
             >
               {submitting ? (
@@ -211,7 +200,7 @@ export default function QCReturnModal({ open, onClose, jobId, technician, onConf
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

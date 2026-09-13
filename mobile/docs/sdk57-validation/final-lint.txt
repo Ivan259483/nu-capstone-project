@@ -1,0 +1,1691 @@
+
+> mobile@1.0.0 lint
+> expo lint
+
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(auth)/verify.tsx
+   79:34  error  Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(auth)/verify.tsx:79:34
+  77 |   ));
+  78 |   const [busyAction, setBusyAction] = useState<BusyAction>(null);
+> 79 |   const [now, setNow] = useState(Date.now());
+     |                                  ^^^^^^^^^^ Cannot call impure function
+  80 |   const [signupResendAvailableAt, setSignupResendAvailableAt] = useState(Date.now() + 60_000);
+  81 |   const [feedback, setFeedback] = useState<AuthFeedbackData | null>(() => (
+  82 |     isLoginOtp || Boolean(email)                                                                                                                                                                                                                                                                   react-hooks/purity
+   80:74  error  Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(auth)/verify.tsx:80:74
+  78 |   const [busyAction, setBusyAction] = useState<BusyAction>(null);
+  79 |   const [now, setNow] = useState(Date.now());
+> 80 |   const [signupResendAvailableAt, setSignupResendAvailableAt] = useState(Date.now() + 60_000);
+     |                                                                          ^^^^^^^^^^ Cannot call impure function
+  81 |   const [feedback, setFeedback] = useState<AuthFeedbackData | null>(() => (
+  82 |     isLoginOtp || Boolean(email)
+  83 |       ? {                                                                                                                                                                                                                       react-hooks/purity
+  162:7   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(auth)/verify.tsx:162:7
+  160 |   useEffect(() => {
+  161 |     if (codeExpired && !challengeExpired) {
+> 162 |       setFeedback({
+      |       ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  163 |         type: 'error',
+  164 |         title: 'Verification code expired',
+  165 |         message: 'Request a new code to continue.',  react-hooks/set-state-in-effect
+  382:23  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(auth)/verify.tsx:382:23
+  380 |   // events can be omitted while the activity uses adjustResize.
+  381 |   const androidWindowIsResized = Platform.OS === 'android'
+> 382 |     && windowHeight < restingWindowHeightRef.current - 100;
+      |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  383 |   const keyboardVisible = keyboardHeight > 0 || androidWindowIsResized;
+  384 |   // Android already resizes this window (softwareKeyboardLayoutMode="resize").
+  385 |   // iOS overlays the keyboard, so its height is reserved by KeyboardAvoidingView                                                                                                                  react-hooks/refs
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/_layout.tsx
+  175:9  error  Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/_layout.tsx:175:9
+  173 |       onPressIn={() => {
+  174 |         if (reducedMotion) return;
+> 175 |         scale.value = withTiming(Motion.scale.compactPress, {
+      |         ^^^^^ `scale` cannot be modified
+  176 |           duration: reducedMotionDuration(reducedMotion, Motion.duration.instant),
+  177 |           easing: Motion.easing.standard,
+  178 |         });  react-hooks/immutability
+  181:9  error  Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/_layout.tsx:181:9
+  179 |       }}
+  180 |       onPressOut={() => {
+> 181 |         scale.value = withTiming(1, {
+      |         ^^^^^ `scale` cannot be modified
+  182 |           duration: reducedMotionDuration(reducedMotion, Motion.duration.fast),
+  183 |           easing: Motion.easing.enter,
+  184 |         });                                                         react-hooks/immutability
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx
+   402:11  error    Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:402:11
+  400 |         onPress={onPress}
+  401 |         onPressIn={() => {
+> 402 |           scale.value = withTiming(reduceMotion ? 1 : 0.988, { duration: reduceMotion ? 0 : 130 });
+      |           ^^^^^ `scale` cannot be modified
+  403 |         }}
+  404 |         onPressOut={() => { scale.value = withTiming(1, { duration: reduceMotion ? 0 : 150 }); }}
+  405 |         style={pkgCard.selectArea}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  react-hooks/immutability
+   404:29  error    Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:404:29
+  402 |           scale.value = withTiming(reduceMotion ? 1 : 0.988, { duration: reduceMotion ? 0 : 130 });
+  403 |         }}
+> 404 |         onPressOut={() => { scale.value = withTiming(1, { duration: reduceMotion ? 0 : 150 }); }}
+      |                             ^^^^^ `scale` cannot be modified
+  405 |         style={pkgCard.selectArea}
+  406 |       >
+  407 |         {children}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          react-hooks/immutability
+   439:13  error    Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:439:13
+  437 |         onPressIn={() => {
+  438 |           if (enabled && !busy) {
+> 439 |             scale.value = withTiming(reduceMotion ? 1 : 0.98, { duration: reduceMotion ? 0 : 130 });
+      |             ^^^^^ `scale` cannot be modified
+  440 |           }
+  441 |         }}
+  442 |         onPressOut={() => { scale.value = withTiming(1, { duration: reduceMotion ? 0 : 150 }); }}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react-hooks/immutability
+   442:29  error    Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:442:29
+  440 |           }
+  441 |         }}
+> 442 |         onPressOut={() => { scale.value = withTiming(1, { duration: reduceMotion ? 0 : 150 }); }}
+      |                             ^^^^^ `scale` cannot be modified
+  443 |         style={[bookingCta.button, enabled ? bookingCta.buttonEnabled : bookingCta.buttonDisabled]}
+  444 |       >
+  445 |         {busy ? (                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  react-hooks/immutability
+   600:10  warning  'VehicleCard' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-unused-vars
+   626:28  error    Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:626:28
+  624 |       <TouchableOpacity
+  625 |         activeOpacity={0.85}
+> 626 |         onPressIn={() => { scale.value = withTiming(0.97, { duration: 100 }); }}
+      |                            ^^^^^ `scale` cannot be modified
+  627 |         onPressOut={() => { scale.value = withTiming(1, { duration: 150 }); }}
+  628 |         onPress={() => {
+  629 |           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         react-hooks/immutability
+   627:29  error    Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:627:29
+  625 |         activeOpacity={0.85}
+  626 |         onPressIn={() => { scale.value = withTiming(0.97, { duration: 100 }); }}
+> 627 |         onPressOut={() => { scale.value = withTiming(1, { duration: 150 }); }}
+      |                             ^^^^^ `scale` cannot be modified
+  628 |         onPress={() => {
+  629 |           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  630 |           onPress();                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           react-hooks/immutability
+  1104:52  error    Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:1104:52
+  1102 |           : undefined}
+  1103 |         onPressIn={() => {
+> 1104 |           if (!isStaticDisabled && !isUnavailable) scale.value = withTiming(0.985, { duration: 120 });
+       |                                                    ^^^^^ `scale` cannot be modified
+  1105 |         }}
+  1106 |         onPressOut={() => { scale.value = withTiming(1, { duration: 140 }); }}
+  1107 |         onPress={() => {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react-hooks/immutability
+  1106:29  error    Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:1106:29
+  1104 |           if (!isStaticDisabled && !isUnavailable) scale.value = withTiming(0.985, { duration: 120 });
+  1105 |         }}
+> 1106 |         onPressOut={() => { scale.value = withTiming(1, { duration: 140 }); }}
+       |                             ^^^^^ `scale` cannot be modified
+  1107 |         onPress={() => {
+  1108 |           if (isStaticDisabled || isUnavailable) return;
+  1109 |           onSelectDate(item.dateKey, item.iso);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react-hooks/immutability
+  1159:26  error    Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:1159:26
+  1157 |         }}
+  1158 |         onPressIn={() => {
+> 1159 |           if (!disabled) scale.value = withTiming(0.985, { duration: 120 });
+       |                          ^^^^^ `scale` cannot be modified
+  1160 |         }}
+  1161 |         onPressOut={() => { scale.value = withTiming(1, { duration: 140 }); }}
+  1162 |         activeOpacity={disabled ? 1 : 0.88}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           react-hooks/immutability
+  1161:29  error    Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:1161:29
+  1159 |           if (!disabled) scale.value = withTiming(0.985, { duration: 120 });
+  1160 |         }}
+> 1161 |         onPressOut={() => { scale.value = withTiming(1, { duration: 140 }); }}
+       |                             ^^^^^ `scale` cannot be modified
+  1162 |         activeOpacity={disabled ? 1 : 0.88}
+  1163 |         disabled={disabled}
+  1164 |         accessibilityRole="button"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               react-hooks/immutability
+  1338:5   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:1338:5
+  1336 |     if (!isIsoDate(selectedDate)) return;
+  1337 |     const [selectedYear, selectedMonth, selectedDay] = selectedDate.split('-').map(Number);
+> 1338 |     setCurrentMonth((current) => {
+       |     ^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  1339 |       if (current.getFullYear() === selectedYear && current.getMonth() === selectedMonth - 1) return current;
+  1340 |       return new Date(selectedYear, selectedMonth - 1, selectedDay);
+  1341 |     });                                                                                                                                                                                                 react-hooks/set-state-in-effect
+  1688:21  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:1688:21
+  1686 |
+  1687 |   useEffect(() => {
+> 1688 |     if (step === 0) setIsContinuing(false);
+       |                     ^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  1689 |     if (step !== 1) {
+  1690 |       setIsPhoneEditing(false);
+  1691 |       setIsDetailsContinuing(false);                                                                                                                                                                                                                                                                                                                                                                                         react-hooks/set-state-in-effect
+  1713:3   error    Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:1713:3
+  1711 |     month: new Date().getMonth(),
+  1712 |   });
+> 1713 |   selectedDateRef.current = selectedDate;
+       |   ^^^^^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  1714 |   selectedTimeRef.current = selectedTime;
+  1715 |   stepRef.current = step;
+  1716 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          react-hooks/refs
+  1714:3   error    Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:1714:3
+  1712 |   });
+  1713 |   selectedDateRef.current = selectedDate;
+> 1714 |   selectedTimeRef.current = selectedTime;
+       |   ^^^^^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  1715 |   stepRef.current = step;
+  1716 |
+  1717 |   useEffect(() => {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        react-hooks/refs
+  1715:3   error    Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:1715:3
+  1713 |   selectedDateRef.current = selectedDate;
+  1714 |   selectedTimeRef.current = selectedTime;
+> 1715 |   stepRef.current = step;
+       |   ^^^^^^^^^^^^^^^ Cannot update ref during render
+  1716 |
+  1717 |   useEffect(() => {
+  1718 |     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                react-hooks/refs
+  1742:5   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:1742:5
+  1740 |     if (step === 2) return;
+  1741 |     notesInputFocusedRef.current = false;
+> 1742 |     setIsNotesEditing(false);
+       |     ^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  1743 |   }, [step]);
+  1744 |
+  1745 |   useFocusEffect(                                                                                                                                                                                                                                                                                                                                                                                                                               react-hooks/set-state-in-effect
+  2114:10  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:2114:10
+  2112 |     const railEnd = getDateFromIso(addDaysToIso(businessDate, 4));
+  2113 |     if (!railStart || !railEnd || railStart.getMonth() === railEnd.getMonth()) return;
+> 2114 |     void fetchMonthAvailability(railEnd.getFullYear(), railEnd.getMonth());
+       |          ^^^^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  2115 |   }, [businessDate, fetchMonthAvailability, step]);
+  2116 |
+  2117 |   // Preview booking reference (generated client-side for display only)                                                                                                                                                                                      react-hooks/set-state-in-effect
+  2123:17  error    Error: Cannot call impure function during render
+
+`Math.random` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:2123:17
+  2121 |     const mm = String(now.getMonth() + 1).padStart(2, '0');
+  2122 |     const dd = String(now.getDate()).padStart(2, '0');
+> 2123 |     const hex = Math.random().toString(16).substring(2, 6).toUpperCase();
+       |                 ^^^^^^^^^^^^^ Cannot call impure function
+  2124 |     return `ASPF-${yy}${mm}${dd}-${hex}`;
+  2125 |   }, []);
+  2126 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 react-hooks/purity
+  2160:5   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:2160:5
+  2158 |
+  2159 |   useEffect(() => {
+> 2160 |     setVehicleType(getVehiclePriceKey(selectedVehicle?.pricingCategory));
+       |     ^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  2161 |   }, [selectedVehicle]);
+  2162 |
+  2163 |   const loadServices = useCallback(async () => {                                                                                                                                                                                                                                                                                                                                                                                              react-hooks/set-state-in-effect
+  2195:10  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:2195:10
+  2193 |
+  2194 |   useEffect(() => {
+> 2195 |     void loadServices();
+       |          ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  2196 |   }, [loadServices]);
+  2197 |
+  2198 |   useEffect(() => {                                                                                                                                                                                                                                                                                                                                                                                                                                                                           react-hooks/set-state-in-effect
+  2202:12  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:2202:12
+  2200 |     const fromBackend = (backendUser?.phone || '').trim();
+  2201 |     const p = fromProfile || fromBackend;
+> 2202 |     if (p) setPhone(p);
+       |            ^^^^^^^^ Avoid calling setState() directly within an effect
+  2203 |   }, [profile?.phone, backendUser?.phone]);
+  2204 |
+  2205 |   const bookingPackages = React.useMemo<BookingCatalogPackage[]>(() => services                                                                                                                                                                                                                                                                                                           react-hooks/set-state-in-effect
+  2291:7   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:2291:7
+  2289 |       : null;
+  2290 |     if (currentService && priceState?.status === 'available') {
+> 2291 |       setSelectedService((current) => (
+       |       ^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  2292 |         current?.id === currentService.id && current.price === priceState.value
+  2293 |           ? current
+  2294 |           : { ...currentService, price: priceState.value }                                                                                                                                                                                                                                                                           react-hooks/set-state-in-effect
+  2337:37  error    Compilation Skipped: Existing memoization could not be preserved
+
+React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. The inferred dependencies did not match the manually specified dependencies, which could cause the value to change more or less frequently than expected. The inferred dependency was `selectedService`, but the source dependencies were [selectedPkg, selectedService?.id, selectedService?.price]. Inferred less specific property than source.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:2337:37
+  2335 |   }, [backendUser?.phone, profile?.phone, vehicles]);
+  2336 |
+> 2337 |   const selectPackage = useCallback((pkg: BookingCatalogPackage) => {
+       |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 2338 |     if (pkg.price.status !== 'available') return;
+       | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 2339 |     if (
+       …
+       | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 2347 |     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+       | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 2348 |   }, [selectedPkg, selectedService?.id, selectedService?.price]);
+       | ^^^^ Could not preserve existing manual memoization
+  2349 |
+  2350 |   const applyPersistedDraft = useCallback((draft: BookingDraftV1) => {
+  2351 |     const draftVehicle = vehicles.find((vehicle) =>  react-hooks/preserve-manual-memoization
+  2511:9   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/book.tsx:2511:9
+  2509 |       const match = vehicles.find((v) => v.id === requestedVehicleId || v._id === requestedVehicleId);
+  2510 |       if (match) {
+> 2511 |         setSelectedVehicle(match);
+       |         ^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  2512 |         setVehicleType(getVehiclePriceKey(match.pricingCategory));
+  2513 |       }
+  2514 |     }                                                                                                                                                                                                                                                                                                                react-hooks/set-state-in-effect
+  5632:7   warning  's3' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-unused-vars
+  6235:7   warning  'avf' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        @typescript-eslint/no-unused-vars
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/scan/analyzing.tsx
+  157:18  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/scan/analyzing.tsx:157:18
+  155 |
+  156 |   useEffect(() => {
+> 157 |     if (!failed) setStatus(currentStage.detail);
+      |                  ^^^^^^^^^ Avoid calling setState() directly within an effect
+  158 |   }, [currentStage.detail, failed]);
+  159 |
+  160 |   const retry = () => {  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/scan/ar-view.tsx
+  178:5   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/scan/ar-view.tsx:178:5
+  176 |
+  177 |   useEffect(() => {
+> 178 |     startOrPoll();
+      |     ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  179 |   }, [startOrPoll]);
+  180 |
+  181 |   useEffect(() => {                                                                                                                                                    react-hooks/set-state-in-effect
+  183:7   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/scan/ar-view.tsx:183:7
+  181 |   useEffect(() => {
+  182 |     if (!ready) {
+> 183 |       setLaunchSession(null);
+      |       ^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  184 |       setLaunchError(null);
+  185 |       setLaunchBusy(false);
+  186 |     }                                                                                           react-hooks/set-state-in-effect
+  192:10  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/scan/ar-view.tsx:192:10
+  190 |     if (!ready || iosMissingUsdz) return;
+  191 |     if (launchSession?.launchUrl) return;
+> 192 |     void prepareLaunchSession();
+      |          ^^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  193 |   }, [iosMissingUsdz, launchSession?.launchUrl, prepareLaunchSession, ready]);
+  194 |
+  195 |   if (!scan) {  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/track.tsx
+   577:29  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/track.tsx:577:29
+  575 |
+  576 |   useEffect(() => {
+> 577 |     if (shots.length === 0) setGalleryStartIndex(null);
+      |                             ^^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  578 |   }, [shots.length]);
+  579 |
+  580 |   useEffect(() => {                                                                                                                                                        react-hooks/set-state-in-effect
+   582:5   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/track.tsx:582:5
+  580 |   useEffect(() => {
+  581 |     if (!galleryOpen || galleryStartIndex === null) return;
+> 582 |     setGalleryPage(galleryStartIndex);
+      |     ^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  583 |     const id = requestAnimationFrame(() => {
+  584 |       galleryScrollRef.current?.scrollTo({
+  585 |         x: galleryStartIndex * windowWidth,                                                  react-hooks/set-state-in-effect
+  1364:5   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/track.tsx:1364:5
+  1362 |
+  1363 |   useEffect(() => {
+> 1364 |     setPaymentProofLocal(null);
+       |     ^^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  1365 |   }, [bookingFromQuery?.id]);
+  1366 |
+  1367 |   const booking = useMemo((): BookingRecord | null => {                                                                                                                                                     react-hooks/set-state-in-effect
+  1462:9   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/track.tsx:1462:9
+  1460 |       } else if (bookingSnapshot) {
+  1461 |         // Already at Ready for Pickup (Step 5) — show completion immediately
+> 1462 |         setCompleteBooking({ ...bookingSnapshot });
+       |         ^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  1463 |         setShowComplete(true);
+  1464 |         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  1465 |       }   react-hooks/set-state-in-effect
+  1476:5   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(customer)/track.tsx:1476:5
+  1474 |     // Cancel the Step 5 buffer timer if it's still pending (shouldn't happen, but safe)
+  1475 |     if (step5Timer.current) clearTimeout(step5Timer.current);
+> 1476 |     setCountdown(3);
+       |     ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  1477 |     countdownTimer.current = setInterval(() => {
+  1478 |       setCountdown((prev) => (prev <= 1 ? 0 : prev - 1));
+  1479 |     }, 1000);  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/address.tsx
+  474:16  error  Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/address.tsx:474:16
+  472 |               ) : null}
+  473 |
+> 474 |               <LabelSelector />
+      |                ^^^^^^^^^^^^^ This component is created during render
+  475 |
+  476 |               <View style={{ gap: 14, marginTop: 16 }}>
+  477 |                 <PremiumInput
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/address.tsx:322:25
+  320 |
+  321 |   // ── Label Selector ──
+> 322 |   const LabelSelector = () => (
+      |                         ^^^^^^^
+> 323 |     <View style={s.labelSelector}>
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 324 |       <Text style={s.fieldLabel}>LABEL</Text>
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 359 |     </View>
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 360 |   );
+      | ^^^^ The component is created during render here
+  361 |
+  362 |   return (
+  363 |     <View style={[s.screen, { paddingTop: insets.top }]}>  react-hooks/static-components
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/change-password.tsx
+   25:19  warning  'BorderRadius' is defined but never used                         @typescript-eslint/no-unused-vars
+  281:36  error    `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/edit-profile.tsx
+  62:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/edit-profile.tsx:62:7
+  60 |   useEffect(() => {
+  61 |     if (profile) {
+> 62 |       setFullName(profile.full_name || '');
+     |       ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  63 |       setPhone(profile.phone || '');
+  64 |     }
+  65 |   }, [profile]);                                                                             react-hooks/set-state-in-effect
+  70:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/edit-profile.tsx:70:5
+  68 |     const originalName = profile?.full_name || '';
+  69 |     const originalPhone = profile?.phone || '';
+> 70 |     setHasChanges(
+     |     ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  71 |       fullName.trim() !== originalName.trim() ||
+  72 |       phone.trim() !== originalPhone.trim()
+  73 |     );  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/notification-preferences.tsx
+  214:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/notification-preferences.tsx:214:5
+  212 |     confirmedRef.current = null;
+  213 |     desiredRef.current = null;
+> 214 |     setPreferences(null);
+      |     ^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  215 |     setLoadError('');
+  216 |     setPushState('checking');
+  217 |  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/notifications.tsx
+  831:21  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/notifications.tsx:831:21
+  829 |   const colors = Colors.dark;
+  830 |   const previousNotification = useRef<NotificationRecord | null>(notification);
+> 831 |   if (notification) previousNotification.current = notification;
+      |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  832 |   const displayedNotification = notification || previousNotification.current;
+  833 |   if (!displayedNotification) return null;
+  834 |   const meta = iconMetaFor(displayedNotification);                                                                                                          react-hooks/refs
+  832:49  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/notifications.tsx:832:49
+  830 |   const previousNotification = useRef<NotificationRecord | null>(notification);
+  831 |   if (notification) previousNotification.current = notification;
+> 832 |   const displayedNotification = notification || previousNotification.current;
+      |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  833 |   if (!displayedNotification) return null;
+  834 |   const meta = iconMetaFor(displayedNotification);
+  835 |   const label = actionLabel(displayedNotification);                           react-hooks/refs
+  832:49  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/notifications.tsx:832:49
+  830 |   const previousNotification = useRef<NotificationRecord | null>(notification);
+  831 |   if (notification) previousNotification.current = notification;
+> 832 |   const displayedNotification = notification || previousNotification.current;
+      |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  833 |   if (!displayedNotification) return null;
+  834 |   const meta = iconMetaFor(displayedNotification);
+  835 |   const label = actionLabel(displayedNotification);                           react-hooks/refs
+  832:49  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/notifications.tsx:832:49
+  830 |   const previousNotification = useRef<NotificationRecord | null>(notification);
+  831 |   if (notification) previousNotification.current = notification;
+> 832 |   const displayedNotification = notification || previousNotification.current;
+      |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  833 |   if (!displayedNotification) return null;
+  834 |   const meta = iconMetaFor(displayedNotification);
+  835 |   const label = actionLabel(displayedNotification);                           react-hooks/refs
+  832:49  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/notifications.tsx:832:49
+  830 |   const previousNotification = useRef<NotificationRecord | null>(notification);
+  831 |   if (notification) previousNotification.current = notification;
+> 832 |   const displayedNotification = notification || previousNotification.current;
+      |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  833 |   if (!displayedNotification) return null;
+  834 |   const meta = iconMetaFor(displayedNotification);
+  835 |   const label = actionLabel(displayedNotification);                                                  react-hooks/refs
+  832:49  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/notifications.tsx:832:49
+  830 |   const previousNotification = useRef<NotificationRecord | null>(notification);
+  831 |   if (notification) previousNotification.current = notification;
+> 832 |   const displayedNotification = notification || previousNotification.current;
+      |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  833 |   if (!displayedNotification) return null;
+  834 |   const meta = iconMetaFor(displayedNotification);
+  835 |   const label = actionLabel(displayedNotification);                                                  react-hooks/refs
+  832:49  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/notifications.tsx:832:49
+  830 |   const previousNotification = useRef<NotificationRecord | null>(notification);
+  831 |   if (notification) previousNotification.current = notification;
+> 832 |   const displayedNotification = notification || previousNotification.current;
+      |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  833 |   if (!displayedNotification) return null;
+  834 |   const meta = iconMetaFor(displayedNotification);
+  835 |   const label = actionLabel(displayedNotification);                                                  react-hooks/refs
+  833:8   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/notifications.tsx:833:8
+  831 |   if (notification) previousNotification.current = notification;
+  832 |   const displayedNotification = notification || previousNotification.current;
+> 833 |   if (!displayedNotification) return null;
+      |        ^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  834 |   const meta = iconMetaFor(displayedNotification);
+  835 |   const label = actionLabel(displayedNotification);
+  836 |   const facts = detailFacts(displayedNotification);
+
+To initialize a ref only once, check that the ref is null with the pattern `if (ref.current == null) { ref.current = ... }`  react-hooks/refs
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/services.tsx
+  322:10  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/services.tsx:322:10
+  320 |
+  321 |   useEffect(() => {
+> 322 |     void loadCatalog();
+      |          ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  323 |     void loadVehicles();
+  324 |   }, [loadCatalog, loadVehicles]);
+  325 |  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/vehicles.tsx
+   21:50  warning  'SlideInRight' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-unused-vars
+  138:5   warning  'refetch' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-unused-vars
+  223:10  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/vehicles.tsx:223:10
+  221 |         </ScrollView>
+  222 |       ) : vehicles.length === 0 ? (
+> 223 |         <EmptyState />
+      |          ^^^^^^^^^^ This component is created during render
+  224 |       ) : (
+  225 |         <FlatList
+  226 |           data={vehicles}
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/vehicles.tsx:162:22
+  160 |
+  161 |   // ── Empty State ──
+> 162 |   const EmptyState = () => (
+      |                      ^^^^^^^
+> 163 |     <Animated.View entering={FadeIn.delay(200)} style={s.emptyContainer}>
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 164 |       <View style={s.emptyIconWrap}>
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 171 |     </Animated.View>
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 172 |   );
+      | ^^^^ The component is created during render here
+  173 |
+  174 |   // ── Skeleton Loader ──
+  175 |   const VehicleSkeleton = () => (  react-hooks/static-components
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(screens)/waiver.tsx
+  10:3  warning  'Image' is defined but never used        @typescript-eslint/no-unused-vars
+  68:6  warning  'PhotoAngles' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step1_BookingInbox.tsx
+   1:17  warning  'useState' is defined but never used                 @typescript-eslint/no-unused-vars
+   1:27  warning  'useEffect' is defined but never used                @typescript-eslint/no-unused-vars
+  10:34  warning  'navigateToStep' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step2_IngressChecklist.tsx
+  25:9  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step2_IngressChecklist.tsx:25:9
+  23 |     if (job) {
+  24 |       if (job.ingressChecklist?.items?.length > 0) {
+> 25 |         setChecklist(job.ingressChecklist.items);
+     |         ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  26 |         setNotes(job.ingressChecklist.beforeServiceNotes || '');
+  27 |       } else {
+  28 |         const serviceCategory = String(job.serviceName || job.serviceType || '').toLowerCase();  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step3_DigitalTerms.tsx
+   9:3   warning  'Platform' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-unused-vars
+  64:11  warning  'colors' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-unused-vars
+  64:19  warning  'isDark' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-unused-vars
+  65:34  warning  'completedSteps' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 @typescript-eslint/no-unused-vars
+  88:7   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step3_DigitalTerms.tsx:88:7
+  86 |     const waiver = job.customerWaiver as any;
+  87 |     if (waiver?.termsAccepted?.length) {
+> 88 |       setAccepted(waiver.termsAccepted.map((t: any) => t.accepted ?? true));
+     |       ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  89 |     }
+  90 |     setCustomerName(waiver?.customerFullName || String(job.customerName || ''));
+  91 |     setContactNumber(waiver?.contactNumber || String(job.customerPhone || ''));  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step4_DamageAnnotation.tsx
+  16:57  warning  'LinearGradient' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  @typescript-eslint/no-unused-vars
+  22:7   warning  'SUCCESS' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-unused-vars
+  86:11  warning  'colors' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 @typescript-eslint/no-unused-vars
+  99:33  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step4_DamageAnnotation.tsx:99:33
+   97 |
+   98 |   useEffect(() => {
+>  99 |     if (job?.damageAnnotations) setMarkers(job.damageAnnotations as any[]);
+      |                                 ^^^^^^^^^^ Avoid calling setState() directly within an effect
+  100 |   }, [job]);
+  101 |
+  102 |   // ── Stats ──  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step5_JobOrder.tsx
+  25:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step5_JobOrder.tsx:25:7
+  23 |   useEffect(() => {
+  24 |     if (job) {
+> 25 |       setCustomerName(String(job.customerName || (job.customer as any)?.name || ''));
+     |       ^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  26 |       setVehicle(String(job.vehicleInfo || job.vehiclePlate || ''));
+  27 |       setService(job.serviceName || job.serviceType || '');
+  28 |       const defaultRelease = new Date();  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step6_LiveProgress.tsx
+  27:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step6_LiveProgress.tsx:27:7
+  25 |   useEffect(() => {
+  26 |     if (job) {
+> 27 |       setAssignedStaff(String((job.assignedDetailer as any)?.name || job.assignedDetailer || 'Pending Assignment'));
+     |       ^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  28 |       setBayNumber(job.serviceProper?.bayNumber || 'Bay 1');
+  29 |       setCurrentStatus(String(job.customerStatus || 'in_bay'));
+  30 |     }  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step7_EgressChecklist.tsx
+   2:64  warning  'TextInput' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     @typescript-eslint/no-unused-vars
+  35:9   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step7_EgressChecklist.tsx:35:9
+  33 |     if (job) {
+  34 |       if (job.qcChecklist && Array.isArray(job.qcChecklist) && job.qcChecklist.length > 0) {
+> 35 |         setItems(job.qcChecklist.map((c: any) => ({ item: c.item, passed: !!c.passed, note: c.note || '' })));
+     |         ^^^^^^^^ Avoid calling setState() directly within an effect
+  36 |       } else {
+  37 |         setItems(QC_ITEMS.map(item => ({ item, passed: false, note: '' })));
+  38 |       }  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step8_WarrantyReceipt.tsx
+  18:42  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step8_WarrantyReceipt.tsx:18:42
+  16 |
+  17 |   useEffect(() => {
+> 18 |     if (job?.egressData?.warrantyMonths) setWarrantyMonths(String(job.egressData.warrantyMonths));
+     |                                          ^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  19 |     if (job?.egressData?.warrantyNotes) setWarrantyNotes(job.egressData.warrantyNotes);
+  20 |   }, [job]);
+  21 |  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/Step9_FinalRelease.tsx
+  1:17  warning  'useState' is defined but never used   @typescript-eslint/no-unused-vars
+  1:27  warning  'useEffect' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/(screens)/workflow/WorkflowContext.tsx
+  1:54  warning  'useEffect' is defined but never used    @typescript-eslint/no-unused-vars
+  1:65  warning  'useCallback' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/(staff)/index.tsx
+   2:64  warning  'ImageBackground' is defined but never used                      @typescript-eslint/no-unused-vars
+  67:47  error    `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/_layout.tsx
+  86:63  error  Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/app/_layout.tsx:86:63
+  84 |   if (!isAuthed) {
+  85 |     const challengeUsable = Boolean(
+> 86 |       pendingLoginOtp && pendingLoginOtp.challengeExpiresAt > Date.now()
+     |                                                               ^^^^^^^^^^ Cannot call impure function
+  87 |     );
+  88 |     const redirectTarget = challengeUsable
+  89 |       ? (inLoginOtpScreen ? null : '/(auth)/verify')  react-hooks/purity
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/AppLockGuard.tsx
+   2:62  warning  'AppStateStatus' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      @typescript-eslint/no-unused-vars
+   9:11  warning  'colors' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     @typescript-eslint/no-unused-vars
+  16:5   error    Error: Cannot access variable before it is declared
+
+`checkAppLockPref` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/AppLockGuard.tsx:16:5
+  14 |
+  15 |   useEffect(() => {
+> 16 |     checkAppLockPref();
+     |     ^^^^^^^^^^^^^^^^ `checkAppLockPref` accessed before it is declared
+  17 |
+  18 |     let wasInBackground = false;
+  19 |
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/AppLockGuard.tsx:46:3
+  44 |   }, []);
+  45 |
+> 46 |   const checkAppLockPref = async (fromBackground = false) => {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 47 |     try {
+     | ^^^^^^^^^
+> 48 |       const lockPref = await AsyncStorage.getItem('@autospf_app_lock');
+     …
+     | ^^^^^^^^^
+> 61 |     }
+     | ^^^^^^^^^
+> 62 |   };
+     | ^^^^^ `checkAppLockPref` is declared here
+  63 |
+  64 |   const promptBiometrics = async () => {
+  65 |     if (isAuthenticating.current) return;  react-hooks/immutability
+  44:6   warning  React Hook useEffect has a missing dependency: 'checkAppLockPref'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             react-hooks/exhaustive-deps
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ChatOverlay.tsx
+  173:10  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ChatOverlay.tsx:173:10
+  171 |   useEffect(() => {
+  172 |     if (handoffStatus === 'ai_handling') return undefined;
+> 173 |     void refreshSalesConversation();
+      |          ^^^^^^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  174 |     const intervalId = setInterval(() => {
+  175 |       void refreshSalesConversation();
+  176 |     }, SALES_POLL_INTERVAL_MS);  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/GlobalErrorBoundary.tsx
+   3:10  warning  'BlurView' is defined but never used                             @typescript-eslint/no-unused-vars
+  51:17  error    `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ScanHUD.tsx
+  20:29  warning  'Rect' is defined but never used                                                                                     @typescript-eslint/no-unused-vars
+  26:7   warning  'AnimatedLine' is assigned a value but never used                                                                    @typescript-eslint/no-unused-vars
+  30:16  warning  'SCREEN_W' is assigned a value but never used                                                                        @typescript-eslint/no-unused-vars
+  46:6   warning  React Hook useEffect has a missing dependency: 'animatedProgress'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  63:6   warning  React Hook useEffect has a missing dependency: 'pulse'. Either include it or remove the dependency array             react-hooks/exhaustive-deps
+  77:6   warning  React Hook useEffect has a missing dependency: 'scanLineY'. Either include it or remove the dependency array         react-hooks/exhaustive-deps
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/booking/AddVehicleModal.tsx
+  239:46  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/booking/AddVehicleModal.tsx:239:46
+  237 |   useEffect(() => {
+  238 |     if (!form.brand) return;
+> 239 |     if (!vehicleBrands.includes(form.brand)) setCustomBrandMode(true);
+      |                                              ^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  240 |   }, [form.brand]);
+  241 |
+  242 |   // Model not in catalog for selected brand → free-text model (matches web)                                                                                                       react-hooks/set-state-in-effect
+  246:60  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/booking/AddVehicleModal.tsx:246:60
+  244 |     if (customBrandMode || !form.brand || !form.model) return;
+  245 |     const models = getModelsForBrand(form.brand);
+> 246 |     if (models.length > 0 && !models.includes(form.model)) setCustomModelMode(true);
+      |                                                            ^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  247 |   }, [customBrandMode, form.brand, form.model]);
+  248 |
+  249 |   const openPicker = useCallback((kind: PickerKind) => {  react-hooks/set-state-in-effect
+  263:28  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/booking/AddVehicleModal.tsx:263:28
+  261 |   }, [pickerAnim]);
+  262 |
+> 263 |   const pickerTranslateY = pickerAnim.interpolate({ inputRange: [0, 1], outputRange: [500, 0] });
+      |                            ^^^^^^^^^^ Passing a ref to a function may read its value during render
+  264 |
+  265 |   const pickerOptions = useMemo<string[]>(() => {
+  266 |     switch (picker) {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                react-hooks/refs
+  263:28  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/booking/AddVehicleModal.tsx:263:28
+  261 |   }, [pickerAnim]);
+  262 |
+> 263 |   const pickerTranslateY = pickerAnim.interpolate({ inputRange: [0, 1], outputRange: [500, 0] });
+      |                            ^^^^^^^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  264 |
+  265 |   const pickerOptions = useMemo<string[]>(() => {
+  266 |     switch (picker) {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    react-hooks/refs
+  380:7   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/booking/AddVehicleModal.tsx:380:7
+  378 |     if (!visible) return;
+  379 |     if (!vehicle) {
+> 380 |       reset();
+      |       ^^^^^ Avoid calling setState() directly within an effect
+  381 |       return;
+  382 |     }
+  383 |                                                                                                                                                                                                                                                                                                    react-hooks/set-state-in-effect
+  412:6   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/booking/AddVehicleModal.tsx:412:6
+  410 |     setPickerSearch('');
+  411 |     pickerAnim.setValue(0);
+> 412 |   }, [pickerAnim, reset, vehicle, visible]);
+      |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  413 |
+  414 |   const handleClose = () => {
+  415 |     reset();                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    react-hooks/refs
+  412:7   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/booking/AddVehicleModal.tsx:412:7
+  410 |     setPickerSearch('');
+  411 |     pickerAnim.setValue(0);
+> 412 |   }, [pickerAnim, reset, vehicle, visible]);
+      |       ^^^^^^^^^^ Cannot access ref value during render
+  413 |
+  414 |   const handleClose = () => {
+  415 |     reset();                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react-hooks/refs
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/GlassCard.tsx
+   7:16  warning  'StyleSheet' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                           @typescript-eslint/no-unused-vars
+  46:7   error    Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/GlassCard.tsx:46:7
+  44 |   const handlePressIn = () => {
+  45 |     if (animated && onPress) {
+> 46 |       scale.value = withTiming(0.97, { duration: 220 });
+     |       ^^^^^ `scale` cannot be modified
+  47 |     }
+  48 |   };
+  49 |  react-hooks/immutability
+  52:7   error    Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/GlassCard.tsx:52:7
+  50 |   const handlePressOut = () => {
+  51 |     if (animated && onPress) {
+> 52 |       scale.value = withTiming(1, { duration: 220 });
+     |       ^^^^^ `scale` cannot be modified
+  53 |     }
+  54 |   };
+  55 |    react-hooks/immutability
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx
+   55:3   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx:55:3
+  53 |   const backdropProgress = useSharedValue(0);
+  54 |   const renderedChildren = useRef(children);
+> 55 |   onClosedRef.current = onClosed;
+     |   ^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  56 |   if (visible) renderedChildren.current = children;
+  57 |
+  58 |   const mountOverlay = useCallback((nextMounted: boolean) => {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   react-hooks/refs
+   56:16  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx:56:16
+  54 |   const renderedChildren = useRef(children);
+  55 |   onClosedRef.current = onClosed;
+> 56 |   if (visible) renderedChildren.current = children;
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  57 |
+  58 |   const mountOverlay = useCallback((nextMounted: boolean) => {
+  59 |     mountedRef.current = nextMounted;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        react-hooks/refs
+   70:7   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx:70:7
+  68 |   useEffect(() => {
+  69 |     if (visible) {
+> 70 |       mountOverlay(true);
+     |       ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  71 |       progress.value = withTiming(1, {
+  72 |         duration: reducedMotionDuration(reducedMotion, Motion.duration.modalOpen),
+  73 |         easing: Motion.easing.enter,                                                                                                                                                                     react-hooks/set-state-in-effect
+  139:12  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx:139:12
+  137 |           ]}
+  138 |         >
+> 139 |           {renderedChildren.current}
+      |            ^^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  140 |         </Animated.View>
+  141 |       </View>
+  142 |     </Modal>                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      react-hooks/refs
+  173:3   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx:173:3
+  171 |   const sheetHeight = useSharedValue(720);
+  172 |   const renderedChildren = useRef(children);
+> 173 |   onCloseRef.current = onClose;
+      |   ^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  174 |   onClosedRef.current = onClosed;
+  175 |   if (visible) renderedChildren.current = children;
+  176 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react-hooks/refs
+  174:3   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx:174:3
+  172 |   const renderedChildren = useRef(children);
+  173 |   onCloseRef.current = onClose;
+> 174 |   onClosedRef.current = onClosed;
+      |   ^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  175 |   if (visible) renderedChildren.current = children;
+  176 |
+  177 |   const mountOverlay = useCallback((nextMounted: boolean) => {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         react-hooks/refs
+  175:16  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx:175:16
+  173 |   onCloseRef.current = onClose;
+  174 |   onClosedRef.current = onClosed;
+> 175 |   if (visible) renderedChildren.current = children;
+      |                ^^^^^^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  176 |
+  177 |   const mountOverlay = useCallback((nextMounted: boolean) => {
+  178 |     mountedRef.current = nextMounted;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             react-hooks/refs
+  189:7   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx:189:7
+  187 |   useEffect(() => {
+  188 |     if (visible) {
+> 189 |       mountOverlay(true);
+      |       ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  190 |       dragY.value = 0;
+  191 |       progress.value = withTiming(1, {
+  192 |         duration: reducedMotionDuration(reducedMotion, Motion.duration.sheetOpen),                                                                                                                                                                           react-hooks/set-state-in-effect
+  226:7   error  Error: This value cannot be modified
+
+Modifying a value used previously in an effect function or as an effect dependency is not allowed. Consider moving the modification before calling useEffect().
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx:226:7
+  224 |     .failOffsetX([-18, 18])
+  225 |     .onUpdate((event) => {
+> 226 |       dragY.value = Math.max(0, event.translationY);
+      |       ^^^^^ `dragY` cannot be modified
+  227 |     })
+  228 |     .onEnd((event) => {
+  229 |       const shouldDismiss = event.velocityY > 900 || dragY.value > sheetHeight.value * 0.22;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                react-hooks/immutability
+  228:12  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx:228:12
+  226 |       dragY.value = Math.max(0, event.translationY);
+  227 |     })
+> 228 |     .onEnd((event) => {
+      |            ^^^^^^^^^^^^
+> 229 |       const shouldDismiss = event.velocityY > 900 || dragY.value > sheetHeight.value * 0.22;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 230 |       if (shouldDismiss) {
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 244 |       });
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 245 |     });
+      | ^^^^^^ Passing a ref to a function may read its value during render
+  246 |
+  247 |   const backdropStyle = useAnimatedStyle(() => {
+  248 |     const dragProgress = Math.min(1, dragY.value / Math.max(1, sheetHeight.value));  react-hooks/refs
+  231:9   error  Error: This value cannot be modified
+
+Modifying a value used previously in an effect function or as an effect dependency is not allowed. Consider moving the modification before calling useEffect().
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx:231:9
+  229 |       const shouldDismiss = event.velocityY > 900 || dragY.value > sheetHeight.value * 0.22;
+  230 |       if (shouldDismiss) {
+> 231 |         dragY.value = withTiming(sheetHeight.value, {
+      |         ^^^^^ `dragY` cannot be modified
+  232 |           duration: Motion.duration.sheetClose,
+  233 |           easing: Motion.easing.exit,
+  234 |         }, (finished) => {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       react-hooks/immutability
+  276:8   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionOverlay.tsx:276:8
+  274 |         <View style={styles.sheetGestureArea} accessible={false} />
+  275 |       </GestureDetector>
+> 276 |       {renderedChildren.current}
+      |        ^^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  277 |     </Animated.View>
+  278 |   );
+  279 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   react-hooks/refs
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionPressable.tsx
+  48:9  error  Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionPressable.tsx:48:9
+  46 |       onPressIn={() => {
+  47 |         if (disabled || reducedMotion) return;
+> 48 |         scale.value = withTiming(pressedScale, {
+     |         ^^^^^ `scale` cannot be modified
+  49 |           duration: reducedMotionDuration(reducedMotion, Motion.duration.instant),
+  50 |           easing: Motion.easing.standard,
+  51 |         });  react-hooks/immutability
+  54:9  error  Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/MotionPressable.tsx:54:9
+  52 |       }}
+  53 |       onPressOut={() => {
+> 54 |         scale.value = withTiming(1, {
+     |         ^^^^^ `scale` cannot be modified
+  55 |           duration: reducedMotionDuration(reducedMotion, Motion.duration.fast),
+  56 |           easing: Motion.easing.enter,
+  57 |         });                                                        react-hooks/immutability
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/PremiumButton.tsx
+  91:5  error  Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/PremiumButton.tsx:91:5
+  89 |   const handlePressIn = () => {
+  90 |     if (reduceMotion) return;
+> 91 |     scale.value = withTiming(premiumAuth ? 0.985 : 0.98, {
+     |     ^^^^^ `scale` cannot be modified
+  92 |       duration: reducedMotionDuration(reduceMotion, Motion.duration.instant),
+  93 |       easing: Motion.easing.standard,
+  94 |     });  react-hooks/immutability
+  98:5  error  Error: This value cannot be modified
+
+This modifies a variable that React considers immutable.
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/PremiumButton.tsx:98:5
+   96 |   const handlePressOut = () => {
+   97 |     if (reduceMotion) return;
+>  98 |     scale.value = withTiming(1, {
+      |     ^^^^^ `scale` cannot be modified
+   99 |       duration: reducedMotionDuration(reduceMotion, Motion.duration.fast),
+  100 |       easing: Motion.easing.enter,
+  101 |     });                         react-hooks/immutability
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/PremiumInput.tsx
+  56:6  warning  React Hook useEffect has missing dependencies: 'glowBorder', 'isFocused', and 'shakeX'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                  react-hooks/exhaustive-deps
+  60:7  error    Error: This value cannot be modified
+
+Modifying a value used previously in an effect function or as an effect dependency is not allowed. Consider moving the modification before calling useEffect().
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/components/ui/PremiumInput.tsx:60:7
+  58 |   useEffect(() => {
+  59 |     if (!error) {
+> 60 |       glowBorder.value = withTiming(isFocused ? 1 : 0, { duration: 200 });
+     |       ^^^^^^^^^^ `glowBorder` cannot be modified
+  61 |     }
+  62 |   }, [isFocused]);
+  63 |  react-hooks/immutability
+  62:6  warning  React Hook useEffect has missing dependencies: 'error' and 'glowBorder'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                 react-hooks/exhaustive-deps
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/config/firebase.ts
+  17:43  warning  A `require()` style import is forbidden  @typescript-eslint/no-require-imports
+  22:12  warning  'e' is defined but never used            @typescript-eslint/no-unused-vars
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/context/NotificationsContext.tsx
+   90:3  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/context/NotificationsContext.tsx:90:3
+  88 |   const customerId = enabled ? String(profile?.id || '') : '';
+  89 |   const activeCustomerIdRef = useRef(customerId);
+> 90 |   activeCustomerIdRef.current = customerId;
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  91 |
+  92 |   const applyPage = useCallback((page: NotificationPage, replace: boolean) => {
+  93 |     setNotifications((current) => {                                                                                                                                                                                                                                                                                                        react-hooks/refs
+  339:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/context/NotificationsContext.tsx:339:7
+  337 |       refreshPromiseRef.current = null;
+  338 |       loadPromiseRef.current = null;
+> 339 |       setNotifications([]);
+      |       ^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  340 |       setUnreadCount(0);
+  341 |       setPromotionUnread(0);
+  342 |       setPagination(emptyPagination);  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/ARRepairViewer.tsx
+     3:3   warning  'Alert' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-unused-vars
+     8:3   warning  'SafeAreaView' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  @typescript-eslint/no-unused-vars
+    22:3   warning  'withDelay' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     @typescript-eslint/no-unused-vars
+    28:3   warning  'interpolateColor' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-unused-vars
+    29:3   warning  'LinearTransition' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-unused-vars
+    35:13  warning  'WebBrowser' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    @typescript-eslint/no-unused-vars
+    37:10  warning  'Palette' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       @typescript-eslint/no-unused-vars
+    64:16  warning  'SCREEN_W' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             @typescript-eslint/no-unused-vars
+    66:7   warning  'ACCENT_GLOW' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          @typescript-eslint/no-unused-vars
+    69:7   warning  'SURFACE' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-unused-vars
+   707:25  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/ARRepairViewer.tsx:707:25
+  705 |   // Advance phases based on progress thresholds
+  706 |   useEffect(() => {
+> 707 |     if (progress >= 80) setPhaseIndex(2);
+      |                         ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  708 |     else if (progress >= 35) setPhaseIndex(1);
+  709 |     else setPhaseIndex(0);
+  710 |   }, [progress]);  react-hooks/set-state-in-effect
+   734:6   warning  React Hook useEffect has missing dependencies: 'breathe' and 'ring'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   react-hooks/exhaustive-deps
+   739:6   warning  React Hook useEffect has a missing dependency: 'barAnim'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                react-hooks/exhaustive-deps
+   993:7   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/ARRepairViewer.tsx:993:7
+  991 |   useEffect(() => {
+  992 |     if (modelUrl && isValidGlbUrl(modelUrl)) {
+> 993 |       setWebViewLoaded(false);
+      |       ^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  994 |       setModelError(false);
+  995 |       setHtmlContent(buildHtml(modelUrl, repairedModelUrl, issues));
+  996 |     }                    react-hooks/set-state-in-effect
+  1001:5   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/ARRepairViewer.tsx:1001:5
+   999 |   // Reset mode when model changes
+  1000 |   useEffect(() => {
+> 1001 |     setActiveMode('damaged');
+       |     ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  1002 |     setSelectedIssueId(null);
+  1003 |   }, [modelUrl]);
+  1004 |                                                                                     react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/BeforeAfterSlider.tsx
+  109:6  warning  React Hook useEffect has missing dependencies: 'pulse' and 'sweep'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 react-hooks/exhaustive-deps
+  111:9  warning  'pulseStyle' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        @typescript-eslint/no-unused-vars
+  196:6  warning  React Hook useEffect has missing dependencies: 'index' and 'ring'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  react-hooks/exhaustive-deps
+  338:6  warning  React Hook useEffect has a missing dependency: 'glow'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                react-hooks/exhaustive-deps
+  384:6  warning  React Hook useEffect has a missing dependency: 'slide'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               react-hooks/exhaustive-deps
+  446:6  warning  React Hook useEffect has missing dependencies: 'hasRevealed', 'sliderX', 'triggerReveal', and 'width'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react-hooks/exhaustive-deps
+  472:9  error    Error: This value cannot be modified
+
+Modifying a value used previously in an effect function or as an effect dependency is not allowed. Consider moving the modification before calling useEffect().
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/BeforeAfterSlider.tsx:472:9
+  470 |         const next = startX.value + e.translationX;
+  471 |         const clamped = Math.max(16, Math.min(width - 16, next));
+> 472 |         sliderX.value = clamped;
+      |         ^^^^^^^ `sliderX` cannot be modified
+  473 |         if (clamped <= 18 || clamped >= width - 18) {
+  474 |           runOnJS(fireHaptic)('edge');
+  475 |         }  react-hooks/immutability
+  477:5  warning  React Hook useMemo has missing dependencies: 'fireHaptic', 'markDragged', 'sliderX', and 'startX'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  react-hooks/exhaustive-deps
+  498:6  warning  React Hook useEffect has a missing dependency: 'lineGlow'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            react-hooks/exhaustive-deps
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/ConfirmBookingSheet.tsx
+  26:29  warning  'AddOnService' is defined but never used                                                                  @typescript-eslint/no-unused-vars
+  29:16  warning  'SCREEN_WIDTH' is assigned a value but never used                                                         @typescript-eslint/no-unused-vars
+  62:6   warning  React Hook useEffect has a missing dependency: 'pulse'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/DamageOverlayImage.tsx
+   14:34  warning  '/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/node_modules/react/index.js' imported multiple times                                                                             import/no-duplicates
+   38:26  warning  '/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/node_modules/react/index.js' imported multiple times                                                                             import/no-duplicates
+   86:6   warning  React Hook useEffect has a missing dependency: 'progress'. Either include it or remove the dependency array                                                                                       react-hooks/exhaustive-deps
+  132:6   warning  React Hook useEffect has a missing dependency: 'scale'. Either include it or remove the dependency array                                                                                          react-hooks/exhaustive-deps
+  144:6   warning  React Hook useEffect has a missing dependency: 'rotate'. Either include it or remove the dependency array                                                                                         react-hooks/exhaustive-deps
+  261:6   warning  React Hook useEffect has missing dependencies: 'borderOpacity', 'boxOpacity', 'boxScale', 'glowOpacity', 'labelO', 'labelX', and 'ringScale'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  270:6   warning  React Hook useEffect has a missing dependency: 'highlightScale'. Either include it or remove the dependency array                                                                                 react-hooks/exhaustive-deps
+  417:6   warning  React Hook useEffect has a missing dependency: 'opacity'. Either include it or remove the dependency array                                                                                        react-hooks/exhaustive-deps
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/ModelViewerARCard.tsx
+   21:7  warning  'AnimatedCircle' is assigned a value but never used                                                                        @typescript-eslint/no-unused-vars
+  195:6  warning  React Hook useEffect has missing dependencies: 'dotPulse' and 'pulse'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/ScanAnalysisCard.tsx
+   54:6  warning  React Hook useEffect has a missing dependency: 'pulse'. Either include it or remove the dependency array         react-hooks/exhaustive-deps
+  141:6  warning  React Hook useEffect has a missing dependency: 'progressAnim'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/TimeoutCard.tsx
+  47:6  warning  React Hook useEffect has a missing dependency: 'clockPulse'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/WorkflowStepper.tsx
+  1108:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/WorkflowStepper.tsx:1108:7
+  1106 |       }
+  1107 |     } else {
+> 1108 |       setConfirmationPhase(0);
+       |       ^^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  1109 |     }
+  1110 |
+  1111 |     previousStatusRef.current = normalizedStatus;  react-hooks/set-state-in-effect
+  1128:9  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/components/WorkflowStepper.tsx:1128:9
+  1126 |         normalizedStatus,
+  1127 |         isUploadComplete,
+> 1128 |         lastMeaningfulStatusRef.current,
+       |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  1129 |         confirmationPhase
+  1130 |       ),
+  1131 |     [confirmationPhase, isUploadComplete, normalizedStatus]                                                                                                                                                                                                                                                         react-hooks/refs
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/offlineDamageEngine.ts
+  89:44  warning  Array type using 'Array<T>' is forbidden. Use 'T[]' instead  @typescript-eslint/array-type
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/ai-scan/utils.ts
+   5:35  warning  Array type using 'Array<T>' is forbidden. Use 'T[]' instead  @typescript-eslint/array-type
+  76:1   warning  Import in body of module; reorder to top                     import/first
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/settings/components/AppointmentsSection.tsx
+   1:17  warning  'useEffect' is defined but never used         @typescript-eslint/no-unused-vars
+   1:28  warning  'useState' is defined but never used          @typescript-eslint/no-unused-vars
+  35:16  warning  'loading' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/settings/components/StatusTrackerSection.tsx
+   1:28  warning  'useState' is defined but never used                                                                           @typescript-eslint/no-unused-vars
+  61:6   warning  React Hook useEffect has a missing dependency: 'pulseScale'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/features/settings/components/VehiclesSection.tsx
+  52:10  warning  'loading' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/hooks/use-color-scheme.web.ts
+  11:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/hooks/use-color-scheme.web.ts:11:5
+   9 |
+  10 |   useEffect(() => {
+> 11 |     setHasHydrated(true);
+     |     ^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  12 |   }, []);
+  13 |
+  14 |   const colorScheme = useRNColorScheme();  react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/hooks/useQCJobs.ts
+    2:55  warning  'UrgencyLevel' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-unused-vars
+   64:5   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/hooks/useQCJobs.ts:64:5
+  62 |
+  63 |   useEffect(() => {
+> 64 |     fetchJobs(false);
+     |     ^^^^^^^^^ Avoid calling setState() directly within an effect
+  65 |     pollRef.current = setInterval(() => fetchJobs(true), POLL_INTERVAL_MS);
+  66 |     return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  67 |   }, [fetchJobs]);  react-hooks/set-state-in-effect
+  200:21  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/hooks/useQCJobs.ts:200:21
+  198 |   // ── Reset page on filter change ─────────────────────────────────────────
+  199 |
+> 200 |   useEffect(() => { setPage(1); }, [urgencyFilter, aiOnly, searchQuery]);
+      |                     ^^^^^^^ Avoid calling setState() directly within an effect
+  201 |
+  202 |   return {
+  203 |     // Data                react-hooks/set-state-in-effect
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/hooks/useRealtimeSync.ts
+  252:3  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/hooks/useRealtimeSync.ts:252:3
+  250 |   const callbackRef = useRef(callback);
+  251 |
+> 252 |   collectionsRef.current = collectionsToWatch;
+      |   ^^^^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  253 |   callbackRef.current = callback;
+  254 |
+  255 |   useEffect(() => {  react-hooks/refs
+  253:3  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/hooks/useRealtimeSync.ts:253:3
+  251 |
+  252 |   collectionsRef.current = collectionsToWatch;
+> 253 |   callbackRef.current = callback;
+      |   ^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  254 |
+  255 |   useEffect(() => {
+  256 |     globalQueryClient = queryClient;        react-hooks/refs
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/services/api/authService.ts
+    6:3  warning  'updateProfile' is defined but never used                          @typescript-eslint/no-unused-vars
+  262:7  warning  'exchangeTokenForRegistration' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/services/api/chatbotService.ts
+   36:12  warning  '_' is defined but never used                                @typescript-eslint/no-unused-vars
+  122:29  warning  Array type using 'Array<T>' is forbidden. Use 'T[]' instead  @typescript-eslint/array-type
+
+/Users/ivansantos/Desktop/capstone2 /nu-capstone-project/mobile/src/services/api/client.ts
+   93:26  warning  Caution: `axios` also has a named export `create`. Check if you meant to write `import {create} from 'axios'` instead              import/no-named-as-default-member
+  392:7   warning  Caution: `axios` also has a named export `isAxiosError`. Check if you meant to write `import {isAxiosError} from 'axios'` instead  import/no-named-as-default-member
+  402:7   warning  Caution: `axios` also has a named export `isAxiosError`. Check if you meant to write `import {isAxiosError} from 'axios'` instead  import/no-named-as-default-member
+
+✖ 197 problems (105 errors, 92 warnings)
+  0 errors and 5 warnings potentially fixable with the `--fix` option.
+

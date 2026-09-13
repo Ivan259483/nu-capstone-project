@@ -1,0 +1,5 @@
+Committed HEAD source evaluated with installed SDK 57 ESLint tooling: 110 errors, 95 warnings.
+Final migrated working source: 105 errors, 92 warnings.
+New error signatures (file, rule, first diagnostic line) versus committed HEAD: none.
+Focused AnimatedSplash.tsx lint: passed.
+No lint rules disabled.

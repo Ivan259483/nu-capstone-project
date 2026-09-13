@@ -142,6 +142,7 @@ export interface Booking {
         submittedAt?: string | null;
         reviewedAt?: string | null;
     } | null;
+    balancePayment?: Booking['reservationPayment'];
     invoiceRecord?: {
         _id?: string;
         invoiceNumber?: string;
@@ -229,6 +230,14 @@ export interface Booking {
   };
   serviceTrackingStage?: 'confirmed' | 'received' | 'in_progress' | 'quality_check' | 'ready_pickup' | 'completed' | 'released' | null;
   serviceTrackingUpdatedAt?: string | null;
+  /** Backend-resolved tracking lifecycle (backend `constants/orderLifecycle.js`). */
+  customerTrackingState?: 'live' | 'completed' | 'cancelled';
+  customerTrackingLive?: boolean;
+  customerTrackingCompletedAt?: string | null;
+  customerReceiptInvoiceId?: string | null;
+  /** Team that currently owns the order (e.g. Sales once handed off at Ready for Pickup). */
+  customerAssignedTeam?: string;
+  completedAt?: string | null;
   serviceStaffAssignments?: {
     slot?: string;
     name?: string;

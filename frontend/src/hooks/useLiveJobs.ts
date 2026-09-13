@@ -19,6 +19,13 @@ export interface BookingStatusEvent {
     customerStatus?: string;
     completedAt?: string | null;
     invoiceId?: string | null;
+    posQueueStatus?: string | null;
+    /** Backend-owned tracking lifecycle (backend constants/orderLifecycle.js). */
+    customerTrackingState?: 'live' | 'completed' | 'cancelled';
+    customerTrackingLive?: boolean;
+    customerTrackingCompletedAt?: string | null;
+    customerReceiptInvoiceId?: string | null;
+    customerAssignedTeam?: string;
     updatedAt?: string;
 }
 
@@ -30,7 +37,10 @@ export function useLiveJobs(
     onNotification?: (notif: any) => void,
     /** Called when orderUpdated fires — silent HTTP refresh (no page reload) */
     onOrderRealtimeBump?: () => void,
+    /** `pollJobs: false` — socket events only; never fetch or poll the jobs list. */
+    options: { pollJobs?: boolean } = {},
 ) {
+    const pollJobs = options.pollJobs !== false;
     const [jobs, setJobs] = useState<Booking[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
@@ -79,13 +89,15 @@ export function useLiveJobs(
         if (!user) return;
 
         // ── Initial fetch ────────────────────────────────────────────────────
-        fetchJobs(false);
+        if (pollJobs) fetchJobs(false);
 
         // ── Backup poll: 60 s — true last-resort if socket is silent ────────
-        const syncInterval = setInterval(() => {
-            console.log('[useLiveJobs] 60s backup poll');
-            fetchJobs(true);
-        }, SYNC_INTERVAL_MS);
+        const syncInterval = pollJobs
+            ? setInterval(() => {
+                console.log('[useLiveJobs] 60s backup poll');
+                fetchJobs(true);
+            }, SYNC_INTERVAL_MS)
+            : null;
 
         // ── Use the SHARED socket — no new io() connection ───────────────────
         const socket = getSharedSocket();
@@ -131,7 +143,7 @@ export function useLiveJobs(
         // Patch local state directly from the fullDocument in the socket payload.
         // This eliminates the HTTP refetch that was previously triggered here.
         const handleDbChange = (payload: any) => {
-            if (payload.collection !== 'orders') return;
+            if (!pollJobs || payload.collection !== 'orders') return;
 
             const { operationType, documentKey, fullDocument } = payload;
 
@@ -236,6 +248,7 @@ export function useLiveJobs(
         // ── Visibility & Focus refresh ────────────────────────────────────────
         let visibilityTimer: ReturnType<typeof setTimeout> | null = null;
         const handleVisibility = () => {
+            if (!pollJobs) return;
             if (document.visibilityState === 'visible') {
                 if (visibilityTimer) clearTimeout(visibilityTimer);
                 visibilityTimer = setTimeout(() => {
@@ -248,7 +261,7 @@ export function useLiveJobs(
         window.addEventListener('focus', handleVisibility);
 
         return () => {
-            clearInterval(syncInterval);
+            if (syncInterval) clearInterval(syncInterval);
             if (visibilityTimer) clearTimeout(visibilityTimer);
 
             // Remove only OUR listeners — do NOT disconnect the shared socket
@@ -263,7 +276,7 @@ export function useLiveJobs(
             document.removeEventListener('visibilitychange', handleVisibility);
             window.removeEventListener('focus', handleVisibility);
         };
-    }, [user, fetchJobs]);
+    }, [user, fetchJobs, pollJobs]);
 
     return { jobs, setJobs, isLoading };
 }

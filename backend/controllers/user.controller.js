@@ -27,6 +27,7 @@ import {
 } from '../constants/roles.js';
 import { parseOptionalProfilePhone } from '../utils/phone.utils.js';
 import { serializeUserForClient, resolvePhoneForClient, USER_PHONE_FIELDS } from '../utils/phone-client.utils.js';
+import { USER_PROFILE_IMAGE_FIELDS } from '../utils/profile-image.utils.js';
 import { normalizeEmailForOtp } from '../utils/otp.utils.js';
 import { issueStaffVerificationLink } from '../services/staffVerification.service.js';
 import { deleteOrdersAndReleaseSlotCounters } from '../services/slot.service.js';
@@ -338,13 +339,13 @@ export const updateUser = async (req, res, next) => {
     if (isObjectId) {
       if (process.env.NODE_ENV === 'development') console.log(`2a. ID is ObjectId. Finding by _id: ${requestedId}`);
       const userQuery = User.findById(requestedId);
-      if (req.profilePhotoGridFsUpload) userQuery.select('+profilePhotoFileId');
+      if (req.profilePhotoGridFsUpload || req.profilePhotoRemoval) userQuery.select('+profilePhotoFileId');
       user = await userQuery;
       if (process.env.NODE_ENV === 'development') console.log(`    -> Result of find by _id:`, user ? 'FOUND' : 'NOT FOUND');
     } else {
       if (process.env.NODE_ENV === 'development') console.log(`2b. ID is string. Finding by firebaseUid: ${requestedId}`);
       const userQuery = User.findOne({ firebaseUid: requestedId });
-      if (req.profilePhotoGridFsUpload) userQuery.select('+profilePhotoFileId');
+      if (req.profilePhotoGridFsUpload || req.profilePhotoRemoval) userQuery.select('+profilePhotoFileId');
       user = await userQuery;
       if (process.env.NODE_ENV === 'development') console.log(`    -> Result of find by firebaseUid:`, user ? 'FOUND' : 'NOT FOUND');
     }
@@ -389,6 +390,12 @@ export const updateUser = async (req, res, next) => {
       req.profilePhotoGridFsUpload.previousFileId = user.profilePhotoFileId || null;
       updatePayload.profilePhotoFileId = req.profilePhotoGridFsUpload.fileId;
       updatePayload.profilePhotoUpdatedAt = req.profilePhotoGridFsUpload.updatedAt;
+    }
+    if (selfRequest && req.profilePhotoRemoval) {
+      req.profilePhotoRemoval.previousFileId = user.profilePhotoFileId || null;
+      for (const field of [...USER_PROFILE_IMAGE_FIELDS, 'avatarUrl']) updatePayload[field] = '';
+      updatePayload.profilePhotoFileId = null;
+      updatePayload.profilePhotoUpdatedAt = new Date();
     }
     if (selfRequest && ['role', 'status', 'isActive', 'isDeleted', 'permissions', 'firebaseUid']
       .some((field) => hasOwn(req.body, field))) {
@@ -501,8 +508,9 @@ export const updateUser = async (req, res, next) => {
     // Execute the actual update on the existing user
     if (process.env.NODE_ENV === 'development') console.log(`   -> Executing findByIdAndUpdate for _id:`, user._id);
     const updateFilter = { _id: user._id };
-    if (req.profilePhotoGridFsUpload) {
-      const previousFileId = req.profilePhotoGridFsUpload.previousFileId;
+    const profilePhotoMutation = req.profilePhotoGridFsUpload || req.profilePhotoRemoval;
+    if (profilePhotoMutation) {
+      const previousFileId = profilePhotoMutation.previousFileId;
       if (previousFileId) {
         updateFilter.profilePhotoFileId = previousFileId;
       } else {
@@ -512,7 +520,7 @@ export const updateUser = async (req, res, next) => {
         ];
       }
     }
-    const updateOperation = req.profilePhotoGridFsUpload
+    const updateOperation = profilePhotoMutation
       ? {
           $set: updatePayload,
           $unset: { avatarPublicId: 1 },
@@ -527,7 +535,7 @@ export const updateUser = async (req, res, next) => {
       { new: true }
     ).select('-password');
 
-    if (!updatedUser && req.profilePhotoGridFsUpload) {
+    if (!updatedUser && profilePhotoMutation) {
       await cleanupUncommittedProfilePhoto(req);
       return res.status(409).json({
         success: false,
@@ -545,10 +553,10 @@ export const updateUser = async (req, res, next) => {
       await disconnectRevokedUserSessions(updatedUser._id);
     }
 
-    if (updatedUser && req.profilePhotoGridFsUpload) {
-      req.profilePhotoGridFsUpload.committed = true;
-      const previousFileId = req.profilePhotoGridFsUpload.previousFileId;
-      if (previousFileId && String(previousFileId) !== String(req.profilePhotoGridFsUpload.fileId)) {
+    if (updatedUser && profilePhotoMutation) {
+      profilePhotoMutation.committed = true;
+      const previousFileId = profilePhotoMutation.previousFileId;
+      if (previousFileId && String(previousFileId) !== String(profilePhotoMutation.fileId)) {
         try {
           await deleteProfilePhotoFile(previousFileId);
         } catch (error) {
@@ -667,11 +675,17 @@ export const updateUser = async (req, res, next) => {
 export const updateMyProfile = async (req, res, next) => {
   try {
     if (!req.file && isCustomerRole(req.user?.role) && hasOwn(req.body, 'avatar')) {
-      return res.status(400).json({
-        success: false,
-        code: 'PROFILE_PHOTO_MULTIPART_REQUIRED',
-        message: 'Upload profile photos as multipart field "photo".',
-      });
+      if (req.body.avatar === '') {
+        // Empty avatar is the existing customer UI's explicit removal action.
+        // Non-empty references still require a validated multipart upload.
+        req.profilePhotoRemoval = {};
+      } else {
+        return res.status(400).json({
+          success: false,
+          code: 'PROFILE_PHOTO_MULTIPART_REQUIRED',
+          message: 'Upload profile photos as multipart field "photo".',
+        });
+      }
     }
 
     if (req.file) {

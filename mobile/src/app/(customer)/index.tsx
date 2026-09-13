@@ -64,6 +64,8 @@ import {
   bookingIsReadyForPickup,
   bookingIsTerminalForLiveTracker,
   bookingShowsCustomerLiveTracker,
+  bookingTrackingIsCompleted,
+  pickCustomerCompletedTrackerBooking,
   pickCustomerLiveTrackerBooking,
 } from '@/utils/customer-live-tracker-pick';
 import {
@@ -531,10 +533,21 @@ function HeaderSection({
   );
 }
 
-type HomeHeroMode = 'book' | 'upcoming' | 'active' | 'payment' | 'ready';
+type HomeHeroMode = 'book' | 'upcoming' | 'active' | 'payment' | 'ready' | 'completed';
+
+/** How long a job the backend completed keeps the hero before it returns to booking. */
+const HOME_COMPLETED_HERO_WINDOW_MS = 72 * 60 * 60 * 1000;
+
+function formatHomeCompletedAt(value: unknown): string {
+  const date = new Date(String(value || ''));
+  if (Number.isNaN(date.getTime())) return 'Service finished';
+  return new Intl.DateTimeFormat('en-PH', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })
+    .format(date);
+}
 
 function resolveHomeHeroMode(job: BookingRecord | null, step: number): HomeHeroMode {
   if (!job) return 'book';
+  if (bookingTrackingIsCompleted(job)) return 'completed';
   const status = String(job.status || '').trim().toLowerCase().replace(/-/g, '_');
   const paymentPaid = String(job.paymentStatus || '').trim().toLowerCase() === 'paid';
   if (bookingIsReadyForPickup(job)) return 'ready';
@@ -598,18 +611,23 @@ function HeroSection({ job, isLoading, step, router }: {
     const isUpcoming = mode === 'upcoming';
     const isPayment = mode === 'payment';
     const isReady = mode === 'ready';
+    const isCompleted = mode === 'completed';
     const needsReservationReceipt = paymentState.reservation === 'required';
     const reservationUnderReview = paymentState.reservation === 'verifying';
     const reservationActionRequired = paymentState.reservation === 'action_required';
     const hasVehiclePlate = Boolean(String(job.vehiclePlate || '').trim());
-    const statusAccent = reservationActionRequired
+    const statusAccent = isCompleted
+      ? '#22C55E'
+      : reservationActionRequired
       ? '#EF4444'
       : reservationUnderReview
         ? '#F59E0B'
         : isUpcoming && paymentState.reservation === 'paid'
           ? '#22C55E'
           : D.A;
-    const statusIcon = reservationActionRequired
+    const statusIcon = isCompleted
+      ? 'checkmark-circle-outline'
+      : reservationActionRequired
       ? 'alert-circle-outline'
       : reservationUnderReview
         ? 'time-outline'
@@ -620,7 +638,9 @@ function HeroSection({ job, isLoading, step, router }: {
             : isReady
               ? 'car-sport-outline'
               : 'calendar-outline';
-    const actionLabel = isPayment
+    const actionLabel = isCompleted
+      ? 'View Receipt'
+      : isPayment
       ? 'View Payment'
       : reservationActionRequired
         ? 'Upload New Receipt'
@@ -631,13 +651,15 @@ function HeroSection({ job, isLoading, step, router }: {
           : isReady
             ? 'View Pickup'
             : 'Track My Car';
-    const actionRoute = isPayment
+    const actionRoute = isCompleted || isPayment
       ? { pathname:'/(screens)/payments' as const, params:{ orderId:job.id } }
       : isUpcoming && !needsReservationReceipt && !reservationActionRequired
         ? { pathname:'/(screens)/booking-details' as const, params:{ id:job.id } }
       : { pathname:'/(customer)/track' as const, params:{ id:job.id } };
     const outstandingAmount = getOutstandingAmount(job);
-    const eyebrow = reservationActionRequired
+    const eyebrow = isCompleted
+      ? 'SERVICE COMPLETE'
+      : reservationActionRequired
       ? 'PAYMENT ACTION REQUIRED'
       : reservationUnderReview
         ? 'PAYMENT UNDER REVIEW'
@@ -650,7 +672,9 @@ function HeroSection({ job, isLoading, step, router }: {
         : isUpcoming
           ? 'APPOINTMENT CONFIRMED'
           : 'IN PROGRESS';
-    const headline = reservationActionRequired
+    const headline = isCompleted
+      ? 'Service completed'
+      : reservationActionRequired
       ? 'Your payment needs attention'
       : reservationUnderReview
         ? 'We’re verifying your reservation payment'
@@ -725,6 +749,18 @@ function HeroSection({ job, isLoading, step, router }: {
                     </View>
                   ) : null}
                 </View>
+              ) : isCompleted ? (
+                <View style={$.paymentSummary}>
+                  <View>
+                    <Text style={$.paymentLabel}>COMPLETED</Text>
+                    <Text style={$.paymentAmount} numberOfLines={1} adjustsFontSizeToFit>
+                      {formatHomeCompletedAt(job.customerTrackingCompletedAt)}
+                    </Text>
+                  </View>
+                  <Text style={$.paymentHint} numberOfLines={1}>
+                    {job.customerReceiptInvoiceId ? `Receipt ${job.customerReceiptInvoiceId}` : 'Receipt issued'}
+                  </Text>
+                </View>
               ) : isPayment ? (
                 <View style={$.paymentSummary}>
                   <View>
@@ -743,7 +779,9 @@ function HeroSection({ job, isLoading, step, router }: {
                 <View style={$.trContext}>
                   <Ionicons name={isUpcoming ? 'information-circle-outline' : context.icon} size={13} color={D.w38} />
                   <Text style={$.trContextText} numberOfLines={2}>
-                    {reservationActionRequired
+                    {isCompleted
+                      ? 'Payment settled. Live tracking has ended; your timeline and photos stay in Tracker.'
+                      : reservationActionRequired
                       ? 'Review the payment details and submit a valid GCash receipt.'
                       : reservationUnderReview
                         ? 'We’ll update your booking once payment is verified.'
@@ -1447,7 +1485,13 @@ export default function HomeScreen() {
           new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
       );
     const trackerRows = bookings.filter((b: BookingRecord) => bookingShowsCustomerLiveTracker(b));
-    const primaryJob = pickCustomerLiveTrackerBooking(trackerRows) ?? activeRows[0] ?? null;
+    // Nothing live: a job the backend completed recently shows as a finished summary hero.
+    const completedJob = pickCustomerCompletedTrackerBooking(bookings);
+    const completedAtMs = new Date(completedJob?.customerTrackingCompletedAt || 0).getTime();
+    const recentCompletedJob = completedJob && Date.now() - completedAtMs < HOME_COMPLETED_HERO_WINDOW_MS
+      ? completedJob
+      : null;
+    const primaryJob = pickCustomerLiveTrackerBooking(trackerRows) ?? activeRows[0] ?? recentCompletedJob;
     const completedRows = bookings.filter((b: BookingRecord) =>
       ['completed','released','paid'].includes(String(b.status || '').toLowerCase())
     );

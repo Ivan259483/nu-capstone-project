@@ -89,6 +89,13 @@ const handleTrackerStagePhotoUpload = (req, res, next) => {
   });
 };
 
+/**
+ * @route GET /api/orders/:id/tracker-media/:mediaId/photo
+ * @desc Evidence photo bytes by signed URL. Registered before `authenticate` because image
+ *       elements cannot send the Authorization header; the HMAC in the URL is the credential.
+ */
+router.get('/:id/tracker-media/:mediaId/photo', trackerController.getTrackerMediaPhoto);
+
 router.use(authenticate);
 
 /**

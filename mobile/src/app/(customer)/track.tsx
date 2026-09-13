@@ -55,16 +55,21 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useCustomerBookings } from '@/hooks/useCustomerBookings';
 import { isDefaultTrackBookingRow } from '@/utils/customerBookingLifecycle';
 import {
+  bookingHasCompletedCustomerHandover,
   bookingIsReadyForPickup,
   bookingIsTerminalForLiveTracker,
   bookingShowsCustomerLiveTracker,
+  bookingTrackingIsCompleted,
+  pickCustomerCompletedTrackerBooking,
   pickCustomerLiveTrackerBooking,
 } from '@/utils/customer-live-tracker-pick';
 import {
   getCustomerStageSlotPhotos,
+  resolveTrackerMediaPhotoUrl,
   resolveTrackerStageDescription,
   type TrackerMediaStage,
 } from '@/utils/customer-tracker-stage-media';
+import { API_BASE_URL } from '@/config/env';
 import { CUSTOMER_TRACKER_STEPS, resolveCustomerTrackerStage } from '@/utils/customer-tracker-stage';
 import { resolveCustomerPaymentState } from '@/utils/customer-payment-state';
 import {
@@ -112,13 +117,26 @@ function resolveStep(booking: any): number {
   return resolveCustomerTrackerStage(booking).stageIndex;
 }
 
-function isPostPaymentCompleteDisplay(booking: BookingRecord | null | undefined): boolean {
-  if (!booking) return false;
-  const status = trackerKey(booking.status);
-  const stage = trackerKey(booking.serviceTrackingStage);
-  const paymentPaid = String(booking.paymentStatus || '').toLowerCase() === 'paid';
-  return paymentPaid && (status === 'completed' || status === 'released' || stage === 'released');
+function formatCompletedAt(value: unknown): string {
+  const date = new Date(String(value || ''));
+  if (Number.isNaN(date.getTime())) return 'Time unavailable';
+  return date.toLocaleString('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
 }
+
+/** Backend-owned tracking lifecycle fields (backend constants/orderLifecycle.js). */
+const TRACKING_LIFECYCLE_FIELDS = [
+  'customerTrackingState',
+  'customerTrackingLive',
+  'customerTrackingCompletedAt',
+  'customerReceiptInvoiceId',
+  'customerAssignedTeam',
+] as const;
 
 function isAppointmentSecuredDisplay(booking: BookingRecord | null | undefined): boolean {
   if (!booking) return false;
@@ -159,8 +177,16 @@ function mergeTrackerMediaPayload(
   payload: BookingRecord | null | undefined
 ): BookingRecord | null {
   if (!booking || !payload) return booking;
+  // A slow GET must never reopen tracking that the backend already ended.
+  const lifecycle: Partial<BookingRecord> = {};
+  if (!(bookingHasCompletedCustomerHandover(booking) && !bookingHasCompletedCustomerHandover(payload))) {
+    for (const field of TRACKING_LIFECYCLE_FIELDS) {
+      if (payload[field] !== undefined) (lifecycle as Record<string, unknown>)[field] = payload[field];
+    }
+  }
   return {
     ...booking,
+    ...lifecycle,
     ...(payload.status !== undefined ? { status: payload.status } : {}),
     ...(payload.paymentStatus !== undefined ? { paymentStatus: payload.paymentStatus } : {}),
     ...(payload.serviceTrackingStage !== undefined ? { serviceTrackingStage: payload.serviceTrackingStage } : {}),
@@ -559,7 +585,9 @@ function TimelineStep({
 
   const shots = useMemo(() => {
     if (!booking || !mediaStage) return [];
-    return getCustomerStageSlotPhotos(booking, mediaStage);
+    // Signed evidence URLs are root-relative API paths; resolve them against the API origin.
+    return getCustomerStageSlotPhotos(booking, mediaStage)
+      .map((shot) => ({ ...shot, url: resolveTrackerMediaPhotoUrl(shot.url, API_BASE_URL) }));
   }, [booking, mediaStage]);
 
   const galleryOpen = galleryStartIndex !== null && shots.length > 0;
@@ -1319,7 +1347,8 @@ export default function TrackScreen() {
         (a: any, b: any) =>
           new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
       );
-    return active[0] || null;
+    // Nothing live: show the most recent job the backend marked completed as a finished summary.
+    return active[0] || pickCustomerCompletedTrackerBooking(allBookings) || null;
   }, [allBookings]);
 
   const routeBookingFromList = useMemo(
@@ -1335,6 +1364,10 @@ export default function TrackScreen() {
     || defaultTrackBooking?.id
     || defaultTrackBooking?._id
     || '';
+  // Once the backend ends tracking for this order, its evidence is history: loaded at most once,
+  // never polled, and never refetched on focus or reconnect.
+  const trackerMediaRow = routeBookingFromList ?? (routeBookingId ? null : defaultTrackBooking);
+  const trackerMediaRowEnded = bookingHasCompletedCustomerHandover(trackerMediaRow);
   const {
     data: trackerMediaData,
     isLoading: isTrackerMediaLoading,
@@ -1345,8 +1378,17 @@ export default function TrackScreen() {
     queryKey: ['booking', trackerMediaBookingId, 'tracker-media'],
     queryFn: () => bookingService.getBookingTrackerMedia(trackerMediaBookingId),
     enabled: !!trackerMediaBookingId && !!profile,
-    refetchInterval: 60_000,
+    staleTime: trackerMediaRowEnded ? Infinity : 0,
+    refetchOnWindowFocus: !trackerMediaRowEnded,
+    refetchOnReconnect: !trackerMediaRowEnded,
+    refetchInterval: (...args: any[]) => {
+      const first = args[0];
+      const data = first?.state ? first.state.data : first;
+      return trackerMediaRowEnded || bookingHasCompletedCustomerHandover(data) ? false : 60_000;
+    },
   });
+  const trackerMediaTrackingEnded =
+    trackerMediaRowEnded || bookingHasCompletedCustomerHandover(trackerMediaData);
 
   const bookingFromQuery = useMemo(() => {
     if (routeBookingId) return routeBookingFromList ?? trackerMediaData ?? null;
@@ -1388,9 +1430,9 @@ export default function TrackScreen() {
     // hydration (or a session invalidation in-flight) sends this protected
     // request with no/stale token.
     if (!profile) return undefined;
-    if (trackerMediaBookingId) void refetchTrackerMedia();
+    if (trackerMediaBookingId && !trackerMediaTrackingEnded) void refetchTrackerMedia();
     return undefined;
-  }, [profile, refetchTrackerMedia, trackerMediaBookingId]));
+  }, [profile, refetchTrackerMedia, trackerMediaBookingId, trackerMediaTrackingEnded]));
 
   const isLoading =
     isBookingsQueryLoading || (!!routeBookingId && !routeBookingFromList && isTrackerMediaLoading);
@@ -1490,7 +1532,8 @@ export default function TrackScreen() {
   const resolvedStepRaw = booking ? resolveStep(booking) : -1;
   const stepIdx = forceStepIdx !== null ? forceStepIdx : resolvedStepRaw;
   const readyForPickupComplete = bookingIsReadyForPickup(booking);
-  const postPayComplete = isPostPaymentCompleteDisplay(booking);
+  // The backend decides when tracking is over (customerTrackingState); never derived here.
+  const postPayComplete = bookingTrackingIsCompleted(booking);
   const appointmentSecuredComplete = isAppointmentSecuredDisplay(booking);
   const atSecuredSlotStage =
     appointmentSecuredComplete &&
@@ -1506,8 +1549,10 @@ export default function TrackScreen() {
   }, [booking, postPayComplete, readyForPickupComplete]);
   const hasActive =
     !!booking &&
-    !bookingIsTerminalForLiveTracker(booking) &&
-    (bookingShowsCustomerLiveTracker(booking) || isDefaultTrackBookingRow(booking?.status || ''));
+    (postPayComplete || (
+      !bookingIsTerminalForLiveTracker(booking) &&
+      (bookingShowsCustomerLiveTracker(booking) || isDefaultTrackBookingRow(booking?.status || ''))
+    ));
 
   const stepTimestamps = booking ? getCustomerTrackerTimestamps(booking) : ['', '', '', '', ''];
   const etaLabel       = booking ? getEtaLabel(booking) : '—';
@@ -1535,6 +1580,8 @@ export default function TrackScreen() {
       : resolveTrackerStageDescription(booking, activeMediaStage) || activeStep.detail
     : '';
   const referenceLabel = getBookingReferenceLabel(booking);
+  const finalStatusLabel = trackerKey(booking?.status) === 'released' ? 'Released' : 'Completed';
+  const completedAtLabel = formatCompletedAt(booking?.customerTrackingCompletedAt);
 
   // Vehicle info card
   const vehiclePlate = booking?.vehiclePlate || booking?.vehicleModel || 'Vehicle';
@@ -1565,7 +1612,7 @@ export default function TrackScreen() {
     if (!profile) return;
     await Promise.all([
       refreshBookings(),
-      trackerMediaBookingId ? refetchTrackerMedia() : Promise.resolve(),
+      trackerMediaBookingId && !trackerMediaTrackingEnded ? refetchTrackerMedia() : Promise.resolve(),
     ]);
   };
 
@@ -1773,10 +1820,17 @@ export default function TrackScreen() {
           <>
             {/* ── Service status and pickup readiness / completion estimate ── */}
             <Animated.View entering={FadeInDown.delay(60).duration(200)} style={s.headerRow}>
-              {trackingComplete ? (
+              {postPayComplete ? (
+                <Text style={[s.etaText, { color: C.green }]}>SERVICE COMPLETE</Text>
+              ) : trackingComplete ? (
                 <Text style={[s.etaText, { color: C.green }]}>READY FOR PICKUP</Text>
               ) : <LiveBadge />}
-              {trackingComplete ? (
+              {postPayComplete ? (
+                <View style={[s.etaPill, { borderColor: C.greenBrd, backgroundColor: C.greenDim }]}>
+                  <Ionicons name="checkmark-done-outline" size={11} color={C.green} />
+                  <Text style={[s.etaText, { color: C.green }]}>Completed · {completedAtLabel}</Text>
+                </View>
+              ) : trackingComplete ? (
                 <View style={[s.etaPill, { borderColor: C.greenBrd, backgroundColor: C.greenDim }]}>
                   <Ionicons name="checkmark-circle-outline" size={11} color={C.green} />
                   <Text style={[s.etaText, { color: C.green }]}>
@@ -1791,6 +1845,47 @@ export default function TrackScreen() {
               ) : null}
             </Animated.View>
 
+            {postPayComplete ? (
+              /* ── Completed summary replaces the live ring + current stage panel ── */
+              <Animated.View
+                entering={FadeInDown.delay(100).duration(200)}
+                style={[s.stageCard, s.stageCardComplete]}
+                accessibilityLabel="Completed service summary"
+              >
+                <Text style={s.stageEyebrow}>FINAL STATUS</Text>
+                <Text style={[s.stageTitle, s.stageTitleComplete]}>{finalStatusLabel}</Text>
+                <Text style={s.stageDescription}>
+                  Payment settled and receipt issued. Live tracking has ended; your timeline and photo evidence remain below.
+                </Text>
+                <View style={s.stageMetaRow}>
+                  {[
+                    { label: 'Completed', value: completedAtLabel },
+                    { label: 'Receipt', value: booking?.customerReceiptInvoiceId || 'Issued' },
+                    { label: 'Reference', value: referenceLabel },
+                  ].map((item) => (
+                    <View key={item.label} style={s.stageMetaItem}>
+                      <Text style={s.stageMetaLabel}>{item.label}</Text>
+                      <Text style={s.stageMetaValue} numberOfLines={2}>
+                        {item.value}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                <TouchableOpacity
+                  style={[s.emptyBtn, { alignSelf: 'flex-start', marginTop: 14 }]}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    Haptics.primaryPress();
+                    router.push({ pathname: '/(screens)/payments', params: { orderId: booking?.id } } as any);
+                  }}
+                >
+                  <Text style={s.emptyBtnText}>View Receipt</Text>
+                  <Ionicons name="receipt-outline" size={15} color="#000" />
+                </TouchableOpacity>
+              </Animated.View>
+            ) : (
+            <>
             {/* ── Circular progress ring ── */}
             <Animated.View entering={FadeInDown.delay(100).duration(200)} style={s.ringWrap}>
               <CircularRing pct={pct} accent={trackerAccent} />
@@ -1858,6 +1953,8 @@ export default function TrackScreen() {
                 ))}
               </View>
             </Animated.View>
+            </>
+            )}
 
             {/* ── Vehicle info card ── */}
             <Animated.View entering={FadeInDown.delay(150).duration(200)} style={s.vehicleCard}>

@@ -492,6 +492,51 @@ test('final QC gate creates a Sales task; payment enables handover without compl
   assert.equal(completed.serviceTrackingStage, 'released');
 });
 
+test('settled balance with a receipt completes the order even when pickup photos are incomplete, with a warning', async () => {
+  const sales = await seedUser('sales');
+  // Only 2 of the 5 required pickup slots: before the fix the handler silently kept ready_for_payment.
+  const { order } = await seedEligibleOrder({ order: {
+    status: 'ready_for_payment',
+    serviceTrackingStage: 'ready_pickup',
+    trackerStageMedia: pickupMedia(['front', 'rear']),
+  } });
+  assert.equal(readyPickupSlotProgress(order).complete, false);
+
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => { warnings.push(args); originalWarn(...args); };
+  let checkout;
+  try {
+    checkout = await requestJson(`/api/bookings/${order._id}/billing/checkout`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokenFor(sales)}`, 'Idempotency-Key': `pos-incomplete:${order._id}` },
+      body: JSON.stringify({ paymentMethod: 'cash', cashReceived: 800 }),
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.equal(checkout.response.status, 200, JSON.stringify(checkout.body));
+
+  const settled = await Order.findById(order._id);
+  assert.equal(settled.paymentStatus, 'paid');
+  assert.ok(settled.invoiceId);
+  assert.equal(settled.status, 'completed');
+  assert.equal(settled.serviceTrackingStage, 'completed');
+  assert.equal(settled.customerStatus, 'completed');
+  assert.ok(settled.completedAt instanceof Date);
+  assert.equal(settled.readyForPickupEvidenceComplete, false, 'photo completeness is still reported, not faked');
+  assert.ok(
+    warnings.some(([message]) => String(message).includes('reason=ready_pickup_photos_incomplete')),
+    'incomplete pickup photos are logged as a warning'
+  );
+
+  const customerEvent = socketEvents.find(({ room, event }) =>
+    room === `user:${order.customer.toString()}` && event === 'booking:status');
+  assert.ok(customerEvent, 'customer receives the settlement event');
+  assert.equal(customerEvent.payload.customerTrackingState, 'completed');
+  assert.equal(customerEvent.payload.customerTrackingLive, false);
+});
+
 
 test('prepaid service retains pickup evidence readiness after final QC completion', async () => {
   const { order } = await seedEligibleOrder({ billingStatus: 'checked_out', order: { paymentStatus: 'paid' } });

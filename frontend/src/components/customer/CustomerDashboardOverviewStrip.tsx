@@ -40,15 +40,22 @@ export function CustomerDashboardOverviewStrip({
                       <span className="customer-overview-live-dot-core" />
                     </span>
                   )}
-                  <span className="truncate">{card.value}</span>
+                  <span className="truncate" title={card.value}>{card.value}</span>
                 </div>
               </div>
-              <div className={`customer-overview-icon ring-1 ring-inset ${card.iconClass}`}>
+              <div className={`customer-overview-icon ring-1 ring-inset ${card.iconClass}`} aria-hidden="true">
                 <iconify-icon icon={card.icon} width="19"></iconify-icon>
               </div>
             </div>
             {card.key === 'loyalty' && (
-              <div className="customer-overview-loyalty-track mt-2.5 rounded-full bg-blue-100/80 p-0.5">
+              <div
+                className="customer-overview-loyalty-track mt-2.5 rounded-full bg-blue-100/80 p-0.5"
+                role="progressbar"
+                aria-label="Progress to next rewards tier"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={rewardTierProgressPct}
+              >
                 <div className="customer-overview-loyalty-shell h-1.5 overflow-hidden rounded-full bg-white/70">
                   <div className="customer-overview-loyalty-fill h-full rounded-full bg-gradient-to-r from-blue-600 via-sky-400 to-blue-400" style={{ width: `${rewardTierProgressPct}%` }} />
                 </div>

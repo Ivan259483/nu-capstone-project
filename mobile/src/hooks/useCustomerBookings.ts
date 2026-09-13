@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BookingRecord } from '@/services/api/types';
 import { bookingService } from '@/services/api/bookingService';
 import { invalidateCache } from '@/services/api/client';
+import { bookingCustomerTrackingState } from '@/utils/customer-live-tracker-pick';
 
 export const CUSTOMER_BOOKINGS_QUERY_KEY = ['bookings', 'customer'] as const;
 export const customerBookingDetailQueryKey = (bookingId: string) =>
@@ -21,7 +22,13 @@ export function useCustomerBookings(enabled: boolean) {
     queryKey: CUSTOMER_BOOKINGS_QUERY_KEY,
     queryFn: () => bookingService.getMyBookings({ limit: 50 }),
     enabled,
-    refetchInterval: 60_000,
+    // Backup poll only while some booking is still live per the backend's tracking state.
+    refetchInterval: (...args: any[]) => {
+      const first = args[0];
+      const data = first?.state ? first.state.data : first;
+      if (!Array.isArray(data)) return 60_000;
+      return data.some((booking) => bookingCustomerTrackingState(booking) === 'live') ? 60_000 : false;
+    },
   });
   const { refetch } = query;
   const refreshBookings = useCallback(async () => {

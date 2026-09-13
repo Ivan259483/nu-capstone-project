@@ -113,7 +113,7 @@ test('customer tracker API releases the completed gate but keeps the next gate p
   assert.equal(JSON.stringify(response.body).includes('unreleased-service.jpg'), false);
 });
 
-test('tracker API replaces inline media with metadata-only placeholders', async () => {
+test('tracker API replaces inline media with signed photo URLs, never base64', async () => {
   const customerId = new mongoose.Types.ObjectId();
   const inlinePhoto = `data:image/jpeg;base64,${'A'.repeat(256 * 1024)}`;
   const order = await Order.create({
@@ -136,7 +136,11 @@ test('tracker API replaces inline media with metadata-only placeholders', async 
 
   assert.equal(response.statusCode, 200);
   assert.equal(media.id, order.trackerStageMedia[0]._id.toString());
-  assert.equal(media.photoUrl, '');
+  // A blank URL here is the regression that left every customer evidence card "Awaiting photo".
+  assert.match(
+    media.photoUrl,
+    new RegExp(`^/api/orders/${order._id}/tracker-media/${media.id}/photo\\?v=\\d+&sig=[\\w-]+$`)
+  );
   assert.equal(media.hasPhoto, true);
   assert.equal(media.photoPending, true);
   assert.equal(JSON.stringify(response.body).includes('data:image'), false);

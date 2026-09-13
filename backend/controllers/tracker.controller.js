@@ -36,6 +36,13 @@ import { getCustomerVisibleTrackerStageMedia } from '../utils/customerTrackerEvi
 import { runInBackground, timeOperation } from '../utils/performance.utils.js';
 
 import { buildCustomerStagePayload } from '../utils/customerTrackerStage.utils.js';
+import mongoose from 'mongoose';
+import {
+  parseInlineImageDataUrl,
+  trackerMediaPhotoVersion,
+  verifyTrackerMediaPhotoSignature,
+  withFetchableTrackerPhotoUrls,
+} from '../utils/trackerMediaPhotoUrl.utils.js';
 /** Same coarse stages as QC `service-status`; `confirmed` is optional text-only for customers. */
 const TRACKER_MEDIA_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'];
 const INLINE_STAGE_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
@@ -113,6 +120,7 @@ export function buildResponsiveTrackerMedia(media) {
     const photoUrl = String(entry.photoUrl || '').trim();
     const inlinePending = photoUrl.startsWith('data:');
     return {
+      ...(entry._id ? { id: String(entry._id) } : {}),
       stage: entry.stage,
       ...(entry.slot ? { slot: entry.slot } : {}),
       ...(photoUrl && !inlinePending ? { photoUrl } : {}),
@@ -124,6 +132,70 @@ export function buildResponsiveTrackerMedia(media) {
     };
   });
 }
+
+const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
+
+/**
+ * GET /api/orders/:id/tracker-media/:mediaId/photo?v=&sig=
+ * Serves one evidence photo by signed URL (issued only to viewers allowed to see that row),
+ * so tracker JSON payloads can reference inline-stored photos without embedding base64.
+ */
+export const getTrackerMediaPhoto = async (req, res, next) => {
+  try {
+    const orderId = String(req.params.id || '');
+    const mediaId = String(req.params.mediaId || '');
+    const version = String(req.query.v || '');
+    const notFound = () => res.status(404).json({ success: false, message: 'Photo not found' });
+
+    if (
+      !OBJECT_ID_PATTERN.test(orderId)
+      || !OBJECT_ID_PATTERN.test(mediaId)
+      || !verifyTrackerMediaPhotoSignature({ orderId, mediaId, version, signature: req.query.sig })
+    ) {
+      return notFound();
+    }
+
+    const [row] = await timeOperation(
+      { req, res, kind: 'db', name: 'trackerMediaPhoto.order.mediaRow' },
+      () => Order.aggregate([
+        { $match: { _id: new mongoose.Types.ObjectId(orderId) } },
+        {
+          $project: {
+            _id: 0,
+            media: {
+              $arrayElemAt: [
+                {
+                  $filter: {
+                    input: { $ifNull: ['$trackerStageMedia', []] },
+                    as: 'entry',
+                    cond: { $eq: ['$$entry._id', new mongoose.Types.ObjectId(mediaId)] },
+                  },
+                },
+                0,
+              ],
+            },
+          },
+        },
+        { $project: { photoUrl: '$media.photoUrl', uploadedAt: '$media.uploadedAt' } },
+      ])
+    );
+
+    if (!row?.photoUrl || trackerMediaPhotoVersion(row.uploadedAt) !== version) return notFound();
+
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
+    if (isHttpsUrl(row.photoUrl)) return res.redirect(302, row.photoUrl);
+
+    const image = parseInlineImageDataUrl(row.photoUrl);
+    if (!image) return notFound();
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Type', image.mimeType);
+    res.setHeader('Content-Length', String(image.buffer.length));
+    return res.end(image.buffer);
+  } catch (error) {
+    next(error);
+  }
+};
 
 /** Index of row to update for (stage, slot), or merge legacy slotless row into `front`. */
 function findGateMediaIndex(order, stage, normalizedSlot) {
@@ -212,7 +284,10 @@ function emitTrackerStageMediaUpdate(order) {
   try {
     const io = getIO();
     const media = buildResponsiveTrackerMedia(order.trackerStageMedia);
-    const customerMedia = buildResponsiveTrackerMedia(getCustomerVisibleTrackerStageMedia(order));
+    const customerMedia = withFetchableTrackerPhotoUrls(
+      order._id,
+      buildResponsiveTrackerMedia(getCustomerVisibleTrackerStageMedia(order))
+    );
     const payload = {
       orderId: order._id.toString(),
       status: order.status,

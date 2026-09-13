@@ -299,3 +299,54 @@ test('files over 2 MB return 413 before GridFS storage', async () => {
   assert.equal(body.code, 'PROFILE_PHOTO_TOO_LARGE');
   assert.equal(await filesCollection().countDocuments({}), 0);
 });
+
+test('explicit photo removal clears legacy references and deletes the committed GridFS file', async () => {
+  const user = await seedCustomer({ photoURL: 'https://example.test/old-avatar.png' });
+  await patchProfilePhoto(user, 'png');
+  const stored = await getStoredUser(user._id);
+  const previousFileId = stored.profilePhotoFileId;
+  const response = await fetch(`${baseUrl}/api/users/profile`, {
+    method: 'PATCH', headers: { Authorization: `Bearer ${mobileTokenFor(user)}`, 'X-Client-Type': 'mobile', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Updated Customer', avatar: '' }),
+  });
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(result.data.avatar, undefined);
+  assert.equal(result.data.photoURL, undefined);
+  assert.equal(result.data.name, 'Updated Customer');
+  const removed = await getStoredUser(user._id);
+  assert.equal(removed.profilePhotoFileId, null);
+  assert.equal(removed.photoURL, '');
+  assert.equal(await filesCollection().countDocuments({ _id: previousFileId }), 0);
+  assert.equal((await fetch(`${baseUrl}/api/users/profile/photo/${previousFileId}`)).status, 404);
+});
+
+test('failed photo removal preserves the previous reference and stored file', async () => {
+  const user = await seedCustomer();
+  await patchProfilePhoto(user, 'png');
+  const beforeRemoval = await getStoredUser(user._id);
+  const original = User.findOneAndUpdate;
+  User.findOneAndUpdate = () => { throw new Error('forced removal failure'); };
+  try {
+    const response = await fetch(`${baseUrl}/api/users/profile`, {
+      method: 'PATCH', headers: { Authorization: `Bearer ${mobileTokenFor(user)}`, 'X-Client-Type': 'mobile', 'Content-Type': 'application/json' }, body: JSON.stringify({ avatar: '' }),
+    });
+    assert.equal(response.status, 500);
+  } finally { User.findOneAndUpdate = original; }
+  const afterRemoval = await getStoredUser(user._id);
+  assert.equal(String(afterRemoval.profilePhotoFileId), String(beforeRemoval.profilePhotoFileId));
+  assert.equal(await filesCollection().countDocuments({ _id: beforeRemoval.profilePhotoFileId }), 1);
+});
+
+test('customer JSON photo replacement remains forbidden while ordinary profile edits preserve photos', async () => {
+  const user = await seedCustomer();
+  await patchProfilePhoto(user, 'png');
+  const stored = await getStoredUser(user._id);
+  const headers = { Authorization: `Bearer ${mobileTokenFor(user)}`, 'X-Client-Type': 'mobile', 'Content-Type': 'application/json' };
+  const rejected = await fetch(`${baseUrl}/api/users/profile`, { method: 'PATCH', headers, body: JSON.stringify({ avatar: 'https://example.test/replacement.png' }) });
+  assert.equal(rejected.status, 400);
+  const updated = await fetch(`${baseUrl}/api/users/profile`, { method: 'PATCH', headers, body: JSON.stringify({ name: 'Photo Retained' }) });
+  assert.equal(updated.status, 200);
+  const result = await updated.json();
+  assert.equal(result.data.avatar, stored.avatar);
+});

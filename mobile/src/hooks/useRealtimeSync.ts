@@ -6,7 +6,11 @@ import { authStorage } from '@/services/storage/authStorage';
 import { API_BASE_URL } from '@/config/env';
 import { invalidateCache } from '@/services/api/client';
 import { isAdminDashboardRole, isServiceStaffRole } from '@/services/api/roles';
-import { isForwardTrackerStageTransition } from '@/utils/customer-live-tracker-pick';
+import {
+  bookingHasCompletedCustomerHandover,
+  isForwardTrackerStageTransition,
+} from '@/utils/customer-live-tracker-pick';
+import { CUSTOMER_BOOKINGS_QUERY_KEY } from '@/hooks/useCustomerBookings';
 
 // ── Collection → query key matching ──────────────────────────────────
 const COLLECTION_QUERY_MAP: Record<string, string[]> = {
@@ -54,6 +58,14 @@ const ORDER_REALTIME_PATCH_FIELDS = [
   'trackerStageMedia',
   'updatedAt',
   'invoiceId',
+  'posQueueStatus',
+  'completedAt',
+  // Backend-owned tracking lifecycle + current team (backend constants/orderLifecycle.js).
+  'customerAssignedTeam',
+  'customerTrackingState',
+  'customerTrackingLive',
+  'customerTrackingCompletedAt',
+  'customerReceiptInvoiceId',
 ] as const;
 
 function toIdString(value: unknown): string {
@@ -103,6 +115,9 @@ const STAGE_PATCH_FIELDS = new Set<string>([
   'customerStageTotalSteps',
   'customerStageProgress',
   'customerStageRank',
+  'customerTrackingState',
+  'customerTrackingLive',
+  'customerTrackingCompletedAt',
 ]);
 
 function orderIdsMatch(current: any, patch: Record<string, any>): boolean {
@@ -128,6 +143,20 @@ function mergeOrderRealtimePatch<T>(current: T, patch: Record<string, any>): T {
   next.id = next.id || patch.id;
   next._id = next._id || patch._id;
   return next as T;
+}
+
+/**
+ * True when the cached customer copy of this order says the backend ended tracking. Realtime
+ * events for such an order are dropped entirely: no cache patch and no refetch.
+ */
+function isOrderTrackingEndedInCache(orderId: string): boolean {
+  if (!globalQueryClient || !orderId) return false;
+  const rows = globalQueryClient.getQueryData<any[]>(CUSTOMER_BOOKINGS_QUERY_KEY);
+  const row = Array.isArray(rows)
+    ? rows.find((booking) => toIdString(booking?.id || booking?._id) === orderId)
+    : undefined;
+  const trackerMedia = globalQueryClient.getQueryData<any>(['booking', orderId, 'tracker-media']);
+  return bookingHasCompletedCustomerHandover(row) || bookingHasCompletedCustomerHandover(trackerMedia);
 }
 
 function patchOrderQueryCaches(payload: any): void {
@@ -237,6 +266,11 @@ function attachGlobalSocketListeners(socket: Socket): void {
 
   socket.on('db_change', (payload: any) => {
     if (payload.collection === 'orders') {
+      const orderId = toIdString(normalizeOrderRealtimePayload(payload)?.id);
+      if (isOrderTrackingEndedInCache(orderId)) {
+        if (__DEV__) console.log(`[SOCKET] Ignored orders db_change for completed order ${orderId}`);
+        return;
+      }
       patchOrderQueryCaches(payload);
       scheduleOrdersRefresh(`${payload.collection} db_change`, payload);
       return;
@@ -258,6 +292,10 @@ function attachGlobalSocketListeners(socket: Socket): void {
   const onOrderEvent = (source: string, payload: any) => {
     const fullDocument = normalizeOrderRealtimePayload(payload);
     const orderId = toIdString(fullDocument?.id || fullDocument?._id || payload?.bookingId || payload?.orderId);
+    if (isOrderTrackingEndedInCache(orderId)) {
+      if (__DEV__) console.log(`[SOCKET] Ignored ${source} for completed order ${orderId}`);
+      return;
+    }
     const subscriberPayload = {
       collection: 'orders',
       operationType: 'update',

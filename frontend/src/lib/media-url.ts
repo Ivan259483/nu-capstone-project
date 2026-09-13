@@ -1,4 +1,6 @@
 const PROFILE_PHOTO_PATH = /^\/api\/users\/profile\/photo\/[a-f0-9]{24}\/?$/i;
+/** Signed tracker evidence photo; its `v`/`sig` query is the credential and must be kept. */
+const TRACKER_MEDIA_PHOTO_PATH = /^\/api\/orders\/[a-f0-9]{24}\/tracker-media\/[a-f0-9]{24}\/photo\/?$/i;
 
 /**
  * Resolve backend-hosted media without trusting an environment-specific host
@@ -15,11 +17,13 @@ export function resolveMediaUrl(rawValue: string, backendApiUrl: string): string
         return value;
     }
 
-    if (!PROFILE_PHOTO_PATH.test(mediaUrl.pathname)) return value;
+    const isTrackerPhoto = TRACKER_MEDIA_PHOTO_PATH.test(mediaUrl.pathname);
+    if (!isTrackerPhoto && !PROFILE_PHOTO_PATH.test(mediaUrl.pathname)) return value;
 
     try {
-        const backendOrigin = new URL(backendApiUrl).origin;
-        return `${backendOrigin}${mediaUrl.pathname}`;
+        const pageOrigin = typeof window === 'undefined' ? undefined : window.location.origin;
+        const backendOrigin = new URL(backendApiUrl, pageOrigin).origin;
+        return `${backendOrigin}${mediaUrl.pathname}${isTrackerPhoto ? mediaUrl.search : ''}`;
     } catch {
         return value;
     }
