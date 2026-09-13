@@ -16,5 +16,26 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
+  ],
+  // A child config's "exclude" fully replaces (does not merge with) the
+  // base config's "exclude", so the entries below repeat expo/tsconfig.base.json's
+  // original list alongside the one addition (tests/**/*.test.ts) — dropping
+  // them here would silently stop excluding node_modules/android/ios/etc.
+  //
+  // Node-native test files under tests/ (run directly via `node --test`, not
+  // bundled/typechecked as part of the Expo app) have their own scoped
+  // tsconfig at tests/tsconfig.json — see that file's `nodenext` + `types:
+  // ["node"]` setup. Every sibling Node-native test already uses a .test.mjs
+  // extension and is naturally excluded from this app-wide, bundler-mode
+  // config; this exclude keeps .test.ts files in the same category instead
+  // of accidentally being typechecked under RN/bundler module resolution.
+  "exclude": [
+    "${configDir}/node_modules",
+    "${configDir}/babel.config.js",
+    "${configDir}/metro.config.js",
+    "${configDir}/jest.config.js",
+    "${configDir}/android",
+    "${configDir}/ios",
+    "tests/**/*.test.ts"
   ]
 }
