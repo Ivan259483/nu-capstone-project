@@ -5833,21 +5833,24 @@ export default function CustomerDashboard() {
 	                        </div>
 
                         {trackingCompleted ? (
-                          <div className="customer-live-command-grid">
-                            <div className="customer-live-status-panel" role="region" aria-label="Completed service summary">
-                              <div className="customer-live-status-topline">
+                          <div className="customer-live-command-grid" role="region" aria-label="Completed service summary">
+                            <div className="customer-live-progress-panel">
+                              <div
+                                className="customer-live-progress-ring customer-live-progress-ring--complete"
+                                aria-label="Service 100% complete"
+                              >
                                 <div>
-                                  <span>Final Status</span>
-                                  <strong>{normTrackerStr(activeBooking?.status) === 'released' ? 'Released' : 'Completed'}</strong>
-                                </div>
-                                <div>
-                                  <span>Completed</span>
-                                  <strong>{formatTrackingCompletedAt(activeBooking?.customerTrackingCompletedAt)}</strong>
+                                  <strong>100%</strong>
+                                  <span>complete</span>
                                 </div>
                               </div>
-                              <p className="customer-live-stage-note">
-                                Payment settled and receipt issued. Live tracking has ended; your service timeline and photo evidence remain below.
-                              </p>
+                              <div className="customer-live-progress-caption">
+                                <span className="customer-live-status-chip-done">
+                                  <iconify-icon icon="solar:check-circle-bold" width="12"></iconify-icon>
+                                  Completed
+                                </span>
+                              </div>
+
                               <div className="customer-live-summary-list">
                                 <div>
                                   <span>Vehicle</span>
@@ -5862,14 +5865,58 @@ export default function CustomerDashboard() {
                                   <strong>{activeBooking?.customerReceiptInvoiceId || 'Issued'}</strong>
                                 </div>
                               </div>
+
                               <button
                                 type="button"
-                                className="customer-live-open-button"
+                                className="customer-live-open-button customer-live-open-button--block"
                                 onClick={() => void openCustomerOrderReceiptPdf(bookingRowId(activeBooking))}
                               >
                                 <iconify-icon icon="solar:bill-list-bold" width="18"></iconify-icon>
                                 <span>View receipt</span>
                               </button>
+                            </div>
+
+                            <div className="customer-live-status-panel">
+                              <div className="customer-live-status-topline">
+                                <div>
+                                  <span>Final Status</span>
+                                  <strong>{normTrackerStr(activeBooking?.status) === 'released' ? 'Released' : 'Completed'}</strong>
+                                </div>
+                                <div>
+                                  <span>Completed</span>
+                                  <strong>{formatTrackingCompletedAt(activeBooking?.customerTrackingCompletedAt)}</strong>
+                                </div>
+                              </div>
+                              <p className="customer-live-stage-note">
+                                Payment settled and receipt issued. Live tracking has ended; your service timeline and photo evidence remain below.
+                              </p>
+
+                              <div className="customer-live-rail" aria-hidden="true">
+                                <div className="customer-live-rail-fill customer-live-rail-fill--complete" style={{ width: '100%' }} />
+                                <div className="customer-live-rail-markers">
+                                  {STEPS.map((step) => (
+                                    <span key={step.id} className="customer-live-rail-marker is-done">
+                                      <iconify-icon icon="solar:check-circle-bold" width="13"></iconify-icon>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="customer-live-rail-labels" aria-hidden="true">
+                                {STEPS.map((step) => (
+                                  <span key={step.id} className="is-done">{step.short}</span>
+                                ))}
+                              </div>
+
+                              <div className="customer-live-reward-panel">
+                                <div>
+                                  <span>Rewards Balance</span>
+                                  <strong>{formattedLoyaltyPoints} pts</strong>
+                                </div>
+                                <div className="customer-live-reward-progress">
+                                  <span style={{ width: `${rewardTierProgressPct}%` }} />
+                                </div>
+                                <p>{rewardTier} tier / {rewardProgressLabel}</p>
+                              </div>
                             </div>
                           </div>
                         ) : (

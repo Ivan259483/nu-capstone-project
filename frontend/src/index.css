@@ -5403,6 +5403,58 @@ html.dark * {
     text-shadow: 0 0 14px rgba(34, 197, 94, 0.28);
 }
 
+/* Service complete — static green ring, no sweep/sheen/breathe animation */
+.customer-live-progress-ring--complete {
+    background: #16a34a;
+    box-shadow:
+        0 0 24px rgba(34, 197, 94, 0.22),
+        0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+    animation: none;
+}
+
+.customer-live-progress-ring--complete::before {
+    animation: none;
+    opacity: 0;
+}
+
+.customer-live-progress-ring--complete::after {
+    border-color: rgba(134, 239, 172, 0.22);
+    box-shadow: 0 0 28px rgba(34, 197, 94, 0.14);
+}
+
+.customer-live-progress-ring--complete strong,
+.customer-live-progress-ring--complete span {
+    animation: none;
+}
+
+.customer-live-status-chip-done {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.22rem 0.55rem;
+    border: 1px solid rgba(34, 197, 94, 0.32);
+    border-radius: 999px;
+    background: rgba(34, 197, 94, 0.14);
+    color: #86efac;
+    font-size: 0.68rem;
+    font-weight: 850;
+}
+
+.customer-live-open-button--block {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: center;
+}
+
+.customer-live-rail-fill--complete {
+    background: linear-gradient(90deg, #16a34a, #22c55e);
+    box-shadow: 0 0 18px rgba(34, 197, 94, 0.18);
+}
+
+.customer-live-rail-fill--complete::after {
+    display: none;
+}
+
 .customer-live-step.is-active.customer-live-step--confirmation {
     border-color: rgba(34, 197, 94, 0.42);
     background: rgba(20, 83, 45, 0.36);

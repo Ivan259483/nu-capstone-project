@@ -234,8 +234,17 @@ const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
-function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string }) {
-  const reducedMotion = useReducedMotion();
+function CircularRing({
+  pct,
+  accent = C.orange,
+  animate = true,
+}: {
+  pct: number;
+  accent?: string;
+  /** false renders a still ring (completed state): no fill tween, pulse, orbit or shimmer. */
+  animate?: boolean;
+}) {
+  const reducedMotion = useReducedMotion() || !animate;
   const progress = useSharedValue(0);
   const pulse = useSharedValue(0);
   const orbit = useSharedValue(0);
@@ -323,14 +332,16 @@ function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string
       <Animated.View style={[rg.outerHalo, { borderColor: accentSoft }, haloStyle]} />
       <Animated.View style={[rg.aura, { backgroundColor: accentAura }, auraStyle]} />
       <View style={rg.innerBackdrop}>
-        <Animated.View style={[rg.shimmer, shimmerStyle]}>
-          <LinearGradient
-            colors={sweepColors}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
+        {animate && (
+          <Animated.View style={[rg.shimmer, shimmerStyle]}>
+            <LinearGradient
+              colors={sweepColors}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
+        )}
       </View>
       <Svg
         width={RING_SIZE}
@@ -1819,71 +1830,76 @@ export default function TrackScreen() {
         ) : (
           <>
             {/* ── Service status and pickup readiness / completion estimate ── */}
-            <Animated.View entering={FadeInDown.delay(60).duration(200)} style={s.headerRow}>
-              {postPayComplete ? (
-                <Text style={[s.etaText, { color: C.green }]}>SERVICE COMPLETE</Text>
-              ) : trackingComplete ? (
-                <Text style={[s.etaText, { color: C.green }]}>READY FOR PICKUP</Text>
-              ) : <LiveBadge />}
-              {postPayComplete ? (
-                <View style={[s.etaPill, { borderColor: C.greenBrd, backgroundColor: C.greenDim }]}>
-                  <Ionicons name="checkmark-done-outline" size={11} color={C.green} />
-                  <Text style={[s.etaText, { color: C.green }]}>Completed · {completedAtLabel}</Text>
-                </View>
-              ) : trackingComplete ? (
-                <View style={[s.etaPill, { borderColor: C.greenBrd, backgroundColor: C.greenDim }]}>
-                  <Ionicons name="checkmark-circle-outline" size={11} color={C.green} />
-                  <Text style={[s.etaText, { color: C.green }]}>
-                    {pickupTimeLabel ? `Pickup ready · ${pickupTimeLabel}` : 'Pickup time pending'}
-                  </Text>
-                </View>
-              ) : etaLabel !== '—' ? (
-                <View style={s.etaPill}>
-                  <Ionicons name="time-outline" size={11} color={C.orange} />
-                  <Text style={s.etaText}>Est. {etaLabel}</Text>
-                </View>
-              ) : null}
-            </Animated.View>
+            {!postPayComplete && (
+              <Animated.View entering={FadeInDown.delay(60).duration(200)} style={s.headerRow}>
+                {trackingComplete ? (
+                  <Text style={[s.etaText, { color: C.green }]}>READY FOR PICKUP</Text>
+                ) : <LiveBadge />}
+                {trackingComplete ? (
+                  <View style={[s.etaPill, { borderColor: C.greenBrd, backgroundColor: C.greenDim }]}>
+                    <Ionicons name="checkmark-circle-outline" size={11} color={C.green} />
+                    <Text style={[s.etaText, { color: C.green }]}>
+                      {pickupTimeLabel ? `Pickup ready · ${pickupTimeLabel}` : 'Pickup time pending'}
+                    </Text>
+                  </View>
+                ) : etaLabel !== '—' ? (
+                  <View style={s.etaPill}>
+                    <Ionicons name="time-outline" size={11} color={C.orange} />
+                    <Text style={s.etaText}>Est. {etaLabel}</Text>
+                  </View>
+                ) : null}
+              </Animated.View>
+            )}
 
             {postPayComplete ? (
-              /* ── Completed summary replaces the live ring + current stage panel ── */
-              <Animated.View
-                entering={FadeInDown.delay(100).duration(200)}
-                style={[s.stageCard, s.stageCardComplete]}
-                accessibilityLabel="Completed service summary"
-              >
-                <Text style={s.stageEyebrow}>FINAL STATUS</Text>
-                <Text style={[s.stageTitle, s.stageTitleComplete]}>{finalStatusLabel}</Text>
-                <Text style={s.stageDescription}>
-                  Payment settled and receipt issued. Live tracking has ended; your timeline and photo evidence remain below.
-                </Text>
-                <View style={s.stageMetaRow}>
-                  {[
-                    { label: 'Completed', value: completedAtLabel },
-                    { label: 'Receipt', value: booking?.customerReceiptInvoiceId || 'Issued' },
-                    { label: 'Reference', value: referenceLabel },
-                  ].map((item) => (
-                    <View key={item.label} style={s.stageMetaItem}>
-                      <Text style={s.stageMetaLabel}>{item.label}</Text>
-                      <Text style={s.stageMetaValue} numberOfLines={2}>
-                        {item.value}
-                      </Text>
-                    </View>
-                  ))}
+            <>
+            {/* ── Completed: same ring + stage-card layout as live tracking, but static ── */}
+            <View style={s.ringWrap} accessibilityLabel="Service 100% complete">
+              <CircularRing pct={100} accent={C.green} animate={false} />
+            </View>
+
+            <Animated.View
+              entering={FadeInDown.delay(120).duration(200)}
+              style={[s.stageCard, s.stageCardComplete]}
+              accessibilityLabel="Completed service summary"
+            >
+              <View style={s.stageTopRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.stageEyebrow}>FINAL STATUS</Text>
+                  <Text style={[s.stageTitle, s.stageTitleComplete]}>{finalStatusLabel}</Text>
                 </View>
-                <TouchableOpacity
-                  style={[s.emptyBtn, { alignSelf: 'flex-start', marginTop: 14 }]}
-                  activeOpacity={0.85}
-                  accessibilityRole="button"
-                  onPress={() => {
-                    Haptics.primaryPress();
-                    router.push({ pathname: '/(screens)/payments', params: { orderId: booking?.id } } as any);
-                  }}
-                >
-                  <Text style={s.emptyBtnText}>View Receipt</Text>
-                  <Ionicons name="receipt-outline" size={15} color="#000" />
-                </TouchableOpacity>
-              </Animated.View>
+              </View>
+              <Text style={s.stageDescription}>
+                Payment settled and receipt issued. Your timeline and photo evidence remain below.
+              </Text>
+              <View style={[s.stageMetaRow, s.stageMetaRowFit]}>
+                {[
+                  { label: 'Completed', value: completedAtLabel },
+                  { label: 'Receipt', value: booking?.customerReceiptInvoiceId || 'Issued' },
+                  { label: 'Reference', value: referenceLabel },
+                ].map((item) => (
+                  <View key={item.label} style={[s.stageMetaItem, s.stageMetaItemFit]}>
+                    <Text style={s.stageMetaLabel}>{item.label}</Text>
+                    <Text style={[s.stageMetaValue, s.stageMetaValueFit]} numberOfLines={1}>
+                      {item.value}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              <TouchableOpacity
+                style={[s.emptyBtn, { alignSelf: 'flex-start', marginTop: 14 }]}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                onPress={() => {
+                  Haptics.primaryPress();
+                  router.push({ pathname: '/(screens)/payments', params: { orderId: booking?.id } } as any);
+                }}
+              >
+                <Text style={s.emptyBtnText}>View Receipt</Text>
+                <Ionicons name="receipt-outline" size={15} color="#000" />
+              </TouchableOpacity>
+            </Animated.View>
+            </>
             ) : (
             <>
             {/* ── Circular progress ring ── */}
@@ -2188,6 +2204,23 @@ const s = StyleSheet.create({
     lineHeight: 15,
     fontWeight: '700',
     color: C.textSec,
+  },
+  // Completed summary: cells hug their content and wrap as whole cells, so long receipt
+  // and reference ids stay on one line instead of breaking mid-token.
+  stageMetaRowFit: {
+    flexWrap: 'wrap',
+  },
+  stageMetaItemFit: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 'auto',
+    maxWidth: '100%',
+    minHeight: 0,
+  },
+  stageMetaValueFit: {
+    fontSize: 10,
+    lineHeight: 14,
+    letterSpacing: 0.1,
   },
 
   // Vehicle card

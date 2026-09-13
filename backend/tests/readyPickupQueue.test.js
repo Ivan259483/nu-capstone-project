@@ -31,6 +31,7 @@ const {
   REQUIRED_READY_PICKUP_SLOTS,
   readyPickupSlotProgress,
 } = await import('../utils/trackerGatePhotos.utils.js');
+const { resolveCustomerTrackingState } = await import('../constants/orderLifecycle.js');
 
 let mongo;
 let server;
@@ -492,9 +493,9 @@ test('final QC gate creates a Sales task; payment enables handover without compl
   assert.equal(completed.serviceTrackingStage, 'released');
 });
 
-test('settled balance with a receipt completes the order even when pickup photos are incomplete, with a warning', async () => {
+test('incomplete pickup photos block checkout before any payment, so no settled order is left non-terminal', async () => {
   const sales = await seedUser('sales');
-  // Only 2 of the 5 required pickup slots: before the fix the handler silently kept ready_for_payment.
+  // Only 2 of the 5 required pickup slots.
   const { order } = await seedEligibleOrder({ order: {
     status: 'ready_for_payment',
     serviceTrackingStage: 'ready_pickup',
@@ -502,39 +503,21 @@ test('settled balance with a receipt completes the order even when pickup photos
   } });
   assert.equal(readyPickupSlotProgress(order).complete, false);
 
-  const warnings = [];
-  const originalWarn = console.warn;
-  console.warn = (...args) => { warnings.push(args); originalWarn(...args); };
-  let checkout;
-  try {
-    checkout = await requestJson(`/api/bookings/${order._id}/billing/checkout`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${tokenFor(sales)}`, 'Idempotency-Key': `pos-incomplete:${order._id}` },
-      body: JSON.stringify({ paymentMethod: 'cash', cashReceived: 800 }),
-    });
-  } finally {
-    console.warn = originalWarn;
-  }
-  assert.equal(checkout.response.status, 200, JSON.stringify(checkout.body));
+  const checkout = await requestJson(`/api/bookings/${order._id}/billing/checkout`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${tokenFor(sales)}`, 'Idempotency-Key': `pos-incomplete:${order._id}` },
+    body: JSON.stringify({ paymentMethod: 'cash', cashReceived: 800 }),
+  });
+  assert.equal(checkout.response.status, 409, JSON.stringify(checkout.body));
+  assert.equal(checkout.body.code, 'POS_QUEUE_STALE');
 
-  const settled = await Order.findById(order._id);
-  assert.equal(settled.paymentStatus, 'paid');
-  assert.ok(settled.invoiceId);
-  assert.equal(settled.status, 'completed');
-  assert.equal(settled.serviceTrackingStage, 'completed');
-  assert.equal(settled.customerStatus, 'completed');
-  assert.ok(settled.completedAt instanceof Date);
-  assert.equal(settled.readyForPickupEvidenceComplete, false, 'photo completeness is still reported, not faked');
-  assert.ok(
-    warnings.some(([message]) => String(message).includes('reason=ready_pickup_photos_incomplete')),
-    'incomplete pickup photos are logged as a warning'
-  );
-
-  const customerEvent = socketEvents.find(({ room, event }) =>
-    room === `user:${order.customer.toString()}` && event === 'booking:status');
-  assert.ok(customerEvent, 'customer receives the settlement event');
-  assert.equal(customerEvent.payload.customerTrackingState, 'completed');
-  assert.equal(customerEvent.payload.customerTrackingLive, false);
+  // The guard runs before the payment write: nothing is settled, so the order is legitimately still live.
+  assert.equal(await Payment.countDocuments({ order: order._id, transactionType: 'service_balance' }), 0);
+  const unchanged = await Order.findById(order._id);
+  assert.notEqual(unchanged.paymentStatus, 'paid');
+  assert.equal(unchanged.status, 'ready_for_payment');
+  assert.equal(unchanged.completedAt, undefined);
+  assert.equal(resolveCustomerTrackingState(unchanged), 'live');
 });
 
 
