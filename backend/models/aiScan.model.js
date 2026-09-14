@@ -53,6 +53,12 @@ const subtypeAnalysisSchema = new mongoose.Schema(
     top2Confidence: { type: Number, min: 0, max: 1, default: null },
     margin: { type: Number, min: 0, max: 1, default: null },
     reason: { type: String, trim: true, default: '' },
+    decisionMode: { type: String, enum: ['direct_class', 'semantic_family', 'abstain'], default: 'abstain' },
+    familyName: { type: String, default: null },
+    familyScore: { type: Number, min: 0, default: null },
+    familyMargin: { type: Number, default: null },
+    strongestNonFamilyClass: { type: String, default: null },
+    strongestNonFamilyConfidence: { type: Number, min: 0, max: 1, default: null },
   },
   { _id: false }
 );

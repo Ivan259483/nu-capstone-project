@@ -144,14 +144,30 @@ test('accepts car_dent 0.6827 vs 0.1161 as Dent', () => {
   assert.equal(result.margin, 0.5666);
 });
 
-test('abstains when car_scratch top confidence is 0.5155', () => {
+test('car_scratch top1 0.5155 alone abstains direct-class, but the combined scratch-family score (0.7166) now accepts', () => {
   const result = analyzeDamageSubtype(classifierPredictionsPayload([
     ['car_scratch', 0.5155],
     ['deep_car_scratch', 0.2011],
   ]));
+  // car_scratch alone (0.5155) is below the 0.60 direct-class gate, but both predictions are
+  // scratch-family members, so the semantic-family aggregation rescues this region.
+  assert.equal(result.accepted, true);
+  assert.equal(result.damageSubtype, 'Scratch / Scuff');
+  assert.equal(result.reason, 'scratch_family_accepted');
+  assert.equal(result.decisionMode, 'semantic_family');
+  assert.equal(result.familyScore, 0.7166);
+  assert.equal(result.top1Confidence, 0.5155);
+});
+
+test('a lone below-threshold non-scratch class still abstains with no family to rescue it', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['car_dent', 0.5155],
+    ['minor_car_damage', 0.2011],
+  ]));
   assert.equal(result.accepted, false);
   assert.equal(result.reason, 'top1_below_confidence');
-  assert.equal(result.top1Confidence, 0.5155);
+  assert.equal(result.decisionMode, 'abstain');
+  assert.equal(result.familyScore, 0);
 });
 
 test('abstains when the classifier top-two margin is below 0.15', () => {
@@ -222,6 +238,173 @@ test('abstains for every junk and unapproved classifier label', () => {
     assert.equal(result.reason, 'unmapped_classifier_label');
     assert.equal(result.rawClass, rawClass);
   }
+});
+
+test('accepts scratch region 1 (0.4787 + 0.1855 + 0.0604) via scratch-family aggregation', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['car_scratch', 0.4787],
+    ['scuffed_paint', 0.1855],
+    ['deep_car_scratch', 0.0604],
+  ]));
+  assert.equal(result.accepted, true);
+  assert.equal(result.damageSubtype, 'Scratch / Scuff');
+  assert.equal(result.reason, 'scratch_family_accepted');
+  assert.equal(result.decisionMode, 'semantic_family');
+  assert.equal(result.familyName, 'scratch_scuff');
+  assert.equal(result.familyScore, 0.7246);
+  assert.equal(result.familyMargin, 0.7246);
+  // Raw top1/top2 diagnostics are preserved even though the decision was family-based.
+  assert.equal(result.rawClass, 'car_scratch');
+  assert.equal(result.top1Confidence, 0.4787);
+});
+
+test('accepts scratch region 2 (0.4144 + 0.1361 + 0.1120) via scratch-family aggregation', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['scuffed_paint', 0.4144],
+    ['car_scratch', 0.1361],
+    ['deep_car_scratch', 0.1120],
+  ]));
+  assert.equal(result.accepted, true);
+  assert.equal(result.damageSubtype, 'Scratch / Scuff');
+  assert.equal(result.reason, 'scratch_family_accepted');
+  assert.equal(result.decisionMode, 'semantic_family');
+  assert.equal(result.familyScore, 0.6625);
+  assert.equal(result.familyMargin, 0.6625);
+});
+
+test('accepts scratch region 3 (0.4154 + 0.1252 + 0.0620) via scratch-family aggregation', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['scuffed_paint', 0.4154],
+    ['car_scratch', 0.1252],
+    ['deep_car_scratch', 0.0620],
+  ]));
+  assert.equal(result.accepted, true);
+  assert.equal(result.damageSubtype, 'Scratch / Scuff');
+  assert.equal(result.reason, 'scratch_family_accepted');
+  assert.equal(result.decisionMode, 'semantic_family');
+  assert.equal(result.familyScore, 0.6026);
+  assert.equal(result.familyMargin, 0.6026);
+});
+
+test('abstains when the scratch-family score is 0.59, just below the 0.60 gate', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['car_scratch', 0.30],
+    ['scuffed_paint', 0.20],
+    ['deep_car_scratch', 0.09],
+  ]));
+  assert.equal(result.accepted, false);
+  assert.equal(result.decisionMode, 'abstain');
+  assert.equal(result.damageSubtype, undefined);
+  assert.equal(result.familyName, 'scratch_scuff');
+  assert.equal(result.familyScore, 0.59);
+});
+
+test('abstains when the scratch-family score clears 0.60 but the family margin is below 0.15', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['car_dent', 0.55],
+    ['car_scratch', 0.35],
+    ['scuffed_paint', 0.20],
+    ['deep_car_scratch', 0.10],
+  ]));
+  assert.equal(result.accepted, false);
+  assert.equal(result.decisionMode, 'abstain');
+  assert.equal(result.damageSubtype, undefined);
+  assert.equal(result.familyScore, 0.65);
+  assert.equal(result.familyMargin, 0.10);
+  assert.equal(result.strongestNonFamilyClass, 'car_dent');
+  assert.equal(result.strongestNonFamilyConfidence, 0.55);
+});
+
+test('excludes chipped_paint from the scratch-family sum even when it dominates the region', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['chipped_paint', 0.45],
+    ['car_scratch', 0.25],
+    ['deep_car_scratch', 0.10],
+    ['scuffed_paint', 0.10],
+  ]));
+  assert.equal(result.accepted, false);
+  // If chipped_paint were wrongly counted, the family score would be 0.90 and this would
+  // incorrectly accept. It must stay 0.45 (car_scratch + deep_car_scratch + scuffed_paint only).
+  assert.equal(result.familyScore, 0.45);
+  assert.equal(result.strongestNonFamilyClass, 'chipped_paint');
+  assert.equal(result.strongestNonFamilyConfidence, 0.45);
+  assert.equal(result.damageSubtype, undefined);
+});
+
+test('chipped_paint remains Unknown Damage even with a high top1 score and low competing scratch signal', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['chipped_paint', 0.80],
+    ['car_scratch', 0.10],
+    ['scuffed_paint', 0.05],
+  ]));
+  assert.equal(result.accepted, false);
+  assert.equal(result.reason, 'unmapped_classifier_label');
+  assert.equal(result.decisionMode, 'abstain');
+  assert.equal(result.familyScore, 0.15);
+  assert.equal(result.damageSubtype, undefined);
+});
+
+test('video_* labels remain abstaining and are never pulled into the scratch family', () => {
+  for (const rawClass of ['video_1', 'video_2', 'video_3']) {
+    const result = analyzeDamageSubtype(classifierPredictionsPayload([
+      [rawClass, 0.55],
+      ['car_scratch', 0.20],
+      ['scuffed_paint', 0.15],
+    ]));
+    assert.equal(result.accepted, false, `${rawClass} must not reach the customer`);
+    assert.equal(result.decisionMode, 'abstain');
+    assert.equal(result.familyScore, 0.35);
+    assert.equal(result.strongestNonFamilyClass, rawClass);
+  }
+});
+
+test('minor_car_damage remains abstaining and is never pulled into the scratch family', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['minor_car_damage', 0.50],
+    ['car_scratch', 0.20],
+    ['deep_car_scratch', 0.15],
+  ]));
+  assert.equal(result.accepted, false);
+  assert.equal(result.familyScore, 0.35);
+  assert.equal(result.strongestNonFamilyClass, 'minor_car_damage');
+  assert.equal(result.damageSubtype, undefined);
+});
+
+test('car_dent direct-mapping behavior is unchanged by scratch-family aggregation', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['car_dent', 0.6827],
+    ['minor_car_damage', 0.1161],
+  ]));
+  assert.equal(result.accepted, true);
+  assert.equal(result.damageSubtype, 'Dent');
+  assert.equal(result.decisionMode, 'direct_class');
+  assert.equal(result.reason, 'accepted');
+  assert.equal(result.familyName, null);
+  assert.equal(result.familyScore, null);
+});
+
+test('cracked_bumper direct-mapping behavior is unchanged by scratch-family aggregation', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['cracked_bumper', 0.7412],
+    ['car_dent', 0.0938],
+  ]));
+  assert.equal(result.accepted, true);
+  assert.equal(result.damageSubtype, 'Crack');
+  assert.equal(result.decisionMode, 'direct_class');
+  assert.equal(result.reason, 'accepted');
+  assert.equal(result.familyName, null);
+  assert.equal(result.familyScore, null);
+});
+
+test('a direct scratch-class hit still reports decisionMode direct_class, not semantic_family', () => {
+  const result = analyzeDamageSubtype(classifierPredictionsPayload([
+    ['car_scratch', 0.7865],
+    ['scuffed_paint', 0.0427],
+  ]));
+  assert.equal(result.accepted, true);
+  assert.equal(result.decisionMode, 'direct_class');
+  assert.equal(result.reason, 'accepted');
+  assert.equal(result.familyName, null);
 });
 
 test('abstains safely when the direct classifier returns only one prediction', () => {
@@ -478,6 +661,40 @@ test('adds an accepted subtype without replacing RF-DETR confidence or fabricati
   assert.equal(requests[1][2].params.api_key, 'server-only-test-key');
   assert.equal(requests[1][2].params.confidence, 0);
   assert.match(requests[1][1], /^[A-Za-z0-9+/]+=*$/);
+});
+
+test('accepts a scratch-family aggregation end to end without disturbing RF-DETR localization', async () => {
+  const imageBuffer = await createValidImage();
+  await withRoboflowEnv({
+    ROBOFLOW_API_KEY: 'server-only-test-key',
+    ROBOFLOW_MAX_RETRIES: '0',
+  }, async () => withAxiosPost(async (url) => {
+    if (String(url).includes('/infer/workflows/')) {
+      return { data: binaryWorkflowPayload([credibleDamagePrediction({ confidence: 0.91 })]) };
+    }
+    return { data: classifierPredictionsPayload([
+      ['car_scratch', 0.4787],
+      ['scuffed_paint', 0.1855],
+      ['deep_car_scratch', 0.0604],
+    ]) };
+  }, async () => {
+    const result = await detectDamageWithRoboflow([{ buffer: imageBuffer }]);
+    const [damage] = result.damages;
+
+    assert.equal(damage.damageSubtype, 'Scratch / Scuff');
+    assert.equal(damage.component, UNKNOWN_VEHICLE_PANEL);
+    assert.equal(damage.subtypeAnalysis.accepted, true);
+    assert.equal(damage.subtypeAnalysis.reason, 'scratch_family_accepted');
+    assert.equal(damage.subtypeAnalysis.decisionMode, 'semantic_family');
+    assert.equal(damage.subtypeAnalysis.familyName, 'scratch_scuff');
+    assert.equal(damage.subtypeAnalysis.familyScore, 0.7246);
+
+    // RF-DETR localization and confidence must be untouched by the subtype decision.
+    assert.equal(damage.damageClass, 'damage');
+    assert.equal(damage.confidence, 0.91);
+    assert.equal(damage.coordinates.x, 0.3125);
+    assert.equal(damage.segmentation.points.length, 4);
+  }));
 });
 
 test('abstains on chipped_paint end to end while preserving RF-DETR localization', async () => {

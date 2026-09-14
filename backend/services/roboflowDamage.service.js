@@ -36,6 +36,21 @@ const APPROVED_DAMAGE_SUBTYPES = Object.freeze({
   cracked_bumper: 'Crack',
 });
 
+// Semantic family aggregation (2026-09-14 audit). `car_scratch`, `deep_car_scratch`, and
+// `scuffed_paint` are visually equivalent scratch/scuff labels, but the classifier routinely
+// splits an obvious scratch region's probability mass across all three, so no individual class
+// reaches the 0.60 direct-mapping gate even though their combined mass clearly does. The bounded
+// diagnostic audit found zero dent, paint/chip, or ambiguous control regions whose combined
+// scratch-family score reached 0.60, so summing this family does not admit those cases.
+// `chipped_paint` is deliberately excluded from the family: the same audit confirmed that
+// including it would incorrectly convert paint/chip and ambiguous examples into Scratch / Scuff.
+const SCRATCH_SCUFF_FAMILY_NAME = 'scratch_scuff';
+const SCRATCH_SCUFF_FAMILY_CLASSES = Object.freeze([
+  'car_scratch',
+  'deep_car_scratch',
+  'scuffed_paint',
+]);
+
 export const ZERO_DETECTION_MESSAGE = 'No confident damage detected. Try taking a closer photo of the affected area.';
 
 /* ── Multi-view guided inspection ──────────────────────────────────────────── */
@@ -324,6 +339,12 @@ const emptySubtypeAnalysis = (reason, overrides = {}) => ({
   top2Confidence: null,
   margin: null,
   reason,
+  decisionMode: 'abstain',
+  familyName: null,
+  familyScore: null,
+  familyMargin: null,
+  strongestNonFamilyClass: null,
+  strongestNonFamilyConfidence: null,
   ...overrides,
 });
 
@@ -391,24 +412,62 @@ export const analyzeDamageSubtype = (payload, thresholds = {}) => {
     ? Number(thresholds.minMargin)
     : DEFAULT_SUBTYPE_MIN_MARGIN;
 
+  let directClassReason = 'accepted';
   if (top1.confidence < minConfidence) {
-    return emptySubtypeAnalysis('top1_below_confidence', details);
-  }
-  if (margin < minMargin) {
-    return emptySubtypeAnalysis('margin_below_threshold', details);
-  }
-
-  const damageSubtype = APPROVED_DAMAGE_SUBTYPES[top1.className];
-  if (!damageSubtype) {
-    return emptySubtypeAnalysis('unmapped_classifier_label', details);
+    directClassReason = 'top1_below_confidence';
+  } else if (margin < minMargin) {
+    directClassReason = 'margin_below_threshold';
+  } else if (!APPROVED_DAMAGE_SUBTYPES[top1.className]) {
+    directClassReason = 'unmapped_classifier_label';
   }
 
-  return {
-    accepted: true,
-    ...details,
-    reason: 'accepted',
-    damageSubtype,
+  if (directClassReason === 'accepted') {
+    return {
+      accepted: true,
+      ...details,
+      reason: 'accepted',
+      decisionMode: 'direct_class',
+      familyName: null,
+      familyScore: null,
+      familyMargin: null,
+      strongestNonFamilyClass: null,
+      strongestNonFamilyConfidence: null,
+      damageSubtype: APPROVED_DAMAGE_SUBTYPES[top1.className],
+    };
+  }
+
+  // Direct-class mapping did not accept top1 alone. Evaluate whether the scratch/scuff
+  // semantic family's combined probability mass clears the same two gates before abstaining.
+  const scratchFamilyScore = ranked
+    .filter((score) => SCRATCH_SCUFF_FAMILY_CLASSES.includes(score.className))
+    .reduce((sum, score) => sum + score.confidence, 0);
+  const strongestNonScratch = ranked.find(
+    (score) => !SCRATCH_SCUFF_FAMILY_CLASSES.includes(score.className)
+  ) ?? null;
+  const strongestNonScratchScore = strongestNonScratch ? strongestNonScratch.confidence : 0;
+  const scratchFamilyMargin = scratchFamilyScore - strongestNonScratchScore;
+  const familyDetails = {
+    familyName: SCRATCH_SCUFF_FAMILY_NAME,
+    familyScore: Number(scratchFamilyScore.toFixed(4)),
+    familyMargin: Number(scratchFamilyMargin.toFixed(4)),
+    strongestNonFamilyClass: strongestNonScratch ? strongestNonScratch.className : null,
+    strongestNonFamilyConfidence: strongestNonScratch
+      ? Number(strongestNonScratch.confidence.toFixed(4))
+      : null,
   };
+
+  if (scratchFamilyScore >= minConfidence && scratchFamilyMargin >= minMargin) {
+    return {
+      accepted: true,
+      ...details,
+      ...familyDetails,
+      reason: 'scratch_family_accepted',
+      decisionMode: 'semantic_family',
+      damageSubtype: APPROVED_DAMAGE_SUBTYPES.car_scratch,
+    };
+  }
+
+  return emptySubtypeAnalysis(directClassReason, { ...details, ...familyDetails });
 };
 
 export const assessSubtypeLocalization = (prediction, dimensions, minConfidence = DEFAULT_MIN_CONFIDENCE) => {
@@ -534,6 +593,12 @@ const enrichPredictionSubtype = async (prediction, image, config) => {
         top2Confidence: subtypeAnalysis.top2Confidence,
         margin: subtypeAnalysis.margin,
         reason: subtypeAnalysis.reason,
+        decisionMode: subtypeAnalysis.decisionMode,
+        familyName: subtypeAnalysis.familyName,
+        familyScore: subtypeAnalysis.familyScore,
+        familyMargin: subtypeAnalysis.familyMargin,
+        strongestNonFamilyClass: subtypeAnalysis.strongestNonFamilyClass,
+        strongestNonFamilyConfidence: subtypeAnalysis.strongestNonFamilyConfidence,
       },
     };
   } catch {
