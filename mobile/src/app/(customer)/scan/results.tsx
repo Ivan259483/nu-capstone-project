@@ -42,8 +42,10 @@ import {
 } from '@/features/ai-scan/multiViewInspection';
 import {
   getAiResultDestination,
+  AI_SCAN_ROUTES,
   THREE_D_OPTIONAL_HELPER,
 } from '@/features/ai-scan/threeDPreparation';
+import { buildRepairSourceOptions } from '@/features/ai-scan/repairVisualization';
 
 const causeForDamage = (damage: AiScanDamage) => {
   const text = `${damage.damageSubtype} ${damage.description}`.toLowerCase();
@@ -162,6 +164,14 @@ export default function ResultsScreen() {
     : 0;
   const severeCount = rankedDamages.filter((damage) => damage.severity === 'high').length;
   const detectedRegionCount = rankedDamages.length;
+  const repairPreviewAvailable = useMemo(
+    () => Boolean(
+      scan
+      && !noDamageDetected
+      && buildRepairSourceOptions(scan, capturedImages.map((image) => image.uri)).length > 0
+    ),
+    [capturedImages, noDamageDetected, scan]
+  );
 
   const visibleDamageIds = useMemo(
     () => new Set(rankedDamages.map((damage) => damage.id)),
@@ -584,6 +594,33 @@ export default function ResultsScreen() {
             ))}
           </View>
         </GlassPanel>
+
+        {repairPreviewAvailable ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="View AI Repair Preview"
+            onPress={() => router.push(AI_SCAN_ROUTES.repairPreview as never)}
+            style={({ pressed }) => [styles.repairPreviewRow, pressed && { opacity: 0.88 }]}
+          >
+            <LinearGradient
+              colors={['rgba(255,107,53,0.22)', 'rgba(255,107,53,0.07)']}
+              style={StyleSheet.absoluteFill}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            />
+            <Ionicons name="sparkles-outline" size={21} color={scannerColors.orangeSoft} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.repairPreviewRowTitle}>AI Repair Preview</Text>
+              <Text style={styles.repairPreviewRowSub}>
+                Compare the detected damage with an AI-generated repaired visualization.
+              </Text>
+              <View style={styles.repairPreviewCta}>
+                <Text style={styles.repairPreviewCtaText}>View Repair Preview</Text>
+                <Ionicons name="chevron-forward" size={14} color={scannerColors.orangeSoft} />
+              </View>
+            </View>
+          </Pressable>
+        ) : null}
 
         <Pressable
           onPress={() => {
@@ -1072,6 +1109,40 @@ const styles = StyleSheet.create({
     color: scannerColors.textSoft,
     fontSize: 10,
     fontWeight: '800',
+  },
+  repairPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 15,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,107,53,0.30)',
+  },
+  repairPreviewRowTitle: {
+    color: scannerColors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  repairPreviewRowSub: {
+    color: scannerColors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
+    marginTop: 3,
+  },
+  repairPreviewCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 8,
+  },
+  repairPreviewCtaText: {
+    color: scannerColors.orangeSoft,
+    fontSize: 11,
+    fontWeight: '900',
   },
   webArRow: {
     flexDirection: 'row',

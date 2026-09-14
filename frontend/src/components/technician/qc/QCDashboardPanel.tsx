@@ -749,6 +749,9 @@ export default function QCDashboardPanel() {
         onNavigate={navigateTo}
         pendingCount={pendingCount}
         aiPendingCount={aiPendingCount}
+        connected={qcWorkspaceConnected}
+        dataError={qcWorkspaceError}
+        hasData={Boolean(qcWorkspaceData)}
       />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <QCTopbar

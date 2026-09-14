@@ -4,6 +4,7 @@ import { buildDamageIssue, buildDamageReport } from '../models/damageReport.mode
 import { timeOperation } from '../utils/performance.utils.js';
 import { mapWithConcurrency } from '../utils/concurrency.utils.js';
 import { getGuidedViewLabel } from '../constants/guidedViews.js';
+import { assessImageQuality } from '../utils/imageQuality.utils.js';
 
 const DEFAULT_WORKSPACE = 'ivan-tadena';
 const DEFAULT_WORKFLOW_ID = 'autogloss-binary-damage-deployment-1787502823460';
@@ -694,6 +695,13 @@ const analyzeImageForDamage = async (file, config, context = {}) => {
     () => optimizeImage(file, config.maxImageEdge)
   );
 
+  // Runs concurrently with the Roboflow call below — quality validation is
+  // advisory only and must never add latency to (or block) detection.
+  const qualityPromise = timeOperation(
+    { req, res, kind: 'cpu', name: `roboflow.${metricLabel}.quality` },
+    () => assessImageQuality(image.buffer)
+  );
+
   const payload = await timeOperation(
     { req, res, kind: 'external', name: `roboflow.${metricLabel}.workflow` },
     () => executeWorkflow(image, config)
@@ -725,6 +733,8 @@ const analyzeImageForDamage = async (file, config, context = {}) => {
     }
   );
 
+  const quality = await qualityPromise;
+
   return {
     issues,
     imageProcessing: {
@@ -733,6 +743,7 @@ const analyzeImageForDamage = async (file, config, context = {}) => {
       height: image.height,
       bytes: image.buffer.length,
       mimeType: image.mimeType,
+      quality,
     },
   };
 };

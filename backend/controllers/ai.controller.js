@@ -42,12 +42,25 @@ import {
   getMeshyTaskStatus,
   meshyDependencyStatus,
 } from '../services/meshy.service.js';
+import { createArSession } from '../services/arSession.service.js';
 import { buildEstimateFromDamages } from '../services/estimator.service.js';
 import { isServiceOperationRole } from '../constants/roles.js';
 import {
   getOrSetResponseCache,
   invalidateResponseCache,
 } from '../utils/responseCache.utils.js';
+import {
+  describeExternalUrl,
+  extractTaskId,
+  normalizeMeshyStatus,
+  extractModelUrl,
+  extractUsdzUrl,
+  extractThumbnailUrl,
+  extractPrecedingTasks,
+  extractLifecycleTimestamps,
+  extractTaskError,
+  logMeshyUrlDiagnostics,
+} from '../utils/meshyResponseMapping.utils.js';
 
 // ── Module-level Replicate session state ──────────────────────────────────────
 // Set to true once a 402 is received so we skip all subsequent calls this
@@ -89,15 +102,6 @@ const WEBAR_TARGET_IMAGE_PATH = '/webar/targets/autospf-vehicle.png';
 const WEBAR_FALLBACK_MODEL_PATH = '/webar/models/fallback-car.glb';
 const inFlightAnalyzeLocks = new Map();
 const recentAnalyzeResults = new Map();
-
-const describeExternalUrl = (value) => {
-  try {
-    const parsed = new URL(String(value || ''));
-    return `${parsed.origin}${parsed.pathname}`;
-  } catch {
-    return '[invalid-url]';
-  }
-};
 
 const SERVICE_LIBRARY = {
   bumper: {
@@ -515,159 +519,6 @@ const validateUploads = (files = []) => {
   return null;
 };
 
-const isGlbUrl = (url) => {
-  if (typeof url !== 'string') return false;
-  const cleaned = url.split('?')[0].split('#')[0].toLowerCase().trim();
-  return cleaned.endsWith('.glb');
-};
-
-const isUsdzUrl = (url) => {
-  if (typeof url !== 'string') return false;
-  const cleaned = url.split('?')[0].split('#')[0].toLowerCase().trim();
-  return cleaned.endsWith('.usdz');
-};
-
-const collectUrlStrings = (value, label, acc = []) => {
-  if (!value) return acc;
-  if (typeof value === 'string') {
-    acc.push({ label, url: value });
-    return acc;
-  }
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => collectUrlStrings(item, `${label}[${index}]`, acc));
-    return acc;
-  }
-  if (typeof value === 'object') {
-    Object.entries(value).forEach(([key, item]) => collectUrlStrings(item, `${label}.${key}`, acc));
-  }
-  return acc;
-};
-
-const logMeshyUrlDiagnostics = (payload = {}) => {
-  const availableKeys = (value) => {
-    if (!value) return [];
-    if (typeof value === 'string') return ['direct'];
-    return typeof value === 'object' ? Object.keys(value) : [];
-  };
-  console.log('[Meshy] Available URL fields:', JSON.stringify({
-    model_urls: availableKeys(payload?.model_urls),
-    result_model_urls: availableKeys(payload?.result?.model_urls),
-    output_model_urls: availableKeys(payload?.output?.model_urls),
-    data_model_urls: availableKeys(payload?.data?.model_urls),
-    texture_urls: availableKeys(payload?.texture_urls),
-    result_texture_urls: availableKeys(payload?.result?.texture_urls),
-    output_texture_urls: availableKeys(payload?.output?.texture_urls),
-    data_texture_urls: availableKeys(payload?.data?.texture_urls),
-  }));
-};
-
-const extractModelUrl = (payload = {}) => {
-  const glbCandidates = [
-    { label: 'model_urls.glb', url: payload?.model_urls?.glb },
-    { label: 'result.model_urls.glb', url: payload?.result?.model_urls?.glb },
-    { label: 'output.model_urls.glb', url: payload?.output?.model_urls?.glb },
-    { label: 'data.model_urls.glb', url: payload?.data?.model_urls?.glb },
-  ];
-
-  for (const candidate of glbCandidates) {
-    if (typeof candidate.url !== 'string' || !candidate.url.trim()) continue;
-    if (isGlbUrl(candidate.url)) {
-      const selectedUrl = candidate.url.trim();
-      console.log('[Meshy] Selected GLB URL:', describeExternalUrl(selectedUrl));
-      return selectedUrl;
-    }
-    console.warn(`[Meshy] Rejected non-GLB model URL candidate (${candidate.label}):`, describeExternalUrl(candidate.url));
-  }
-
-  const rejectedCandidates = [
-    ...collectUrlStrings(payload?.model_url, 'model_url'),
-    ...collectUrlStrings(payload?.glb_url, 'glb_url'),
-    ...collectUrlStrings(payload?.thumbnail_url, 'thumbnail_url'),
-    ...collectUrlStrings(payload?.model_urls, 'model_urls'),
-    ...collectUrlStrings(payload?.texture_urls, 'texture_urls'),
-    ...collectUrlStrings(payload?.result?.model_url, 'result.model_url'),
-    ...collectUrlStrings(payload?.result?.glb_url, 'result.glb_url'),
-    ...collectUrlStrings(payload?.result?.thumbnail_url, 'result.thumbnail_url'),
-    ...collectUrlStrings(payload?.result?.model_urls, 'result.model_urls'),
-    ...collectUrlStrings(payload?.result?.texture_urls, 'result.texture_urls'),
-    ...collectUrlStrings(payload?.output?.model_url, 'output.model_url'),
-    ...collectUrlStrings(payload?.output?.glb_url, 'output.glb_url'),
-    ...collectUrlStrings(payload?.output?.thumbnail_url, 'output.thumbnail_url'),
-    ...collectUrlStrings(payload?.output?.model_urls, 'output.model_urls'),
-    ...collectUrlStrings(payload?.output?.texture_urls, 'output.texture_urls'),
-    ...collectUrlStrings(payload?.data?.model_url, 'data.model_url'),
-    ...collectUrlStrings(payload?.data?.glb_url, 'data.glb_url'),
-    ...collectUrlStrings(payload?.data?.thumbnail_url, 'data.thumbnail_url'),
-    ...collectUrlStrings(payload?.data?.model_urls, 'data.model_urls'),
-    ...collectUrlStrings(payload?.data?.texture_urls, 'data.texture_urls'),
-  ];
-
-  rejectedCandidates.forEach(({ label, url }) => {
-    if (typeof url === 'string' && url.trim() && !isGlbUrl(url)) {
-      console.warn(`[Meshy] Rejected non-GLB URL (${label}):`, describeExternalUrl(url));
-    }
-  });
-
-  return null;
-};
-
-const extractUsdzUrl = (payload = {}) => {
-  const usdzCandidates = [
-    { label: 'model_urls.usdz', url: payload?.model_urls?.usdz },
-    { label: 'result.model_urls.usdz', url: payload?.result?.model_urls?.usdz },
-    { label: 'output.model_urls.usdz', url: payload?.output?.model_urls?.usdz },
-    { label: 'data.model_urls.usdz', url: payload?.data?.model_urls?.usdz },
-    { label: 'usdz_url', url: payload?.usdz_url },
-    { label: 'result.usdz_url', url: payload?.result?.usdz_url },
-    { label: 'output.usdz_url', url: payload?.output?.usdz_url },
-    { label: 'data.usdz_url', url: payload?.data?.usdz_url },
-  ];
-
-  for (const candidate of usdzCandidates) {
-    if (typeof candidate.url !== 'string' || !candidate.url.trim()) continue;
-    if (isUsdzUrl(candidate.url)) {
-      const selectedUrl = candidate.url.trim();
-      console.log('[Meshy] Selected USDZ URL:', describeExternalUrl(selectedUrl));
-      return selectedUrl;
-    }
-    console.warn(`[Meshy] Rejected non-USDZ URL candidate (${candidate.label}):`, describeExternalUrl(candidate.url));
-  }
-
-  return null;
-};
-
-const extractTaskId = (payload = {}) => {
-  const candidate = (
-    payload?.task_id
-    || payload?.id
-    || payload?.result
-    || payload?.result?.id
-    || payload?.result?.task_id
-    || payload?.data?.id
-    || payload?.data?.task_id
-    || ''
-  );
-
-  return typeof candidate === 'string' ? candidate : '';
-};
-
-const normalizeMeshyStatus = (status) => {
-  const normalized = String(status || '').toLowerCase().replace(/_/g, '');
-  // Meshy real API returns uppercase: SUCCEEDED, IN_PROGRESS, FAILED, PENDING
-  if (['succeeded', 'success', 'completed', 'done', 'finished', 'arready'].includes(normalized)) {
-    return 'ar_ready';
-  }
-  if (['failed', 'error', 'cancelled'].includes(normalized)) {
-    return 'failed';
-  }
-  return 'processing'; // IN_PROGRESS, PENDING, QUEUED, etc.
-};
-
-const buildMeshyHeaders = (extra = {}) => ({
-  Authorization: `Bearer ${MESHY_API_KEY}`,
-  ...extra,
-});
-
 const get3DDependencyStatus = () => {
   if (!MESHY_API_KEY) {
     return {
@@ -682,76 +533,6 @@ const get3DDependencyStatus = () => {
     message: '',
     reason: '',
   };
-};
-
-const startMeshyTask = async (files) => {
-  const cloudinaryUrls = await uploadVehicleScanImages(files, {
-    folder: MESHY_CLOUDINARY_FOLDER,
-  });
-
-  // Meshy Image-to-3D endpoint with PBR textures
-  const jsonPayload = {
-    image_url: cloudinaryUrls[0],
-    enable_pbr: true,
-    should_remesh: true,
-    should_texture: true,
-    target_polycount: 30000,
-    target_formats: ['glb', 'usdz'],
-  };
-
-  console.log('[Meshy] Starting image-to-3d with payload:', JSON.stringify(jsonPayload, null, 2));
-
-  const jsonResp = await axios.post(
-    `${MESHY_API_BASE}/image-to-3d`,
-    jsonPayload,
-    {
-      headers: buildMeshyHeaders({ 'Content-Type': 'application/json' }),
-      timeout: 60000,
-    }
-  );
-
-  console.log('[Meshy] Response:', JSON.stringify(jsonResp.data, null, 2));
-
-  return {
-    ...(jsonResp.data || {}),
-    source_image_urls: cloudinaryUrls,
-  };
-};
-
-/**
- * Fetch a Meshy task status.
- * @param {string} taskId
- * @param {string} [pollBase] - The confirmed working base URL. Probes all candidates on 404 if omitted.
- */
-const fetchMeshyTask = async (taskId, pollBase = null) => {
-  // Build probe list: working base first (if known), then all candidates for robustness
-  const probeList = [...new Set([
-    ...(pollBase ? [pollBase] : []),
-    OFFICIAL_MESHY_API_BASE,
-    MESHY_API_BASE,
-    'https://api.meshy.ai/openapi/v2',
-    'https://api.meshy.ai/v2',
-    'https://api.meshy.ai/v1',
-  ])];
-
-  for (const base of probeList) {
-    const pollUrl = `${base}/image-to-3d/${taskId}`;
-    console.log(`[Meshy] GET poll: ${pollUrl}`);
-    try {
-      const response = await axios.get(pollUrl, {
-        headers: buildMeshyHeaders(),
-        timeout: 45000,
-      });
-      return response.data;
-    } catch (error) {
-      const httpStatus = error?.response?.status ?? 'no-response';
-      const responseBody = error?.response?.data ?? null;
-      console.warn(`[Meshy] ❌ poll ${httpStatus}: ${pollUrl} → ${JSON.stringify(responseBody)}`);
-      if (httpStatus !== 404 && httpStatus !== 405 && httpStatus !== 'no-response') throw error;
-    }
-  }
-
-  throw new Error(`All Meshy poll endpoints returned 404/405 for task ${taskId}`);
 };
 
 const buildAnalyzeResponse = ({
@@ -1071,6 +852,7 @@ export const generate3DModel = async (req, res) => {
       success: true,
       status: 'processing',
       task_id: taskId,
+      job_id: taskId,
       meshy_poll_base: taskData.workingBase || '',
       progress: 0,
       message: '3D model generation started. Poll /status/:taskId for updates.',
@@ -1123,14 +905,31 @@ export const get3DModelStatus = async (req, res) => {
       console.warn(`[Meshy Poll] DB lookup failed (non-fatal) for taskId=${taskId}:`, dbErr?.message);
     }
 
-    const payload = await fetchMeshyTask(taskId, pollBase);
-    console.log(`[AI Scan][Meshy] Poll response for ${taskId}:`, JSON.stringify(payload, null, 2));
+    // Delegates the actual polling/probing to meshy.service.js — the same
+    // helper backend/services/meshy.service.js#startMeshyImageTo3D pairs with —
+    // instead of keeping a second copy of the Meshy endpoint-probe loop here.
+    const { raw: payload } = await getMeshyTaskStatus(taskId, pollBase);
     const status = normalizeMeshyStatus(payload?.status || payload?.result?.status);
     if (status === 'ar_ready') {
       logMeshyUrlDiagnostics(payload);
     }
     const modelUrl = extractModelUrl(payload);
     const usdzUrl = status === 'ar_ready' ? extractUsdzUrl(payload) : null;
+    const previewUrl = extractThumbnailUrl(payload);
+    // Queue/lifecycle fields Meshy already returns but the response used to
+    // discard — exposed as-is so the client can tell "queued" (PENDING,
+    // started_at not reached) apart from "generating" (IN_PROGRESS) instead
+    // of collapsing both into the same 0%-forever "processing" bucket.
+    const precedingTasks = extractPrecedingTasks(payload);
+    const lifecycle = extractLifecycleTimestamps(payload);
+    const taskError = extractTaskError(payload);
+    const lifecycleFields = {
+      preceding_tasks: precedingTasks,
+      created_at: lifecycle.createdAt,
+      started_at: lifecycle.startedAt,
+      finished_at: lifecycle.finishedAt,
+      task_error: taskError,
+    };
 
     if (status === 'ar_ready' && modelUrl) {
       // ── Persist GLB permanently to Cloudinary before saving to DB ──────────
@@ -1177,14 +976,32 @@ export const get3DModelStatus = async (req, res) => {
         console.warn(`[Meshy Poll] Could not persist ready model for taskId=${taskId}:`, dbErr?.message);
       }
 
+      // Android Scene Viewer / iPhone Quick Look / QR launch URL all derive from
+      // the same short-lived AR session the /ar-session endpoint creates — build
+      // one here too so a single status poll is enough to drive the AR UI without
+      // a second round trip.
+      const arSession = createArSession(req, {
+        modelUrl: permanentModelUrl,
+        repairedModelUrl: permanentModelUrl,
+        usdzUrl: usdzUrl || undefined,
+      });
+
       return res.json({
         success: true,
         status: 'ar_ready',
         model_url: permanentModelUrl,
         repaired_model_url: permanentModelUrl,
-        ...(usdzUrl ? { usdz_url: usdzUrl } : {}),
+        ...(usdzUrl ? { usdz_url: usdzUrl, quick_look_url: usdzUrl } : {}),
+        ...(previewUrl ? { preview_url: previewUrl } : {}),
+        ...(arSession ? {
+          scene_viewer_url: arSession.sceneViewerUrl,
+          qr_code_url: arSession.launchUrl,
+          ar_launch_token: arSession.token,
+        } : {}),
         progress: 100,
         task_id: taskId,
+        job_id: taskId,
+        ...lifecycleFields,
       });
     }
 
@@ -1195,6 +1012,7 @@ export const get3DModelStatus = async (req, res) => {
         success: false,
         status: 'failed',
         task_id: taskId,
+        job_id: taskId,
         message: 'Meshy completed the task but did not return a GLB model URL. Check backend Meshy URL diagnostics.',
       });
     }
@@ -1204,7 +1022,9 @@ export const get3DModelStatus = async (req, res) => {
         success: false,
         status: 'failed',
         task_id: taskId,
-        message: payload?.message || '3D generation failed.',
+        job_id: taskId,
+        message: taskError || payload?.message || '3D generation failed.',
+        ...lifecycleFields,
       });
     }
 
@@ -1212,8 +1032,11 @@ export const get3DModelStatus = async (req, res) => {
       success: true,
       status: 'processing',
       task_id: taskId,
+      job_id: taskId,
       progress: Number(payload?.progress || payload?.result?.progress || 0),
+      ...(previewUrl ? { preview_url: previewUrl } : {}),
       message: '3D model is still being generated.',
+      ...lifecycleFields,
     });
   } catch (error) {
     const detail = error?.response?.data || error?.message || 'Unknown error';
@@ -2018,6 +1841,7 @@ export const getScanById = async (req, res) => {
         repairedModelUrl: scan.repairedModelUrl || '',
         usdzUrl: scan.usdzUrl || '',
         modelStatus: scan.modelStatus || 'idle',
+        repairVisualization: scan.repairVisualization || null,
         createdAt: scan.createdAt,
       },
     });
@@ -2344,6 +2168,7 @@ export const generate3DFromScan = async (req, res) => {
       success: true,
       status: 'processing',
       task_id: String(taskId),
+      job_id: String(taskId),
       meshy_poll_base: workingBase,
       progress: 0,
       source_image_urls: scan.imageUrls,

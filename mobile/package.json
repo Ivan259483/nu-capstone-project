@@ -22,6 +22,7 @@
     "test:multi-view-inspection": "node --experimental-strip-types --test tests/multiViewInspection.test.mjs",
     "test:ai-scan-zero-detection": "node --experimental-strip-types --test tests/aiScanZeroDetection.test.mjs",
     "test:ai-scan-3d-preparation": "node --experimental-strip-types --test tests/aiScan3DPreparation.test.mjs",
+    "test:repair-visualization": "node --experimental-strip-types --test tests/repairVisualization.test.mjs",
     "test:tracker-parity": "node --experimental-strip-types --test tests/customerTrackerProgressParity.test.mjs"
   },
   "dependencies": {

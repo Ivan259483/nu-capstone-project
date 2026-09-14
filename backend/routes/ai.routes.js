@@ -1,7 +1,13 @@
 import express from 'express';
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
-import { createHash, randomBytes } from 'crypto';
+import { createHash } from 'crypto';
+import {
+  buildSceneViewerUrl,
+  createArSession,
+  getArSession,
+  normalizeArAssetUrl,
+} from '../services/arSession.service.js';
 import {
   analyzeDamage,
   generate3DModel,
@@ -22,9 +28,12 @@ import {
 } from '../controllers/ai.controller.js';
 import { authenticate, authorize, optionalAuthenticate } from '../middleware/auth.middleware.js';
 import { SERVICE_OPERATION_ROLES } from '../constants/roles.js';
-import { config } from '../config/environment.js';
 import { detectVehicleDamage, detectVehicleDamageBatch } from '../controllers/damageDetection.controller.js';
 import { handleDamageImageUpload } from '../middleware/damageImageUpload.middleware.js';
+import {
+  getRepairVisualization,
+  startRepairVisualization,
+} from '../controllers/repairVisualization.controller.js';
 
 const router = express.Router();
 
@@ -40,6 +49,18 @@ const aiGenerationLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many 3D generation requests. Please try again later.' },
+});
+
+const repairVisualizationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    code: 'REPAIR_VISUALIZATION_RATE_LIMITED',
+    message: 'Too many repair visualization requests. Please try again later.',
+  },
 });
 
 const damageDetectionLimiter = rateLimit({
@@ -106,6 +127,13 @@ router.post(
 );
 router.get('/scan/:id', optionalAuthenticate, getScanById);
 router.get('/webar-session/:scanId', optionalAuthenticate, getWebARSession);
+router.post(
+  '/repair-visualization',
+  optionalAuthenticate,
+  repairVisualizationLimiter,
+  startRepairVisualization
+);
+router.get('/repair-visualization/:scanId', optionalAuthenticate, getRepairVisualization);
 // Accepts both JSON { scanId } (normal path) and multipart images[] (direct fallback when Cloudinary is down).
 router.post('/generate-3d-from-scan', optionalAuthenticate, aiGenerationLimiter, (req, res, next) => {
   const ct = String(req.headers['content-type'] || '');
@@ -128,61 +156,10 @@ router.get('/proxy-glb', proxyGlb);
    iOS Linking.openURL fails with very long Meshy signed GLB URLs.
    The mobile app POSTs the model URL → gets a short token.
    ar.html opens with ?token=xxx (short URL) → fetches model URL from GET.
-   Tokens auto-expire after 30 minutes. */
-const arSessions = new Map(); // token → { modelUrl, createdAt }
-const AR_SESSION_TTL_MS = 30 * 60 * 1000; // 30 min
-
-// Cleanup expired tokens every 5 minutes
-const arSessionCleanupTimer = setInterval(() => {
-  const now = Date.now();
-  for (const [token, data] of arSessions) {
-    if (now - data.createdAt > AR_SESSION_TTL_MS) arSessions.delete(token);
-  }
-}, 5 * 60 * 1000);
-arSessionCleanupTimer.unref?.();
-
-const buildSceneViewerUrl = (modelUrl) =>
-  `https://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(modelUrl)}`;
-
-const getPublicOrigin = (req) => {
-  if (config.publicApiOrigin) return config.publicApiOrigin;
-  const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim();
-  const proto = forwardedProto || req.protocol || 'http';
-  return `${proto}://${req.get('host')}`;
-};
-
-const buildLaunchUrl = (req, token) =>
-  `${getPublicOrigin(req)}/api/ai/ar-launch?token=${encodeURIComponent(token)}`;
-
-const AR_ASSET_ALLOWED_HOSTS = new Set([
-  'nu-capstone-project.onrender.com',
-  'assets.meshy.ai',
-  'res.cloudinary.com',
-  'storage.googleapis.com',
-]);
-
-const isLoopbackHostname = (hostname) =>
-  hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-
-const normalizeArAssetUrl = (req, value) => {
-  const candidate = String(value || '').trim();
-  if (!candidate) return '';
-  try {
-    const publicOrigin = new URL(getPublicOrigin(req));
-    const parsed = new URL(candidate, publicOrigin);
-    if (parsed.username || parsed.password) return '';
-    const isAllowedExternalHost = [...AR_ASSET_ALLOWED_HOSTS]
-      .some((host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`));
-    const secureProtocol = parsed.protocol === 'https:';
-    const localDevelopmentUrl = parsed.protocol === 'http:' && isLoopbackHostname(parsed.hostname);
-    if (!(secureProtocol || localDevelopmentUrl)) return '';
-    const isLocalOwnOrigin = parsed.origin === publicOrigin.origin && isLoopbackHostname(parsed.hostname);
-    if (!(isLocalOwnOrigin || isAllowedExternalHost)) return '';
-    return parsed.toString();
-  } catch {
-    return '';
-  }
-};
+   Tokens auto-expire after 30 minutes. Session storage, host validation and
+   URL building live in services/arSession.service.js so the same helpers
+   back both this route and the consolidated status payload in
+   ai.controller.js#get3DModelStatus. */
 
 const escapeHtml = (value) => String(value ?? '').replace(
   /[&<>"']/g,
@@ -194,20 +171,6 @@ const escapeHtml = (value) => String(value ?? '').replace(
     "'": '&#39;',
   })[character]
 );
-
-const normalizeArDamages = (damages) => (Array.isArray(damages) ? damages : [])
-  .slice(0, 50)
-  .map((damage) => ({
-    type: String(damage?.type || 'Damage').slice(0, 100),
-    affectedArea: String(damage?.affectedArea || '').slice(0, 100),
-    severity: ['high', 'medium', 'low'].includes(damage?.severity) ? damage.severity : 'medium',
-    coordinates: {
-      x: Math.max(0, Math.min(1, Number(damage?.coordinates?.x) || 0)),
-      y: Math.max(0, Math.min(1, Number(damage?.coordinates?.y) || 0)),
-      width: Math.max(0, Math.min(1, Number(damage?.coordinates?.width) || 0)),
-      height: Math.max(0, Math.min(1, Number(damage?.coordinates?.height) || 0)),
-    },
-  }));
 
 const buildArLaunchFallbackHtml = ({
   title,
@@ -316,33 +279,20 @@ const AR_LAUNCH_CSP = [
 
 router.post('/ar-session', (req, res) => {
   const { modelUrl, repairedModelUrl, usdzUrl, damages } = req.body || {};
-  const safeModelUrl = normalizeArAssetUrl(req, modelUrl);
-  if (!safeModelUrl) {
+  const session = createArSession(req, { modelUrl, repairedModelUrl, usdzUrl, damages });
+  if (!session) {
     return res.status(400).json({ error: 'A valid HTTPS modelUrl from an approved model host is required.' });
   }
-  const safeRepairedModelUrl = normalizeArAssetUrl(req, repairedModelUrl) || safeModelUrl;
-  const safeUsdzUrl = normalizeArAssetUrl(req, usdzUrl);
-  const token = randomBytes(24).toString('base64url');
-  const sceneViewerUrl = buildSceneViewerUrl(safeModelUrl);
-  const launchUrl = buildLaunchUrl(req, token);
-  arSessions.set(token, {
-    modelUrl: safeModelUrl,
-    repairedModelUrl: safeRepairedModelUrl,
-    usdzUrl: safeUsdzUrl,
-    sceneViewerUrl,
-    damages: normalizeArDamages(damages),
-    createdAt: Date.now(),
-  });
   res.json({
-    token,
-    launchUrl,
-    sceneViewerUrl,
-    ...(safeUsdzUrl ? { usdzUrl: safeUsdzUrl } : {}),
+    token: session.token,
+    launchUrl: session.launchUrl,
+    sceneViewerUrl: session.sceneViewerUrl,
+    ...(session.usdzUrl ? { usdzUrl: session.usdzUrl } : {}),
   });
 });
 
 router.get('/ar-session/:token', (req, res) => {
-  const data = arSessions.get(req.params.token);
+  const data = getArSession(req.params.token);
   if (!data) return res.status(404).json({ error: 'Session expired or not found' });
   res.json({
     modelUrl: data.modelUrl,
@@ -367,7 +317,7 @@ router.get('/ar-launch', (req, res) => {
       }));
   }
 
-  const data = arSessions.get(token);
+  const data = getArSession(token);
   if (!data) {
     return res
       .status(404)

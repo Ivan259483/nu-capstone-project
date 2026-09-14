@@ -41,8 +41,13 @@ import {
   type AiScanWorkflowStage,
   type AiScanWorkflowState,
 } from './scanWorkflowState';
+import { deriveModel3DStatus, type Screen3DStatus } from './modelProgressState';
+import type {
+  RepairVisualizationProgress,
+  RepairVisualizationStatus,
+} from './repairVisualization';
 
-export type Screen3DStatus = 'idle' | 'processing' | 'ready' | 'failed' | 'unavailable';
+export type { Screen3DStatus };
 
 export interface AiScanStoreState {
   // Source images chosen on the entry screen
@@ -74,6 +79,23 @@ export interface AiScanStoreState {
   modelUsdzUrl: string | null;
   modelProgress: number;
   modelMessage: string;
+  // Meshy queue depth ahead of this task — only meaningful while 'queued'.
+  modelPrecedingTasks: number | null;
+
+  // Optional Meshy 2D Before/After repair visualization. Kept entirely
+  // separate from the Image-to-3D / GLB / USDZ state above.
+  repairVisualizationStatus: RepairVisualizationStatus;
+  repairVisualizationTaskId: string | null;
+  repairVisualizationBeforeUrl: string | null;
+  repairVisualizationAfterUrl: string | null;
+  repairVisualizationSourceView: string | null;
+  repairVisualizationSourceImageIndex: number | null;
+  repairVisualizationSourceDamageId: string | null;
+  repairVisualizationMessage: string;
+  repairVisualizationProgress: number;
+  repairVisualizationPrecedingTasks: number | null;
+  repairVisualizationAiModel: string | null;
+  repairVisualizationConsumedCredits: number | null;
 
   // Notes for booking handoff
   notes: string;
@@ -97,8 +119,53 @@ const INITIAL_STATE: AiScanStoreState = {
   modelUsdzUrl: null,
   modelProgress: 0,
   modelMessage: '',
+  modelPrecedingTasks: null,
+  repairVisualizationStatus: 'idle',
+  repairVisualizationTaskId: null,
+  repairVisualizationBeforeUrl: null,
+  repairVisualizationAfterUrl: null,
+  repairVisualizationSourceView: null,
+  repairVisualizationSourceImageIndex: null,
+  repairVisualizationSourceDamageId: null,
+  repairVisualizationMessage: '',
+  repairVisualizationProgress: 0,
+  repairVisualizationPrecedingTasks: null,
+  repairVisualizationAiModel: null,
+  repairVisualizationConsumedCredits: null,
   notes: '',
 };
+
+const emptyRepairVisualizationPatch = {
+  repairVisualizationStatus: 'idle' as const,
+  repairVisualizationTaskId: null,
+  repairVisualizationBeforeUrl: null,
+  repairVisualizationAfterUrl: null,
+  repairVisualizationSourceView: null,
+  repairVisualizationSourceImageIndex: null,
+  repairVisualizationSourceDamageId: null,
+  repairVisualizationMessage: '',
+  repairVisualizationProgress: 0,
+  repairVisualizationPrecedingTasks: null,
+  repairVisualizationAiModel: null,
+  repairVisualizationConsumedCredits: null,
+};
+
+const repairVisualizationPatch = (
+  progress?: RepairVisualizationProgress | null
+): Partial<AiScanStoreState> => progress ? {
+  repairVisualizationStatus: progress.status,
+  repairVisualizationTaskId: progress.taskId,
+  repairVisualizationBeforeUrl: progress.beforeImageUrl,
+  repairVisualizationAfterUrl: progress.afterImageUrl,
+  repairVisualizationSourceView: progress.sourceView,
+  repairVisualizationSourceImageIndex: progress.sourceImageIndex,
+  repairVisualizationSourceDamageId: progress.sourceDamageId,
+  repairVisualizationMessage: progress.message,
+  repairVisualizationProgress: progress.progress,
+  repairVisualizationPrecedingTasks: progress.precedingTasks,
+  repairVisualizationAiModel: progress.aiModel,
+  repairVisualizationConsumedCredits: progress.consumedCredits,
+} : emptyRepairVisualizationPatch;
 
 let state: AiScanStoreState = { ...INITIAL_STATE };
 let nextScanSessionId = 0;
@@ -152,6 +219,8 @@ export const aiScanStore = {
       modelUsdzUrl: null,
       modelProgress: 0,
       modelMessage: '',
+      modelPrecedingTasks: null,
+      ...emptyRepairVisualizationPatch,
     });
   },
 
@@ -176,6 +245,8 @@ export const aiScanStore = {
       modelUsdzUrl: null,
       modelProgress: 0,
       modelMessage: '',
+      modelPrecedingTasks: null,
+      ...repairVisualizationPatch(normalizedScan.repairVisualization),
     });
   },
 
@@ -225,6 +296,8 @@ export const aiScanStore = {
       modelUsdzUrl: null,
       modelProgress: 0,
       modelMessage: '',
+      modelPrecedingTasks: null,
+      ...repairVisualizationPatch(normalizedScan.repairVisualization),
       workflow,
     });
     return true;
@@ -274,26 +347,51 @@ export const aiScanStore = {
   },
 
   setModelProgress: (progress: AiScan3DProgress) => {
+    // A superseded poll loop resolves with 'cancelled' purely so the caller
+    // has something to await — it must never touch the active session's state.
+    if (progress.status === 'cancelled') return;
+
     const workflow = progress.status === 'ar_ready'
       ? activateAiScanWorkflowStage(state.workflow, 'ar')
       : state.workflow;
     update({
-      modelStatus:
-        progress.status === 'ar_ready'
-          ? 'ready'
-          : progress.status === 'failed'
-            ? 'failed'
-            : progress.status === 'unavailable'
-              ? 'unavailable'
-              : 'processing',
+      modelStatus: deriveModel3DStatus(progress),
       modelTaskId: progress.taskId ?? state.modelTaskId,
       modelUrl: progress.modelUrl ?? state.modelUrl,
       repairedModelUrl: progress.repairedModelUrl ?? state.repairedModelUrl,
       modelUsdzUrl: progress.modelUsdzUrl ?? state.modelUsdzUrl,
       modelProgress: progress.progress,
       modelMessage: progress.message ?? state.modelMessage,
+      modelPrecedingTasks: progress.precedingTasks ?? null,
       workflow,
     });
+  },
+
+  setRepairVisualizationSource: (source: {
+    beforeImageUrl: string;
+    sourceView: string;
+    sourceImageIndex: number;
+    sourceDamageId: string | null;
+  }) => {
+    update({
+      repairVisualizationStatus: 'idle',
+      repairVisualizationTaskId: null,
+      repairVisualizationBeforeUrl: source.beforeImageUrl,
+      repairVisualizationAfterUrl: null,
+      repairVisualizationSourceView: source.sourceView,
+      repairVisualizationSourceImageIndex: source.sourceImageIndex,
+      repairVisualizationSourceDamageId: source.sourceDamageId,
+      repairVisualizationMessage: '',
+      repairVisualizationProgress: 0,
+      repairVisualizationPrecedingTasks: null,
+      repairVisualizationAiModel: null,
+      repairVisualizationConsumedCredits: null,
+    });
+  },
+
+  setRepairVisualizationProgress: (progress: RepairVisualizationProgress) => {
+    if (progress.status === 'cancelled') return;
+    update(repairVisualizationPatch(progress));
   },
 
   setNotes: (notes: string) => {

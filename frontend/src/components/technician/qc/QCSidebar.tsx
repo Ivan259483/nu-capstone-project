@@ -2,7 +2,6 @@ import React from 'react';
 import {
   ChevronLeft,
   ChevronRight,
-  ClipboardList,
   LayoutDashboard,
   Radio,
   ScanSearch,
@@ -18,7 +17,6 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
   {
     label: 'Quality Control',
     items: [
-      { id: 'jobs', label: 'Review Desk', icon: ClipboardList, badgeKey: 'pending' },
       { id: 'ai-detection', label: 'AI Detection Review', icon: ScanSearch, badgeKey: 'ai' },
     ],
   },
@@ -105,9 +103,16 @@ export default function QCSidebar({
 
       <div className="qc-dash-sidebar-footer mt-auto px-2.5 pb-2.5 pt-6">
         {showLabels && (
-          <div className="qcw-sidebar-status" role="status">
+          <div className="flex min-w-0 items-center gap-2 px-2 py-2" role="status">
             <span className={`h-2 w-2 shrink-0 rounded-full ${dataError || !connected ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-            <div><strong>{dataError ? 'Data refresh unavailable' : connected ? 'Live connection' : 'Reconnecting'}</strong><small>{hasData ? 'QC snapshot available' : 'Awaiting QC data'}</small></div>
+            <div className="min-w-0 leading-tight">
+              <strong className="block truncate text-[10px] font-semibold text-slate-600">
+                {dataError ? 'Data refresh unavailable' : connected ? 'Live connection' : 'Reconnecting'}
+              </strong>
+              <small className="mt-0.5 block truncate text-[9px] text-slate-400">
+                {hasData ? 'QC snapshot available' : 'Awaiting QC data'}
+              </small>
+            </div>
           </div>
         )}
         <button type="button" onClick={onToggle} className="hidden min-h-9 w-full items-center justify-center gap-2 rounded-lg text-[11px] font-semibold text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 md:flex" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>

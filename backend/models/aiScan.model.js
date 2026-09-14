@@ -215,6 +215,31 @@ const viewResultSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const repairVisualizationSchema = new mongoose.Schema(
+  {
+    taskId: { type: String, trim: true, default: '' },
+    status: {
+      type: String,
+      enum: ['idle', 'queued', 'processing', 'ready', 'failed'],
+      default: 'idle',
+    },
+    beforeImageUrl: { type: String, trim: true, default: '' },
+    afterImageUrl: { type: String, trim: true, default: '' },
+    sourceView: { type: String, trim: true, default: '' },
+    sourceImageIndex: { type: Number, min: 0, default: 0 },
+    sourceDamageId: { type: String, trim: true, default: '' },
+    aiModel: { type: String, trim: true, default: '' },
+    configuredCreditsPerImage: { type: Number, min: 0, default: null },
+    consumedCredits: { type: Number, min: 0, default: null },
+    progress: { type: Number, min: 0, max: 100, default: 0 },
+    precedingTasks: { type: Number, min: 0, default: null },
+    createdAt: { type: Date, default: null },
+    completedAt: { type: Date, default: null },
+    error: { type: String, trim: true, default: '' },
+  },
+  { _id: false }
+);
+
 const aiScanSchema = new mongoose.Schema(
   {
     customer: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -263,6 +288,10 @@ const aiScanSchema = new mongoose.Schema(
     // The Meshy base URL that actually accepted the start POST — polling must use the same base.
     // e.g. "https://api.meshy.ai/v1" or "https://api.meshy.ai/openapi/v2"
     meshyPollBase: { type: String, default: '' },
+
+    // Optional 2D Before/After repair visualization. This is independent of
+    // Meshy Image-to-3D and the existing GLB/USDZ/AR lifecycle above.
+    repairVisualization: { type: repairVisualizationSchema, default: undefined },
 
     notes: { type: String, default: '' },
   },

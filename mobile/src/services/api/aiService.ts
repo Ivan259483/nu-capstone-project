@@ -1,6 +1,7 @@
 import { AxiosError, isAxiosError } from 'axios';
 import { apiClient, getApiErrorMessage } from './client';
 import { authStorage } from '@/services/storage/authStorage';
+import { beginPollGeneration, isCurrentPollGeneration } from './pollGenerationGuard';
 import type {
   AnalysisResult,
   ConfirmationResult,
@@ -14,6 +15,11 @@ import type {
 } from '@/features/ai-scan/types';
 import { buildOfflineDamageAnalysis } from '@/features/ai-scan/offlineDamageEngine';
 import { formatPhp, isValidGlbUrl } from '@/features/ai-scan/utils';
+import {
+  pollRepairVisualizationTask,
+  type RepairVisualizationProgress,
+  type RepairVisualizationStatus,
+} from '@/features/ai-scan/repairVisualization';
 
 type UploadProgressCallback = (progress: number) => void;
 
@@ -849,6 +855,7 @@ export interface AiScanResult {
   inspectionSummary?: AiScanInspectionSummary;
   views?: AiScanViewResult[];
   crossViewDeduplication?: AiScanCrossViewDeduplication;
+  repairVisualization?: RepairVisualizationProgress | null;
 }
 
 export interface AiScanInputImage {
@@ -863,13 +870,20 @@ export interface AiScanInputImage {
 }
 
 export interface AiScan3DProgress {
-  status: 'processing' | 'ar_ready' | 'failed' | 'unavailable';
+  status: 'processing' | 'ar_ready' | 'failed' | 'unavailable' | 'cancelled' | 'still_processing';
   taskId?: string;
   progress: number;
   modelUrl?: string;
   repairedModelUrl?: string;
   modelUsdzUrl?: string | null;
   message?: string;
+  /** Meshy queue depth ahead of this task — only meaningful while queued. */
+  precedingTasks?: number | null;
+  /** Meshy lifecycle timestamps, passed through as-is (0/null = not reached yet). */
+  meshyCreatedAt?: number | null;
+  meshyStartedAt?: number | null;
+  meshyFinishedAt?: number | null;
+  taskError?: string | null;
 }
 
 const toAiSeverity = (value: unknown): AiScanSeverity => {
@@ -1131,8 +1145,51 @@ const mapAiScanResult = (raw: any): AiScanResult => {
     createdAt: String(raw?.createdAt || new Date().toISOString()),
     elapsedMs: Number.isFinite(Number(raw?.elapsedMs)) ? Number(raw.elapsedMs) : undefined,
     damageReport: raw?.damageReport && typeof raw.damageReport === 'object' ? raw.damageReport : undefined,
+    repairVisualization: raw?.repairVisualization
+      ? mapRepairVisualizationProgress(raw.repairVisualization)
+      : null,
     integration: buildIntegrationPayload(damages),
     ...mapMultiViewFields(raw, damages),
+  };
+};
+
+const REPAIR_VISUALIZATION_STATUSES = new Set<RepairVisualizationStatus>([
+  'idle',
+  'queued',
+  'processing',
+  'still_processing',
+  'ready',
+  'failed',
+  'unavailable',
+  'cancelled',
+]);
+
+const mapRepairVisualizationProgress = (
+  raw: any,
+  fallbackMessage = ''
+): RepairVisualizationProgress => {
+  const rawStatus = String(raw?.status || 'idle').toLowerCase() as RepairVisualizationStatus;
+  const status = REPAIR_VISUALIZATION_STATUSES.has(rawStatus) ? rawStatus : 'processing';
+  const numberOrNull = (value: unknown) => {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  return {
+    status,
+    taskId: raw?.taskId ? String(raw.taskId) : null,
+    beforeImageUrl: raw?.beforeImageUrl ? String(raw.beforeImageUrl) : null,
+    afterImageUrl: raw?.afterImageUrl ? String(raw.afterImageUrl) : null,
+    sourceView: raw?.sourceView ? String(raw.sourceView) : null,
+    sourceImageIndex: numberOrNull(raw?.sourceImageIndex),
+    sourceDamageId: raw?.sourceDamageId ? String(raw.sourceDamageId) : null,
+    aiModel: raw?.aiModel ? String(raw.aiModel) : null,
+    configuredCreditsPerImage: numberOrNull(raw?.configuredCreditsPerImage),
+    consumedCredits: numberOrNull(raw?.consumedCredits),
+    progress: Math.max(0, Math.min(100, Number(raw?.progress) || 0)),
+    precedingTasks: numberOrNull(raw?.precedingTasks),
+    message: String(raw?.error || fallbackMessage || ''),
   };
 };
 
@@ -1489,9 +1546,29 @@ export const startAiScan3D = async (
   };
 };
 
+const toNullableNumber = (value: unknown): number | null => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
 /**
- * Polls the Meshy task until it reaches ar_ready, fails, or times out.
- * Streams progress updates via the optional onProgress callback.
+ * Polls the Meshy task until it reaches ar_ready, fails, or the LOCAL
+ * polling window elapses. Streams progress updates via the optional
+ * onProgress callback.
+ *
+ * `options.shouldCancel` lets the caller signal that this loop is stale
+ * (component unmounted, or the app moved on to a different task) — polling
+ * stops on the next check and resolves with `{ status: 'cancelled' }`
+ * instead of throwing, so callers can simply ignore that result rather than
+ * surface it as a failure.
+ *
+ * IMPORTANT: a client-side polling timeout is NOT a Meshy failure. Meshy's
+ * own task status is the only authority on success/failure — while Meshy
+ * still reports PENDING/IN_PROGRESS, running out of local polling time
+ * resolves as `{ status: 'still_processing' }` (never thrown, never
+ * 'failed') carrying the task id and the last real progress seen, so the
+ * caller can offer "Continue Waiting" against the same task instead of
+ * treating it as terminal.
  */
 export const pollAiScan3D = async (
   taskId: string,
@@ -1499,16 +1576,62 @@ export const pollAiScan3D = async (
     intervalMs?: number;
     timeoutMs?: number;
     onProgress?: (progress: AiScan3DProgress) => void;
+    shouldCancel?: () => boolean;
+    /**
+     * Last known progress for this task (e.g. from the store), used to seed
+     * the 'still_processing' fallback if this call times out again before a
+     * single successful poll comes back — so "Continue Waiting" can never
+     * visually regress an already-known percentage back to 0.
+     */
+    seedProgress?: number;
   } = {}
 ): Promise<AiScan3DProgress> => {
   const intervalMs = options.intervalMs ?? 4_000;
-  const timeoutMs = options.timeoutMs ?? 240_000;
+  // Foreground polling window only — not Meshy's actual deadline. Kept
+  // generous (default 10 min) so most generations finish inside one
+  // session, but exceeding it must still resolve as non-terminal (see
+  // 'still_processing' below), never as a failure.
+  const timeoutMs = options.timeoutMs ?? 600_000;
   const startedAt = Date.now();
 
+  // Only the newest pollAiScan3D(taskId) call is "current" — an older,
+  // still-running loop for the same task (orphaned by a remount, or
+  // superseded by a forced regenerate) detects it has fallen behind and
+  // stops applying updates instead of racing the newer loop's results.
+  const generation = beginPollGeneration(taskId);
+  const isStale = () => !isCurrentPollGeneration(taskId, generation) || options.shouldCancel?.() === true;
+
+  const cancelledResult: AiScan3DProgress = {
+    status: 'cancelled',
+    taskId,
+    progress: 0,
+    message: 'Superseded by a newer 3D generation request.',
+  };
+
+  // Last real values seen from Meshy, carried into the 'still_processing'
+  // result if local polling times out while Meshy is still non-terminal —
+  // so the UI keeps showing genuine progress, never a reset to 0%.
+  let lastProgress = Math.max(0, Math.min(100, Number(options.seedProgress) || 0));
+  let lastPrecedingTasks: number | null = null;
+  let lastMeshyCreatedAt: number | null = null;
+  let lastMeshyStartedAt: number | null = null;
+
   while (Date.now() - startedAt < timeoutMs) {
-    const response = await apiClient.get(`/ai/generate-3d/${taskId}`, {
-      validateStatus: () => true,
-    });
+    if (isStale()) return cancelledResult;
+
+    let response;
+    try {
+      response = await apiClient.get(`/ai/generate-3d/${taskId}`, {
+        validateStatus: () => true,
+      });
+    } catch (networkError) {
+      // A transient network failure (timeout, no connection, ...) must not
+      // discard the active Meshy task — just retry on the next tick.
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      continue;
+    }
+
+    if (isStale()) return cancelledResult;
 
     const status = String(response.data?.status || '').toLowerCase();
     const progress = Math.max(0, Math.min(100, Number(response.data?.progress) || 0));
@@ -1524,15 +1647,31 @@ export const pollAiScan3D = async (
       typeof response.data?.usdz_url === 'string' && response.data.usdz_url
         ? response.data.usdz_url
         : undefined;
+    const precedingTasks = toNullableNumber(response.data?.preceding_tasks);
+    const meshyCreatedAt = toNullableNumber(response.data?.created_at);
+    const meshyStartedAt = toNullableNumber(response.data?.started_at);
+    const meshyFinishedAt = toNullableNumber(response.data?.finished_at);
+    const taskError =
+      typeof response.data?.task_error === 'string' && response.data.task_error
+        ? response.data.task_error
+        : null;
 
     const update: AiScan3DProgress = {
       status: status === 'ar_ready' ? 'ar_ready' : status === 'failed' ? 'failed' : 'processing',
       taskId,
+      // Never invented: this is exactly what Meshy reports. While queued
+      // (PENDING, started_at falsy) Meshy itself reports 0 — the UI layer
+      // is responsible for not presenting that 0 as "generation under way".
       progress: status === 'ar_ready' ? 100 : progress,
       modelUrl,
       repairedModelUrl,
       modelUsdzUrl,
       message: response.data?.message ? String(response.data.message) : undefined,
+      precedingTasks,
+      meshyCreatedAt,
+      meshyStartedAt,
+      meshyFinishedAt,
+      taskError,
     };
 
     options.onProgress?.(update);
@@ -1541,10 +1680,12 @@ export const pollAiScan3D = async (
       return update;
     }
 
+    // Meshy's own status is the only terminal-failure authority — this is
+    // the one place that may resolve as 'failed'/throw for a real failure.
     if (status === 'failed') {
       throw buildError(
         'MESHY_3D_FAILED',
-        String(response.data?.message || '3D model generation failed.'),
+        taskError || String(response.data?.message || '3D model generation failed.'),
         true
       );
     }
@@ -1558,14 +1699,31 @@ export const pollAiScan3D = async (
       };
     }
 
+    // Still PENDING/IN_PROGRESS — remember the real values so a local
+    // timeout (below) can report them instead of resetting to 0.
+    lastProgress = update.progress;
+    lastPrecedingTasks = precedingTasks;
+    lastMeshyCreatedAt = meshyCreatedAt;
+    lastMeshyStartedAt = meshyStartedAt;
+
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 
-  throw buildError(
-    'MESHY_3D_TIMEOUT',
-    '3D model generation is taking longer than expected. You can retry from the scan results.',
-    true
-  );
+  if (isStale()) return cancelledResult;
+
+  // The LOCAL polling window elapsed while Meshy was still PENDING/
+  // IN_PROGRESS — not a Meshy failure. Resolve non-terminally, preserving
+  // the task id and last known progress, so the caller can offer "Continue
+  // Waiting" against this same task instead of showing a failure.
+  return {
+    status: 'still_processing',
+    taskId,
+    progress: lastProgress,
+    precedingTasks: lastPrecedingTasks,
+    meshyCreatedAt: lastMeshyCreatedAt,
+    meshyStartedAt: lastMeshyStartedAt,
+    message: '3D model is still processing. You can keep waiting or check back later.',
+  };
 };
 
 /**
@@ -1600,7 +1758,101 @@ export const recomputeAiScanEstimate = async (
 };
 
 /* ══════════════════════════════════════════════════════════════════════════════
- * AI Repair Preview — Inpainting
+ * Meshy Before / After Repair Visualization
+ * ══════════════════════════════════════════════════════════════════════════════ */
+
+export interface StartRepairVisualizationInput {
+  scanId: string;
+  sourceView: string;
+  selectedImageIndex: number;
+  sourceDamageId?: string | null;
+  retry?: boolean;
+}
+
+const inFlightRepairStarts = new Map<string, Promise<RepairVisualizationProgress>>();
+
+/**
+ * Starts at most one scan-owned task. Duplicate taps join the same request;
+ * the backend's atomic claim remains authoritative across devices/remounts.
+ */
+export const startRepairVisualization = async (
+  input: StartRepairVisualizationInput
+): Promise<RepairVisualizationProgress> => {
+  const existing = inFlightRepairStarts.get(input.scanId);
+  if (existing) return existing;
+
+  const request = (async () => {
+    const response = await apiClient.post('/ai/repair-visualization', {
+      scanId: input.scanId,
+      sourceView: input.sourceView,
+      selectedImageIndex: input.selectedImageIndex,
+      sourceDamageId: input.sourceDamageId || undefined,
+      retry: input.retry === true,
+    }, {
+      validateStatus: () => true,
+      timeout: 90_000,
+    });
+
+    if (!response.data?.success) {
+      if (String(response.data?.status || '').toLowerCase() === 'unavailable') {
+        return mapRepairVisualizationProgress(
+          { status: 'unavailable' },
+          String(response.data?.message || 'Repair visualization is unavailable.')
+        );
+      }
+      throw buildError(
+        String(response.data?.code || 'REPAIR_VISUALIZATION_START_FAILED'),
+        String(response.data?.message || 'Could not start the repair visualization.'),
+        Number(response.status) >= 500
+      );
+    }
+
+    return mapRepairVisualizationProgress(response.data.data, response.data?.message);
+  })();
+
+  inFlightRepairStarts.set(input.scanId, request);
+  try {
+    return await request;
+  } finally {
+    if (inFlightRepairStarts.get(input.scanId) === request) {
+      inFlightRepairStarts.delete(input.scanId);
+    }
+  }
+};
+
+const fetchRepairVisualizationStatus = async (
+  scanId: string
+): Promise<RepairVisualizationProgress> => {
+  const response = await apiClient.get(`/ai/repair-visualization/${encodeURIComponent(scanId)}`, {
+    validateStatus: () => true,
+  });
+  if (!response.data?.success) {
+    throw buildError(
+      'REPAIR_VISUALIZATION_STATUS_FAILED',
+      String(response.data?.message || 'Could not read repair visualization status.'),
+      Number(response.status) >= 500
+    );
+  }
+  return mapRepairVisualizationProgress(response.data.data, response.data?.message);
+};
+
+export const pollRepairVisualizationStatus = async (
+  scanId: string,
+  options: {
+    intervalMs?: number;
+    timeoutMs?: number;
+    seed?: RepairVisualizationProgress | null;
+    onProgress?: (progress: RepairVisualizationProgress) => void;
+    shouldCancel?: () => boolean;
+  } = {}
+): Promise<RepairVisualizationProgress> => pollRepairVisualizationTask(
+  scanId,
+  () => fetchRepairVisualizationStatus(scanId),
+  options
+);
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * Legacy Replicate Repair Preview — retained for unrelated callers
  * ══════════════════════════════════════════════════════════════════════════════ */
 
 export interface RepairPreviewInput {

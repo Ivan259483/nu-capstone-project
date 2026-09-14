@@ -39,6 +39,25 @@ export type DamageEstimateLineItem = {
   formattedSubtotal?: string;
 };
 
+export type ImageQualityWarning = {
+  code: 'IMAGE_TOO_BLURRY' | 'IMAGE_TOO_DARK' | 'IMAGE_OVEREXPOSED';
+  message: string;
+};
+
+export type ImageProcessingInfo = {
+  imageIndex: number;
+  width: number;
+  height: number;
+  bytes: number;
+  mimeType: string;
+  quality?: {
+    checked: boolean;
+    blurScore: number | null;
+    brightness: number | null;
+    warnings: ImageQualityWarning[];
+  };
+};
+
 export type DamageDetectionResult = {
   scanId: string | null;
   source: 'roboflow';
@@ -49,6 +68,7 @@ export type DamageDetectionResult = {
   overallCondition: string;
   recommendedPackage: string;
   urgency: string;
+  imageProcessing?: ImageProcessingInfo[];
   damages: AutoGlossDamageIssue[];
   damageReport: {
     reportId: string;

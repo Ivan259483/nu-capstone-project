@@ -234,7 +234,7 @@ function SideLabel({
   const dotColor = isBefore ? RED_TAG : (hasReal ? GREEN_TAG : '#64B5F6');
   const textColor = isBefore ? '#FF8A80' : (hasReal ? GREEN_TAG : '#90CAF9');
   const icon = isBefore ? 'alert-circle' : (hasReal ? 'checkmark-circle' : 'sparkles');
-  const label = isBefore ? 'DAMAGED' : (hasReal ? 'REPAIRED' : 'PROJECTED');
+  const label = isBefore ? 'BEFORE' : (hasReal ? 'AI AFTER' : 'PREVIEW');
 
   return (
     <Reanimated.View

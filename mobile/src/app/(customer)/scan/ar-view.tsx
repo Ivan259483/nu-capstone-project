@@ -48,18 +48,36 @@ export default function ArViewScreen() {
   const modelUsdzUrl = useAiScanStore((state) => state.modelUsdzUrl);
   const modelProgress = useAiScanStore((state) => state.modelProgress);
   const modelMessage = useAiScanStore((state) => state.modelMessage);
+  const modelPrecedingTasks = useAiScanStore((state) => state.modelPrecedingTasks);
   const vehicle3DSourceImage = useAiScanStore((state) => state.vehicle3DSourceImage);
   const workflow = useAiScanStore((state) => state.workflow);
 
   const running = useRef(false);
+  // Flipped on unmount so an in-flight poll loop for this screen instance
+  // stops applying updates instead of writing into the store after the user
+  // has already navigated away.
+  const cancelledRef = useRef(false);
+  useEffect(() => () => {
+    cancelledRef.current = true;
+  }, []);
+
   const [launchSession, setLaunchSession] = useState<ArLaunchSession | null>(null);
   const [launchBusy, setLaunchBusy] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const noDamageDetected = scan ? isZeroDetectionResult(scan) : false;
 
   const ready = modelStatus === 'ready' && Boolean(modelUrl);
+  const queued = modelStatus === 'queued';
+  // Local polling window elapsed while Meshy was still PENDING/IN_PROGRESS.
+  // This is NOT a failure — Meshy's own task status is the only terminal
+  // authority — so it is deliberately excluded from `unavailable` below.
+  const stillProcessing = modelStatus === 'still_processing';
   const unavailable = modelStatus === 'failed' || modelStatus === 'unavailable';
   const iosMissingUsdz = Platform.OS === 'ios' && ready && !String(modelUsdzUrl || '').trim();
+  const precedingTasksLabel =
+    queued && typeof modelPrecedingTasks === 'number' && modelPrecedingTasks > 0
+      ? `Approximately ${modelPrecedingTasks} generation task${modelPrecedingTasks === 1 ? '' : 's'} ${modelPrecedingTasks === 1 ? 'is' : 'are'} ahead.`
+      : null;
   const directLaunchLabel =
     Platform.OS === 'ios'
       ? 'Open Quick Look AR'
@@ -77,6 +95,12 @@ export default function ArViewScreen() {
       setLaunchError(null);
       if (force) setLaunchSession(null);
 
+      // Captured once this run's task id is known, and used by the poll loop
+      // below to detect it has been superseded (screen unmounted, or a
+      // force-regenerate started a different task) — so a late response for
+      // an old task can never overwrite a newer generation session.
+      let activeTaskId: string | null = null;
+
       try {
         let taskId = force ? null : modelTaskId;
 
@@ -91,6 +115,7 @@ export default function ArViewScreen() {
             [vehicle3DSourceImage],
             { preferUploadedImages: true }
           );
+          if (cancelledRef.current) return;
           aiScanStore.setModelProgress(started);
 
           taskId = started.taskId ?? null;
@@ -101,14 +126,33 @@ export default function ArViewScreen() {
           if (started.status !== 'processing' || !taskId) return;
         }
 
+        activeTaskId = taskId;
+
+        // 10-minute foreground polling window — a defense-safe default, not
+        // Meshy's real deadline. Exceeding it resolves as 'still_processing'
+        // (see pollAiScan3D), never as a failure, so "Continue Waiting" can
+        // always resume polling this exact task id.
         const result = await pollAiScan3D(taskId, {
           intervalMs: 3500,
-          timeoutMs: 240000,
+          timeoutMs: 600000,
+          seedProgress: modelProgress,
           onProgress: (progress) => aiScanStore.setModelProgress(progress),
+          shouldCancel: () =>
+            cancelledRef.current || aiScanStore.getState().modelTaskId !== activeTaskId,
         });
-        aiScanStore.setModelProgress(result);
+        if (result.status !== 'cancelled') {
+          aiScanStore.setModelProgress(result);
+        }
 
       } catch (error) {
+        // A stale/cancelled run's rejection (e.g. a genuine Meshy FAILED
+        // status firing after the screen unmounted, or after a newer task
+        // superseded this one) must not overwrite whatever the active
+        // session is showing now. A local polling timeout never reaches
+        // this catch block — pollAiScan3D resolves it non-terminally.
+        if (cancelledRef.current) return;
+        if (activeTaskId && aiScanStore.getState().modelTaskId !== activeTaskId) return;
+
         const message = error instanceof Error ? error.message : '3D reconstruction failed.';
         aiScanStore.setModelProgress({
           status: 'failed',
@@ -208,12 +252,27 @@ export default function ArViewScreen() {
     );
   }
 
+  // "Preparing AR" is only true once a usable 3D model exists and the QR/AR
+  // launch link is actually being created — never while Meshy is still
+  // queued or generating the model itself.
+  const arPreparing = ready && launchBusy;
+
   return (
     <ScannerBackground style={{ paddingTop: insets.top }}>
       <StatusBar barStyle="light-content" />
       <ScannerHeader
-        eyebrow={ready ? 'QR Native AR' : '3D Vehicle Model'}
-        title={ready ? 'Native AR Launch Ready' : 'Preparing AR'}
+        eyebrow={!ready ? '3D Vehicle Model' : arPreparing ? 'AR Setup' : 'QR Native AR'}
+        title={
+          !ready
+            ? queued
+              ? 'Queued for 3D Generation'
+              : stillProcessing
+                ? 'Still Processing'
+                : 'Generating 3D Model'
+            : arPreparing
+              ? 'Preparing AR'
+              : 'Native AR Launch Ready'
+        }
         onBack={() => router.back()}
         right={
           <Ionicons
@@ -265,19 +324,66 @@ export default function ArViewScreen() {
 
         <Animated.View entering={FadeInDown.duration(400)}>
           <GlassPanel style={styles.viewerCard} contentStyle={styles.viewerInner} intense>
-            {!ready ? (
+            {stillProcessing ? (
+              // The LOCAL polling window ran out, not Meshy — the task is
+              // still alive, so this is deliberately NOT the failure view.
+              <View style={styles.blockedWrap}>
+                <Ionicons name="hourglass-outline" size={44} color={scannerColors.orange} />
+                <Text style={styles.blockedTitle}>3D model is still processing</Text>
+                <Text style={styles.blockedText}>
+                  Meshy is taking longer than expected. You can keep waiting or return later.
+                </Text>
+                {precedingTasksLabel ? (
+                  <Text style={styles.loadingHint}>{precedingTasksLabel}</Text>
+                ) : null}
+                <Pressable style={styles.retryButton} onPress={() => startOrPoll(false)}>
+                  <Ionicons name="hourglass-outline" size={16} color="#fff" />
+                  <Text style={styles.retryButtonText}>Continue Waiting</Text>
+                </Pressable>
+              </View>
+            ) : !ready && !unavailable ? (
               <View style={styles.loadingTwin}>
                 <View style={styles.loadingIcon}>
-                  <Ionicons name="cube-outline" size={44} color={scannerColors.orange} />
+                  <Ionicons name={queued ? 'time-outline' : 'cube-outline'} size={44} color={scannerColors.orange} />
                 </View>
-                <Text style={styles.loadingTitle}>Generating digital twin</Text>
-                <Text style={styles.loadingText}>
-                  {modelMessage || 'Meshy is reconstructing geometry and surface textures.'}
+                <Text style={styles.loadingTitle}>
+                  {queued ? 'Queued for 3D generation' : 'Generating digital twin'}
                 </Text>
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${Math.max(4, modelProgress)}%` as `${number}%` }]} />
-                </View>
-                <Text style={styles.progressText}>{Math.round(modelProgress)}%</Text>
+                <Text style={styles.loadingText}>
+                  {queued
+                    ? 'Waiting for Meshy to start processing your vehicle.'
+                    : (modelMessage || 'Meshy is creating your 3D vehicle model.')}
+                </Text>
+                {precedingTasksLabel ? (
+                  <Text style={styles.loadingHint}>{precedingTasksLabel}</Text>
+                ) : null}
+                {queued ? (
+                  // Meshy hasn't started this task yet, so there is no real
+                  // percentage to bind to — an indeterminate loader instead
+                  // of a fake/stuck 0% bar.
+                  <View style={styles.queuedLoaderWrap}>
+                    <PremiumLoader size="small" accessibilityLabel="Waiting in the Meshy generation queue" />
+                  </View>
+                ) : (
+                  <>
+                    <View style={styles.progressTrack}>
+                      <View style={[styles.progressFill, { width: `${Math.max(4, modelProgress)}%` as `${number}%` }]} />
+                    </View>
+                    <Text style={styles.progressText}>{Math.round(modelProgress)}%</Text>
+                  </>
+                )}
+              </View>
+            ) : unavailable ? (
+              <View style={styles.blockedWrap}>
+                <Ionicons name="alert-circle-outline" size={44} color={scannerColors.red} />
+                <Text style={styles.blockedTitle}>3D model generation failed</Text>
+                <Text style={styles.blockedText}>
+                  {modelMessage || 'Meshy could not generate a 3D model from this photo.'}
+                </Text>
+                <Pressable style={styles.retryButton} onPress={() => startOrPoll(true)}>
+                  <Ionicons name="refresh-outline" size={16} color="#fff" />
+                  <Text style={styles.retryButtonText}>Retry 3D Generation</Text>
+                </Pressable>
               </View>
             ) : iosMissingUsdz ? (
               <View style={styles.blockedWrap}>
@@ -346,8 +452,16 @@ export default function ArViewScreen() {
                 ready
                   ? iosMissingUsdz
                     ? 'iPhone USDZ missing'
-                    : 'Native AR launch links ready'
-                  : 'Preparing launch payload'
+                    : arPreparing
+                      ? 'Preparing AR launch'
+                      : 'Native AR launch links ready'
+                  : unavailable
+                    ? '3D generation failed'
+                    : stillProcessing
+                      ? 'Still processing'
+                      : queued
+                        ? 'Queued for 3D generation'
+                        : 'Generating 3D model'
               }
               icon={ready ? 'qr-code-outline' : 'time-outline'}
               color={ready ? scannerColors.green : scannerColors.orange}
@@ -357,19 +471,33 @@ export default function ArViewScreen() {
             {ready
               ? iosMissingUsdz
                 ? 'Regenerate to produce USDZ'
-                : 'QR-triggered native AR is active'
-              : 'Preparing AR experience'}
+                : arPreparing
+                  ? 'Creating your AR launch link'
+                  : 'QR-triggered native AR is active'
+              : unavailable
+                ? 'Could not generate a 3D model'
+                : stillProcessing
+                  ? 'Taking longer than expected'
+                  : queued
+                    ? 'Waiting in the Meshy queue'
+                    : 'Generating your 3D model'}
           </Text>
           <Text style={styles.infoText}>
             {ready
               ? iosMissingUsdz
                 ? 'This iOS device requires Meshy USDZ output for Quick Look. Retry generation and wait for a USDZ URL.'
-                : 'Use the QR code for cross-device launch and the direct button below for same-device native viewer launch.'
+                : arPreparing
+                  ? 'Building a secure, short-lived link so the QR code and direct AR button below can launch this model.'
+                  : 'Use the QR code for cross-device launch and the direct button below for same-device native viewer launch.'
               : unavailable
                 ? 'Meshy could not start from the selected full-vehicle photo. Retry will upload that separate 3D source again.'
-                : 'The app is uploading your selected full-vehicle photo to Meshy and waiting for model completion before creating QR launch links.'}
+                : stillProcessing
+                  ? 'Meshy has not reported success or failure yet. Your task is preserved — tap Continue Waiting to keep polling, or come back later.'
+                  : queued
+                    ? 'Meshy has accepted your vehicle photo and will begin reconstruction automatically — no action needed.'
+                    : 'The app is uploading your selected full-vehicle photo to Meshy and waiting for model completion before creating QR launch links.'}
           </Text>
-          {!ready && !unavailable ? (
+          {!ready && !unavailable && !stillProcessing ? (
             <Text style={styles.loadingHint}>{modelMessage || 'Meshy reconstruction is running in the background.'}</Text>
           ) : null}
           {launchError ? <Text style={styles.errorHint}>{launchError}</Text> : null}
@@ -397,9 +525,11 @@ export default function ArViewScreen() {
               : 'Launch Native AR'
             : unavailable
               ? 'Retry 3D Twin'
-              : noDamageDetected
-                ? 'Continue with 0 AI Issues'
-                : 'Continue to Cost Estimate'
+              : stillProcessing
+                ? 'Continue Waiting'
+                : noDamageDetected
+                  ? 'Continue with 0 AI Issues'
+                  : 'Continue to Cost Estimate'
         }
         primaryIcon={
           ready
@@ -408,7 +538,9 @@ export default function ArViewScreen() {
               : 'open-outline'
             : unavailable
               ? 'refresh-outline'
-              : 'cash'
+              : stillProcessing
+                ? 'hourglass-outline'
+                : 'cash'
         }
         onPrimaryPress={() => {
           if (ready) {
@@ -421,7 +553,16 @@ export default function ArViewScreen() {
           }
 
           if (unavailable) {
+            // Only an explicit user retry after a REAL terminal failure may
+            // start a new Meshy task — never a local timeout.
             startOrPoll(true);
+            return;
+          }
+
+          if (stillProcessing) {
+            // Resumes polling the SAME task id (force=false) — never starts
+            // a second Meshy generation while this one is still alive.
+            startOrPoll(false);
             return;
           }
 
@@ -431,7 +572,7 @@ export default function ArViewScreen() {
         secondaryLabel={
           noDamageDetected
             ? 'Continue with 0 AI Issues'
-            : ready || unavailable
+            : ready || unavailable || stillProcessing
               ? 'Continue to Cost Estimate'
               : 'Skip to Cost Estimate'
         }
@@ -531,6 +672,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '600',
     marginTop: 8,
+  },
+  queuedLoaderWrap: {
+    marginTop: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   progressTrack: {
     width: '100%',

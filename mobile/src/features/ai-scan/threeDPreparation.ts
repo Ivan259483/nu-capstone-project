@@ -2,6 +2,7 @@ import type { AiScanInputImage } from '../../services/api/aiService';
 
 export const AI_SCAN_ROUTES = {
   estimate: '/(customer)/scan/estimate',
+  repairPreview: '/(customer)/scan/repair-preview',
   prepare3d: '/(customer)/scan/prepare-3d',
   arView: '/(customer)/scan/ar-view',
 } as const;
