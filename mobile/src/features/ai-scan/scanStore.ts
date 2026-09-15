@@ -85,6 +85,7 @@ export interface AiScanStoreState {
   // Optional Meshy 2D Before/After repair visualization. Kept entirely
   // separate from the Image-to-3D / GLB / USDZ state above.
   repairVisualizationStatus: RepairVisualizationStatus;
+  repairVisualizationScanId: string | null;
   repairVisualizationTaskId: string | null;
   repairVisualizationBeforeUrl: string | null;
   repairVisualizationAfterUrl: string | null;
@@ -121,6 +122,7 @@ const INITIAL_STATE: AiScanStoreState = {
   modelMessage: '',
   modelPrecedingTasks: null,
   repairVisualizationStatus: 'idle',
+  repairVisualizationScanId: null,
   repairVisualizationTaskId: null,
   repairVisualizationBeforeUrl: null,
   repairVisualizationAfterUrl: null,
@@ -137,6 +139,7 @@ const INITIAL_STATE: AiScanStoreState = {
 
 const emptyRepairVisualizationPatch = {
   repairVisualizationStatus: 'idle' as const,
+  repairVisualizationScanId: null,
   repairVisualizationTaskId: null,
   repairVisualizationBeforeUrl: null,
   repairVisualizationAfterUrl: null,
@@ -151,9 +154,11 @@ const emptyRepairVisualizationPatch = {
 };
 
 const repairVisualizationPatch = (
-  progress?: RepairVisualizationProgress | null
+  progress?: RepairVisualizationProgress | null,
+  scanId?: string | null
 ): Partial<AiScanStoreState> => progress ? {
   repairVisualizationStatus: progress.status,
+  repairVisualizationScanId: scanId || null,
   repairVisualizationTaskId: progress.taskId,
   repairVisualizationBeforeUrl: progress.beforeImageUrl,
   repairVisualizationAfterUrl: progress.afterImageUrl,
@@ -166,6 +171,28 @@ const repairVisualizationPatch = (
   repairVisualizationAiModel: progress.aiModel,
   repairVisualizationConsumedCredits: progress.consumedCredits,
 } : emptyRepairVisualizationPatch;
+
+const repairVisualizationPatchForScan = (
+  scan: AiScanResult,
+  previous: AiScanStoreState
+): Partial<AiScanStoreState> => {
+  const scanId = String(scan.scanId || '').trim() || null;
+  if (scan.repairVisualization) {
+    return repairVisualizationPatch(scan.repairVisualization, scanId);
+  }
+
+  const sameScan = Boolean(scanId && previous.repairVisualizationScanId === scanId);
+  const preserveSameTask = sameScan && [
+    'queued',
+    'processing',
+    'still_processing',
+    'ready',
+    'failed',
+  ].includes(previous.repairVisualizationStatus);
+  return preserveSameTask
+    ? { repairVisualizationScanId: scanId }
+    : { ...emptyRepairVisualizationPatch, repairVisualizationScanId: scanId };
+};
 
 let state: AiScanStoreState = { ...INITIAL_STATE };
 let nextScanSessionId = 0;
@@ -246,7 +273,7 @@ export const aiScanStore = {
       modelProgress: 0,
       modelMessage: '',
       modelPrecedingTasks: null,
-      ...repairVisualizationPatch(normalizedScan.repairVisualization),
+      ...repairVisualizationPatchForScan(normalizedScan, state),
     });
   },
 
@@ -297,7 +324,7 @@ export const aiScanStore = {
       modelProgress: 0,
       modelMessage: '',
       modelPrecedingTasks: null,
-      ...repairVisualizationPatch(normalizedScan.repairVisualization),
+      ...repairVisualizationPatchForScan(normalizedScan, state),
       workflow,
     });
     return true;
@@ -375,6 +402,7 @@ export const aiScanStore = {
   }) => {
     update({
       repairVisualizationStatus: 'idle',
+      repairVisualizationScanId: state.scan?.scanId || null,
       repairVisualizationTaskId: null,
       repairVisualizationBeforeUrl: source.beforeImageUrl,
       repairVisualizationAfterUrl: null,
@@ -391,7 +419,17 @@ export const aiScanStore = {
 
   setRepairVisualizationProgress: (progress: RepairVisualizationProgress) => {
     if (progress.status === 'cancelled') return;
-    update(repairVisualizationPatch(progress));
+    update(repairVisualizationPatch(
+      progress,
+      state.scan?.scanId || state.repairVisualizationScanId
+    ));
+  },
+
+  prepareRepairVisualizationForScan: (scanId: string) => {
+    const normalizedScanId = String(scanId || '').trim();
+    if (!normalizedScanId || state.repairVisualizationScanId === normalizedScanId) return false;
+    update({ ...emptyRepairVisualizationPatch, repairVisualizationScanId: normalizedScanId });
+    return true;
   },
 
   setNotes: (notes: string) => {

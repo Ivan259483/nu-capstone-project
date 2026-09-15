@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,10 +24,13 @@ import {
 } from '@/features/ai-scan/components/PremiumScanner';
 import {
   buildRepairSourceOptions,
+  getRepairPreviewMountAction,
+  waitForPersistedRepairSource,
   type RepairVisualizationProgress,
 } from '@/features/ai-scan/repairVisualization';
 import { aiScanStore, useAiScanStore } from '@/features/ai-scan/scanStore';
 import {
+  fetchAiScanById,
   pollRepairVisualizationStatus,
   startRepairVisualization,
 } from '@/services/api/aiService';
@@ -39,12 +42,14 @@ const DISCLAIMER_TEXT =
 
 export default function RepairPreviewScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ scanId?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const scan = useAiScanStore((state) => state.scan);
   const capturedImages = useAiScanStore((state) => state.capturedImages);
   const workflow = useAiScanStore((state) => state.workflow);
   const status = useAiScanStore((state) => state.repairVisualizationStatus);
+  const repairStateScanId = useAiScanStore((state) => state.repairVisualizationScanId);
   const beforeUrl = useAiScanStore((state) => state.repairVisualizationBeforeUrl);
   const afterUrl = useAiScanStore((state) => state.repairVisualizationAfterUrl);
   const progress = useAiScanStore((state) => state.repairVisualizationProgress);
@@ -52,22 +57,50 @@ export default function RepairPreviewScreen() {
   const precedingTasks = useAiScanStore((state) => state.repairVisualizationPrecedingTasks);
   const storedSourceIndex = useAiScanStore((state) => state.repairVisualizationSourceImageIndex);
   const runningRef = useRef(false);
+  const hydrationRef = useRef(false);
   const cancelledRef = useRef(false);
+  const mountActionsRef = useRef(new Set<string>());
+  const selectionScanIdRef = useRef<string | null>(null);
+  const [resolutionMessage, setResolutionMessage] = useState('');
+
+  const routeScanId = String(
+    Array.isArray(params.scanId) ? params.scanId[0] : params.scanId || ''
+  ).trim();
+  const loadedScanId = String(scan?.scanId || '').trim();
+  const requestedScanId = routeScanId || loadedScanId;
+  const activeScan = requestedScanId && loadedScanId === requestedScanId ? scan : null;
 
   const sourceOptions = useMemo(
-    () => scan
-      ? buildRepairSourceOptions(scan, capturedImages.map((image) => image.uri))
+    () => activeScan
+      ? buildRepairSourceOptions(activeScan, capturedImages.map((image) => image.uri))
       : [],
-    [capturedImages, scan]
+    [activeScan, capturedImages]
   );
-  const initialIndex = storedSourceIndex !== null
-    && sourceOptions.some((option) => option.imageIndex === storedSourceIndex)
-    ? storedSourceIndex
-    : sourceOptions[0]?.imageIndex ?? null;
-  const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(initialIndex);
+  const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const selectedSource = sourceOptions.find((option) => option.imageIndex === selectedImageIndex)
     || sourceOptions[0]
     || null;
+
+  useEffect(() => {
+    const newScan = selectionScanIdRef.current !== requestedScanId;
+    const selectionStillExists = sourceOptions.some(
+      (option) => option.imageIndex === selectedImageIndex
+    );
+    if (!newScan && selectionStillExists) return;
+    selectionScanIdRef.current = requestedScanId || null;
+    const storedSelectionBelongsToScan = repairStateScanId === requestedScanId
+      && storedSourceIndex !== null
+      && sourceOptions.some((option) => option.imageIndex === storedSourceIndex);
+    setSelectedImageIndex(
+      storedSelectionBelongsToScan ? storedSourceIndex : sourceOptions[0]?.imageIndex ?? null
+    );
+  }, [
+    repairStateScanId,
+    requestedScanId,
+    selectedImageIndex,
+    sourceOptions,
+    storedSourceIndex,
+  ]);
 
   const active = status === 'queued' || status === 'processing';
   const stillProcessing = status === 'still_processing';
@@ -77,11 +110,16 @@ export default function RepairPreviewScreen() {
   const comparisonWidth = Math.max(240, Math.min(windowWidth - 64, 520));
 
   const applyProgress = useCallback((next: RepairVisualizationProgress) => {
+    if (__DEV__) {
+      console.log(
+        `[RepairPreview] scanId=${requestedScanId || '(missing)'} status=${next.status}`
+      );
+    }
     aiScanStore.setRepairVisualizationProgress(next);
-  }, []);
+  }, [requestedScanId]);
 
   const pollExisting = useCallback(async (seed?: RepairVisualizationProgress | null) => {
-    const scanId = scan?.scanId;
+    const scanId = requestedScanId;
     if (!scanId || runningRef.current) return;
     runningRef.current = true;
     try {
@@ -119,56 +157,75 @@ export default function RepairPreviewScreen() {
     } finally {
       runningRef.current = false;
     }
-  }, [applyProgress, scan?.scanId]);
+  }, [applyProgress, requestedScanId]);
 
-  useEffect(() => {
-    cancelledRef.current = false;
-    const current = aiScanStore.getState();
-    if (
-      scan?.scanId
-      && (
-        current.repairVisualizationStatus === 'queued'
-        || current.repairVisualizationStatus === 'processing'
-        || current.repairVisualizationStatus === 'still_processing'
-      )
-    ) {
-      void pollExisting({
-        status: current.repairVisualizationStatus,
-        taskId: current.repairVisualizationTaskId,
-        beforeImageUrl: current.repairVisualizationBeforeUrl,
-        afterImageUrl: current.repairVisualizationAfterUrl,
-        sourceView: current.repairVisualizationSourceView,
-        sourceImageIndex: current.repairVisualizationSourceImageIndex,
-        sourceDamageId: current.repairVisualizationSourceDamageId,
-        aiModel: current.repairVisualizationAiModel,
-        configuredCreditsPerImage: null,
-        consumedCredits: current.repairVisualizationConsumedCredits,
-        progress: current.repairVisualizationProgress,
-        precedingTasks: current.repairVisualizationPrecedingTasks,
-        message: current.repairVisualizationMessage,
-      });
+  const hydrateActiveScan = useCallback(async () => {
+    if (!requestedScanId || hydrationRef.current) return null;
+    hydrationRef.current = true;
+    setResolutionMessage('Loading the current scan…');
+    try {
+      const hydrated = await fetchAiScanById(requestedScanId);
+      if (cancelledRef.current) return null;
+      aiScanStore.setScan(hydrated);
+      setResolutionMessage('');
+      return hydrated;
+    } catch (error) {
+      if (cancelledRef.current) return null;
+      const rawMessage = typeof error === 'object'
+        && error !== null
+        && 'message' in error
+        && typeof error.message === 'string'
+        ? error.message
+        : '';
+      setResolutionMessage(
+        /not found|status code 404/i.test(rawMessage)
+          ? 'The current scan was not found on the configured backend. Verify the device API base URL and run the scan again.'
+          : rawMessage || 'Could not load the current scan. Check the device connection and try again.'
+      );
+      return null;
+    } finally {
+      hydrationRef.current = false;
     }
-    return () => {
-      cancelledRef.current = true;
-    };
-  }, [pollExisting, scan?.scanId]);
+  }, [requestedScanId]);
 
   const startGeneration = useCallback(async () => {
-    if (!scan?.scanId || !selectedSource || runningRef.current) return;
-    const retry = aiScanStore.getState().repairVisualizationStatus === 'failed';
-    aiScanStore.setRepairVisualizationSource({
-      beforeImageUrl: selectedSource.previewUri,
-      sourceView: selectedSource.viewId,
-      sourceImageIndex: selectedSource.imageIndex,
-      sourceDamageId: selectedSource.sourceDamageId,
-    });
+    if (!requestedScanId || !selectedSource || runningRef.current) return;
     runningRef.current = true;
     try {
+      let source = selectedSource;
+      if (!source.isPersisted) {
+        setResolutionMessage('Waiting for the selected scan image to finish saving…');
+        const resolved = await waitForPersistedRepairSource({
+          scanId: requestedScanId,
+          imageIndex: selectedSource.imageIndex,
+          fetchScan: fetchAiScanById,
+          shouldCancel: () => cancelledRef.current,
+        });
+        if (!resolved || cancelledRef.current) return;
+        aiScanStore.setScan(resolved.scan);
+        source = resolved.source;
+      }
+
+      const current = aiScanStore.getState();
+      const retry = current.repairVisualizationScanId === requestedScanId
+        && current.repairVisualizationStatus === 'failed';
+      aiScanStore.setRepairVisualizationSource({
+        beforeImageUrl: source.previewUri,
+        sourceView: source.viewId,
+        sourceImageIndex: source.imageIndex,
+        sourceDamageId: source.sourceDamageId,
+      });
+      setResolutionMessage('');
+      if (__DEV__) {
+        console.log(
+          `[RepairPreview] scanId=${requestedScanId} selectedView=${source.viewId}`
+        );
+      }
       const started = await startRepairVisualization({
-        scanId: scan.scanId,
-        sourceView: selectedSource.viewId,
-        selectedImageIndex: selectedSource.imageIndex,
-        sourceDamageId: selectedSource.sourceDamageId,
+        scanId: requestedScanId,
+        sourceView: source.viewId,
+        selectedImageIndex: source.imageIndex,
+        sourceDamageId: source.sourceDamageId,
         retry,
       });
       if (cancelledRef.current) return;
@@ -207,7 +264,66 @@ export default function RepairPreviewScreen() {
     } finally {
       runningRef.current = false;
     }
-  }, [applyProgress, pollExisting, scan, selectedSource]);
+  }, [applyProgress, pollExisting, requestedScanId, selectedSource]);
+
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!requestedScanId) {
+      setResolutionMessage('No completed scan ID is available. Return to Results and run the scan again.');
+      return;
+    }
+    if (aiScanStore.prepareRepairVisualizationForScan(requestedScanId)) return;
+
+    const action = getRepairPreviewMountAction({
+      requestedScanId,
+      loadedScanId: loadedScanId || null,
+      repairStateScanId,
+      status,
+      hasPersistedSource: Boolean(selectedSource?.isPersisted),
+    });
+    const taskKey = aiScanStore.getState().repairVisualizationTaskId || 'none';
+    const actionKey = `${requestedScanId}:${action}:${taskKey}`;
+    if (mountActionsRef.current.has(actionKey)) return;
+    mountActionsRef.current.add(actionKey);
+
+    if (action === 'hydrate_scan') {
+      void hydrateActiveScan();
+    } else if (action === 'resolve_source' || action === 'start') {
+      void startGeneration();
+    } else if (action === 'resume') {
+      const current = aiScanStore.getState();
+      void pollExisting({
+        status: current.repairVisualizationStatus,
+        taskId: current.repairVisualizationTaskId,
+        beforeImageUrl: current.repairVisualizationBeforeUrl,
+        afterImageUrl: current.repairVisualizationAfterUrl,
+        sourceView: current.repairVisualizationSourceView,
+        sourceImageIndex: current.repairVisualizationSourceImageIndex,
+        sourceDamageId: current.repairVisualizationSourceDamageId,
+        aiModel: current.repairVisualizationAiModel,
+        configuredCreditsPerImage: null,
+        consumedCredits: current.repairVisualizationConsumedCredits,
+        progress: current.repairVisualizationProgress,
+        precedingTasks: current.repairVisualizationPrecedingTasks,
+        message: current.repairVisualizationMessage,
+      });
+    }
+  }, [
+    hydrateActiveScan,
+    loadedScanId,
+    pollExisting,
+    repairStateScanId,
+    requestedScanId,
+    selectedSource?.isPersisted,
+    startGeneration,
+    status,
+  ]);
 
   const continueWaiting = useCallback(() => {
     cancelledRef.current = false;
@@ -234,15 +350,17 @@ export default function RepairPreviewScreen() {
     router.push(AI_SCAN_ROUTES.estimate as never);
   }, [router]);
 
-  if (!scan) {
+  if (!activeScan) {
     return (
       <ScannerBackground style={{ paddingTop: insets.top }}>
         <StatusBar barStyle="light-content" />
         <ScannerHeader title="Repair Preview" onBack={() => router.back()} />
         <View style={styles.empty}>
           <Ionicons name="images-outline" size={54} color={scannerColors.textMuted} />
-          <Text style={styles.emptyTitle}>No scan loaded</Text>
-          <Text style={styles.emptyText}>Run an AI inspection before creating a repair preview.</Text>
+          <Text style={styles.emptyTitle}>Current scan unavailable</Text>
+          <Text style={styles.emptyText}>
+            {resolutionMessage || 'Return to Results and open Repair Preview from a completed scan.'}
+          </Text>
         </View>
       </ScannerBackground>
     );
@@ -251,7 +369,7 @@ export default function RepairPreviewScreen() {
   const primaryLabel = ready
     ? 'Continue to 3D'
     : status === 'unavailable'
-      ? 'Repair Preview Unavailable'
+      ? 'Retry Connection'
     : stillProcessing
       ? 'Continue Waiting'
       : failed
@@ -359,7 +477,7 @@ export default function RepairPreviewScreen() {
               <View style={[styles.progressFill, { width: `${Math.max(3, Math.min(100, progress))}%` }]} />
             </View>
           </GlassPanel>
-        ) : failed || status === 'unavailable' || (status === 'idle' && Boolean(message)) ? (
+        ) : failed || status === 'unavailable' || (status === 'idle' && Boolean(message || resolutionMessage)) ? (
           <GlassPanel style={styles.statusCard}>
             <Ionicons name="alert-circle-outline" size={38} color={scannerColors.red} />
             <Text style={styles.statusTitle}>
@@ -369,7 +487,7 @@ export default function RepairPreviewScreen() {
                   ? 'Repair preview is unavailable.'
                   : 'Repair preview is not ready yet.'}
             </Text>
-            <Text style={styles.statusText}>{message}</Text>
+            <Text style={styles.statusText}>{message || resolutionMessage}</Text>
           </GlassPanel>
         ) : null}
 
@@ -386,7 +504,7 @@ export default function RepairPreviewScreen() {
         helperText="Optional preview. Only the selected view is sent for generation."
         primaryLabel={primaryLabel}
         primaryIcon={ready ? 'cube-outline' : stillProcessing ? 'hourglass-outline' : failed ? 'refresh-outline' : 'sparkles-outline'}
-        disabled={status === 'unavailable' || (!ready && !stillProcessing && !failed && (!selectedSource || active))}
+        disabled={!ready && !stillProcessing && !failed && (!selectedSource || active)}
         onPrimaryPress={() => {
           if (ready) {
             aiScanStore.activateWorkflowStage('3d');

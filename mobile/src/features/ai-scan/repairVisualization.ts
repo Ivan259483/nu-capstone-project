@@ -29,6 +29,7 @@ export interface RepairSourceOption {
   viewId: string;
   label: string;
   previewUri: string;
+  isPersisted: boolean;
   sourceDamageId: string | null;
   credibilityScore: number;
 }
@@ -48,7 +49,7 @@ interface SourceView {
   success?: boolean;
 }
 
-interface RepairSourceScan {
+export interface RepairSourceScan {
   imageUrls?: string[];
   angles?: string[];
   damages?: SourceDamage[];
@@ -57,6 +58,46 @@ interface RepairSourceScan {
 
 const SEVERITY_SCORE = { high: 3, medium: 2, low: 1 } as const;
 const REPAIR_SOURCE_VIEWS = new Set(['front', 'rear', 'left', 'right', 'close_up']);
+const waitDefault = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const RESUMABLE_REPAIR_STATUSES = new Set<RepairVisualizationStatus>([
+  'queued',
+  'processing',
+  'still_processing',
+]);
+const SETTLED_REPAIR_STATUSES = new Set<RepairVisualizationStatus>(['ready', 'failed']);
+
+export type RepairPreviewMountAction =
+  | 'missing_scan'
+  | 'hydrate_scan'
+  | 'resolve_source'
+  | 'resume'
+  | 'start'
+  | 'settled';
+
+export const getRepairPreviewMountAction = ({
+  requestedScanId,
+  loadedScanId,
+  repairStateScanId,
+  status,
+  hasPersistedSource,
+}: {
+  requestedScanId: string | null;
+  loadedScanId: string | null;
+  repairStateScanId: string | null;
+  status: RepairVisualizationStatus;
+  hasPersistedSource: boolean;
+}): RepairPreviewMountAction => {
+  if (!requestedScanId) return 'missing_scan';
+  if (loadedScanId !== requestedScanId) return 'hydrate_scan';
+  if (repairStateScanId === requestedScanId && RESUMABLE_REPAIR_STATUSES.has(status)) {
+    return 'resume';
+  }
+  if (repairStateScanId === requestedScanId && SETTLED_REPAIR_STATUSES.has(status)) {
+    return 'settled';
+  }
+  if (!hasPersistedSource) return 'resolve_source';
+  return 'start';
+};
 
 const humanizeView = (value: string, index: number) => {
   const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_');
@@ -113,12 +154,43 @@ export const buildRepairSourceOptions = (
       viewId: normalizedAngle,
       label,
       previewUri,
+      isPersisted: /^https:\/\//i.test(storedUri),
       sourceDamageId: rankedDamages[0]?.damage.id ? String(rankedDamages[0].damage.id) : null,
       credibilityScore: rankedDamages[0]?.score || 0,
     };
   })
     .filter((option): option is RepairSourceOption => option !== null)
     .sort((left, right) => right.credibilityScore - left.credibilityScore || left.imageIndex - right.imageIndex);
+};
+
+export const waitForPersistedRepairSource = async <Scan extends RepairSourceScan>({
+  scanId,
+  imageIndex,
+  fetchScan,
+  attempts = 10,
+  intervalMs = 1_500,
+  wait = waitDefault,
+  shouldCancel,
+}: {
+  scanId: string;
+  imageIndex: number;
+  fetchScan: (scanId: string) => Promise<Scan>;
+  attempts?: number;
+  intervalMs?: number;
+  wait?: (ms: number) => Promise<void>;
+  shouldCancel?: () => boolean;
+}): Promise<{ scan: Scan; source: RepairSourceOption } | null> => {
+  for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1) {
+    if (shouldCancel?.()) return null;
+    const currentScan = await fetchScan(scanId);
+    if (shouldCancel?.()) return null;
+    const source = buildRepairSourceOptions(currentScan).find(
+      (option) => option.imageIndex === imageIndex && option.isPersisted
+    );
+    if (source) return { scan: currentScan, source };
+    if (attempt < attempts - 1) await wait(intervalMs);
+  }
+  throw new Error('Selected view image is not available yet. Please choose another view.');
 };
 
 const repairPollGenerations = new Map<string, number>();
@@ -128,8 +200,6 @@ const beginRepairPoll = (scanId: string) => {
   repairPollGenerations.set(scanId, generation);
   return generation;
 };
-
-const waitDefault = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
  * Polls the existing scan-owned repair task only. Transport failures are

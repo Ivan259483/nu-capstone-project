@@ -1770,6 +1770,28 @@ export interface StartRepairVisualizationInput {
 }
 
 const inFlightRepairStarts = new Map<string, Promise<RepairVisualizationProgress>>();
+export const REPAIR_VISUALIZATION_REQUEST_PATH = '/ai/repair-visualization';
+
+const logRepairPreviewRequest = (
+  method: 'POST' | 'GET',
+  path: string,
+  scanId: string,
+  status?: number | string
+) => {
+  if (!__DEV__) return;
+  console.log(
+    `[RepairPreview] scanId=${scanId || '(missing)'} requestMethod=${method} requestPath=${path} apiBase=${String(apiClient.defaults.baseURL || '(unset)')}${status === undefined ? '' : ` status=${status}`}`
+  );
+};
+
+const repairResponseMessage = (data: unknown, fallback: string) => {
+  if (typeof data === 'string' && data.trim()) return data.trim();
+  if (data && typeof data === 'object' && 'message' in data) {
+    const message = String((data as { message?: unknown }).message || '').trim();
+    if (message) return message;
+  }
+  return fallback;
+};
 
 /**
  * Starts at most one scan-owned task. Duplicate taps join the same request;
@@ -1782,7 +1804,8 @@ export const startRepairVisualization = async (
   if (existing) return existing;
 
   const request = (async () => {
-    const response = await apiClient.post('/ai/repair-visualization', {
+    logRepairPreviewRequest('POST', REPAIR_VISUALIZATION_REQUEST_PATH, input.scanId);
+    const response = await apiClient.post(REPAIR_VISUALIZATION_REQUEST_PATH, {
       scanId: input.scanId,
       sourceView: input.sourceView,
       selectedImageIndex: input.selectedImageIndex,
@@ -1791,18 +1814,34 @@ export const startRepairVisualization = async (
     }, {
       validateStatus: () => true,
       timeout: 90_000,
-    });
+      // Never replay a credit-spending generation request from the offline queue.
+      _skipOfflineQueue: true,
+      meta: { suppressErrorToast: true },
+    } as any);
+    logRepairPreviewRequest(
+      'POST',
+      REPAIR_VISUALIZATION_REQUEST_PATH,
+      input.scanId,
+      response.status
+    );
 
     if (!response.data?.success) {
+      if (response.status === 404) {
+        throw buildError(
+          'REPAIR_VISUALIZATION_ENDPOINT_NOT_FOUND',
+          `Repair Preview endpoint was not found at ${String(apiClient.defaults.baseURL || '')}${REPAIR_VISUALIZATION_REQUEST_PATH}. Verify the physical device API base URL.`,
+          true
+        );
+      }
       if (String(response.data?.status || '').toLowerCase() === 'unavailable') {
         return mapRepairVisualizationProgress(
           { status: 'unavailable' },
-          String(response.data?.message || 'Repair visualization is unavailable.')
+          repairResponseMessage(response.data, 'Repair visualization is unavailable.')
         );
       }
       throw buildError(
         String(response.data?.code || 'REPAIR_VISUALIZATION_START_FAILED'),
-        String(response.data?.message || 'Could not start the repair visualization.'),
+        repairResponseMessage(response.data, 'Could not start the repair visualization.'),
         Number(response.status) >= 500
       );
     }
@@ -1823,13 +1862,23 @@ export const startRepairVisualization = async (
 const fetchRepairVisualizationStatus = async (
   scanId: string
 ): Promise<RepairVisualizationProgress> => {
-  const response = await apiClient.get(`/ai/repair-visualization/${encodeURIComponent(scanId)}`, {
+  const path = `${REPAIR_VISUALIZATION_REQUEST_PATH}/${encodeURIComponent(scanId)}`;
+  logRepairPreviewRequest('GET', path, scanId);
+  const response = await apiClient.get(path, {
     validateStatus: () => true,
   });
+  logRepairPreviewRequest('GET', path, scanId, response.status);
   if (!response.data?.success) {
+    if (response.status === 404) {
+      throw buildError(
+        'REPAIR_VISUALIZATION_ENDPOINT_NOT_FOUND',
+        `Repair Preview status endpoint was not found at ${String(apiClient.defaults.baseURL || '')}${path}. Verify the physical device API base URL.`,
+        true
+      );
+    }
     throw buildError(
       'REPAIR_VISUALIZATION_STATUS_FAILED',
-      String(response.data?.message || 'Could not read repair visualization status.'),
+      repairResponseMessage(response.data, 'Could not read repair visualization status.'),
       Number(response.status) >= 500
     );
   }

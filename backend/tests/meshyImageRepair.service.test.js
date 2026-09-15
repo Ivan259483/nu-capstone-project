@@ -13,6 +13,7 @@ const withConfiguredEnvironment = async (run) => {
   const names = [
     'MESHY_API_KEY',
     'MESHY_API_BASE_URL',
+    'MESHY_IMAGE_REPAIR_API_BASE_URL',
     'MESHY_REPAIR_AI_MODEL',
     'CLOUDINARY_CLOUD_NAME',
     'CLOUDINARY_API_KEY',
@@ -22,13 +23,16 @@ const withConfiguredEnvironment = async (run) => {
   const prior = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   Object.assign(process.env, {
     MESHY_API_KEY: 'server-test-key',
-    MESHY_API_BASE_URL: 'https://api.meshy.ai/openapi/v1',
+    // The legacy/shared base may remain on v2 for Image-to-3D. Repair Preview
+    // must independently use its documented v1 Image-to-Image contract.
+    MESHY_API_BASE_URL: 'https://api.meshy.ai/openapi/v2',
     MESHY_REPAIR_AI_MODEL: 'nano-banana',
     CLOUDINARY_CLOUD_NAME: 'test-cloud',
     CLOUDINARY_UPLOAD_PRESET: 'test-preset',
   });
   delete process.env.CLOUDINARY_API_KEY;
   delete process.env.CLOUDINARY_API_SECRET;
+  delete process.env.MESHY_IMAGE_REPAIR_API_BASE_URL;
   try {
     return await run();
   } finally {
@@ -43,9 +47,10 @@ test('Meshy Image-to-Image creation sends one reference image and keeps the key 
   await withConfiguredEnvironment(async () => {
     let captured;
     const httpClient = {
+      head: async () => ({ status: 200, headers: { 'content-type': 'image/jpeg' } }),
       post: async (url, payload, config) => {
         captured = { url, payload, config };
-        return { data: { result: 'repair-task-123' } };
+        return { status: 201, data: { result: 'repair-task-123' } };
       },
     };
     const result = await startMeshyImageToImage({
@@ -60,8 +65,14 @@ test('Meshy Image-to-Image creation sends one reference image and keeps the key 
       'https://res.cloudinary.com/test/image/upload/before.jpg',
     ]);
     assert.equal(captured.payload.ai_model, 'nano-banana');
-    assert.equal(captured.payload.remove_background, false);
-    assert.equal(captured.payload.generate_multi_view, false);
+    assert.deepEqual(Object.keys(captured.payload).sort(), [
+      'ai_model',
+      'prompt',
+      'reference_image_urls',
+    ]);
+    assert.equal('aspect_ratio' in captured.payload, false);
+    assert.equal('remove_background' in captured.payload, false);
+    assert.equal('generate_multi_view' in captured.payload, false);
     assert.equal(captured.payload.reference_image_urls.length, 1);
     assert.equal(captured.config.headers.Authorization, 'Bearer server-test-key');
     assert.doesNotMatch(JSON.stringify(captured.payload), /server-test-key|MESHY_API_KEY/);
@@ -76,6 +87,9 @@ test('Meshy creation rejects local or inline images before any credit-spending r
   await withConfiguredEnvironment(async () => {
     let requestCount = 0;
     const httpClient = {
+      head: async () => {
+        throw new Error('head should not run');
+      },
       post: async () => {
         requestCount += 1;
         return { data: { result: 'should-not-run' } };
@@ -86,9 +100,105 @@ test('Meshy creation rejects local or inline images before any credit-spending r
         referenceImageUrl: 'data:image/png;base64,AAAA',
         httpClient,
       }),
-      /public HTTPS JPG\/PNG reference image is required/
+      (error) => error.code === 'MESHY_IMAGE_REPAIR_INVALID_REFERENCE'
     );
     assert.equal(requestCount, 0);
+
+    await assert.rejects(
+      startMeshyImageToImage({
+        referenceImageUrl: 'https://192.168.18.164/private.jpg',
+        httpClient,
+      }),
+      (error) => error.code === 'MESHY_IMAGE_REPAIR_INVALID_REFERENCE'
+    );
+    assert.equal(requestCount, 0);
+  });
+});
+
+const upstreamCases = [
+  [400, 'MESHY_IMAGE_REPAIR_INVALID_REFERENCE', 'The selected image could not be processed for repair visualization. Choose another view and try again.'],
+  [401, 'MESHY_IMAGE_REPAIR_UNAUTHORIZED', 'Repair visualization service is not authorized.'],
+  [402, 'MESHY_IMAGE_REPAIR_INSUFFICIENT_CREDITS', 'Repair visualization credits are unavailable.'],
+  [404, 'MESHY_IMAGE_REPAIR_UPSTREAM_NOT_FOUND', 'Repair visualization is temporarily unavailable.'],
+  [429, 'MESHY_IMAGE_REPAIR_RATE_LIMITED', 'Repair visualization is busy. Please try again shortly.'],
+  [503, 'MESHY_IMAGE_REPAIR_UPSTREAM_UNAVAILABLE', 'Repair visualization is temporarily unavailable.'],
+];
+
+for (const [status, expectedCode, expectedMessage] of upstreamCases) {
+  test(`Meshy create HTTP ${status} maps to ${expectedCode}`, async () => {
+    await withConfiguredEnvironment(async () => {
+      const error = new Error(`upstream ${status}`);
+      error.response = { status, data: { message: `upstream ${status}` } };
+      await assert.rejects(
+        startMeshyImageToImage({
+          referenceImageUrl: 'https://res.cloudinary.com/test/image/upload/before.jpg',
+          httpClient: {
+            head: async () => ({ status: 200, headers: { 'content-type': 'image/png' } }),
+            post: async () => { throw error; },
+          },
+          logger: { info() {}, warn() {} },
+        }),
+        (mapped) => mapped.code === expectedCode && mapped.message === expectedMessage
+      );
+    });
+  });
+}
+
+test('Meshy create network errors map to temporary unavailable without a duplicate attempt', async () => {
+  await withConfiguredEnvironment(async () => {
+    let postCount = 0;
+    await assert.rejects(
+      startMeshyImageToImage({
+        referenceImageUrl: 'https://res.cloudinary.com/test/image/upload/before.jpg',
+        httpClient: {
+          head: async () => ({ status: 200, headers: { 'content-type': 'image/jpeg' } }),
+          post: async () => {
+            postCount += 1;
+            const error = new Error('socket reset');
+            error.code = 'ECONNRESET';
+            throw error;
+          },
+        },
+        logger: { info() {}, warn() {} },
+      }),
+      (error) => error.code === 'MESHY_IMAGE_REPAIR_NETWORK_ERROR'
+        && error.message === 'Repair visualization is temporarily unavailable.'
+    );
+    assert.equal(postCount, 1);
+  });
+});
+
+test('Meshy diagnostics never log API keys, authorization, or reference URL query strings', async () => {
+  await withConfiguredEnvironment(async () => {
+    const entries = [];
+    const logger = {
+      info: (value) => entries.push(String(value)),
+      warn: (value) => entries.push(String(value)),
+    };
+    const error = new Error('request rejected');
+    error.response = {
+      status: 400,
+      data: {
+        message: 'Could not fetch https://res.cloudinary.com/test/image/upload/private.jpg?token=url-secret',
+        api_key: 'body-key-secret',
+      },
+    };
+    await assert.rejects(
+      startMeshyImageToImage({
+        referenceImageUrl: 'https://res.cloudinary.com/test/image/upload/before.jpg?signature=query-secret',
+        httpClient: {
+          head: async () => ({ status: 200, headers: { 'content-type': 'image/jpeg' } }),
+          post: async () => { throw error; },
+        },
+        logger,
+      })
+    );
+    const output = entries.join('\n');
+    assert.doesNotMatch(output, /server-test-key|body-key-secret|url-secret|query-secret/i);
+    assert.doesNotMatch(output, /authorization|signature=|token=/i);
+    assert.match(output, /configured=true/);
+    assert.match(output, /sourceHost=res\.cloudinary\.com/);
+    assert.match(output, /sourceContentType=image\/jpeg/);
   });
 });
 
@@ -167,7 +277,29 @@ test('controller uses an atomic pre-credit claim and never exposes the backend A
     new URL('../../mobile/src/services/api/aiService.ts', import.meta.url),
     'utf8'
   );
+  const routeSource = readFileSync(
+    new URL('../routes/ai.routes.js', import.meta.url),
+    'utf8'
+  );
+  const serverSource = readFileSync(
+    new URL('../server.js', import.meta.url),
+    'utf8'
+  );
+  const repairServiceSource = readFileSync(
+    new URL('../services/meshyImageRepair.service.js', import.meta.url),
+    'utf8'
+  );
+  const threeDServiceSource = readFileSync(
+    new URL('../services/meshy.service.js', import.meta.url),
+    'utf8'
+  );
   assert.match(controllerSource, /findOneAndUpdate\([\s\S]*?repairVisualization: \{ \$exists: false \}/);
   assert.match(controllerSource, /A concurrent tap\/request won the atomic claim/);
+  assert.match(controllerSource, /\[RepairVisualization\] request received method=POST scanId=/);
+  assert.match(routeSource, /router\.post\([\s\S]*?'\/repair-visualization'/);
+  assert.match(routeSource, /router\.get\('\/repair-visualization\/:scanId'/);
+  assert.match(serverSource, /app\.use\('\/api\/ai', aiRoutes\)/);
   assert.doesNotMatch(mobileServiceSource, /MESHY_API_KEY|EXPO_PUBLIC_MESHY/);
+  assert.doesNotMatch(repairServiceSource, /\/image-to-3d|generate-ar\(/i);
+  assert.match(threeDServiceSource, /image-to-3d/);
 });

@@ -88,6 +88,9 @@ const findOwnedScan = async (scanId, req, res) => {
 /** POST /api/ai/repair-visualization */
 export const startRepairVisualization = async (req, res) => {
   const scanId = String(req.body?.scanId || '').trim();
+  if (process.env.NODE_ENV !== 'test') {
+    console.info(`[RepairVisualization] request received method=POST scanId=${scanId || '(missing)'}`);
+  }
   try {
     const scan = await findOwnedScan(scanId, req, res);
     if (!scan) return;
@@ -193,7 +196,7 @@ export const startRepairVisualization = async (req, res) => {
         const rawMeshyStatus = String(error?.response?.data?.status || '').toUpperCase();
         const actualMeshyFailure = ['FAILED', 'CANCELED', 'CANCELLED'].includes(rawMeshyStatus);
         const errorMessage = String(
-          error?.response?.data?.message || error?.message || 'Meshy did not accept the repair task.'
+          error?.userMessage || error?.message || 'Repair visualization is temporarily unavailable.'
         ).slice(0, 500);
         const updated = await AIScan.findOneAndUpdate(
           { _id: scan._id, 'repairVisualization.taskId': '' },
@@ -215,19 +218,23 @@ export const startRepairVisualization = async (req, res) => {
           success: false,
           status: 'unavailable',
           message: errorMessage,
+          code: error?.code || 'MESHY_IMAGE_REPAIR_UPSTREAM_UNAVAILABLE',
         });
       }
 
       // A timeout/no-response may have reached Meshy and spent credits. Keep
       // the atomic claim non-terminal so retries/remounts cannot double-spend.
+      const pendingMessage = String(
+        error?.userMessage || 'Repair visualization is temporarily unavailable.'
+      ).slice(0, 500);
       await AIScan.updateOne(
         { _id: scan._id, 'repairVisualization.taskId': '' },
-        { $set: { 'repairVisualization.error': 'Task start confirmation is still pending.' } }
+        { $set: { 'repairVisualization.error': pendingMessage } }
       );
       return responseFor(res, {
         ...claim.repairVisualization.toObject(),
-        error: 'Task start confirmation is still pending.',
-      }, 202, 'The task start could not be confirmed. No new task will be created automatically.');
+        error: pendingMessage,
+      }, 202, `${pendingMessage} No new task will be created automatically.`);
     }
   } catch (error) {
     console.error('[Repair Visualization][start] Error:', error?.message || error);
@@ -261,6 +268,9 @@ const downloadGeneratedImage = async (imageUrl) => {
 /** GET /api/ai/repair-visualization/:scanId */
 export const getRepairVisualization = async (req, res) => {
   const scanId = String(req.params?.scanId || '').trim();
+  if (process.env.NODE_ENV !== 'test') {
+    console.info(`[RepairVisualization] request received method=GET scanId=${scanId || '(missing)'}`);
+  }
   try {
     const scan = await findOwnedScan(scanId, req, res);
     if (!scan) return;

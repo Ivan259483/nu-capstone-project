@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   buildRepairSourceOptions,
+  getRepairPreviewMountAction,
   pollRepairVisualizationTask,
+  waitForPersistedRepairSource,
 } from '../src/features/ai-scan/repairVisualization.ts';
 
 const repairScreenSource = readFileSync(
@@ -24,6 +26,14 @@ const aiServiceSource = readFileSync(
 );
 const storeSource = readFileSync(
   new URL('../src/features/ai-scan/scanStore.ts', import.meta.url),
+  'utf8'
+);
+const clientSource = readFileSync(
+  new URL('../src/services/api/client.ts', import.meta.url),
+  'utf8'
+);
+const envSource = readFileSync(
+  new URL('../src/config/env.ts', import.meta.url),
   'utf8'
 );
 
@@ -74,6 +84,7 @@ test('all available views remain selectable and selecting another does not creat
   const rear = options.find((option) => option.viewId === 'rear');
   assert.equal(rear.imageIndex, 1);
   assert.equal(rear.previewUri, 'https://cdn.example/rear.jpg');
+  assert.equal(rear.isPersisted, true);
 });
 
 test('fresh scan can use local captures for selection while stable image archival finishes', () => {
@@ -84,6 +95,104 @@ test('fresh scan can use local captures for selection while stable image archiva
   assert.equal(options.length, 3);
   assert.equal(options[0].viewId, 'right');
   assert.equal(options[0].previewUri, 'file:///right.jpg');
+  assert.equal(options[0].isPersisted, false);
+});
+
+test('repair preview mount starts for the routed completed scan when no active task exists', () => {
+  assert.equal(getRepairPreviewMountAction({
+    requestedScanId: 'scan-current',
+    loadedScanId: 'scan-current',
+    repairStateScanId: 'scan-current',
+    status: 'idle',
+    hasPersistedSource: true,
+  }), 'start');
+  assert.match(resultsSource, /params: \{ scanId: scan\.scanId \}/);
+  assert.match(repairScreenSource, /action === 'resolve_source' \|\| action === 'start'/);
+  assert.match(repairScreenSource, /void startGeneration\(\)/);
+});
+
+test('missing scan ID is explicit and never becomes the generic Not found message', () => {
+  assert.equal(getRepairPreviewMountAction({
+    requestedScanId: null,
+    loadedScanId: null,
+    repairStateScanId: null,
+    status: 'idle',
+    hasPersistedSource: false,
+  }), 'missing_scan');
+  assert.match(repairScreenSource, /No completed scan ID is available/);
+  assert.doesNotMatch(repairScreenSource, />Not found</);
+});
+
+test('a new scan discards stale unavailable state while the same active task resumes', () => {
+  assert.equal(getRepairPreviewMountAction({
+    requestedScanId: 'scan-new',
+    loadedScanId: 'scan-new',
+    repairStateScanId: 'scan-old',
+    status: 'unavailable',
+    hasPersistedSource: true,
+  }), 'start');
+  assert.equal(getRepairPreviewMountAction({
+    requestedScanId: 'scan-current',
+    loadedScanId: 'scan-current',
+    repairStateScanId: 'scan-current',
+    status: 'queued',
+    hasPersistedSource: true,
+  }), 'resume');
+  assert.equal(getRepairPreviewMountAction({
+    requestedScanId: 'scan-current',
+    loadedScanId: 'scan-current',
+    repairStateScanId: 'scan-current',
+    status: 'processing',
+    hasPersistedSource: false,
+  }), 'resume');
+  assert.match(storeSource, /prepareRepairVisualizationForScan/);
+  assert.match(storeSource, /repairVisualizationScanId/);
+});
+
+test('repair requests use the shared authenticated client and append api exactly once', () => {
+  assert.match(aiServiceSource, /import \{ apiClient, getApiErrorMessage \} from '\.\/client'/);
+  assert.match(aiServiceSource, /REPAIR_VISUALIZATION_REQUEST_PATH = '\/ai\/repair-visualization'/);
+  assert.doesNotMatch(aiServiceSource, /REPAIR_VISUALIZATION_REQUEST_PATH = '\/api\/ai\//);
+  assert.match(clientSource, /baseURL: API_BASE_URL/);
+  assert.match(clientSource, /Authorization = `Bearer \$\{token\}`/);
+  assert.match(envSource, /sanitizedApiUrl\.endsWith\('\/api'\)/);
+  assert.match(envSource, /: `\$\{sanitizedApiUrl\}\/api`/);
+  assert.match(aiServiceSource, /_skipOfflineQueue: true/);
+});
+
+test('selected guided view must resolve to a persisted scan-owned URL before POST', () => {
+  const options = buildRepairSourceOptions(scan);
+  const rear = options.find((option) => option.viewId === 'rear');
+  assert.equal(rear.previewUri, scan.imageUrls[1]);
+  assert.equal(rear.isPersisted, true);
+  assert.match(repairScreenSource, /if \(!source\.isPersisted\)/);
+});
+
+test('source archival wait keeps the selected index and then returns its HTTPS image', async () => {
+  let reads = 0;
+  const resolved = await waitForPersistedRepairSource({
+    scanId: 'scan-current',
+    imageIndex: 1,
+    attempts: 3,
+    intervalMs: 1,
+    wait: async () => {},
+    fetchScan: async () => {
+      reads += 1;
+      return reads < 2 ? { ...scan, imageUrls: [] } : scan;
+    },
+  });
+  assert.equal(reads, 2);
+  assert.equal(resolved.source.imageIndex, 1);
+  assert.equal(resolved.source.previewUri, scan.imageUrls[1]);
+  await assert.rejects(
+    waitForPersistedRepairSource({
+      scanId: 'scan-pending',
+      imageIndex: 1,
+      attempts: 1,
+      fetchScan: async () => ({ ...scan, imageUrls: [] }),
+    }),
+    /Selected view image is not available yet\. Please choose another view\./
+  );
 });
 
 test('only the five approved guided inspection views can become repair sources', () => {
@@ -163,9 +272,12 @@ test('mobile route renders distinct Before/AI After, always-visible disclaimer, 
 });
 
 test('remount resumes polling, duplicate taps join one start, and store preserves the task lifecycle', () => {
-  assert.match(repairScreenSource, /repairVisualizationStatus === 'still_processing'/);
+  assert.match(repairScreenSource, /action === 'resume'/);
+  assert.match(repairScreenSource, /status: current\.repairVisualizationStatus/);
   assert.match(repairScreenSource, /void pollExisting/);
   assert.match(aiServiceSource, /const inFlightRepairStarts = new Map/);
   assert.match(aiServiceSource, /if \(existing\) return existing/);
   assert.match(storeSource, /repairVisualizationTaskId: progress\.taskId/);
+  assert.match(aiServiceSource, /REPAIR_VISUALIZATION_ENDPOINT_NOT_FOUND/);
+  assert.match(aiServiceSource, /Verify the physical device API base URL/);
 });

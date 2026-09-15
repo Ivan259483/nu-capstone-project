@@ -166,7 +166,7 @@ export default function ResultsScreen() {
   const detectedRegionCount = rankedDamages.length;
   const repairPreviewAvailable = useMemo(
     () => Boolean(
-      scan
+      scan?.scanId
       && !noDamageDetected
       && buildRepairSourceOptions(scan, capturedImages.map((image) => image.uri)).length > 0
     ),
@@ -599,7 +599,13 @@ export default function ResultsScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="View AI Repair Preview"
-            onPress={() => router.push(AI_SCAN_ROUTES.repairPreview as never)}
+            onPress={() => {
+              if (!scan.scanId) return;
+              router.push({
+                pathname: AI_SCAN_ROUTES.repairPreview,
+                params: { scanId: scan.scanId },
+              } as never);
+            }}
             style={({ pressed }) => [styles.repairPreviewRow, pressed && { opacity: 0.88 }]}
           >
             <LinearGradient
